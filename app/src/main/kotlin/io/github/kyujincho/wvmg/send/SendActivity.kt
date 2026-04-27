@@ -9,6 +9,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
@@ -25,10 +26,13 @@ import io.github.kyujincho.wvmg.discovery.DiscoveryEvent
 import io.github.kyujincho.wvmg.protocol.connection.FileSource
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnection
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnectionState
+import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
+import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.net.InetAddress
+import java.security.SecureRandom
 
 /**
  * Sender-side share-intent landing screen (#24).
@@ -210,6 +214,15 @@ public class SendActivity : AppCompatActivity() {
         when (event) {
             is DiscoveryEvent.Resolved -> {
                 val incoming = event.service
+                // Note: we deliberately do NOT filter by EndpointInfo's
+                // `hidden` bit. On-device interop testing showed that
+                // stock Quick Share publishes EVERY device — including
+                // those set to "Everyone" — with the visibility bit set
+                // to 1 and no plaintext device name in the TXT record.
+                // The Everyone-vs-Contacts-only decision is enforced
+                // later during the connection negotiation, not at the
+                // mDNS layer. Filtering here would hide the very peers
+                // the user is trying to send to.
                 val existingIndex = peers.indexOfFirst { it.instanceName == incoming.instanceName }
                 if (existingIndex >= 0) {
                     peers[existingIndex] = incoming
@@ -279,9 +292,17 @@ public class SendActivity : AppCompatActivity() {
         binding.sendNetworkHint.visibility = View.GONE
     }
 
+    @Suppress("ReturnCount")
     private fun peerLabel(peer: DiscoveredService): String {
         val name = peer.endpointInfo?.deviceName
         if (!name.isNullOrBlank()) return name
+        // Stock Quick Share publishes mDNS without a plaintext name —
+        // fall back to the 4-character endpoint id (e.g., "RINE") which
+        // is at least short and stable, then to the full instance name
+        // as a last resort.
+        peer.endpointId
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return "Quick Share device (${String(it, Charsets.US_ASCII)})" }
         return peer.instanceName
     }
 
@@ -318,10 +339,35 @@ public class SendActivity : AppCompatActivity() {
 
         binding.sendStatusTarget.text = getString(R.string.send_status_target, peerLabel(peer))
 
+        // Build a valid sender EndpointInfo. Stock Quick Share rejects a
+        // ConnectionRequestFrame with an empty `endpoint_info` field by
+        // immediately closing the socket, which surfaces here as
+        // EndOfFrameStream while the client is awaiting Ukey2ServerInit.
+        // Visibility=0 (everyone) is fine — we are the sender, this is
+        // not advertised on mDNS.
+        val senderEndpointInfoBytes =
+            EndpointInfo(
+                version = 1,
+                hidden = false,
+                deviceType = DeviceType.PHONE,
+                reserved = false,
+                metadata = ByteArray(EndpointInfo.METADATA_LEN).also { SecureRandom().nextBytes(it) },
+                deviceName = senderDeviceLabel(),
+            ).serialize()
+
         val connection =
             OutboundConnection(
                 targetAddress = target,
                 port = peer.port,
+                endpointInfo = senderEndpointInfoBytes,
+                logger = { msg ->
+                    // vivo Funtouch OS filters Log.i for non-system apps —
+                    // use Log.e to bypass the filter, and also append to a
+                    // file under getExternalFilesDir so `adb pull` can
+                    // recover the log if logcat is empty.
+                    Log.e(OUTBOUND_TAG, msg)
+                    appendOutboundLog(msg)
+                },
             )
         activeConnection = connection
 
@@ -446,5 +492,37 @@ public class SendActivity : AppCompatActivity() {
 
     private fun onShowQrClicked() {
         startActivity(Intent(this, ShowQrActivity::class.java))
+    }
+
+    /**
+     * Display name for this device that the receiver will see in its
+     * consent UI. Falls back to a stable "WhenVivoMeetsGoogle" string
+     * when [Build.MODEL] is empty (rare but happens on some emulators).
+     */
+    private fun senderDeviceLabel(): String = Build.MODEL?.takeIf { it.isNotBlank() } ?: "WhenVivoMeetsGoogle"
+
+    /**
+     * Append a line to a per-run log file under
+     * `getExternalFilesDir(null)/wvmg-outbound.log`. This is a workaround
+     * for vivo Funtouch OS, which filters non-system app logcat output
+     * even with setprop overrides. Recoverable via:
+     *
+     *     adb shell run-as io.github.kyujincho.wvmg.debug \\
+     *         find /storage/emulated/0/Android/data/io.github.kyujincho.wvmg.debug -name 'wvmg-outbound.log'
+     *
+     * or simpler:
+     *
+     *     adb pull /sdcard/Android/data/io.github.kyujincho.wvmg.debug/files/wvmg-outbound.log
+     */
+    private fun appendOutboundLog(line: String) {
+        runCatching {
+            val dir = getExternalFilesDir(null) ?: return
+            val f = java.io.File(dir, "wvmg-outbound.log")
+            f.appendText("${System.currentTimeMillis()} $line\n")
+        }
+    }
+
+    private companion object {
+        private const val OUTBOUND_TAG: String = "WvmgOutbound"
     }
 }

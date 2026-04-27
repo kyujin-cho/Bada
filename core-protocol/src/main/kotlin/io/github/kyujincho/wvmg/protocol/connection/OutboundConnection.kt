@@ -136,6 +136,15 @@ public class OutboundConnection(
     private val qrCodeHandshakeData: ByteArray? = null,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
     private val secureRandom: SecureRandom = SecureRandom(),
+    /**
+     * Optional structured-log sink. The driver invokes it at every
+     * lifecycle phase boundary (TCP connect, UKEY2 client/server init,
+     * D2D key derivation, FSM transitions, terminal results) so the
+     * Android layer can route messages to logcat for on-device
+     * diagnosis. Default is silent — `:core-protocol` itself never
+     * touches `android.util.Log`.
+     */
+    private val logger: (String) -> Unit = {},
 ) {
     private val mutableState: MutableStateFlow<OutboundConnectionState> =
         MutableStateFlow(OutboundConnectionState.Idle)
@@ -265,6 +274,7 @@ public class OutboundConnection(
                 qrCodeHandshakeData = qrCodeHandshakeData,
                 files = files,
                 onHandshakeComplete = ::markHandshakeComplete,
+                logger = logger,
             )
 
         return try {
@@ -388,6 +398,12 @@ public class OutboundConnection(
                 else ->
                     "${e::class.simpleName}: ${e.message ?: "unknown failure"}"
             }
+        // Surface every escaping exception via the logger so on-device
+        // diagnosis (logcat -s WvmgOutbound) gets the actual stack frame
+        // — without this, a "Peer closed connection unexpectedly" gives
+        // no clue which lifecycle phase the EndOfFrameStream came from.
+        logger("FAILED: $reason — ${e::class.qualifiedName}")
+        e.stackTrace.take(STACK_FRAMES_TO_LOG).forEach { logger("    at $it") }
         mutableState.value = OutboundConnectionState.Failed(reason)
         return OutboundResult.Failed(reason)
     }
@@ -407,6 +423,9 @@ public class OutboundConnection(
          * unreachable" failures within human attention span.
          */
         public const val DEFAULT_CONNECT_TIMEOUT_MILLIS: Int = 5000
+
+        /** Number of stack frames the diagnostic logger emits per failure. */
+        private const val STACK_FRAMES_TO_LOG: Int = 8
     }
 }
 

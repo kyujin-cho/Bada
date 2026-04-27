@@ -71,6 +71,7 @@ internal class OutboundConnectionDriver(
     private val qrCodeHandshakeData: ByteArray?,
     private val files: List<FileSource>,
     private val onHandshakeComplete: () -> Unit = {},
+    private val logger: (String) -> Unit = {},
 ) {
     private var framedConnection: FramedConnection? = null
     private var secureChannel: SecureChannel? = null
@@ -95,24 +96,53 @@ internal class OutboundConnectionDriver(
      */
     suspend fun runLifecycle(): OutboundResult {
         mutableState.value = OutboundConnectionState.Handshaking
+        logger(
+            "step 1: TCP socket open (${socket.inetAddress?.hostAddress}:${socket.port}) " +
+                "endpointId=$endpointId endpointInfo.size=${endpointInfo.size}",
+        )
         val transport = FramedConnection(socket).also { framedConnection = it }
 
         // Step 1: send unencrypted ConnectionRequest.
         transport.sendFrame(
             OutboundFrames.connectionRequest(endpointId, endpointInfo).toByteArray(),
         )
+        logger("step 1: sent ConnectionRequest, awaiting Ukey2ServerInit")
 
         // Step 2: UKEY2 client handshake (ClientInit, ServerInit, ClientFinish).
         val handshake = Ukey2Client.performHandshake(transport, secureRandom)
+        logger("step 2: UKEY2 client handshake complete (dhs.size=${handshake.dhs.size})")
 
-        // Step 3: read receiver's unencrypted ConnectionResponse.
+        // Step 3: send our unencrypted ConnectionResponse{ACCEPT}.
+        //
+        // Order matters: NearDrop's OutboundNearbyConnection sends its
+        // ConnectionResponse BEFORE reading the peer's. Stock Quick Share
+        // on Android 14+ expects the sender's response on the wire first;
+        // if we read instead, both sides deadlock and the peer eventually
+        // times out and closes (surfacing here as EndOfFrameStream right
+        // after the UKEY2 handshake).
+        val responseBytes = OutboundFrames.connectionResponse().toByteArray()
+        logger("step 3: sending our ConnectionResponse, size=${responseBytes.size}")
+        transport.sendFrame(responseBytes)
+        logger("step 3: sent our ConnectionResponse{ACCEPT}")
+
+        // Step 4: read receiver's unencrypted ConnectionResponse.
+        logger("step 4: awaiting peer ConnectionResponse...")
         val peerResponse = readOfflineFrameUnencrypted(transport)
+        val hasResp = peerResponse.v1.hasConnectionResponse()
+        logger("step 4: received peer ConnectionResponse type=${peerResponse.v1.type} hasConnectionResponse=$hasResp")
+        if (peerResponse.v1.hasConnectionResponse()) {
+            val cr = peerResponse.v1.connectionResponse
+
+            @Suppress("DEPRECATION")
+            val status = cr.status
+            logger(
+                "step 4: peer.response=${cr.response} status=$status " +
+                    "osType=${if (cr.hasOsInfo()) cr.osInfo.type else "<none>"}",
+            )
+        }
         check(peerResponse.isConnectionResponse()) {
             "Expected ConnectionResponse, got ${peerResponse.v1.type}"
         }
-
-        // Step 4: send our unencrypted ConnectionResponse{ACCEPT}.
-        transport.sendFrame(OutboundFrames.connectionResponse().toByteArray())
 
         // Step 5: derive D2DSessionKeys (role = CLIENT, since the
         // sender drove UKEY2). This is the role-key swap point; see
@@ -125,6 +155,7 @@ internal class OutboundConnectionDriver(
                 role = D2DRole.CLIENT,
             )
         pin = PinDerivation.deriveFourDigitPin(sessionKeys.authString)
+        logger("step 5: D2D keys derived, PIN=$pin")
 
         // Step 6: SecureChannel takes over.
         val channel = SecureChannel(transport, sessionKeys, secureRandom).also { secureChannel = it }
@@ -137,6 +168,7 @@ internal class OutboundConnectionDriver(
 
         // Step 8: drive the FSM's initial PKE frame onto the wire,
         // optionally attaching qr_code_handshake_data.
+        logger("step 8: sending initial PKE frame")
         applyEffects(channel, rewriteForQrIfNeeded(negotiationFsm.start()))
 
         // Mark the handshake as complete so a racing UI-side cancel()
