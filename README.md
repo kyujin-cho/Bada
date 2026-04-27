@@ -42,7 +42,15 @@ confidentiality + HMAC-SHA256 for integrity, with strict pre-incremented
 sequence numbers and HMAC-before-decrypt order) lives under
 `...protocol.crypto.securemessage` as `SecureMessageCodec` (stateless
 primitive) and `SecureChannel` (per-connection wrapper around
-`FramedConnection` that reads and writes `OfflineFrame` protos).
+`FramedConnection` that reads and writes `OfflineFrame` protos). One layer
+above the secure channel, `...protocol.payload` reassembles
+`PayloadTransferFrame` chunks into complete BYTES and FILE payloads:
+`PayloadAssembler` validates per-`payload_id` offsets, tolerates Android's
+"two-frame BYTES" quirk on receive, and streams FILE bytes through a
+caller-supplied `FileDestinationFactory` (the Android wiring substitutes
+a `MediaStore` content-URI factory at this seam). The matching encoder,
+`PayloadTransferEncoder`, emits the same two-frame shape on send for
+compatibility with stock Quick Share peers.
 
 ## Toolchain
 
