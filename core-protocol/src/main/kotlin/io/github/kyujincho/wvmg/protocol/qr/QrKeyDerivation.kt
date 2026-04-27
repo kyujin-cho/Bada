@@ -84,12 +84,34 @@ public object QrKeyDerivation {
      * Convenience helper that derives both keys in one call. Returns a pair
      * of `(advertisingToken, nameEncryptionKey)` — both freshly allocated,
      * exactly [DERIVED_KEY_LEN] bytes each.
+     *
+     * Encodes [keyData] once and reuses the same IKM buffer for both HKDF
+     * calls. The two derivations share a PRK in principle (Extract is the
+     * same since both calls use the same `(salt, ikm)`), but our [Hkdf]
+     * helper exposes Extract as `internal` and the public surface accepts
+     * `(ikm, salt, info, length)` quadruples. The micro-optimization of
+     * sharing the PRK across two info strings is left for later if it ever
+     * shows up in a profile; correctness and clarity win for now.
      */
-    public fun deriveKeys(keyData: QrKeyData): DerivedQrKeys =
-        DerivedQrKeys(
-            advertisingToken = deriveAdvertisingToken(keyData),
-            nameEncryptionKey = deriveNameEncryptionKey(keyData),
+    public fun deriveKeys(keyData: QrKeyData): DerivedQrKeys {
+        val ikm = keyData.encode()
+        return DerivedQrKeys(
+            advertisingToken =
+                Hkdf.derive(
+                    ikm = ikm,
+                    salt = ByteArray(0),
+                    info = ADVERTISING_INFO_BYTES,
+                    length = DERIVED_KEY_LEN,
+                ),
+            nameEncryptionKey =
+                Hkdf.derive(
+                    ikm = ikm,
+                    salt = ByteArray(0),
+                    info = NAME_ENCRYPTION_INFO_BYTES,
+                    length = DERIVED_KEY_LEN,
+                ),
         )
+    }
 }
 
 /**
