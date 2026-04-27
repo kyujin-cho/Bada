@@ -287,12 +287,21 @@ public class ReceiverForegroundService : Service() {
         }
 
         /**
-         * Build the default [EndpointInfo] for this device. Today this
-         * is a hidden-mode placeholder — a real device-name-aware
-         * identity is the responsibility of #22 (settings UI for
-         * device name / visibility). Random salt + key bytes are
-         * indistinguishable to peers from real GMS-issued ones for
-         * the GMS-free use case.
+         * Build the default [EndpointInfo] for this device.
+         *
+         * The device name defaults to the application label (typically
+         * "Quick Share" for this build), capped at
+         * [MAX_DEFAULT_NAME_BYTES] so it always fits the 255-byte
+         * single-byte length field on the wire. Visibility is set to
+         * "visible" — the device is discoverable by all peers on the
+         * LAN. A user-facing settings UI for changing the device name
+         * and toggling hidden / contacts-only visibility is the
+         * responsibility of #22; for now this default is the production
+         * identity.
+         *
+         * Random salt + encrypted-metadata-key bytes are indistinguishable
+         * to peers from real GMS-issued ones for the GMS-free use case
+         * targeted by this project.
          */
         private fun defaultEndpointInfo(context: Context): EndpointInfo {
             val name =
