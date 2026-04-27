@@ -129,7 +129,28 @@ public class TcpReceiverServer(
      * itself catches and surfaces all per-connection exceptions, but
      * the supervisor is belt-and-braces.
      */
-    private val supervisor: Job = SupervisorJob(parentScope.coroutineContext[Job])
+    private val supervisor: Job =
+        SupervisorJob(parentScope.coroutineContext[Job]).also { job ->
+            // When the supervisor is cancelled out-of-band (e.g. the
+            // caller cancels the parent scope without going through
+            // [stop]), eagerly close the listener and every active
+            // client socket. ServerSocket.accept() and InboundConnection's
+            // blocking reads under withContext(Dispatchers.IO) do not
+            // honour Thread.interrupt() on every JDK build; closing the
+            // socket is the only reliable wake-up, and it lets cancelAndJoin
+            // on the parent's job complete instead of hanging on parked
+            // accept() / read() syscalls.
+            job.invokeOnCompletion {
+                runCatching { serverSocket?.close() }
+                val inFlight =
+                    synchronized(connectionMutexesLock) {
+                        val snapshot = activeSockets.values.toList()
+                        activeSockets.clear()
+                        snapshot
+                    }
+                inFlight.forEach { runCatching { it.close() } }
+            }
+        }
 
     /**
      * Coroutine context for everything we launch. We compose the

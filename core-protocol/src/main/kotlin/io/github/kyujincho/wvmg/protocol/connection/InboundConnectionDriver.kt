@@ -19,6 +19,7 @@ import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
 import io.github.kyujincho.wvmg.protocol.payload.PayloadTransferEncoder
 import io.github.kyujincho.wvmg.protocol.sharing.InboundSharingFsm
 import io.github.kyujincho.wvmg.protocol.sharing.InboundSharingState
+import io.github.kyujincho.wvmg.protocol.sharing.SharingFrameType
 import io.github.kyujincho.wvmg.protocol.sharing.SharingFrames
 import io.github.kyujincho.wvmg.protocol.sharing.SharingFsmEffect
 import io.github.kyujincho.wvmg.protocol.sharing.SharingFsmEvent
@@ -228,6 +229,17 @@ internal class InboundConnectionDriver(
             try {
                 dispatchLoop(channel, fsm, wireChannel)
             } finally {
+                // Close the socket BEFORE cancelAndJoin: the pump is parked
+                // in SecureChannel.receiveOfflineFrame()'s blocking Socket
+                // read under withContext(Dispatchers.IO), which does NOT
+                // honour coroutine cancellation while parked in a syscall.
+                // Closing the socket throws SocketException out of the read
+                // so the pump exits and cancelAndJoin can complete. Any
+                // final writes (e.g. Disconnection from the Cancelled-state
+                // path in terminalResultFromState) must run BEFORE the
+                // dispatchLoop returns — by the time we reach this finally
+                // there are no more outbound writes pending.
+                runCatching { socket.close() }
                 pumpJob.cancelAndJoin()
             }
         }
@@ -384,6 +396,17 @@ internal class InboundConnectionDriver(
         }
         // Otherwise it's a negotiation frame. Parse and feed the FSM.
         val sharingFrame = SharingFrames.parse(event.data)
+        // Disambiguate peer-cancel from local-cancel before applyEffects
+        // sees the Cancelled effect — both code paths emit the same FSM
+        // effect, so the driver has to set the cause itself based on the
+        // event source. Publishing here also short-circuits the
+        // `else if (... !is Cancelled)` guard inside applyEffects, so the
+        // effect handler does not overwrite this with LOCAL.
+        if (sharingFrame.v1.type == SharingFrameType.CANCEL &&
+            mutableState.value !is InboundConnectionState.Cancelled
+        ) {
+            publishCancelled(CancelCause.PEER)
+        }
         val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(sharingFrame))
         applyEffects(channel, effects)
         return null

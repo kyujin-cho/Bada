@@ -139,14 +139,18 @@ internal class OutboundConnectionDriver(
         // optionally attaching qr_code_handshake_data.
         applyEffects(channel, rewriteForQrIfNeeded(negotiationFsm.start()))
 
-        // Step 9: surface PIN via state and run the dispatch loop.
-        mutableState.value = OutboundConnectionState.AwaitingRemoteAcceptance(pin)
-
         // Mark the handshake as complete so a racing UI-side cancel()
         // takes the cooperative FSM path (CANCEL + DISCONNECTION on the
         // wire) instead of the pre-handshake fast-path (raw socket
         // close). The dispatch loop drains externalEvents from this
         // point on.
+        //
+        // NOTE: AwaitingRemoteAcceptance is published later, when the FSM
+        // actually reaches SentIntroduction (peer's PKE + PKR have been
+        // exchanged, our IntroductionFrame is on the wire). Publishing it
+        // here would let consumers think the receiver is about to ACCEPT
+        // when in reality both peers are still mid-PKE-handshake — and a
+        // cancel() in that race would crash the peer with Broken pipe.
         onHandshakeComplete()
 
         return runReceiveLoop(channel, negotiationFsm)
@@ -274,6 +278,17 @@ internal class OutboundConnectionDriver(
             try {
                 dispatchLoop(channel, fsm, wireChannel)
             } finally {
+                // Close the socket BEFORE cancelAndJoin: the pump is parked
+                // in SecureChannel.receiveOfflineFrame()'s blocking Socket
+                // read under withContext(Dispatchers.IO), which does NOT
+                // honour coroutine cancellation while parked in a syscall.
+                // Closing the socket throws SocketException out of the read
+                // (the pump catches it as a Throwable and exits), so
+                // cancelAndJoin can complete. TCP guarantees any bytes
+                // already in the send buffer (CANCEL / Disconnection) are
+                // transmitted before the FIN, so the peer still reads our
+                // final frames before observing EOF.
+                runCatching { socket.close() }
                 pumpJob.cancelAndJoin()
             }
         }
@@ -588,7 +603,20 @@ internal class OutboundConnectionDriver(
     ) {
         for (effect in effects) {
             when (effect) {
-                is SharingFsmEffect.SendFrame -> sendSharingFrame(channel, effect.frame)
+                is SharingFsmEffect.SendFrame -> {
+                    sendSharingFrame(channel, effect.frame)
+                    // The IntroductionFrame is the last negotiation frame
+                    // we send before genuinely awaiting the receiver's
+                    // ACCEPT/REJECT decision. Publishing the state here
+                    // (rather than at FSM-start) ensures consumers only
+                    // observe AwaitingRemoteAcceptance after the PKE/PKR
+                    // dance has finished — see the note in runLifecycle
+                    // for the cancel-race rationale.
+                    if (effect.frame.v1.type == SharingFrameType.INTRODUCTION) {
+                        mutableState.value =
+                            OutboundConnectionState.AwaitingRemoteAcceptance(pin)
+                    }
+                }
                 is SharingFsmEffect.Rejected -> {
                     mutableState.value = OutboundConnectionState.Rejected(effect.status)
                     runCatching { channel.sendOfflineFrame(OfflineFrames.disconnection()) }
