@@ -20,8 +20,15 @@ public object HkdfVectors {
     /**
      * One RFC 5869 Appendix A KAT vector. All byte arrays are the literal
      * values from the RFC text.
+     *
+     * Intentionally a regular `class` rather than a `data class`: the
+     * auto-generated `equals`/`hashCode` for `ByteArray` use reference
+     * identity (a known JVM gotcha) so the data-class default is broken,
+     * and we do not need destructuring or `copy()` for read-only fixtures.
+     * `toString` is overridden to return the human-readable [name] so test
+     * failures stay legible.
      */
-    public data class Vector(
+    public class Vector(
         public val name: String,
         public val ikm: ByteArray,
         public val salt: ByteArray,
@@ -30,13 +37,7 @@ public object HkdfVectors {
         public val expectedPrk: ByteArray,
         public val expectedOkm: ByteArray,
     ) {
-        // Generated equals/hashCode would include the array identity, which
-        // breaks parameterized-test reporting. We never compare Vectors for
-        // equality in tests, so we leave the defaults and disable the
-        // detekt warning at the call site if needed.
-        override fun equals(other: Any?): Boolean = this === other
-
-        override fun hashCode(): Int = System.identityHashCode(this)
+        override fun toString(): String = name
     }
 
     /**
