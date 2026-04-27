@@ -1,5 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Phase 1 permission set for Quick Share over Wi-Fi LAN.
+
+      Runtime (must be requested at app start, gated by API level):
+        * NEARBY_WIFI_DEVICES (API 33+) — required for any local-network
+          discovery/advertising. We never derive physical location from peer
+          scans, so we set neverForLocation per Google's guidance and skip
+          ACCESS_FINE_LOCATION on API 33+ devices.
+        * POST_NOTIFICATIONS (API 33+) — used by the foreground transfer
+          service notification (#21) and incoming-transfer notifications.
+
+      Compile-time (no runtime prompt):
+        * CHANGE_WIFI_MULTICAST_STATE — held while mDNS is active via
+          WifiManager.MulticastLock. mDNS multicasts (224.0.0.251) are
+          dropped on Android by default unless the lock is acquired.
+        * INTERNET / ACCESS_NETWORK_STATE / ACCESS_WIFI_STATE — local
+          socket I/O, network/Wi-Fi state inspection.
+
+      Phase 2 (BLUETOOTH_*) and READ_MEDIA_* are intentionally omitted —
+      see issue #26 scope notes.
+    -->
+
+    <!-- Wi-Fi peer discovery on API 33+. neverForLocation tells Android we
+         do not infer physical location from these scans, so the platform
+         skips the location permission requirement. -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="33" />
+
+    <!-- Notification posting on API 33+. Pre-33 devices show notifications
+         without a runtime prompt, so the manifest-level entry is gated. -->
+    <uses-permission
+        android:name="android.permission.POST_NOTIFICATIONS"
+        tools:targetApi="33" />
+
+    <!-- Multicast lock for mDNS service discovery (compile-time). -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- General networking (compile-time). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <application
         android:allowBackup="false"
@@ -20,6 +65,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".onboarding.PermissionsOnboardingActivity"
+            android:exported="false"
+            android:label="@string/onboarding_title" />
 
     </application>
 

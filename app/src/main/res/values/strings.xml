@@ -1,4 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">WhenVivoMeetsGoogle</string>
+
+    <!-- Permissions onboarding (#26). -->
+    <string name="onboarding_title">App permissions</string>
+    <string name="onboarding_intro">Quick Share needs a small set of Android permissions to discover nearby devices over your local Wi-Fi network and to keep you informed about transfers. Each permission below explains exactly what it is used for.</string>
+    <string name="onboarding_empty_state">Your device does not require any runtime permissions for Phase 1. You are all set.</string>
+    <string name="onboarding_grant_button">Grant permissions</string>
+    <string name="onboarding_open_settings">Open app settings</string>
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_continue_partial">Continue without all permissions</string>
+    <string name="onboarding_continue_degraded">Continue without notifications</string>
+
+    <!-- NEARBY_WIFI_DEVICES (API 33+). -->
+    <string name="permission_nearby_wifi_title">Nearby Wi-Fi devices</string>
+    <string name="permission_nearby_wifi_rationale">Required to discover and advertise to other Quick Share devices on the same Wi-Fi network. Quick Share never uses this to determine your physical location.</string>
+
+    <!-- POST_NOTIFICATIONS (API 33+). -->
+    <string name="permission_notifications_title">Notifications</string>
+    <string name="permission_notifications_rationale">Used to show the foreground transfer service indicator and to alert you about incoming files. Without this permission, transfers still work but you will not be notified about them.</string>
+
+    <!-- Permission status labels. -->
+    <string name="permission_status_granted">Granted</string>
+    <string name="permission_status_denied">Required - not granted</string>
+    <string name="permission_status_optional_denied">Optional - not granted (degraded mode)</string>
 </resources>
