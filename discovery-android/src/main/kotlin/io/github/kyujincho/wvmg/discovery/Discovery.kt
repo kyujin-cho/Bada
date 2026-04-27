@@ -336,10 +336,43 @@ public class Discovery internal constructor(
         }
 
         val rawTxt = info.getPropertyString(QuickShareMdns.TXT_KEY_ENDPOINT_INFO)
-        val endpointInfo =
-            rawTxt?.let { txt ->
-                Base64Url.decode(txt)?.let { EndpointInfo.parse(it) }
+        val decoded = rawTxt?.let(Base64Url::decode)
+        val endpointInfo = decoded?.let(EndpointInfo::parse)
+
+        // Diagnostic: log the raw EndpointInfo bytes (and parser outcome)
+        // for any peer we couldn't parse or that came back as hidden.
+        // This is what surfaces stock-Quick-Share publishing quirks
+        // during interop testing — when the parser returns null or
+        // hidden=true on a peer we expect to be visible, the bytes here
+        // tell us why.
+        if (endpointInfo == null || endpointInfo.hidden) {
+            val rawTxtHex = decoded?.joinToString("") { "%02x".format(it) } ?: "<no decode>"
+            Log.i(
+                TAG,
+                "EndpointInfo for ${info.name}: rawTxt=$rawTxt size=${decoded?.size ?: 0} " +
+                    "decodedHex=$rawTxtHex parsed=$endpointInfo",
+            )
+            if (decoded != null && decoded.isNotEmpty()) {
+                @Suppress("MagicNumber") // Bit positions defined by PROTOCOL.md.
+                val byte0 = decoded[0].toInt() and 0xFF
+
+                @Suppress("MagicNumber")
+                val version = (byte0 ushr 5) and 0b111
+
+                @Suppress("MagicNumber")
+                val visibility = (byte0 ushr 4) and 0b1
+
+                @Suppress("MagicNumber")
+                val deviceType = (byte0 ushr 1) and 0b111
+                val reserved = byte0 and 0b1
+                Log.i(
+                    TAG,
+                    "EndpointInfo byte0=0x${"%02x".format(byte0)} " +
+                        "version=$version visibility=$visibility " +
+                        "deviceType=$deviceType reserved=$reserved",
+                )
             }
+        }
 
         val raw = InstanceName.decodeRawBytes(info.name)
         val endpointId = raw?.let(InstanceName::extractEndpointId)

@@ -160,18 +160,31 @@ internal object JmdnsFactory {
         }
 
         /** Returns the first `TRANSPORT_WIFI` network with internet capability, if any. */
-        @Suppress("DEPRECATION")
+        @Suppress("DEPRECATION", "ReturnCount")
         private fun pickWifiNetwork(): Network? {
             // `getActiveNetwork` is API 23+. Older devices fall back to the
             // `WifiManager.connectionInfo` path below.
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return null
+            val active = cm.activeNetwork
+            Log.i(TAG, "pickWifiNetwork: activeNetwork=$active isWifi=${active?.let(::isWifi)}")
             // `allNetworks` was soft-deprecated in API 31 in favor of
             // registering a NetworkCallback, but it's still the cheapest
             // synchronous way to enumerate active networks for this kind
             // of one-shot lookup. NetworkChangeWatcher already listens
             // for changes; we just need a snapshot here.
-            val active = cm.activeNetwork?.takeIf(::isWifi)
-            return active ?: cm.allNetworks.firstOrNull(::isWifi)
+            val all = cm.allNetworks
+            Log.i(TAG, "pickWifiNetwork: allNetworks.size=${all.size}")
+            for (n in all) {
+                val caps = cm.getNetworkCapabilities(n)
+                Log.i(
+                    TAG,
+                    "pickWifiNetwork: network=$n hasWifi=${caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)} " +
+                        "hasInternet=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}",
+                )
+            }
+            val activeIfWifi = active?.takeIf(::isWifi)
+            if (activeIfWifi != null) return activeIfWifi
+            return all.firstOrNull(::isWifi)
         }
 
         private fun isWifi(network: Network): Boolean =
