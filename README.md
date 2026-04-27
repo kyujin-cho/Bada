@@ -30,7 +30,9 @@ is implemented directly on `javax.crypto.Mac("HmacSHA256")` (see
 Tink's transitive `protobuf-java` dependency that would clash with
 `protobuf-javalite` on Android. Length-prefixed TCP framing (the lowest
 layer of the Quick Share transport) lives in the same module as
-`FramedConnection` under `...protocol.transport`.
+`FramedConnection` under `...protocol.transport`. The UKEY2 P256_SHA512
+key-exchange handshake (`Ukey2Client`, `Ukey2Server`) lives under
+`...protocol.ukey2` and runs over `FramedConnection`.
 
 ## Toolchain
 
