@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.service.receiver
 
 import io.github.kyujincho.wvmg.discovery.AdvertiseHandle
+import io.github.kyujincho.wvmg.protocol.connection.InboundConnection
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.server.InboundConnectionCompletion
@@ -136,6 +137,20 @@ public class ReceiverSession(
      */
     public val completions: SharedFlow<InboundConnectionCompletion> = mutableCompletions.asSharedFlow()
 
+    private val mutableActiveConnections: MutableSharedFlow<InboundConnection> =
+        MutableSharedFlow(replay = 0, extraBufferCapacity = COMPLETIONS_BUFFER)
+
+    /**
+     * Stream of newly-accepted [InboundConnection]s.
+     *
+     * Forwards [TcpReceiverServer.activeConnections] so higher layers
+     * (the consent coordinator in #22) can attach their own
+     * [InboundConnection.state] observer per connection. Replay = 0;
+     * subscribers must subscribe before [start] returns to receive
+     * the very first connection.
+     */
+    public val activeConnections: SharedFlow<InboundConnection> = mutableActiveConnections.asSharedFlow()
+
     /**
      * The bound TCP port. Valid only between [start] returning and
      * [stop]. Throws [IllegalStateException] if read outside that
@@ -211,6 +226,15 @@ public class ReceiverSession(
         // back-pressure the accept loop.
         tcpServer.results
             .onEach { mutableCompletions.tryEmit(it) }
+            .launchIn(scope)
+
+        // Mirror the per-connection emissions so the consent
+        // coordinator can attach its own state observer to each
+        // accepted [InboundConnection]. Same buffered tryEmit shape so
+        // a slow consent collector cannot back-pressure the accept
+        // loop.
+        tcpServer.activeConnections
+            .onEach { mutableActiveConnections.tryEmit(it) }
             .launchIn(scope)
 
         return port
