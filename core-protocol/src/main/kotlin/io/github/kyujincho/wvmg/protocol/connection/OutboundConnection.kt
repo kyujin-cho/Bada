@@ -9,10 +9,12 @@ import io.github.kyujincho.wvmg.protocol.payload.PayloadProtocolException
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
 import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2HandshakeException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -251,13 +253,17 @@ public class OutboundConnection(
 
     /**
      * Open the TCP socket. Hoisted so the failure path is a clean
-     * try/catch in [run].
+     * try/catch in [run]. Dispatched onto [Dispatchers.IO] because
+     * `Socket.connect` is blocking and must not pin the calling
+     * coroutine's dispatcher (which on the JVM-test side is the
+     * `runTest` scheduler — pinning it would deadlock the test).
      */
-    private fun openSocket(): Socket {
-        val socket = Socket()
-        socket.connect(InetSocketAddress(targetAddress, port), connectTimeoutMillis)
-        return socket
-    }
+    private suspend fun openSocket(): Socket =
+        withContext(Dispatchers.IO) {
+            val socket = Socket()
+            socket.connect(InetSocketAddress(targetAddress, port), connectTimeoutMillis)
+            socket
+        }
 
     /**
      * Sanity-check the [files] list before starting any I/O.

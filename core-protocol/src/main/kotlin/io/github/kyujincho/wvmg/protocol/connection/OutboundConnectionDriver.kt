@@ -394,20 +394,17 @@ internal class OutboundConnectionDriver(
         channel: SecureChannel,
         fsm: OutboundSharingFsm,
         event: PayloadEvent,
-    ): OutboundResult? {
+    ): OutboundResult? =
         when (event) {
-            is PayloadEvent.BytesComplete -> return handleBytesComplete(channel, fsm, event)
-            is PayloadEvent.FileComplete -> {
-                // The sender doesn't expect FILE payloads. The
-                // assembler would have written to a temp file via the
-                // default factory; we ignore the data.
-                return null
-            }
-            is PayloadEvent.Progress -> Unit
-            is PayloadEvent.Ignored -> Unit
+            is PayloadEvent.BytesComplete -> handleBytesComplete(channel, fsm, event)
+            // The sender doesn't expect FILE payloads. The assembler
+            // would have written to a temp file via the default
+            // factory; we ignore the data.
+            is PayloadEvent.FileComplete,
+            is PayloadEvent.Progress,
+            is PayloadEvent.Ignored,
+            -> null
         }
-        return null
-    }
 
     /**
      * Parse a complete BYTES payload as a [SharingFrame] and feed it
@@ -498,7 +495,10 @@ internal class OutboundConnectionDriver(
     }
 
     /** Returns the body size (data bytes) of the chunk in [frame]. */
-    private fun chunkBodySize(frame: OfflineFrame): Long = frame.v1.payloadTransfer.payloadChunk.body.size().toLong()
+    private fun chunkBodySize(frame: OfflineFrame): Long =
+        frame.v1.payloadTransfer.payloadChunk.body
+            .size()
+            .toLong()
 
     private fun publishSendingProgress() {
         mutableState.value =

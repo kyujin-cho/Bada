@@ -22,7 +22,7 @@ import java.nio.channels.ReadableByteChannel
  *  - [name] / [size] / [mimeType] / [lastModifiedTimestampMillis] are
  *    plain values copied verbatim into the outgoing
  *    [io.github.kyujincho.wvmg.protocol.sharing.IntroductionFrame] file
- *    metadata and the per-payload [com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader].
+ *    metadata and the per-payload `PayloadTransferFrame.PayloadHeader`.
  *  - [openChannel] is a factory that returns a [ReadableByteChannel]
  *    positioned at byte zero. The orchestrator invokes it once per
  *    transfer attempt; on retry (a future feature) it would be invoked
@@ -44,8 +44,8 @@ import java.nio.channels.ReadableByteChannel
  *   `application/pdf`, ...). Empty string is acceptable but degrades
  *   the receiver's UI hint.
  * @property lastModifiedTimestampMillis Mirrored onto the outgoing
- *   [com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader.last_modified_timestamp_millis].
- *   Pass `0L` when unknown.
+ *   `PayloadHeader.last_modified_timestamp_millis`. Pass `0L` when
+ *   unknown.
  * @property payloadId The Quick Share `payload_id` to use both in the
  *   introduction frame's file metadata entry and on every chunk's
  *   `PayloadHeader.id`. The caller MUST choose a fresh, positive,
