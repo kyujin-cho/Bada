@@ -205,6 +205,18 @@ public class TcpReceiverServer(
      * cleaned up when the connection coroutine completes.
      */
     private val connectionMutexes: MutableMap<Long, Mutex> = mutableMapOf()
+
+    /**
+     * Live client sockets, keyed by connection id. We track these so
+     * [stop] can eagerly close them: the receive path inside
+     * [InboundConnection] uses `withContext(Dispatchers.IO)` for blocking
+     * reads, which is **not** auto-interruptible on coroutine
+     * cancellation. Closing the underlying socket is the only reliable
+     * way to unblock a thread parked in `read()`. Without this,
+     * `supervisor.cancelAndJoin()` would deadlock until the peer
+     * eventually closes its end.
+     */
+    private val activeSockets: MutableMap<Long, Socket> = mutableMapOf()
     private val connectionMutexesLock = Any()
 
     private val mutableResults: MutableSharedFlow<InboundConnectionCompletion> =
@@ -272,10 +284,11 @@ public class TcpReceiverServer(
             // itself performs the bind eagerly.
             val socket =
                 withContext(Dispatchers.IO) {
+                    // Args: port = 0 (kernel-assigned ephemeral), backlog = ACCEPT_BACKLOG.
                     if (bindAddress != null) {
-                        ServerSocket(/* port = */ 0, /* backlog = */ ACCEPT_BACKLOG, bindAddress)
+                        ServerSocket(0, ACCEPT_BACKLOG, bindAddress)
                     } else {
-                        ServerSocket(/* port = */ 0, /* backlog = */ ACCEPT_BACKLOG)
+                        ServerSocket(0, ACCEPT_BACKLOG)
                     }
                 }
             serverSocket = socket
@@ -304,6 +317,21 @@ public class TcpReceiverServer(
             // currently parked in accept() with a SocketException, so
             // the accept loop coroutine wakes up promptly.
             runCatching { serverSocket?.close() }
+
+            // Eagerly close every live client socket. InboundConnection's
+            // blocking reads run under withContext(Dispatchers.IO), which
+            // does NOT honour coroutine cancellation while parked in a
+            // syscall. Closing the socket throws SocketException out of
+            // the read, which propagates through InboundConnection.run as
+            // an InboundResult.Failed and unblocks the coroutine so
+            // cancelAndJoin can complete.
+            val socketsToClose: List<Socket> =
+                synchronized(connectionMutexesLock) {
+                    val snapshot = activeSockets.values.toList()
+                    activeSockets.clear()
+                    snapshot
+                }
+            socketsToClose.forEach { runCatching { it.close() } }
 
             // Cancel everything under the supervisor and join. Cancelling
             // the supervisor propagates to the accept loop and to every
@@ -342,11 +370,15 @@ public class TcpReceiverServer(
                     // is not already closed and exit cleanly.
                     runCatching { socket.close() }
                     throw cancel
-                } catch (closed: SocketException) {
+                } catch (
+                    @Suppress("SwallowedException") closed: SocketException,
+                ) {
                     // The listener was closed underneath us by stop().
                     // Treat as the graceful shutdown signal.
                     return
-                } catch (io: IOException) {
+                } catch (
+                    @Suppress("SwallowedException") io: IOException,
+                ) {
                     // Any other IOException on accept() means the
                     // listener is in a bad state (FD exhaustion, NIC
                     // teardown). Bail out -- the supervisor takes care
@@ -375,6 +407,7 @@ public class TcpReceiverServer(
         val mutex = Mutex()
         synchronized(connectionMutexesLock) {
             connectionMutexes[connectionId] = mutex
+            activeSockets[connectionId] = client
         }
 
         val inbound = InboundConnection(socket = client, secureRandom = secureRandomProvider())
@@ -397,7 +430,9 @@ public class TcpReceiverServer(
                     // does this in its finally block -- belt and braces.
                     runCatching { client.close() }
                     throw cancel
-                } catch (e: Throwable) {
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") e: Throwable,
+                ) {
                     // InboundConnection.run is documented as never
                     // throwing (failures map to InboundResult.Failed),
                     // but any unexpected escape is funnelled into the
@@ -411,6 +446,7 @@ public class TcpReceiverServer(
                 } finally {
                     synchronized(connectionMutexesLock) {
                         connectionMutexes.remove(connectionId)
+                        activeSockets.remove(connectionId)
                     }
                 }
 
