@@ -2,11 +2,14 @@
 <!--
   :service-android module manifest.
 
-  This module's foreground receiver service, notification channels, and
-  MediaStore-related permissions are declared here as they're added (#21,
-  #22, #23, #26).
+  This module declares the foreground receiver service (#21), the
+  associated permissions, and the legacy storage permission used by
+  LegacyDownloadsEnvironment on API 24-28 (#23). Notification channel
+  registration happens at runtime; channels are not declared in the
+  manifest on any current Android version.
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       Legacy-storage write permission used by LegacyDownloadsEnvironment
@@ -21,5 +24,40 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+
+    <!--
+      Foreground service permission (#21). Required to call
+      Service.startForeground() on API 28+. No runtime prompt — declared
+      in the manifest is sufficient.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!--
+      Foreground service connectedDevice subtype permission (#21).
+      Required on API 34+ when the service declares
+      foregroundServiceType="connectedDevice". Older platforms do not
+      know about this permission, so we gate the manifest entry with
+      tools:targetApi to avoid lint warnings on lower minSdk builds.
+    -->
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
+        tools:targetApi="34" />
+
+    <application>
+
+        <!--
+          Persistent foreground service that hosts the inbound Quick
+          Share listener. Type connectedDevice covers peer-to-peer file
+          transfer over Wi-Fi (and, in Phase 2, BLE). exported=false
+          because the service is internal — the only entry points are
+          the convenience helpers on ReceiverForegroundService.Companion
+          inside the same package.
+        -->
+        <service
+            android:name=".receiver.ReceiverForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+    </application>
 
 </manifest>
