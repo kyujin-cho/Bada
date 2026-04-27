@@ -92,6 +92,13 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         binding.onboardingGrantButton.setOnClickListener { onGrantClicked() }
         binding.onboardingContinueButton.setOnClickListener { finish() }
         binding.onboardingSettingsButton.setOnClickListener { openAppSettings() }
+        // The same-Wi-Fi-network card (#85) is dismissable so the user
+        // can collapse it after reading. Dismissal is purely visual —
+        // we re-show the card on every onCreate so the requirement
+        // resurfaces if the user revisits onboarding from settings.
+        binding.onboardingNetworkCardDismiss.setOnClickListener {
+            binding.onboardingNetworkCard.visibility = View.GONE
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

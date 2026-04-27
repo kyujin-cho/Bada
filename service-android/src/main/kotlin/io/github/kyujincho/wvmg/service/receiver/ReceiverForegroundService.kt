@@ -135,6 +135,11 @@ public class ReceiverForegroundService : Service() {
             ReceiverNotification.build(
                 context = this,
                 contentIntent = ReceiverNotification.buildOpenAppIntent(this, openAppTarget),
+                // Surface the current SSID in the persistent
+                // notification (#85). `readCurrentSsid` returns `null`
+                // when the SSID is unavailable / redacted, in which
+                // case the builder falls back to a generic body.
+                ssid = CurrentSsidProvider.readCurrentSsid(this),
             )
         ServiceCompat.startForeground(
             this,

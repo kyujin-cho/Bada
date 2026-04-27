@@ -26,6 +26,7 @@ import io.github.kyujincho.wvmg.protocol.connection.FileSource
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnection
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnectionState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.net.InetAddress
 
@@ -67,6 +68,16 @@ public class SendActivity : AppCompatActivity() {
     private var connectionJob: Job? = null
     private var activeConnection: OutboundConnection? = null
 
+    /**
+     * Tracks whether the same-Wi-Fi-network hint card (#85) has been
+     * shown long enough to count as user-visible. The timer starts on
+     * `onCreate` once we know we have files to share; the card is
+     * surfaced after [EmptyPeerHintTimer.DEFAULT_DELAY_MILLIS] of
+     * continuous empty-peer-list state.
+     */
+    private val emptyPeerHintTimer: EmptyPeerHintTimer = EmptyPeerHintTimer()
+    private var emptyPeerHintJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySendBinding.inflate(layoutInflater)
@@ -77,6 +88,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendCancelButton.setOnClickListener { onCancelClicked() }
         binding.sendDoneButton.setOnClickListener { finish() }
         binding.sendShowQrButton.setOnClickListener { onShowQrClicked() }
+        binding.sendNetworkHintDismiss.setOnClickListener { onHintDismissed() }
 
         val parsed = ShareIntentRouter.route(toShareIntent(intent))
         if (parsed == null) {
@@ -96,6 +108,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
         startDiscovery()
+        startEmptyPeerHintTimer()
     }
 
     override fun onDestroy() {
@@ -107,6 +120,7 @@ public class SendActivity : AppCompatActivity() {
         activeConnection?.cancel()
         discoveryJob?.cancel()
         connectionJob?.cancel()
+        emptyPeerHintJob?.cancel()
     }
 
     // -----------------------------------------------------------------
@@ -225,6 +239,44 @@ public class SendActivity : AppCompatActivity() {
         binding.sendSubtitle.setText(
             if (peers.isEmpty()) R.string.send_subtitle_discovering else R.string.send_subtitle_pick_peer,
         )
+        updateEmptyPeerHintVisibility()
+    }
+
+    /**
+     * Start the same-Wi-Fi-network hint timer (#85). After
+     * [EmptyPeerHintTimer.DEFAULT_DELAY_MILLIS] of continuous empty
+     * peer list, re-evaluate visibility — by then either a peer has
+     * shown up (in which case the hint stays hidden) or the timeout
+     * fires and the card surfaces.
+     */
+    private fun startEmptyPeerHintTimer() {
+        emptyPeerHintTimer.start(System.currentTimeMillis())
+        emptyPeerHintJob =
+            lifecycleScope.launch {
+                delay(EmptyPeerHintTimer.DEFAULT_DELAY_MILLIS)
+                updateEmptyPeerHintVisibility()
+            }
+    }
+
+    /**
+     * Re-evaluate the hint card's visibility against the timer + the
+     * current peer list. Called from `renderPeerList` (so a newly
+     * arrived peer hides the card) and from the delayed coroutine
+     * launched in [startEmptyPeerHintTimer] (so the timeout actually
+     * surfaces the card).
+     */
+    private fun updateEmptyPeerHintVisibility() {
+        val show =
+            emptyPeerHintTimer.shouldShowHint(
+                nowMillis = System.currentTimeMillis(),
+                peerListEmpty = peers.isEmpty(),
+            )
+        binding.sendNetworkHint.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    private fun onHintDismissed() {
+        emptyPeerHintTimer.markDismissed()
+        binding.sendNetworkHint.visibility = View.GONE
     }
 
     private fun peerLabel(peer: DiscoveredService): String {
@@ -259,8 +311,10 @@ public class SendActivity : AppCompatActivity() {
         // Hide the picker chrome.
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
+        binding.sendNetworkHint.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendStatusPanel.visibility = View.VISIBLE
+        emptyPeerHintJob?.cancel()
 
         binding.sendStatusTarget.text = getString(R.string.send_status_target, peerLabel(peer))
 
@@ -365,6 +419,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
+        binding.sendNetworkHint.visibility = View.GONE
     }
 
     private fun renderUnsupportedPayload() {
@@ -372,6 +427,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendSubtitle.text = getString(R.string.send_unsupported)
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
+        binding.sendNetworkHint.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendCancelButton.text = getString(R.string.send_done)
     }

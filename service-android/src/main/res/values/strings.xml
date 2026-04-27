@@ -35,6 +35,23 @@
     <string name="receiver_notification_text">Receiving nearby files…</string>
 
     <!--
+      Notification body variant that surfaces the current Wi-Fi SSID
+      (#85). Helps the user verify both ends are on the same network
+      without leaving the app. The %1$s argument is the stripped SSID
+      (Android wraps SSIDs in surrounding double quotes; we strip them
+      before substitution).
+    -->
+    <string name="receiver_notification_text_with_ssid">Receiving on \"%1$s\"</string>
+
+    <!--
+      Fallback body when the SSID is unavailable (for example on API 31+
+      where WifiManager.connectionInfo can return "<unknown ssid>" for
+      apps without ACCESS_FINE_LOCATION). We do not request a new
+      permission for this nice-to-have surface.
+    -->
+    <string name="receiver_notification_text_unknown_ssid">Receiving on this network</string>
+
+    <!--
       Consent notification (#22). Posted when an inbound connection
       reaches `WaitingForUserConsent`. Distinct channel from the
       receiver-foreground notification because it must be high-importance

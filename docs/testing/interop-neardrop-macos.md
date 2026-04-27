@@ -53,6 +53,14 @@ moving on — once the network state changes, wire traces are gone.
 - [ ] Battery saver / data saver disabled. Aggressive Doze can break
       mDNS without producing a clear error.
 
+### Networking requirements
+
+Phase 1 uses Wi-Fi LAN discovery (mDNS), so both devices **must** be on
+the same Wi-Fi network. BLE auto-discovery is Phase 2 and out of scope
+for this runbook. The receiver's persistent notification surfaces the
+current Wi-Fi SSID (`Receiving on "<SSID>"`) — use it to confirm both
+ends match before you start.
+
 ### Network
 
 - [ ] Both devices on the same Wi-Fi SSID **and** the same VLAN. mDNS

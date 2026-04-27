@@ -12,6 +12,13 @@
     <string name="onboarding_continue_partial">Continue without all permissions</string>
     <string name="onboarding_continue_degraded">Continue without notifications</string>
 
+    <!-- Same-Wi-Fi-network onboarding card (#85). Displayed below the
+         permission rows so the user understands the Phase 1 networking
+         requirement before they land in the share flow. -->
+    <string name="onboarding_network_card_title">Same Wi-Fi network required</string>
+    <string name="onboarding_network_card_body">Phase 1 uses Wi-Fi LAN discovery (mDNS) to find nearby devices. Both the sender and the receiver must be on the same Wi-Fi network. BLE auto-discovery is coming in Phase 2.</string>
+    <string name="onboarding_network_card_dismiss">OK</string>
+
     <!-- NEARBY_WIFI_DEVICES (API 33+). -->
     <string name="permission_nearby_wifi_title">Nearby Wi-Fi devices</string>
     <string name="permission_nearby_wifi_rationale">Required to discover and advertise to other Quick Share devices on the same Wi-Fi network. Quick Share never uses this to determine your physical location.</string>
@@ -30,6 +37,14 @@
     <string name="send_subtitle_discovering">Looking for nearby devices…</string>
     <string name="send_subtitle_pick_peer">Tap a device to send.</string>
     <string name="send_empty_state">No devices nearby yet. Make sure the receiver has Quick Share open and is on the same Wi-Fi network.</string>
+
+    <!-- Same-Wi-Fi-network hint card (#85). Surfaced after a few seconds
+         of empty peer list so the user understands why nothing has
+         appeared. Condensed wording — the full explanation lives in
+         the onboarding card. -->
+    <string name="send_network_hint_title">Same Wi-Fi network required</string>
+    <string name="send_network_hint_body">Phase 1 uses Wi-Fi LAN discovery (mDNS). Both devices must be on the same Wi-Fi network. BLE auto-discovery is coming in Phase 2.</string>
+    <string name="send_network_hint_dismiss">Got it</string>
     <string name="send_show_qr">Show QR</string>
     <string name="send_cancel">Cancel</string>
     <string name="send_done">Done</string>

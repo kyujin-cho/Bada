@@ -71,6 +71,48 @@
             android:layout_marginTop="16dp"
             android:text="@string/onboarding_continue" />
 
+        <!--
+          Same-Wi-Fi-network requirement card (#85). Sits below the
+          permission grid (after the runtime-permission grants) so the
+          user reads the Phase 1 networking requirement before landing
+          in the share flow. Hidden by default and revealed by
+          PermissionsOnboardingActivity once the activity inflates.
+        -->
+        <LinearLayout
+            android:id="@+id/onboarding_network_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:background="?android:attr/colorBackgroundFloating"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/onboarding_network_card_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/onboarding_network_card_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/onboarding_network_card_body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/onboarding_network_card_body"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+            <Button
+                android:id="@+id/onboarding_network_card_dismiss"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginTop="12dp"
+                android:text="@string/onboarding_network_card_dismiss" />
+
+        </LinearLayout>
+
     </LinearLayout>
 
 </ScrollView>

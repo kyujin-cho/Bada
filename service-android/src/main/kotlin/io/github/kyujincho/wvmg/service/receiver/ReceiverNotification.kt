@@ -85,16 +85,22 @@ internal object ReceiverNotification {
      * @param contentIntent a `PendingIntent` opening the app when the
      *   notification is tapped. Constructed by the service so the
      *   builder does not need to know about `MainActivity`.
+     * @param ssid the stripped Wi-Fi SSID to surface in the body, or
+     *   `null` when unavailable. The same-Wi-Fi-network UX (#85)
+     *   appends `Receiving on "<SSID>"` so the user can verify both
+     *   ends match without leaving the app; passing `null` falls back
+     *   to a generic "Receiving on this network" copy.
      */
     fun build(
         context: Context,
         contentIntent: PendingIntent?,
+        ssid: String? = null,
     ): Notification =
         NotificationCompat
             .Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(context.getString(R.string.receiver_notification_title))
-            .setContentText(context.getString(R.string.receiver_notification_text))
+            .setContentText(buildContentText(context, ssid))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             // Foreground-service notifications are inherently ongoing;
@@ -105,6 +111,23 @@ internal object ReceiverNotification {
             .setSilent(true)
             .setContentIntent(contentIntent)
             .build()
+
+    /**
+     * Pick the notification body string given the current SSID lookup
+     * result. A non-null, non-blank SSID renders as
+     * `Receiving on "<SSID>"`; everything else falls back to the
+     * generic "Receiving on this network" string. Public for unit-test
+     * coverage of the per-state body selection.
+     */
+    internal fun buildContentText(
+        context: Context,
+        ssid: String?,
+    ): String =
+        if (ssid.isNullOrBlank()) {
+            context.getString(R.string.receiver_notification_text_unknown_ssid)
+        } else {
+            context.getString(R.string.receiver_notification_text_with_ssid, ssid)
+        }
 
     /**
      * Build a `PendingIntent` that opens the supplied [target] activity.

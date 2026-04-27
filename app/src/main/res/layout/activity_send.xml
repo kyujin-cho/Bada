@@ -57,6 +57,49 @@
             android:text="@string/send_empty_state"
             android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
 
+        <!--
+          Same-Wi-Fi-network hint card (#85). Surfaced after ~3 seconds
+          of empty peer list (see EmptyPeerHintTimer) so the user
+          understands why nothing has appeared. Dismissable via the
+          button; once dismissed, stays hidden for the rest of the
+          activity's lifetime.
+        -->
+        <LinearLayout
+            android:id="@+id/send_network_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="?android:attr/colorBackgroundFloating"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/send_network_hint_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/send_network_hint_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/send_network_hint_body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/send_network_hint_body"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+            <Button
+                android:id="@+id/send_network_hint_dismiss"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginTop="8dp"
+                android:text="@string/send_network_hint_dismiss" />
+
+        </LinearLayout>
+
         <Button
             android:id="@+id/send_show_qr_button"
             android:layout_width="match_parent"

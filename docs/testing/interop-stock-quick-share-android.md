@@ -24,6 +24,14 @@ the [Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1).
 
 ## Preconditions
 
+### Networking requirements
+
+Phase 1 uses Wi-Fi LAN discovery (mDNS), so both devices **must** be on
+the same Wi-Fi network. BLE auto-discovery is Phase 2 and out of scope
+for this runbook. The receiver's persistent notification surfaces the
+current Wi-Fi SSID (`Receiving on "<SSID>"`) — use it to confirm both
+ends match before you start each test.
+
 ### Network
 
 - [ ] Both devices are on the **same Wi-Fi SSID and the same VLAN** —

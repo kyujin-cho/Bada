@@ -127,6 +127,25 @@ Phase 1 is complete. Track the
 [Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1)
 for the full sub-issue list and merged PRs.
 
+## Networking requirements
+
+Phase 1 uses Wi-Fi LAN discovery (mDNS) to find nearby devices:
+
+- **Both the sender and the receiver must be on the same Wi-Fi network**
+  — and on the same VLAN. mDNS multicasts (`_FC9F5ED42C8A._tcp.local.`)
+  do not cross routed subnets, so a typical "Guest" SSID will silently
+  break discovery.
+- The Wi-Fi network must permit IPv4 multicast / mDNS traffic. Some
+  enterprise APs drop multicast frames by default.
+- AP isolation / "client isolation" must be off on the access point.
+- BLE auto-discovery (the "ping nearby devices" pulse that lights up a
+  stock receiver's "Sharing nearby" sheet automatically) is **out of
+  scope for Phase 1** and tracked under Phase 2.
+
+The receiver's persistent notification surfaces the current Wi-Fi SSID
+(`Receiving on "<SSID>"`) so you can verify both ends match without
+leaving the app.
+
 ## Reference material
 
 - Protocol spec: <https://github.com/grishka/NearDrop/blob/master/PROTOCOL.md>
