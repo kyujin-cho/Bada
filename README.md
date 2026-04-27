@@ -21,10 +21,14 @@ logic.
 ```
 
 `:core-protocol` is a plain Kotlin/JVM module — it depends only on
-`kotlinx.coroutines`, `protobuf-javalite`, the JCE/JDK, and (optionally) Tink
-for HKDF. It must never import anything from `android.*`. This split keeps
-the protocol unit-testable on the JVM, which is essential because the cipher
-suites and framing have hundreds of edge cases that we need KAT coverage on.
+`kotlinx.coroutines`, `protobuf-javalite`, and the JCE/JDK. It must never
+import anything from `android.*`. This split keeps the protocol
+unit-testable on the JVM, which is essential because the cipher suites and
+framing have hundreds of edge cases that we need KAT coverage on. HKDF-SHA256
+is implemented directly on `javax.crypto.Mac("HmacSHA256")` (see
+`:core-protocol`'s `Hkdf` object) rather than via Google Tink, avoiding
+Tink's transitive `protobuf-java` dependency that would clash with
+`protobuf-javalite` on Android.
 
 ## Toolchain
 
