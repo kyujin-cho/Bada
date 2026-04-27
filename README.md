@@ -50,7 +50,18 @@ above the secure channel, `...protocol.payload` reassembles
 caller-supplied `FileDestinationFactory` (the Android wiring substitutes
 a `MediaStore` content-URI factory at this seam). The matching encoder,
 `PayloadTransferEncoder`, emits the same two-frame shape on send for
-compatibility with stock Quick Share peers.
+compatibility with stock Quick Share peers. The receiver-side glue that
+ties everything together — accepting a TCP connection, running UKEY2,
+deriving the `D2DSessionKeys` with the correct role swap, driving the
+`InboundSharingFsm` through user consent, streaming payloads through the
+assembler, and signaling completion via `Disconnection` — lives under
+`...protocol.connection` as `InboundConnection`. It exposes a
+coroutine-based lifecycle (`suspend fun run(factory)`), a
+`StateFlow<InboundConnectionState>` for UI observation, and a thread-safe
+`submitUserConsent(accepted)` / `cancel()` pair. The same module surfaces
+the `TransferMetadata` (filenames, sizes, MIME types, the 4-digit
+confirmation PIN derived from the UKEY2 `authString`) that the consent UI
+renders.
 
 ## Toolchain
 
