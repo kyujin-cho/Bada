@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Layout for SendActivity (#24) — the share-intent landing screen.
+
+  Layout shape:
+    * Header: short summary of what is being shared (e.g. "1 file • 4.2 MB")
+      and a subtitle that switches between "Discovering peers..." while the
+      list is empty and the prompt to pick a peer once at least one shows up.
+    * Empty/picker container: holds the peer list (LinearLayout filled at
+      runtime by SendActivity) and an empty-state line shown until the first
+      peer arrives.
+    * Action row: "Show QR" (always visible while picking) opens the QR-code
+      handshake screen; "Cancel" closes the activity.
+    * Status panel: shown once a peer is selected. Carries the connection
+      phase, the 4-digit PIN once known, and a terminal-state message.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/send_payload_summary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+            android:textStyle="bold"
+            tools:text="1 file • 4.2 MB" />
+
+        <TextView
+            android:id="@+id/send_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+            android:text="@string/send_subtitle_discovering" />
+
+        <LinearLayout
+            android:id="@+id/send_peer_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/send_empty_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/send_empty_state"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+        <Button
+            android:id="@+id/send_show_qr_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/send_show_qr" />
+
+        <Button
+            android:id="@+id/send_cancel_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/send_cancel" />
+
+        <LinearLayout
+            android:id="@+id/send_status_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/send_status_phase"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                tools:text="Awaiting acceptance" />
+
+            <TextView
+                android:id="@+id/send_status_target"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                tools:text="Sending to Pixel 8" />
+
+            <TextView
+                android:id="@+id/send_pin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center"
+                android:letterSpacing="0.4"
+                android:textAppearance="@style/TextAppearance.AppCompat.Display1"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:text="1234" />
+
+            <TextView
+                android:id="@+id/send_status_message"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                tools:text="Confirm this code matches the receiver's screen." />
+
+            <Button
+                android:id="@+id/send_done_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/send_done"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</ScrollView>

@@ -124,4 +124,58 @@ class AndroidManifestPermissionsTest {
             onboardingBlock.contains("android:exported=\"false\""),
         )
     }
+
+    @Test
+    fun `send activity declares share intent filters`() {
+        // #24: the system share sheet routes ACTION_SEND /
+        // ACTION_SEND_MULTIPLE here. Both filters must be declared on
+        // the same activity, both must accept all MIME types, and the
+        // activity must be exported (the share sheet runs in a different
+        // process and needs to be able to start it).
+        assertTrue(
+            "SendActivity must be registered",
+            manifest.contains(".send.SendActivity"),
+        )
+        val sendBlock =
+            manifest
+                .substringAfter(".send.SendActivity")
+                .substringBefore("</activity>")
+        assertTrue(
+            "SendActivity must be exported (share sheet calls cross-process)",
+            sendBlock.contains("android:exported=\"true\""),
+        )
+        assertTrue(
+            "ACTION_SEND filter must be declared on SendActivity",
+            sendBlock.contains("android.intent.action.SEND"),
+        )
+        assertTrue(
+            "ACTION_SEND_MULTIPLE filter must be declared on SendActivity",
+            sendBlock.contains("android.intent.action.SEND_MULTIPLE"),
+        )
+        assertTrue(
+            "SendActivity must accept */* MIME types per #24 acceptance criteria",
+            sendBlock.contains("android:mimeType=\"*/*\""),
+        )
+        assertTrue(
+            "DEFAULT category must be declared so share sheet can resolve us",
+            sendBlock.contains("android.intent.category.DEFAULT"),
+        )
+    }
+
+    @Test
+    fun `show qr activity is registered and not exported`() {
+        assertTrue(
+            "ShowQrActivity must be registered",
+            manifest.contains(".send.ShowQrActivity"),
+        )
+        val qrBlock =
+            manifest
+                .substringAfter(".send.ShowQrActivity")
+                .substringBefore("/>")
+        // Internal activity — only SendActivity launches it.
+        assertTrue(
+            "ShowQrActivity must declare android:exported=\"false\"",
+            qrBlock.contains("android:exported=\"false\""),
+        )
+    }
 }
