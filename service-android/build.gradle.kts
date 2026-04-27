@@ -49,7 +49,20 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
-    testImplementation(libs.junit4)
+    // Junit Jupiter is the project-wide test runtime. Aligning with
+    // :core-protocol and :discovery-android keeps test discovery uniform
+    // and lets shared fixtures move freely between modules.
+    testImplementation(libs.junit.jupiter.api)
+    testImplementation(libs.junit.jupiter.params)
+    testImplementation(libs.truth)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
+}
+
+// Run JVM unit tests with the Jupiter engine so test discovery works
+// without per-class @RunWith annotations.
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }
