@@ -47,6 +47,7 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <application
+        android:name=".WvmgApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -109,6 +110,31 @@
             android:name=".send.ShowQrActivity"
             android:exported="false"
             android:label="@string/show_qr_title" />
+
+        <!--
+          Consent trampoline (#22) — the screen-on, lock-screen-bypassing
+          dialog opened by tapping the consent notification body.
+
+          Launched only by our own consent notification's content
+          PendingIntent (which is package-scoped), so exported=false.
+          The activity is documents-style (singleTask + excludeFromRecents)
+          so multiple in-flight consents do not pollute the recents
+          list — each consent is a transient prompt, not a piece of
+          history the user wants to revisit.
+
+          showOnLockScreen / turnScreenOn are also set programmatically
+          on API 27+ via Activity setShowWhenLocked / setTurnScreenOn;
+          the manifest attributes here are belt-and-braces for the
+          launcher hint.
+        -->
+        <activity
+            android:name=".consent.ConsentTrampolineActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:label="@string/consent_activity_label" />
 
     </application>
 

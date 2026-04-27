@@ -6,16 +6,23 @@
 package io.github.kyujincho.wvmg.service.receiver
 
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.downloads.DownloadsWriterFactory
+import io.github.kyujincho.wvmg.service.receiver.consent.ConsentBroadcastReceiver
+import io.github.kyujincho.wvmg.service.receiver.consent.ConsentCoordinator
+import io.github.kyujincho.wvmg.service.receiver.consent.ConsentNotification
+import io.github.kyujincho.wvmg.service.receiver.consent.ConsentRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -93,9 +100,20 @@ public class ReceiverForegroundService : Service() {
     @Volatile
     private var session: ReceiverSession? = null
 
+    @Volatile
+    private var consentCoordinator: ConsentCoordinator? = null
+
+    @Volatile
+    private var consentReceiver: BroadcastReceiver? = null
+
     override fun onCreate() {
         super.onCreate()
         ReceiverNotification.ensureChannel(this)
+        // The consent channel must exist before we post the first
+        // heads-up notification — the platform silently drops
+        // notifications targeting a missing channel on API 26+.
+        ConsentNotification.ensureChannel(this)
+        registerConsentReceiver()
     }
 
     override fun onStartCommand(
@@ -159,6 +177,12 @@ public class ReceiverForegroundService : Service() {
     private fun startReceiverSession() {
         val newSession = sessionFactory.invoke(applicationContext)
         session = newSession
+
+        // Start the consent coordinator before the session so the
+        // SharedFlow subscriptions are in place when the first
+        // accepted connection is emitted.
+        startConsentCoordinator(newSession)
+
         serviceScope.launch {
             try {
                 newSession.start()
@@ -167,21 +191,94 @@ public class ReceiverForegroundService : Service() {
             ) {
                 // Setup failed — bring the service down so the user
                 // notification doesn't claim we're listening when we
-                // aren't. The error path is intentionally quiet here;
-                // surfacing the throwable to the UI is the
-                // consent-screen / error-toast story tracked in #22,
-                // which will subscribe to a richer error flow added by
-                // that PR. Until then we deliberately swallow the
-                // throwable: the alternative (logging via android.util.Log
-                // here) drags an Android dependency into the otherwise
-                // pure-coordination path and pre-empts the design space
-                // for #22.
+                // aren't. We log nothing here on purpose; richer
+                // error reporting belongs to the in-app status surface
+                // (#22 covers the consent UI; broader transfer
+                // reporting is a follow-up).
                 stopReceiverAndExit()
             }
         }
     }
 
+    /**
+     * Wire a [ConsentCoordinator] over the session's flows so that
+     * each `WaitingForUserConsent` transition is surfaced as a
+     * heads-up notification posted via [ConsentNotification].
+     */
+    private fun startConsentCoordinator(session: ReceiverSession) {
+        val ctx = applicationContext
+        val coordinator =
+            ConsentCoordinator(
+                activeConnections = session.activeConnections,
+                results = session.completions,
+                registry = ConsentRegistry.instance,
+                sink =
+                    object : ConsentCoordinator.Sink {
+                        override fun postConsent(
+                            connectionId: Long,
+                            entry: ConsentRegistry.Entry,
+                        ) {
+                            ConsentNotification.post(
+                                context = ctx,
+                                connectionId = connectionId,
+                                entry = entry,
+                                trampolineTarget = consentTrampolineTarget,
+                            )
+                        }
+
+                        override fun dismissConsent(connectionId: Long) {
+                            ConsentNotification.dismiss(ctx, connectionId)
+                        }
+                    },
+                scope = serviceScope,
+            )
+        coordinator.start()
+        consentCoordinator = coordinator
+    }
+
+    /**
+     * Register the [ConsentBroadcastReceiver] dynamically. We use
+     * dynamic registration because the registry is in-process state —
+     * a manifest-registered receiver that survives process death
+     * would have nothing to dispatch to. `RECEIVER_NOT_EXPORTED` (API
+     * 33+) ensures other apps cannot fire our consent broadcasts.
+     */
+    private fun registerConsentReceiver() {
+        if (consentReceiver != null) return
+        val receiver = ConsentBroadcastReceiver()
+        val filter =
+            IntentFilter().apply {
+                ConsentBroadcastReceiver.ACTION_FILTER.forEach { addAction(it) }
+            }
+        ContextCompat.registerReceiver(
+            this,
+            receiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        consentReceiver = receiver
+    }
+
+    private fun unregisterConsentReceiverIfNeeded() {
+        val receiver = consentReceiver ?: return
+        runCatching { unregisterReceiver(receiver) }
+        consentReceiver = null
+    }
+
     private fun stopReceiverAndExit() {
+        consentCoordinator?.stop()
+        consentCoordinator = null
+        // Dismiss every pending consent notification we know about.
+        // The connection itself will be torn down when the session
+        // stops; without explicit dismissal the heads-up would linger
+        // pointing at a dead connection.
+        val ctx = applicationContext
+        ConsentRegistry.instance.snapshotIds().forEach { id ->
+            ConsentRegistry.instance.unregister(id)
+            ConsentNotification.dismiss(ctx, id)
+        }
+        unregisterConsentReceiverIfNeeded()
+
         session?.stop()
         session = null
         serviceJob.cancel()
@@ -217,6 +314,22 @@ public class ReceiverForegroundService : Service() {
         @JvmStatic
         @Volatile
         public var openAppTarget: Class<*>? = null
+
+        /**
+         * The activity class to launch as the consent **trampoline**
+         * (#22). Pressed when the user taps the heads-up consent
+         * notification body — opens a screen-on, lock-screen-bypassing
+         * activity that shows full transfer details and re-uses the
+         * Accept / Reject decisions through [ConsentRegistry].
+         *
+         * Set by `:app` in its `Application.onCreate`; `:service-android`
+         * does not statically depend on the activity class so this
+         * field stays nullable. When `null`, the notification's
+         * content tap is omitted but the action buttons still work.
+         */
+        @JvmStatic
+        @Volatile
+        public var consentTrampolineTarget: Class<*>? = null
 
         /**
          * Process-wide override of the [SessionFactory]. Tests install

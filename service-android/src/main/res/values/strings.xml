@@ -6,7 +6,7 @@
   receiver service (#21). Other modules contribute their own strings
   (see :app/res/values/strings.xml for app-wide UI copy).
 -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       User-visible name of the notification channel that backs the
@@ -33,5 +33,47 @@
       files…" requirement; ellipsis preserves the original phrasing.
     -->
     <string name="receiver_notification_text">Receiving nearby files…</string>
+
+    <!--
+      Consent notification (#22). Posted when an inbound connection
+      reaches `WaitingForUserConsent`. Distinct channel from the
+      receiver-foreground notification because it must be high-importance
+      (heads-up) and audible — the user has to be unmistakably prompted.
+    -->
+    <string name="consent_notification_channel_name">Incoming transfer requests</string>
+    <string name="consent_notification_channel_description">Heads-up prompt when another device asks to send you files</string>
+
+    <!--
+      Title shown on the consent notification. The first variant is
+      preferred when we know the sender's device name; the second covers
+      the hidden-visibility / parse-failure case.
+    -->
+    <string name="consent_notification_title_with_name">%1$s wants to share</string>
+    <string name="consent_notification_title_unknown_sender">A nearby device wants to share</string>
+
+    <!--
+      Item-count summary. Pluralisation handled in code today — Phase 1
+      ships English-only; `plurals` resources will land alongside the
+      Korean translation pass.
+    -->
+    <string name="consent_notification_summary_n_items" tools:ignore="PluralsCandidate">%1$d item(s) (%2$s)</string>
+    <string name="consent_notification_summary_no_items">no items</string>
+
+    <!--
+      Body line shown collapsed: "%summary% — PIN %pin%". The PIN is
+      always the 4-digit confirmation code from TransferMetadata.
+    -->
+    <string name="consent_notification_body">%1$s · PIN %2$s</string>
+
+    <!--
+      Expanded-notification PIN re-iteration. Repeating the PIN on the
+      big-text view makes it readable without dismissing other
+      notifications above ours.
+    -->
+    <string name="consent_notification_bigtext_pin_line">Confirm PIN: %1$s</string>
+
+    <!-- Action button labels. -->
+    <string name="consent_notification_action_accept">Accept</string>
+    <string name="consent_notification_action_reject">Reject</string>
 
 </resources>

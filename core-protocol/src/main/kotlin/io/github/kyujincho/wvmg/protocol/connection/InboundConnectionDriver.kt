@@ -12,6 +12,7 @@ import io.github.kyujincho.wvmg.protocol.crypto.D2DKeyDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.D2DRole
 import io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
+import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
@@ -97,6 +98,19 @@ internal class InboundConnectionDriver(
     private var pin: String = ""
 
     /**
+     * Sender's device name decoded from the peer's `endpoint_info`
+     * (carried in the unencrypted `ConnectionRequest` at step 1 of the
+     * lifecycle). `null` when the peer advertised in hidden visibility
+     * mode (no name on the wire) or when `EndpointInfo.parse` rejects
+     * the bytes. The receiver UI in #22 surfaces this on the consent
+     * notification so the user knows which device is asking.
+     *
+     * Captured early so a malformed introduction frame cannot prevent
+     * the consent UI from showing the sender identity.
+     */
+    private var sourceDeviceName: String? = null
+
+    /**
      * Drive the entire receiver-side lifecycle. Returns the terminal
      * [InboundResult]; throws on coroutine cancellation (handled by
      * the caller).
@@ -110,6 +124,17 @@ internal class InboundConnectionDriver(
         check(initialFrame.isConnectionRequest()) {
             "First frame must be ConnectionRequest, got ${initialFrame.v1.type}"
         }
+
+        // Capture the sender's device name from the embedded endpoint_info
+        // for the consent UI (#22). EndpointInfo.parse returns null on
+        // malformed bytes — that's fine; the UI falls back to a generic
+        // label rather than blocking the consent flow.
+        sourceDeviceName =
+            initialFrame.v1.connectionRequest
+                .takeIf { it.hasEndpointInfo() }
+                ?.endpointInfo
+                ?.toByteArray()
+                ?.let { EndpointInfo.parse(it)?.deviceName }
 
         // Step 2: UKEY2 server handshake.
         val handshake = Ukey2Server.performHandshake(transport, secureRandom)
@@ -482,7 +507,12 @@ internal class InboundConnectionDriver(
      * [InboundConnectionState.WaitingForUserConsent].
      */
     private fun handleIntroduction(effect: SharingFsmEffect.IntroductionReceived) {
-        val metadata = TransferMetadata.fromIntroductionFrame(effect.introduction, pin)
+        val metadata =
+            TransferMetadata.fromIntroductionFrame(
+                introduction = effect.introduction,
+                pin = pin,
+                sourceDeviceName = sourceDeviceName,
+            )
         transferMetadata = metadata
 
         for (file in effect.introduction.fileMetadataList) {

@@ -39,10 +39,18 @@ import io.github.kyujincho.wvmg.protocol.sharing.IntroductionFrame
  * @property pin 4-digit ASCII confirmation code derived from the UKEY2
  *   `authString` via [io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation.deriveFourDigitPin].
  *   Always exactly 4 ASCII digits.
+ * @property sourceDeviceName Optional human-readable name of the sender
+ *   device, decoded from the peer's `endpoint_info` carried in the
+ *   `ConnectionRequest`. `null` when the sender advertised in
+ *   "hidden" visibility mode (no name on the wire) or when the
+ *   `endpoint_info` could not be parsed. The receiver UI (#22)
+ *   renders this on the consent notification / dialog so the user
+ *   knows who is asking for permission to send.
  */
 public data class TransferMetadata(
     val items: List<TransferItem>,
     val pin: String,
+    val sourceDeviceName: String? = null,
 ) {
     init {
         require(pin.length == PIN_LENGTH) {
@@ -74,10 +82,16 @@ public data class TransferMetadata(
          *   [io.github.kyujincho.wvmg.protocol.sharing.SharingFsmEffect.IntroductionReceived].
          * @param pin Confirmation PIN from
          *   [io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation.deriveFourDigitPin].
+         * @param sourceDeviceName Optional sender device name decoded
+         *   from the peer's `endpoint_info`. Defaults to `null` —
+         *   callers that already parsed the peer identity (the
+         *   inbound connection driver does) pass it through here so
+         *   the consent UI can render "Pixel 8 wants to share…".
          */
         public fun fromIntroductionFrame(
             introduction: IntroductionFrame,
             pin: String,
+            sourceDeviceName: String? = null,
         ): TransferMetadata {
             val files =
                 introduction.fileMetadataList.map { file ->
@@ -105,7 +119,11 @@ public data class TransferMetadata(
                             },
                     )
                 }
-            return TransferMetadata(items = files + texts, pin = pin)
+            return TransferMetadata(
+                items = files + texts,
+                pin = pin,
+                sourceDeviceName = sourceDeviceName,
+            )
         }
     }
 }
