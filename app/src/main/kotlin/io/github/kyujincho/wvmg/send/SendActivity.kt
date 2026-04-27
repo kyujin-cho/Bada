@@ -23,6 +23,8 @@ import io.github.kyujincho.wvmg.databinding.ItemPeerRowBinding
 import io.github.kyujincho.wvmg.discovery.DiscoveredService
 import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.discovery.DiscoveryEvent
+import io.github.kyujincho.wvmg.discovery.ble.BleAdvertiseHandle
+import io.github.kyujincho.wvmg.discovery.ble.BleAdvertiser
 import io.github.kyujincho.wvmg.protocol.connection.FileSource
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnection
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnectionState
@@ -82,6 +84,23 @@ public class SendActivity : AppCompatActivity() {
     private val emptyPeerHintTimer: EmptyPeerHintTimer = EmptyPeerHintTimer()
     private var emptyPeerHintJob: Job? = null
 
+    /**
+     * BLE service-data advertiser (#32). Started alongside mDNS
+     * discovery so receivers' BLE scan loops wake up their mDNS
+     * responders before the user has finished picking a peer. Stopped
+     * when the outbound TCP connection enters [OutboundConnectionState.Handshaking]
+     * (no point continuing to broadcast once the wire link is up) or
+     * on `onDestroy` / cancel.
+     *
+     * Held as a nullable handle because [BleAdvertiser.start] returns
+     * `null` on devices without a peripheral-mode BLE radio, with the
+     * `BLUETOOTH_ADVERTISE` permission revoked, or with Bluetooth
+     * turned off — all of which fall through to the mDNS-only path
+     * per the issue's fallback acceptance criterion.
+     */
+    private var bleAdvertiser: BleAdvertiser? = null
+    private var bleAdvertiseHandle: BleAdvertiseHandle? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySendBinding.inflate(layoutInflater)
@@ -113,6 +132,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
         startDiscovery()
         startEmptyPeerHintTimer()
+        startBleAdvertise()
     }
 
     override fun onDestroy() {
@@ -125,6 +145,7 @@ public class SendActivity : AppCompatActivity() {
         discoveryJob?.cancel()
         connectionJob?.cancel()
         emptyPeerHintJob?.cancel()
+        stopBleAdvertise()
     }
 
     // -----------------------------------------------------------------
@@ -406,6 +427,10 @@ public class SendActivity : AppCompatActivity() {
                 binding.sendStatusMessage.text = getString(R.string.send_status_target, peerLabel(peer))
             }
             OutboundConnectionState.Handshaking -> {
+                // TCP socket is up — the BLE wake-up pulse has done its
+                // job, stop broadcasting (#32 acceptance: stops as soon
+                // as the TCP connection to a recipient is established).
+                stopBleAdvertise()
                 binding.sendStatusPhase.setText(R.string.send_phase_handshaking)
                 binding.sendPin.visibility = View.GONE
             }
@@ -487,11 +512,57 @@ public class SendActivity : AppCompatActivity() {
             connection.cancel()
             return
         }
+        // Cancel before any peer was selected: stop the BLE pulse now
+        // so we don't waste the radio while finish() tears the activity
+        // down. onDestroy would also catch this, but stopping here keeps
+        // the timing tight for the "stops on user cancel" criterion (#32).
+        stopBleAdvertise()
         finish()
     }
 
     private fun onShowQrClicked() {
         startActivity(Intent(this, ShowQrActivity::class.java))
+    }
+
+    // -----------------------------------------------------------------
+    // BLE service-data pulse (#32)
+    // -----------------------------------------------------------------
+
+    /**
+     * Start the Quick Share BLE service-data advertisement (#32). The
+     * advertisement wakes nearby Quick Share receivers' BLE scan loops,
+     * which in turn enable their mDNS responder so our own discovery can
+     * find them.
+     *
+     * Best-effort: devices without peripheral-mode BLE, devices with
+     * Bluetooth turned off, and devices where the user revoked
+     * `BLUETOOTH_ADVERTISE` after onboarding all flow through the
+     * `null` return path of [BleAdvertiser.start] and are silently
+     * skipped — the mDNS-only discovery path still works for them.
+     */
+    @Suppress("MissingPermission") // Permission re-checked inside BleAdvertiser.start.
+    private fun startBleAdvertise() {
+        val advertiser = BleAdvertiser(applicationContext)
+        bleAdvertiser = advertiser
+        bleAdvertiseHandle = advertiser.start()
+        if (bleAdvertiseHandle == null) {
+            Log.i(BLE_TAG, "BLE pulse not started — falling back to mDNS-only discovery")
+        } else {
+            Log.i(BLE_TAG, "BLE pulse started")
+        }
+    }
+
+    /**
+     * Stop the BLE service-data advertisement if one is active. Called
+     * when the outbound TCP connection lands ([OutboundConnectionState.Handshaking]
+     * onward), when the user cancels, and from `onDestroy` as a final
+     * safety net. Safe to call repeatedly — both the local handle and
+     * the underlying [BleAdvertiseHandle.close] are idempotent.
+     */
+    private fun stopBleAdvertise() {
+        bleAdvertiseHandle?.close()
+        bleAdvertiseHandle = null
+        bleAdvertiser = null
     }
 
     /**
@@ -524,5 +595,10 @@ public class SendActivity : AppCompatActivity() {
 
     private companion object {
         private const val OUTBOUND_TAG: String = "WvmgOutbound"
+
+        // BLE advertise diagnostics share the discovery tag so a single
+        // `adb logcat -s WvmgDiscovery` line surfaces both mDNS and BLE
+        // events on real devices.
+        private const val BLE_TAG: String = "WvmgDiscovery"
     }
 }
