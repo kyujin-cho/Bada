@@ -20,57 +20,60 @@ logic.
 :core-protocol-test   KAT vectors, fixtures
 ```
 
-`:core-protocol` is a plain Kotlin/JVM module — it depends only on
+`:core-protocol` is a plain Kotlin/JVM module that depends only on
 `kotlinx.coroutines`, `protobuf-javalite`, and the JCE/JDK. It must never
 import anything from `android.*`. This split keeps the protocol
-unit-testable on the JVM, which is essential because the cipher suites and
-framing have hundreds of edge cases that we need KAT coverage on. HKDF-SHA256
-is implemented directly on `javax.crypto.Mac("HmacSHA256")` (see
-`:core-protocol`'s `Hkdf` object) rather than via Google Tink, avoiding
-Tink's transitive `protobuf-java` dependency that would clash with
-`protobuf-javalite` on Android. Length-prefixed TCP framing (the lowest
-layer of the Quick Share transport) lives in the same module as
-`FramedConnection` under `...protocol.transport`. The UKEY2 P256_SHA512
-key-exchange handshake (`Ukey2Client`, `Ukey2Server`) lives under
-`...protocol.ukey2` and runs over `FramedConnection`. The post-handshake
-HKDF chain that derives the four AES-256 / HMAC-SHA256 traffic keys
-(`D2DKeyDerivation`, `D2DSessionKeys`) lives next to `Hkdf` in
-`...protocol.crypto` and is locked down by KAT vectors in
-`:core-protocol-test`. The authenticated-encryption layer that wraps
-every post-UKEY2 frame in a `SecureMessage` envelope (AES-256-CBC for
-confidentiality + HMAC-SHA256 for integrity, with strict pre-incremented
-sequence numbers and HMAC-before-decrypt order) lives under
-`...protocol.crypto.securemessage` as `SecureMessageCodec` (stateless
-primitive) and `SecureChannel` (per-connection wrapper around
-`FramedConnection` that reads and writes `OfflineFrame` protos). One layer
-above the secure channel, `...protocol.payload` reassembles
-`PayloadTransferFrame` chunks into complete BYTES and FILE payloads:
-`PayloadAssembler` validates per-`payload_id` offsets, tolerates Android's
-"two-frame BYTES" quirk on receive, and streams FILE bytes through a
-caller-supplied `FileDestinationFactory` (the Android wiring substitutes
-a `MediaStore` content-URI factory at this seam). The matching encoder,
-`PayloadTransferEncoder`, emits the same two-frame shape on send for
-compatibility with stock Quick Share peers. The receiver-side glue that
-ties everything together — accepting a TCP connection, running UKEY2,
-deriving the `D2DSessionKeys` with the correct role swap, driving the
-`InboundSharingFsm` through user consent, streaming payloads through the
-assembler, and signaling completion via `Disconnection` — lives under
-`...protocol.connection` as `InboundConnection`. It exposes a
-coroutine-based lifecycle (`suspend fun run(factory)`), a
-`StateFlow<InboundConnectionState>` for UI observation, and a thread-safe
-`submitUserConsent(accepted)` / `cancel()` pair. The same module surfaces
-the `TransferMetadata` (filenames, sizes, MIME types, the 4-digit
-confirmation PIN derived from the UKEY2 `authString`) that the consent UI
-renders. On Android, `:service-android` hosts the `connectedDevice`-typed
-`ReceiverForegroundService` that brings this stack online: it acquires
-the Wi-Fi `MulticastLock`, binds the `TcpReceiverServer` accept loop on
-an ephemeral port, registers the `Discovery.advertise` mDNS record
-against that port, and supplies a fresh `MediaStoreDownloadsFactory` per
-accepted connection so the per-payload `IS_PENDING` state never bleeds
-across transfers. The bulk of the lifecycle logic lives in a pure-JVM
-`ReceiverSession` helper that the `Service` only thinly wraps, keeping
-the start/stop/error-rollback paths exhaustively unit-testable without
-Robolectric.
+unit-testable on the JVM — essential because the cipher suites and framing
+have hundreds of edge cases that need KAT coverage.
+
+### `:core-protocol` package map
+
+- **`...protocol.transport`** — `FramedConnection`, the length-prefixed TCP
+  framing that is the lowest layer of the Quick Share transport.
+- **`...protocol.ukey2`** — `Ukey2Client` / `Ukey2Server` implementing the
+  P256_SHA512 key-exchange handshake over `FramedConnection`.
+- **`...protocol.crypto`** — `Hkdf` (HKDF-SHA256, implemented directly on
+  `javax.crypto.Mac("HmacSHA256")` to avoid Tink's transitive
+  `protobuf-java` clashing with `protobuf-javalite` on Android) and
+  `D2DKeyDerivation` / `D2DSessionKeys` (the post-handshake chain that
+  derives the four AES-256 / HMAC-SHA256 traffic keys, locked down by KAT
+  vectors in `:core-protocol-test`).
+- **`...protocol.crypto.securemessage`** — `SecureMessageCodec` (stateless
+  AES-256-CBC + HMAC-SHA256 envelope primitive) and `SecureChannel`
+  (per-connection wrapper around `FramedConnection` that reads and writes
+  `OfflineFrame` protos with pre-incremented sequence numbers and
+  HMAC-before-decrypt order).
+- **`...protocol.payload`** — `PayloadAssembler` reassembles
+  `PayloadTransferFrame` chunks into BYTES and FILE payloads, validating
+  per-`payload_id` offsets and tolerating Android's "two-frame BYTES"
+  quirk on receive. FILE bytes stream through a caller-supplied
+  `FileDestinationFactory` (the Android wiring substitutes a `MediaStore`
+  content-URI factory at this seam). `PayloadTransferEncoder` emits the
+  same two-frame shape on send for compatibility with stock Quick Share
+  peers.
+- **`...protocol.connection`** — `InboundConnection` ties everything
+  together: accepts a TCP connection, runs UKEY2, derives the
+  `D2DSessionKeys` with the correct role swap, drives the
+  `InboundSharingFsm` through user consent, streams payloads through the
+  assembler, and signals completion via `Disconnection`. Public surface is
+  a coroutine-based `suspend fun run(factory)`, a
+  `StateFlow<InboundConnectionState>` for UI observation, and a
+  thread-safe `submitUserConsent(accepted)` / `cancel()` pair. The same
+  module surfaces the `TransferMetadata` (filenames, sizes, MIME types,
+  4-digit confirmation PIN derived from the UKEY2 `authString`) that the
+  consent UI renders.
+
+### Android wiring (`:service-android`)
+
+`ReceiverForegroundService` (foreground-service type `connectedDevice`)
+brings the stack online: it acquires the Wi-Fi `MulticastLock`, binds the
+`TcpReceiverServer` accept loop on an ephemeral port, registers the
+`Discovery.advertise` mDNS record against that port, and supplies a fresh
+`MediaStoreDownloadsFactory` per accepted connection so the per-payload
+`IS_PENDING` state never bleeds across transfers. The bulk of the
+lifecycle logic lives in a pure-JVM `ReceiverSession` helper that the
+`Service` only thinly wraps, keeping the start/stop/error-rollback paths
+exhaustively unit-testable without Robolectric.
 
 ## Toolchain
 
@@ -110,21 +113,19 @@ Static analysis is wired up out of the box via
 ## Testing
 
 Manual interop runbooks (markdown checklists) live under
-[`docs/testing/`](docs/testing):
+[`docs/testing/`](docs/testing/):
 
-- Stock Android Quick Share interop (Pixel + Samsung):
-  [`docs/testing/interop-stock-quick-share-android.md`](docs/testing/interop-stock-quick-share-android.md)
+- [NearDrop on macOS interop checklist](docs/testing/interop-neardrop-macos.md)
+  — start here when verifying end-to-end behavior against the reference
+  implementation.
+- [Stock Android Quick Share interop](docs/testing/interop-stock-quick-share-android.md)
+  — Pixel (clean GMS) and Samsung (One UI) coverage.
 
 ## Status
 
-Phase 1 is in active development. Track progress on the
-[Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1).
-
-## Testing
-
-Manual interop runbooks live under [`docs/testing/`](docs/testing/). Start
-with the [NearDrop on macOS interop checklist](docs/testing/interop-neardrop-macos.md)
-when verifying end-to-end behavior against the reference implementation.
+Phase 1 is complete. Track the
+[Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1)
+for the full sub-issue list and merged PRs.
 
 ## Reference material
 
