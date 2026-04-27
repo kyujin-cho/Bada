@@ -10,29 +10,24 @@ import androidx.appcompat.app.AppCompatActivity
 import io.github.kyujincho.wvmg.databinding.ActivityShowQrBinding
 import io.github.kyujincho.wvmg.protocol.qr.QrKeyData
 import io.github.kyujincho.wvmg.protocol.qr.QrUrl
+import kotlin.math.min
 
 /**
- * Renders the Quick Share QR-code URL produced by [QrUrl.build] (#20).
+ * Renders the Quick Share QR-code URL produced by [QrUrl.build] (#20)
+ * as a scannable QR bitmap (#84).
  *
- * **Phase 1 stub.** The protocol-side QR-code path (key generation, URL
- * encoding, advertising-token derivation) is fully implemented in
- * `:core-protocol`, but zxing — the standard Android QR-bitmap library
- * — is not yet on the dependency graph. Adding it pulls in ~200 KB of
- * additional code and is out of scope for #24, whose acceptance
- * criteria explicitly say the QR-bitmap renderer can be stubbed as
- * long as the URL is surfaced.
+ * Flow on every screen entry:
  *
- * What we do today:
- *
- *  - Generate a fresh ECDSA P-256 keypair on every screen entry via
- *    [QrKeyData.generate].
+ *  - Generate a fresh ECDSA P-256 keypair via [QrKeyData.generate].
  *  - Build the canonical Quick Share URL with [QrUrl.build].
- *  - Display the URL as monospace selectable text.
+ *  - Encode the URL as a QR-code [android.graphics.Bitmap] via
+ *    [QrBitmapRenderer.render], sized to ~75% of the shorter screen
+ *    edge so it stays square on both portrait and landscape.
+ *  - Surface the URL verbatim as monospace selectable text below the
+ *    bitmap as a copy/paste fallback.
  *
- * What still needs to land before this is production-ready (tracked in
- * a follow-up — see issue #28's wiring scope):
+ * Wiring still pending (tracked separately, see #28's wiring scope):
  *
- *  - Render the URL as an actual QR bitmap (zxing or similar).
  *  - Surface the keypair + advertising token to a discovery layer that
  *    the receiver can match against (the QR-handshake-data
  *    `pairing-token` flow in `:core-protocol`).
@@ -57,10 +52,29 @@ public class ShowQrActivity : AppCompatActivity() {
         val url = QrUrl.build(generated.qrKeyData)
         binding.showQrUrl.text = url
 
-        // Followup #28 will render `url` via zxing (or comparable) once
-        // the dependency graph is updated. See the class-level docs for
-        // the rationale and the wiring scope tracked in #28.
+        // Size the QR bitmap to ~75% of the shorter screen edge so it
+        // stays square and proportionally large in both portrait and
+        // landscape, without crowding the title/URL/button below it.
+        val displayMetrics = resources.displayMetrics
+        val qrSize = (min(displayMetrics.widthPixels, displayMetrics.heightPixels) * QR_SCREEN_FRACTION).toInt()
+
+        val bitmap = QrBitmapRenderer.render(url, qrSize)
+        binding.showQrBitmap.setImageBitmap(bitmap)
+        binding.showQrBitmap.layoutParams =
+            binding.showQrBitmap.layoutParams.apply {
+                width = qrSize
+                height = qrSize
+            }
 
         binding.showQrDone.setOnClickListener { finish() }
+    }
+
+    private companion object {
+        /**
+         * Fraction of the shorter screen edge to use for the QR bitmap.
+         * Per the issue acceptance criteria — "square, ~75% of the
+         * shorter screen edge".
+         */
+        private const val QR_SCREEN_FRACTION: Double = 0.75
     }
 }
