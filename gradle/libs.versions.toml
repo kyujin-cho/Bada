@@ -20,6 +20,9 @@ kotlinxCoroutines = "1.9.0"
 
 # Protobuf (used from L1 onwards; declared here so :core-protocol is ready)
 protobuf = "4.28.3"
+# protobuf-gradle-plugin: drives `protoc` codegen during the Gradle build.
+# Versioned independently from the protobuf runtime above.
+protobufPlugin = "0.9.5"
 
 # Crypto (optional helper for HKDF; wired up from L1)
 tink = "1.15.0"
@@ -74,3 +77,4 @@ kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintPlugin" }
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
