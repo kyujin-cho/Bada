@@ -71,6 +71,45 @@
             android:exported="false"
             android:label="@string/onboarding_title" />
 
+        <!--
+          Sender share-intent target (#24).
+
+          ACTION_SEND (single attachment) and ACTION_SEND_MULTIPLE
+          (multiple attachments) are the entry points the system share
+          sheet routes to when the user picks our app. We accept */* so
+          we appear for every MIME type — file-type restrictions, if
+          any, are applied in code so users get a clearer "not
+          supported" message than the share sheet hiding us.
+
+          Exported because the share sheet runs in a different process
+          (system-ui) and needs to be able to start this activity.
+        -->
+        <activity
+            android:name=".send.SendActivity"
+            android:exported="true"
+            android:label="@string/send_activity_label">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          QR-code display screen launched from SendActivity (#24 + #20).
+
+          Internal — only SendActivity launches it, so exported=false.
+        -->
+        <activity
+            android:name=".send.ShowQrActivity"
+            android:exported="false"
+            android:label="@string/show_qr_title" />
+
     </application>
 
 </manifest>

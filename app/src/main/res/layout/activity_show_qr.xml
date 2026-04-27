@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  QR-code display screen launched from SendActivity (#24 + #20).
+
+  Phase 1 stub: zxing isn't on the dependency graph yet, so we render
+  the QR URL as monospace text. The receiver-side flow that pairs with
+  this URL is not yet wired in (#28 brings the e2e wiring), so the
+  Phase 1 build only needs to surface the URL.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/show_qr_title"
+            android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/show_qr_intro"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+        <TextView
+            android:id="@+id/show_qr_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:padding="16dp"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body2" />
+
+        <Button
+            android:id="@+id/show_qr_done"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/show_qr_done" />
+
+    </LinearLayout>
+
+</ScrollView>
