@@ -48,6 +48,24 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
-    testImplementation(libs.junit4)
+    // JmDNS for Quick Share mDNS publish + browse (#18). The Android
+    // platform's NsdManager has historically had bugs with multi-key TXT
+    // records, so we use JmDNS for full control over the wire format.
+    implementation(libs.jmdns)
+
+    // Junit Jupiter is the project-wide test runtime; align with
+    // :core-protocol so all unit tests run under the same engine.
+    testImplementation(libs.junit.jupiter.api)
+    testImplementation(libs.junit.jupiter.params)
+    testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+
     androidTestImplementation(libs.androidx.test.junit)
+}
+
+// Run JVM unit tests with the Jupiter engine so test discovery works
+// without per-class @RunWith annotations.
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }

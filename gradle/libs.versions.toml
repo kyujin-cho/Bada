@@ -27,6 +27,11 @@ protobufPlugin = "0.9.5"
 # Crypto (optional helper for HKDF; wired up from L1)
 tink = "1.15.0"
 
+# mDNS (used by :discovery-android for Quick Share LAN publish + browse via #18).
+# JmDNS is the de-facto Java implementation; 3.5.x is stable, Android-friendly,
+# and is the version used by recent third-party Quick Share / NearDrop ports.
+jmdns = "3.5.12"
+
 # Testing
 junit4 = "4.13.2"
 junitJupiter = "5.11.3"
@@ -56,6 +61,12 @@ protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.
 # Tink (HKDF helper)
 tink = { module = "com.google.crypto.tink:tink", version.ref = "tink" }
 tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "tink" }
+
+# JmDNS — pure-Java mDNS/DNS-SD implementation used by :discovery-android
+# for Quick Share Wi-Fi LAN advertise/browse (#18). Pure JVM (no native
+# bits) so the publish/browse logic can also be exercised in unit tests
+# on a host JVM.
+jmdns = { module = "org.jmdns:jmdns", version.ref = "jmdns" }
 
 # Testing
 junit4 = { module = "junit:junit", version.ref = "junit4" }
