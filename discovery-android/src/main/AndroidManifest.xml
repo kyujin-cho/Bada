@@ -3,10 +3,10 @@
   :discovery-android module manifest.
 
   These permissions are required by the JmDNS publish + browse code wired up
-  in #18. They are declared at the library level so any consuming app
-  automatically inherits them; the umbrella set in :app/AndroidManifest.xml
-  remains authoritative for the runtime-prompt entries (NEARBY_WIFI_DEVICES
-  etc.) added in #26.
+  in #18 plus the BLE service-data advertiser added in #32. They are
+  declared at the library level so any consuming app automatically inherits
+  them; the umbrella set in :app/AndroidManifest.xml remains authoritative
+  for the runtime-prompt entries (NEARBY_WIFI_DEVICES etc.) added in #26.
 
   Compile-time (no runtime prompt):
     * CHANGE_WIFI_MULTICAST_STATE — required to acquire the
@@ -15,12 +15,28 @@
     * ACCESS_WIFI_STATE — needed to obtain WifiManager via getSystemService
       on every API level we support.
 
-  BLE-related runtime permissions for Phase 2 are intentionally omitted.
+  Runtime (gated by tools:targetApi):
+    * BLUETOOTH_ADVERTISE (API 31+) — required by the sender-side BLE
+      service-data pulse (#32) that wakes nearby Quick Share receivers.
+      Onboarding (#31) prompts for the runtime grant; this manifest line
+      makes the requirement library-local so consumers cannot accidentally
+      compile against the BleAdvertiser API without declaring the
+      permission.
+
+  Pre-API-31 devices use the install-time BLUETOOTH / BLUETOOTH_ADMIN
+  legacy permissions declared at :app level (capped with
+  maxSdkVersion=30) — they are not duplicated here to avoid clouding
+  the manifest merger output.
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADVERTISE"
+        tools:targetApi="31" />
 
 </manifest>
