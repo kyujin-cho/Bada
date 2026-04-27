@@ -11,14 +11,17 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Manifest-level regression test for the Phase 1 permission set (#26).
+ * Manifest-level regression test for the Phase 1 + Phase 2 permission
+ * set (#26, #31).
  *
  * We read `app/src/main/AndroidManifest.xml` as a plain text file rather
  * than going through the Android build system. The intent is to catch
  * accidental drift — for example, someone removing the
- * `neverForLocation` flag, or adding a Phase 2 permission ahead of
- * schedule — without paying the cost of pulling Robolectric into the
- * `:app` module just for this one test.
+ * `neverForLocation` flag from `BLUETOOTH_SCAN` (which would force the
+ * platform to also require `ACCESS_FINE_LOCATION`), or accidentally
+ * declaring a runtime permission we explicitly chose to skip — without
+ * paying the cost of pulling Robolectric into the `:app` module just
+ * for this one test.
  *
  * The CI job `:app:test` runs this on every PR.
  */
@@ -33,16 +36,13 @@ class AndroidManifestPermissionsTest {
 
     @Test
     fun `nearby wifi devices declared with neverForLocation flag`() {
-        assertTrue(
-            "NEARBY_WIFI_DEVICES permission must be declared",
-            manifest.contains("android.permission.NEARBY_WIFI_DEVICES"),
-        )
+        val block = usesPermissionBlockFor("android.permission.NEARBY_WIFI_DEVICES")
         // The neverForLocation flag tells Android we do not derive
         // physical location from peer scans; without it the platform
         // requires ACCESS_FINE_LOCATION on top of NEARBY_WIFI_DEVICES.
         assertTrue(
             "NEARBY_WIFI_DEVICES must use neverForLocation",
-            manifest.contains("android:usesPermissionFlags=\"neverForLocation\""),
+            block.contains("android:usesPermissionFlags=\"neverForLocation\""),
         )
     }
 
@@ -69,22 +69,62 @@ class AndroidManifestPermissionsTest {
     }
 
     @Test
-    fun `phase 2 permissions are not declared in phase 1`() {
-        // Bluetooth permissions belong to Phase 2 (BLE auto-discovery).
-        // Declaring them now would surface unnecessary install-time
-        // permission warnings to users — guard against that here.
-        val phase2Forbidden =
-            listOf(
-                "android.permission.BLUETOOTH_SCAN",
-                "android.permission.BLUETOOTH_ADVERTISE",
-                "android.permission.BLUETOOTH_CONNECT",
-            )
-        for (permission in phase2Forbidden) {
-            assertFalse(
-                "$permission must NOT be declared in Phase 1",
-                manifest.contains(permission),
-            )
-        }
+    fun `bluetooth advertise declared for phase 2 ble auto-discovery`() {
+        // BLUETOOTH_ADVERTISE is required (API 31+) so we can broadcast
+        // the Quick Share BLE service-data pulse that wakes nearby
+        // receivers (#31 / #32). It does not need neverForLocation —
+        // that flag is only meaningful for SCAN.
+        assertTrue(
+            "BLUETOOTH_ADVERTISE must be declared",
+            manifest.contains("android.permission.BLUETOOTH_ADVERTISE"),
+        )
+    }
+
+    @Test
+    fun `bluetooth scan declared with neverForLocation flag`() {
+        // BLUETOOTH_SCAN must use neverForLocation; without it the
+        // platform forces the user to also grant ACCESS_FINE_LOCATION,
+        // which we explicitly avoid for our scan-pulse-only use case
+        // (#31 / #33).
+        val block = usesPermissionBlockFor("android.permission.BLUETOOTH_SCAN")
+        assertTrue(
+            "BLUETOOTH_SCAN must use neverForLocation",
+            block.contains("android:usesPermissionFlags=\"neverForLocation\""),
+        )
+    }
+
+    @Test
+    fun `legacy bluetooth permissions are capped at api 30`() {
+        // Pre-API-31 devices use the install-time BLUETOOTH /
+        // BLUETOOTH_ADMIN model. We still need them declared so the app
+        // works on API 24–30, but they must be capped with
+        // maxSdkVersion=30 so API 31+ devices use the runtime variants
+        // exclusively (otherwise the install-time grant is silently
+        // applied alongside the runtime permission, which confuses
+        // some manufacturers' permission auditors).
+        val legacyBluetooth = usesPermissionBlockFor("android.permission.BLUETOOTH")
+        assertTrue(
+            "Legacy BLUETOOTH must declare android:maxSdkVersion=\"30\"",
+            legacyBluetooth.contains("android:maxSdkVersion=\"30\""),
+        )
+        val legacyBluetoothAdmin = usesPermissionBlockFor("android.permission.BLUETOOTH_ADMIN")
+        assertTrue(
+            "Legacy BLUETOOTH_ADMIN must declare android:maxSdkVersion=\"30\"",
+            legacyBluetoothAdmin.contains("android:maxSdkVersion=\"30\""),
+        )
+    }
+
+    @Test
+    fun `bluetooth connect is not declared yet`() {
+        // BLUETOOTH_CONNECT is only needed when initiating or accepting
+        // GATT connections — Phase 2 only advertises and scans, so
+        // declaring CONNECT today would surface a permission prompt the
+        // app does not need. Guard against accidentally pulling it in
+        // before BLE L2CAP support lands.
+        assertFalse(
+            "BLUETOOTH_CONNECT must NOT be declared until BLE L2CAP support lands",
+            manifest.contains("android.permission.BLUETOOTH_CONNECT"),
+        )
     }
 
     @Test
@@ -177,5 +217,34 @@ class AndroidManifestPermissionsTest {
             "ShowQrActivity must declare android:exported=\"false\"",
             qrBlock.contains("android:exported=\"false\""),
         )
+    }
+
+    /**
+     * Returns the substring of the manifest that holds the single
+     * `<uses-permission>` element for [permission], from `<uses-permission`
+     * up to (but excluding) the closing `/>`. Used to scope per-permission
+     * flag assertions (e.g. neverForLocation, maxSdkVersion) so they can
+     * tell which `<uses-permission>` element they are actually inspecting.
+     *
+     * Fails the calling test if the permission is not found at all.
+     */
+    private fun usesPermissionBlockFor(permission: String): String {
+        val needle = "android:name=\"$permission\""
+        assertTrue(
+            "$permission must be declared",
+            manifest.contains(needle),
+        )
+        // Walk back from the name attribute to the opening tag, then
+        // forward to the closing slash. Self-closing `<uses-permission .../>`
+        // tags are the only shape we use for these declarations, so this
+        // boundary works even when several permissions live next to one
+        // another in the file.
+        val nameIndex = manifest.indexOf(needle)
+        val openIndex = manifest.lastIndexOf("<uses-permission", nameIndex)
+        val closeIndex = manifest.indexOf("/>", nameIndex)
+        check(openIndex >= 0 && closeIndex > openIndex) {
+            "Could not locate <uses-permission .../> block for $permission"
+        }
+        return manifest.substring(openIndex, closeIndex)
     }
 }

@@ -3,7 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-      Phase 1 permission set for Quick Share over Wi-Fi LAN.
+      Phase 1 + Phase 2 permission set for Quick Share over Wi-Fi LAN
+      with BLE auto-discovery.
 
       Runtime (must be requested at app start, gated by API level):
         * NEARBY_WIFI_DEVICES (API 33+) — required for any local-network
@@ -12,6 +13,14 @@
           ACCESS_FINE_LOCATION on API 33+ devices.
         * POST_NOTIFICATIONS (API 33+) — used by the foreground transfer
           service notification (#21) and incoming-transfer notifications.
+        * BLUETOOTH_ADVERTISE (API 31+, #31) — required to broadcast the
+          Quick Share BLE service-data pulse so stock receivers wake up
+          their mDNS responder when our app starts a send (#32).
+        * BLUETOOTH_SCAN (API 31+, #31) — required to scan for senders'
+          BLE pulses so we only enable our mDNS responder when a sender is
+          nearby (#33). neverForLocation tells Android we never derive
+          physical location from BLE scan results, so the platform skips
+          the location-permission requirement.
 
       Compile-time (no runtime prompt):
         * CHANGE_WIFI_MULTICAST_STATE — held while mDNS is active via
@@ -19,9 +28,19 @@
           dropped on Android by default unless the lock is acquired.
         * INTERNET / ACCESS_NETWORK_STATE / ACCESS_WIFI_STATE — local
           socket I/O, network/Wi-Fi state inspection.
+        * BLUETOOTH / BLUETOOTH_ADMIN (API ≤ 30, #31) — legacy permission
+          model for pre-Android-12 devices. Capped with maxSdkVersion=30
+          so API 31+ devices use the runtime BLUETOOTH_ADVERTISE /
+          BLUETOOTH_SCAN permissions instead.
 
-      Phase 2 (BLUETOOTH_*) and READ_MEDIA_* are intentionally omitted —
-      see issue #26 scope notes.
+      BLUETOOTH_CONNECT is intentionally NOT declared — Phase 2 only
+      advertises and scans; it does not initiate or accept GATT
+      connections. If/when BLE L2CAP support lands the runtime permission
+      will be added alongside that work.
+
+      READ_MEDIA_* is intentionally omitted — Phase 1 routes all media
+      access through the system share-intent flow, which does not require
+      direct media permissions.
     -->
 
     <!-- Wi-Fi peer discovery on API 33+. neverForLocation tells Android we
@@ -37,6 +56,28 @@
     <uses-permission
         android:name="android.permission.POST_NOTIFICATIONS"
         tools:targetApi="33" />
+
+    <!-- Phase 2 BLE auto-discovery permissions (#31). Runtime on API 31+.
+         BLUETOOTH_SCAN uses neverForLocation so the platform does not
+         require ACCESS_FINE_LOCATION; we do not derive physical location
+         from BLE pulse scans. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADVERTISE"
+        tools:targetApi="31" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="31" />
+
+    <!-- Legacy Bluetooth permission model for API ≤ 30. Capped with
+         maxSdkVersion=30 so API 31+ devices use the runtime BLUETOOTH_*
+         permissions above instead of these grant-at-install variants. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
 
     <!-- Multicast lock for mDNS service discovery (compile-time). -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />

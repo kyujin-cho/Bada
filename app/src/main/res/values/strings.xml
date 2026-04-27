@@ -2,9 +2,9 @@
 <resources>
     <string name="app_name">WhenVivoMeetsGoogle</string>
 
-    <!-- Permissions onboarding (#26). -->
+    <!-- Permissions onboarding (#26 + #31). -->
     <string name="onboarding_title">App permissions</string>
-    <string name="onboarding_intro">Quick Share needs a small set of Android permissions to discover nearby devices over your local Wi-Fi network and to keep you informed about transfers. Each permission below explains exactly what it is used for.</string>
+    <string name="onboarding_intro">Quick Share needs a small set of Android permissions to discover nearby devices over your local Wi-Fi network, to broadcast and listen for short Bluetooth Low Energy pulses that wake nearby Quick Share receivers, and to keep you informed about transfers. Each permission below explains exactly what it is used for.</string>
     <string name="onboarding_empty_state">Your device does not require any runtime permissions for Phase 1. You are all set.</string>
     <string name="onboarding_grant_button">Grant permissions</string>
     <string name="onboarding_open_settings">Open app settings</string>
@@ -27,10 +27,19 @@
     <string name="permission_notifications_title">Notifications</string>
     <string name="permission_notifications_rationale">Used to show the foreground transfer service indicator and to alert you about incoming files. Without this permission, transfers still work but you will not be notified about them.</string>
 
+    <!-- BLUETOOTH_ADVERTISE (API 31+, #31). -->
+    <string name="permission_bluetooth_advertise_title">Bluetooth advertising</string>
+    <string name="permission_bluetooth_advertise_rationale">Used to broadcast a short Bluetooth Low Energy pulse so nearby Quick Share receivers wake up automatically when you start a send. Without this permission, sends still work but the receiver may need to manually open Quick Share first.</string>
+
+    <!-- BLUETOOTH_SCAN (API 31+, #31). -->
+    <string name="permission_bluetooth_scan_title">Nearby Bluetooth devices</string>
+    <string name="permission_bluetooth_scan_rationale">Used to listen for nearby Quick Share senders so this device wakes up its receiver only when needed. Quick Share never uses this to determine your physical location.</string>
+
     <!-- Permission status labels. -->
     <string name="permission_status_granted">Granted</string>
     <string name="permission_status_denied">Required - not granted</string>
     <string name="permission_status_optional_denied">Optional - not granted (degraded mode)</string>
+    <string name="permission_status_optional_denied_ble">Optional - not granted (mDNS-only mode)</string>
 
     <!-- Share-intent (#24) sender flow. -->
     <string name="send_activity_label">Send via Quick Share</string>
