@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  String resources for :service-android.
+
+  Phase 1 only: the persistent notification posted by the foreground
+  receiver service (#21). Other modules contribute their own strings
+  (see :app/res/values/strings.xml for app-wide UI copy).
+-->
+<resources>
+
+    <!--
+      User-visible name of the notification channel that backs the
+      persistent foreground notification. Shown in system Settings ->
+      Notifications -> WhenVivoMeetsGoogle.
+    -->
+    <string name="receiver_notification_channel_name">Quick Share receiver</string>
+
+    <!--
+      Description shown under the channel name in the system Settings
+      app. Single sentence, no terminal punctuation per Material
+      guidelines.
+    -->
+    <string name="receiver_notification_channel_description">Status notification while listening for incoming Quick Share transfers</string>
+
+    <!--
+      Persistent notification title. Kept short so the system can show
+      it on the lock screen and in collapsed-shade renderings.
+    -->
+    <string name="receiver_notification_title">Quick Share is active</string>
+
+    <!--
+      Notification body text. Mirrors the issue body's "Receiving nearby
+      files…" requirement; ellipsis preserves the original phrasing.
+    -->
+    <string name="receiver_notification_text">Receiving nearby files…</string>
+
+</resources>

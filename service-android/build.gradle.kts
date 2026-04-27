@@ -44,6 +44,10 @@ kotlin {
 
 dependencies {
     implementation(project(":core-protocol"))
+    // :discovery-android exposes the Quick Share mDNS publish/browse API
+    // (#18). The receiver foreground service (#21) consumes
+    // Discovery.advertise to register itself with peers.
+    implementation(project(":discovery-android"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -55,6 +59,7 @@ dependencies {
     testImplementation(libs.junit.jupiter.api)
     testImplementation(libs.junit.jupiter.params)
     testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
     testRuntimeOnly(libs.junit.jupiter.engine)
 
     androidTestImplementation(libs.androidx.test.junit)
