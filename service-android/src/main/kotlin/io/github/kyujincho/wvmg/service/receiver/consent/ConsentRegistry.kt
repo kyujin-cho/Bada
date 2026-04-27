@@ -59,14 +59,55 @@ public class ConsentRegistry {
      * the user taps Accept just as the FSM moved past
      * WaitingForUserConsent) still has the original prompt context for
      * logging.
+     *
+     * @property submitConsent The decision sink. Production wires this
+     *   to [InboundConnection.submitUserConsent]; tests inject a
+     *   recording lambda so they can assert on the boolean without
+     *   subclassing the (final) `InboundConnection` class. Default is
+     *   `connection::submitUserConsent` so callers normally don't
+     *   specify it.
      */
-    public data class Entry(
-        val connection: InboundConnection,
-        val sourceDeviceName: String?,
-        val pin: String,
-        val itemCount: Int,
-        val totalSize: Long,
-    )
+    public class Entry(
+        public val connection: InboundConnection,
+        public val sourceDeviceName: String?,
+        public val pin: String,
+        public val itemCount: Int,
+        public val totalSize: Long,
+        submitConsent: ((Boolean) -> Unit)? = null,
+    ) {
+        /**
+         * The decision sink. Defaults to `connection::submitUserConsent`
+         * — tests pass a recording lambda. Held as a property rather
+         * than computed lazily so a moved-out consent (after the
+         * connection terminates) still has a callable reference even
+         * if the underlying connection's channel is closed.
+         */
+        public val submitConsent: (Boolean) -> Unit =
+            submitConsent ?: { accepted -> connection.submitUserConsent(accepted) }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is Entry) return false
+            return connection === other.connection &&
+                sourceDeviceName == other.sourceDeviceName &&
+                pin == other.pin &&
+                itemCount == other.itemCount &&
+                totalSize == other.totalSize
+        }
+
+        override fun hashCode(): Int {
+            var result = System.identityHashCode(connection)
+            result = 31 * result + (sourceDeviceName?.hashCode() ?: 0)
+            result = 31 * result + pin.hashCode()
+            result = 31 * result + itemCount
+            result = 31 * result + totalSize.hashCode()
+            return result
+        }
+
+        override fun toString(): String =
+            "Entry(connection=$connection, sourceDeviceName=$sourceDeviceName, pin=$pin, " +
+                "itemCount=$itemCount, totalSize=$totalSize)"
+    }
 
     /**
      * Add a new pending consent. Replaces any prior entry under the same

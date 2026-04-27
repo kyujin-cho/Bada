@@ -88,11 +88,11 @@ public object ConsentNotification {
         // foreground-service notification id range. The fold preserves
         // the low bits so a fresh process's first transfer (id=1) gets
         // a deterministic notification id useful for log correlation.
-        val low31 = (connectionId and 0x7FFF_FFFFL).toInt()
+        val low31 = (connectionId and POSITIVE_INT_MASK_LONG).toInt()
         // Bias by the base in such a way that overflow stays inside
         // the positive int range (Notification ids must be != 0; any
         // non-zero int is otherwise legal).
-        var biased = (CONSENT_ID_BASE + low31) and 0x7FFF_FFFF
+        var biased = (CONSENT_ID_BASE + low31) and POSITIVE_INT_MASK
         if (biased == 0) biased = 1
         return biased
     }
@@ -201,27 +201,32 @@ public object ConsentNotification {
                 .setAutoCancel(false)
                 .setShowWhen(true)
                 .addAction(
-                    NotificationCompat.Action.Builder(
-                        android.R.drawable.ic_menu_send,
-                        content.acceptLabel,
-                        acceptIntent,
-                    ).build(),
+                    NotificationCompat.Action
+                        .Builder(
+                            android.R.drawable.ic_menu_send,
+                            content.acceptLabel,
+                            acceptIntent,
+                        ).build(),
                 ).addAction(
-                    NotificationCompat.Action.Builder(
-                        android.R.drawable.ic_menu_close_clear_cancel,
-                        content.rejectLabel,
-                        rejectIntent,
-                    ).build(),
+                    NotificationCompat.Action
+                        .Builder(
+                            android.R.drawable.ic_menu_close_clear_cancel,
+                            content.rejectLabel,
+                            rejectIntent,
+                        ).build(),
                 )
 
         if (tapIntent != null) {
-            builder.setContentIntent(tapIntent)
+            builder
+                .setContentIntent(tapIntent)
                 // Make sure the heads-up tap routes to the trampoline
                 // activity rather than just expanding the shade. The
                 // full-screen-intent path is what wakes the device on
                 // API 27+; the trampoline activity itself handles the
                 // setShowWhenLocked / setTurnScreenOn flags.
-                .setFullScreenIntent(tapIntent, /* highPriority = */ true)
+                // highPriority = true so API 29+ surfaces the activity
+                // immediately rather than collapsing the heads-up.
+                .setFullScreenIntent(tapIntent, true)
         }
 
         return builder.build()
@@ -282,13 +287,17 @@ public object ConsentNotification {
      * `getBroadcast` request codes must be int.
      */
     private fun acceptRequestCodeFor(connectionId: Long): Int =
-        ((connectionId * REQUEST_CODE_STRIDE + ACCEPT_OFFSET) and 0x7FFF_FFFFL).toInt()
+        ((connectionId * REQUEST_CODE_STRIDE + ACCEPT_OFFSET) and POSITIVE_INT_MASK_LONG).toInt()
 
     private fun rejectRequestCodeFor(connectionId: Long): Int =
-        ((connectionId * REQUEST_CODE_STRIDE + REJECT_OFFSET) and 0x7FFF_FFFFL).toInt()
+        ((connectionId * REQUEST_CODE_STRIDE + REJECT_OFFSET) and POSITIVE_INT_MASK_LONG).toInt()
 
     private fun contentRequestCodeFor(connectionId: Long): Int =
-        ((connectionId * REQUEST_CODE_STRIDE + CONTENT_OFFSET) and 0x7FFF_FFFFL).toInt()
+        ((connectionId * REQUEST_CODE_STRIDE + CONTENT_OFFSET) and POSITIVE_INT_MASK_LONG).toInt()
+
+    /** Mask that strips the sign bit for use as a positive int notification id. */
+    private const val POSITIVE_INT_MASK: Int = 0x7FFF_FFFF
+    private const val POSITIVE_INT_MASK_LONG: Long = 0x7FFF_FFFFL
 
     private const val REQUEST_CODE_STRIDE = 3L
     private const val ACCEPT_OFFSET = 0L

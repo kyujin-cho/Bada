@@ -12,6 +12,7 @@ import io.github.kyujincho.wvmg.protocol.server.InboundConnectionCompletion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
@@ -52,6 +53,7 @@ import java.util.concurrent.atomic.AtomicLong
  * stopped with [stop]. The coordinator launches its own coroutines
  * under the supplied [scope] but never owns the scope itself.
  */
+@Suppress("LongParameterList") // Constructor is plumbing for the test seam; each parameter is a discrete collaborator.
 public class ConsentCoordinator(
     private val activeConnections: SharedFlow<InboundConnection>,
     private val results: SharedFlow<InboundConnectionCompletion>,
@@ -59,6 +61,8 @@ public class ConsentCoordinator(
     private val sink: Sink,
     private val scope: CoroutineScope,
     private val connectionIdProvider: () -> Long = MonotonicConnectionIds::next,
+    private val stateExtractor: (InboundConnection) -> StateFlow<InboundConnectionState> = { it.state },
+    private val consentSubmitter: (InboundConnection) -> ((Boolean) -> Unit) = { conn -> conn::submitUserConsent },
 ) {
     private val idForConnection: MutableMap<InboundConnection, Long> = HashMap()
     private val idLock = Any()
@@ -116,7 +120,7 @@ public class ConsentCoordinator(
         // we just need a `takeWhile` that closes the loop after a
         // terminal state has been observed (and stops re-entering on
         // the StateFlow's stable terminal value).
-        connection.state
+        stateExtractor(connection)
             .takeWhile { state -> state !is InboundConnectionState.Idle || !posted }
             .collect { state ->
                 when (state) {
@@ -172,6 +176,7 @@ public class ConsentCoordinator(
             pin = metadata.pin,
             itemCount = metadata.items.size,
             totalSize = metadata.totalSize,
+            submitConsent = consentSubmitter(connection),
         )
 
     /**

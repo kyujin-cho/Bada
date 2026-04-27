@@ -130,7 +130,7 @@ public data class ConsentNotificationContent(
          * Unitless (no `MB`, `KB` suffix in the resource itself); the
          * suffix is part of the format string for localisation.
          */
-        @Suppress("MagicNumber")
+        @Suppress("MagicNumber", "ReturnCount")
         public fun humanReadableSize(bytes: Long): String {
             if (bytes < 0) return "0 B"
             if (bytes < 1024) return "$bytes B"
@@ -181,6 +181,7 @@ public fun interface TextResolver {
                 if (args.isEmpty()) {
                     resources.getString(resourceId)
                 } else {
+                    @Suppress("SpreadOperator") // Resources.getString requires a vararg; this site is rare.
                     resources.getString(resourceId, *args)
                 }
             }

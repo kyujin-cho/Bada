@@ -113,6 +113,7 @@ public object ConsentIntents {
      * extra, which makes it easy to drive from a unit test against a
      * real `Intent`-like fake (see [IntentLike]).
      */
+    @Suppress("ReturnCount") // Three early-exit branches are clearer than a nested when.
     public fun parsePayload(intent: IntentLike): Payload? {
         val decision =
             when (intent.action) {

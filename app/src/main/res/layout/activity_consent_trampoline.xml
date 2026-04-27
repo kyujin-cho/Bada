@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Layout for ConsentTrampolineActivity (#22).
+
+  This is the screen-on, lock-screen-bypassing dialog that opens when
+  the user taps the consent notification body. Layout intent:
+
+    * Header: sender device name (or generic fallback) and a subtitle
+      describing the file count + total size summary.
+    * PIN: large, monospaced 4-digit confirmation code so the user can
+      compare it against the sender's screen at a glance — the same UX
+      Quick Share itself uses on Pixel devices.
+    * File list: vertical container, populated at runtime with one
+      TextView per item, capped to a small number with a "and N more"
+      tail when there are too many to render comfortably.
+    * Actions: Accept (primary) / Reject (secondary). Reject is also
+      bound to the activity's back-press / cancel behaviour so the user
+      always has an unambiguous "no" path.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/consent_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+            android:textStyle="bold"
+            tools:text="Pixel 8 wants to share" />
+
+        <TextView
+            android:id="@+id/consent_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+            tools:text="3 files (12.4 MB)" />
+
+        <TextView
+            android:id="@+id/consent_pin_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+            android:text="@string/consent_pin_label" />
+
+        <TextView
+            android:id="@+id/consent_pin"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:letterSpacing="0.4"
+            android:textAppearance="@style/TextAppearance.AppCompat.Display1"
+            android:textStyle="bold"
+            tools:text="1234" />
+
+        <TextView
+            android:id="@+id/consent_files_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+            android:text="@string/consent_files_label" />
+
+        <LinearLayout
+            android:id="@+id/consent_files_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical" />
+
+        <Button
+            android:id="@+id/consent_accept_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/consent_button_accept" />
+
+        <Button
+            android:id="@+id/consent_reject_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/consent_button_reject" />
+
+    </LinearLayout>
+
+</ScrollView>

@@ -6,7 +6,7 @@
   receiver service (#21). Other modules contribute their own strings
   (see :app/res/values/strings.xml for app-wide UI copy).
 -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       User-visible name of the notification channel that backs the
@@ -56,7 +56,7 @@
       ships English-only; `plurals` resources will land alongside the
       Korean translation pass.
     -->
-    <string name="consent_notification_summary_n_items">%1$d item(s) (%2$s)</string>
+    <string name="consent_notification_summary_n_items" tools:ignore="PluralsCandidate">%1$d item(s) (%2$s)</string>
     <string name="consent_notification_summary_no_items">no items</string>
 
     <!--

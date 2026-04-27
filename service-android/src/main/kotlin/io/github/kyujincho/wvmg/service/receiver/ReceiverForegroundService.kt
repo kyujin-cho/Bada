@@ -21,7 +21,6 @@ import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.downloads.DownloadsWriterFactory
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentBroadcastReceiver
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentCoordinator
-import io.github.kyujincho.wvmg.service.receiver.consent.ConsentIntents
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentNotification
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentRegistry
 import kotlinx.coroutines.CoroutineScope

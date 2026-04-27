@@ -51,7 +51,7 @@ public object ConsentRouter {
     ) {
         val payload = ConsentIntents.parsePayload(intent) ?: return
         val entry = registry.unregister(payload.connectionId) ?: return
-        entry.connection.submitUserConsent(payload.accepted)
+        entry.submitConsent(payload.accepted)
         onConsentSubmitted(payload.connectionId)
     }
 }
