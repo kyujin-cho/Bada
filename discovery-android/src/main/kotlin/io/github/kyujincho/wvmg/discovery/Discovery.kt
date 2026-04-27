@@ -48,15 +48,17 @@ import javax.jmdns.ServiceListener
 public class Discovery internal constructor(
     private val locks: LockController,
     private val jmdnsProvider: (String) -> JmDNS,
+    private val networkWatcherFactory: NetworkWatcherFactory = NetworkWatcherFactory.NoOp,
 ) {
     /**
-     * Production constructor. Builds the multicast-lock controller and the
-     * JmDNS factory against the supplied [Context]; only the application
-     * context is retained.
+     * Production constructor. Builds the multicast-lock controller, the
+     * JmDNS factory, and the Wi-Fi network-change watcher against the
+     * supplied [Context]; only the application context is retained.
      */
     public constructor(context: Context) : this(
-        defaultLockController(context),
-        defaultJmdnsProvider(context),
+        locks = defaultLockController(context),
+        jmdnsProvider = defaultJmdnsProvider(context),
+        networkWatcherFactory = AndroidNetworkWatcherFactory(context.applicationContext),
     )
 
     /**
@@ -99,15 +101,13 @@ public class Discovery internal constructor(
             )
 
         locks.acquire()
-        var jmdns: JmDNS? = null
         return try {
-            jmdns = jmdnsProvider("advertise")
-            jmdns.registerService(serviceInfo)
             JmdnsAdvertiseHandle(
-                jmdns = jmdns,
                 serviceInfo = serviceInfo,
                 instanceName = instanceName,
                 port = port,
+                jmdnsProvider = { jmdnsProvider("advertise") },
+                networkWatcherFactory = networkWatcherFactory,
                 onClose = { locks.release() },
             )
         } catch (
@@ -117,17 +117,7 @@ public class Discovery internal constructor(
             // verbatim so callers see the original cause.
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
-            // Best-effort cleanup. We close JmDNS first because closing it
-            // also unregisters services (the registerService call above may
-            // have partially succeeded), then release the lock so the
-            // counter stays balanced even on the failure path.
-            try {
-                jmdns?.close()
-            } catch (
-                @Suppress("TooGenericExceptionCaught") _: Throwable,
-            ) {
-                // swallowed: original failure is the one we care about
-            }
+            // Lock counter must stay balanced even on the failure path.
             locks.release()
             throw t
         }
@@ -254,7 +244,8 @@ public class Discovery internal constructor(
         internal fun forTesting(
             locks: LockController,
             jmdnsProvider: (purpose: String) -> JmDNS,
-        ): Discovery = Discovery(locks, jmdnsProvider)
+            networkWatcherFactory: NetworkWatcherFactory = NetworkWatcherFactory.NoOp,
+        ): Discovery = Discovery(locks, jmdnsProvider, networkWatcherFactory)
 
         private fun defaultLockController(context: Context): LockController =
             MulticastLockController(MulticastLockHolder(context.applicationContext))
@@ -291,20 +282,93 @@ internal class MulticastLockController(
  * Concrete [AdvertiseHandle] that owns one JmDNS instance and one share of
  * the multicast lock. Kept package-private — callers receive it only via
  * the [AdvertiseHandle] interface returned from [Discovery.advertise].
+ *
+ * On Wi-Fi network changes (subscribed via [NetworkWatcher]) the
+ * handle tears down the current JmDNS instance and re-registers the
+ * same [ServiceInfo] against a fresh one. This guarantees the
+ * advertisement keeps pointing at the correct source IP after the
+ * device roams between Wi-Fi networks. Re-registration is serialized
+ * by an internal lock so concurrent network callbacks can't double-
+ * register or race with [close].
  */
 internal class JmdnsAdvertiseHandle(
-    private val jmdns: JmDNS,
     private val serviceInfo: ServiceInfo,
     override val instanceName: String,
     override val port: Int,
+    private val jmdnsProvider: () -> JmDNS,
+    networkWatcherFactory: NetworkWatcherFactory,
     private val onClose: () -> Unit,
 ) : AdvertiseHandle {
     private val active = AtomicBoolean(true)
+    private val lifecycle = Object()
+
+    @Volatile
+    private var current: JmDNS? = null
+
+    private val watcher: NetworkWatcher? =
+        networkWatcherFactory.create(onChanged = ::onNetworkChanged)
+
+    init {
+        // Register synchronously so the caller sees a fully-published
+        // service the moment `advertise` returns. If JmDNS startup fails
+        // we propagate the throwable to the caller, who handles lock
+        // rollback in `Discovery.advertise`.
+        register()
+        watcher?.start()
+    }
 
     override val isActive: Boolean get() = active.get()
 
     override fun close() {
         if (!active.compareAndSet(true, false)) return
+        watcher?.stop()
+        synchronized(lifecycle) {
+            unregisterAndClose(current)
+            current = null
+        }
+        onClose()
+    }
+
+    private fun onNetworkChanged() {
+        if (!active.get()) return
+        synchronized(lifecycle) {
+            // Re-check inside the lock — `close` may have raced ahead and
+            // disabled the handle while this callback was queued.
+            if (!active.get()) return@synchronized
+            unregisterAndClose(current)
+            current = null
+            try {
+                register()
+            } catch (
+                @Suppress("TooGenericExceptionCaught") _: Throwable,
+            ) {
+                // Re-registration on a network change is best-effort: if
+                // the new network isn't ready yet, JmDNS startup throws
+                // an IOException and we'll get another network callback
+                // when the interface fully comes up. Swallowing here
+                // keeps the handle usable for the next callback.
+            }
+        }
+    }
+
+    private fun register() {
+        synchronized(lifecycle) {
+            if (current != null) return
+            val fresh = jmdnsProvider()
+            try {
+                fresh.registerService(serviceInfo)
+                current = fresh
+            } catch (
+                @Suppress("TooGenericExceptionCaught") t: Throwable,
+            ) {
+                unregisterAndClose(fresh)
+                throw t
+            }
+        }
+    }
+
+    private fun unregisterAndClose(jmdns: JmDNS?) {
+        if (jmdns == null) return
         try {
             jmdns.unregisterService(serviceInfo)
         } catch (
@@ -320,6 +384,38 @@ internal class JmdnsAdvertiseHandle(
         ) {
             // Same: final close is best-effort.
         }
-        onClose()
     }
+}
+
+/**
+ * A simple start/stop interface for an external network-change observer.
+ * Implementations call back into the supplied lambda when the watched
+ * network state changes; [JmdnsAdvertiseHandle] consumes that signal as
+ * its "re-register the JmDNS instance" trigger.
+ */
+internal interface NetworkWatcher {
+    fun start()
+
+    fun stop()
+}
+
+/**
+ * Factory for the optional Wi-Fi-network-change watcher. Production
+ * builds use [AndroidNetworkWatcherFactory]; tests + the
+ * `Discovery.forTesting` factory use [NoOp] so unit tests don't need
+ * a `ConnectivityManager`.
+ */
+internal interface NetworkWatcherFactory {
+    fun create(onChanged: () -> Unit): NetworkWatcher?
+
+    object NoOp : NetworkWatcherFactory {
+        override fun create(onChanged: () -> Unit): NetworkWatcher? = null
+    }
+}
+
+/** Production [NetworkWatcherFactory] backed by the Android `ConnectivityManager`. */
+internal class AndroidNetworkWatcherFactory(
+    private val context: Context,
+) : NetworkWatcherFactory {
+    override fun create(onChanged: () -> Unit): NetworkWatcher = NetworkChangeWatcher(context, onChanged)
 }

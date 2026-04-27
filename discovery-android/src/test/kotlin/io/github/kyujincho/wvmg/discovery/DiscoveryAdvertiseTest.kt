@@ -11,6 +11,7 @@ import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.net.InetAddress
+import java.util.concurrent.atomic.AtomicInteger
 import javax.jmdns.JmDNS
 
 /**
@@ -90,6 +91,46 @@ class DiscoveryAdvertiseTest {
     }
 
     @Test
+    fun `network change triggers JmDNS re-registration`() {
+        // Use a counting JmDNS provider so we can observe how many times
+        // a fresh instance was opened across the lifecycle.
+        val opened = AtomicInteger(0)
+        val locks = NoopLockController()
+        val fakeWatcher = FakeNetworkWatcher()
+        val factory =
+            object : NetworkWatcherFactory {
+                override fun create(onChanged: () -> Unit): NetworkWatcher {
+                    fakeWatcher.onChanged = onChanged
+                    return fakeWatcher
+                }
+            }
+        val discovery =
+            Discovery.forTesting(
+                locks = locks,
+                jmdnsProvider = { name ->
+                    opened.incrementAndGet()
+                    JmDNS.create(InetAddress.getLoopbackAddress(), "$name-${opened.get()}")
+                },
+                networkWatcherFactory = factory,
+            )
+        val handle = discovery.advertise(sampleEndpointInfo(), port = 45_678)
+        try {
+            assertThat(opened.get()).isEqualTo(1)
+            assertThat(fakeWatcher.started).isTrue()
+
+            // Simulate a Wi-Fi network change.
+            fakeWatcher.fire()
+            assertThat(opened.get()).isEqualTo(2)
+
+            fakeWatcher.fire()
+            assertThat(opened.get()).isEqualTo(3)
+        } finally {
+            handle.close()
+        }
+        assertThat(fakeWatcher.stopped).isTrue()
+    }
+
+    @Test
     fun `closing the advertise handle is idempotent`() {
         val locks = NoopLockController()
         val discovery =
@@ -114,6 +155,30 @@ class DiscoveryAdvertiseTest {
             deviceName = "Test Device",
             tlvRecords = emptyList(),
         )
+
+    /**
+     * A test-only [NetworkWatcher] that records start/stop and lets the
+     * test trigger the change callback synchronously via [fire].
+     */
+    private class FakeNetworkWatcher : NetworkWatcher {
+        var onChanged: () -> Unit = {}
+        var started: Boolean = false
+            private set
+        var stopped: Boolean = false
+            private set
+
+        override fun start() {
+            started = true
+        }
+
+        override fun stop() {
+            stopped = true
+        }
+
+        fun fire() {
+            onChanged()
+        }
+    }
 
     private class NoopLockController : LockController {
         var acquireCount: Int = 0
