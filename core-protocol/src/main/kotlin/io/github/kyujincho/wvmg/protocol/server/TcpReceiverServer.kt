@@ -194,19 +194,6 @@ public class TcpReceiverServer(
     private val connectionCounter = AtomicLong(0)
 
     /**
-     * Per-connection [Mutex] table. A single Quick Share connection is
-     * inherently single-threaded on the wire (the sequence-number
-     * invariant from #1.9 forbids concurrent sends), but we still
-     * defensively guard the `InboundConnection.run` invocation with a
-     * [Mutex] so a future caller cannot accidentally invoke `run` twice
-     * on the same connection from two different coroutines.
-     *
-     * The map is keyed by the connection id (monotonic counter) and
-     * cleaned up when the connection coroutine completes.
-     */
-    private val connectionMutexes: MutableMap<Long, Mutex> = mutableMapOf()
-
-    /**
      * Live client sockets, keyed by connection id. We track these so
      * [stop] can eagerly close them: the receive path inside
      * [InboundConnection] uses `withContext(Dispatchers.IO)` for blocking
@@ -215,9 +202,13 @@ public class TcpReceiverServer(
      * way to unblock a thread parked in `read()`. Without this,
      * `supervisor.cancelAndJoin()` would deadlock until the peer
      * eventually closes its end.
+     *
+     * Access guarded by [activeSocketsLock]; the accept loop adds and
+     * the connection-completion path removes, while [stop] takes a
+     * snapshot under the lock.
      */
     private val activeSockets: MutableMap<Long, Socket> = mutableMapOf()
-    private val connectionMutexesLock = Any()
+    private val activeSocketsLock = Any()
 
     private val mutableResults: MutableSharedFlow<InboundConnectionCompletion> =
         MutableSharedFlow(replay = 0, extraBufferCapacity = RESULTS_BUFFER)
@@ -326,7 +317,7 @@ public class TcpReceiverServer(
             // an InboundResult.Failed and unblocks the coroutine so
             // cancelAndJoin can complete.
             val socketsToClose: List<Socket> =
-                synchronized(connectionMutexesLock) {
+                synchronized(activeSocketsLock) {
                     val snapshot = activeSockets.values.toList()
                     activeSockets.clear()
                     snapshot
@@ -404,9 +395,13 @@ public class TcpReceiverServer(
      */
     private fun launchConnection(client: Socket) {
         val connectionId = connectionCounter.incrementAndGet()
+        // Per-connection mutex: defense-in-depth against accidental
+        // concurrent invocation of `inbound.run` from two coroutines.
+        // The wire is single-threaded by protocol invariant, but the
+        // mutex makes that explicit at the type level so a future
+        // refactor cannot quietly violate it.
         val mutex = Mutex()
-        synchronized(connectionMutexesLock) {
-            connectionMutexes[connectionId] = mutex
+        synchronized(activeSocketsLock) {
             activeSockets[connectionId] = client
         }
 
@@ -444,8 +439,7 @@ public class TcpReceiverServer(
                     @Suppress("UnsafeCallOnNullableType")
                     InboundResult.Failed("Unexpected ${e::class.simpleName}: ${e.message ?: ""}")
                 } finally {
-                    synchronized(connectionMutexesLock) {
-                        connectionMutexes.remove(connectionId)
+                    synchronized(activeSocketsLock) {
                         activeSockets.remove(connectionId)
                     }
                 }
