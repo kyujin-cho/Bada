@@ -67,6 +67,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
+    // ZXing core — pure-Java QR encoder used to render the Quick Share QR
+    // URL as a scannable bitmap on ShowQrActivity (#84). Only the encoder
+    // (`QRCodeWriter`) is pulled in; the Android camera/scanner side of
+    // ZXing (`zxing-android-embedded`) is intentionally not used.
+    implementation(libs.zxing.core)
+
     testImplementation(libs.junit4)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)

@@ -32,6 +32,13 @@ tink = "1.15.0"
 # and is the version used by recent third-party Quick Share / NearDrop ports.
 jmdns = "3.5.12"
 
+# ZXing (used by :app to render the Quick Share QR-code URL as a scannable
+# bitmap on the sender's screen, see #84). 3.5.3 is the current stable
+# release of the pure-Java `core` artifact; the Android-flavoured
+# `zxing-android-embedded` is intentionally NOT pulled in because we only
+# need the encoder side (BitMatrix → Bitmap conversion is trivial).
+zxingCore = "3.5.3"
+
 # Testing
 junit4 = "4.13.2"
 junitJupiter = "5.11.3"
@@ -67,6 +74,13 @@ tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "
 # bits) so the publish/browse logic can also be exercised in unit tests
 # on a host JVM.
 jmdns = { module = "org.jmdns:jmdns", version.ref = "jmdns" }
+
+# ZXing core — pure-Java QR encoder/decoder. Used by :app to render the
+# Quick Share QR URL as a scannable bitmap (#84). Pure JVM (no Android
+# imports) so the BitMatrix-producer half of the rendering pipeline is
+# unit-testable on a host JVM; only the BitMatrix → Bitmap adapter
+# touches Android types.
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxingCore" }
 
 # Testing
 junit4 = { module = "junit:junit", version.ref = "junit4" }
