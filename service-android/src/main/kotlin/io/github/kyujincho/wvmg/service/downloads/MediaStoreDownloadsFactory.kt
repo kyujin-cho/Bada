@@ -114,7 +114,7 @@ public class MediaStoreDownloadsFactory internal constructor(
      *   has now been committed; `false` if no such destination exists
      *   (already committed, already aborted, or never opened).
      */
-    public fun commit(payloadId: Long): Boolean {
+    override fun commit(payloadId: Long): Boolean {
         val handle = inFlight.remove(payloadId) ?: return false
         handle.commit()
         return true
@@ -133,7 +133,7 @@ public class MediaStoreDownloadsFactory internal constructor(
      * @return `true` if a destination was tracked for [payloadId] and
      *   has now been discarded; `false` if no such destination exists.
      */
-    public fun abort(payloadId: Long): Boolean {
+    override fun abort(payloadId: Long): Boolean {
         val handle = inFlight.remove(payloadId) ?: return false
         handle.discard()
         return true
@@ -146,7 +146,7 @@ public class MediaStoreDownloadsFactory internal constructor(
      *
      * @return The number of destinations discarded.
      */
-    public fun abortAll(): Int {
+    override fun abortAll(): Int {
         var count = 0
         // Snapshot the keys: discard mutates the map.
         for (id in inFlight.keys.toList()) {

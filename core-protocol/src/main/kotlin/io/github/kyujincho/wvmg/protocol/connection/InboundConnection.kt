@@ -146,6 +146,37 @@ public class InboundConnection(
     private var started: Boolean = false
 
     /**
+     * Whether [cancel] has been invoked. Latched true on the first
+     * call so a racing duplicate cancel() does not produce a second
+     * external event (the FSM is idempotent on duplicate `UserCancel`,
+     * but skipping the second send keeps the channel buffer clean).
+     */
+    @Volatile
+    private var cancelled: Boolean = false
+
+    /**
+     * Whether the lifecycle has progressed past the unencrypted
+     * handshake into the dispatch loop. Latched true by
+     * [markHandshakeComplete] once the dispatch loop is ready to drain
+     * [externalEvents]; consulted by [cancel] to decide whether to
+     * fast-path-close the socket (pre-handshake, blocking socket reads
+     * cannot otherwise be interrupted).
+     */
+    @Volatile
+    private var handshakeComplete: Boolean = false
+
+    /**
+     * Called by [InboundConnectionDriver] once the dispatch loop is
+     * running and able to drain [externalEvents]. From that moment on
+     * a [cancel] should cooperate with the FSM (so `CANCEL` +
+     * `DISCONNECTION` make it onto the wire) rather than yank the
+     * socket out from under it.
+     */
+    internal fun markHandshakeComplete() {
+        handshakeComplete = true
+    }
+
+    /**
      * Drive the entire receiver-side lifecycle to completion.
      *
      * MUST be called exactly once per [InboundConnection]. Subsequent
@@ -179,6 +210,7 @@ public class InboundConnection(
                 externalEvents = externalEvents,
                 mutableState = mutableState,
                 factory = factory,
+                onHandshakeComplete = ::markHandshakeComplete,
             )
 
         return try {
@@ -193,6 +225,15 @@ public class InboundConnection(
         } catch (e: Throwable) {
             handleFailure(driver, e)
         } finally {
+            // Always tear down — including on the happy path. The
+            // driver's tearDown is idempotent and includes
+            // factory.abortAll() so any FILE payload that was opened
+            // but did not get a clean FileComplete (and therefore was
+            // not commit()ed) is dropped. Without this, a peer that
+            // hangs up mid-file after the assembler observed the first
+            // chunk would leave a partial download visible in the
+            // user's Downloads UI.
+            runCatching { driver.tearDown() }
             externalEvents.close()
             runCatching { socket.close() }
         }
@@ -224,9 +265,22 @@ public class InboundConnection(
     /**
      * Request local cancellation. Thread-safe.
      *
-     * If the FSM is in a non-terminal state, a `CancelFrame` is sent
-     * to the peer before the connection closes. If the FSM has
-     * already terminated, the request is a no-op.
+     * Behaviour depends on the lifecycle phase:
+     *
+     *  - **Pre-handshake / handshake**: the socket is closed
+     *    immediately. No encrypted frames are possible yet so a wire-
+     *    level `CancelFrame` is meaningless; the peer observes a TCP
+     *    close. The receive loop, which is parked in a blocking read,
+     *    surfaces the close as `EndOfFrameStream` and runs through the
+     *    failure path.
+     *  - **Post-handshake (negotiation, awaiting consent, receiving
+     *    payloads)**: a `Sharing.Nearby.Frame{type=CANCEL}` is sent to
+     *    the peer, followed by `OfflineFrame{type=DISCONNECTION}`,
+     *    before the connection closes. The FSM's `UserCancel` handler
+     *    drives this via [InboundConnectionDriver.applyEffects].
+     *  - **Terminal**: no-op. Late cancel calls (e.g. user taps Cancel
+     *    just as the last byte lands) are silently dropped, not
+     *    surfaced as failure.
      *
      * Distinct from coroutine cancellation: [cancel] cooperates with
      * the FSM (the wire-level CancelFrame goes out before teardown);
@@ -234,7 +288,33 @@ public class InboundConnection(
      * peer infers the disconnect.
      */
     public fun cancel() {
+        if (cancelled) return
+        cancelled = true
+        // Always enqueue the FSM-side event. If the dispatch loop is
+        // running (post-handshake) it drains the event and emits the
+        // wire-level CANCEL + DISCONNECTION sequence. If it is not
+        // running yet, the trySend either lands in the buffer (and is
+        // silently dropped when the channel closes during teardown)
+        // or it fails for capacity reasons -- both are harmless.
         externalEvents.trySend(ExternalEvent.UserCancel)
+        if (!handshakeComplete) {
+            // Pre-handshake fast-path: the dispatch loop has not
+            // started yet (the lifecycle is parked in a blocking
+            // socket read for the unencrypted ConnectionRequest, or
+            // inside Ukey2Server.performHandshake's similar blocking
+            // reads). Closing the socket here unblocks that read with
+            // an IOException, which the lifecycle catches and turns
+            // into a Failed/Cancelled terminal. Without this fast-path
+            // a pre-handshake cancel would sit in the channel forever
+            // and the connection would hang until the peer hung up.
+            //
+            // No CANCEL frame is sent in this path because no
+            // SecureChannel exists yet -- the protocol does not permit
+            // a CANCEL on the unencrypted leg. The peer observes a
+            // TCP close, which Quick Share treats as a connection
+            // abort.
+            runCatching { socket.close() }
+        }
     }
 
     /**
