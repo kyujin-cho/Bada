@@ -19,7 +19,13 @@ class ProtocolInfoTest {
     }
 
     @Test
-    fun `module name is set`() {
-        assertThat(ProtocolInfo.NAME).isNotEmpty()
+    fun `module name identifies the core-protocol module`() {
+        assertThat(ProtocolInfo.NAME).isEqualTo("WhenVivoMeetsGoogle/core-protocol")
+    }
+
+    @Test
+    fun `mDNS service type follows the Bonjour service-protocol form`() {
+        // Sanity-check the literal against the structural shape Quick Share / Bonjour expects.
+        assertThat(ProtocolInfo.MDNS_SERVICE_TYPE).matches("^_[A-Z0-9]+\\._tcp\\.$")
     }
 }
