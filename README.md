@@ -112,6 +112,12 @@ Static analysis is wired up out of the box via
 Phase 1 is in active development. Track progress on the
 [Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1).
 
+## Testing
+
+Manual interop runbooks live under [`docs/testing/`](docs/testing/). Start
+with the [NearDrop on macOS interop checklist](docs/testing/interop-neardrop-macos.md)
+when verifying end-to-end behavior against the reference implementation.
+
 ## Reference material
 
 - Protocol spec: <https://github.com/grishka/NearDrop/blob/master/PROTOCOL.md>
