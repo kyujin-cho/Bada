@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  :discovery-android module manifest.
+
+  Permissions for NEARBY_WIFI_DEVICES (Android 13+), CHANGE_WIFI_MULTICAST_STATE,
+  ACCESS_WIFI_STATE, and BLE-related runtime permissions are declared here as
+  they're wired up in #18 and #26.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+</manifest>

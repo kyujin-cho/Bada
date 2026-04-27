@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  https://developer.android.com/guide/topics/data/autobackup
+  Empty for now: we explicitly disable autoBackup in the manifest until
+  we have a clear story about which on-device data is safe to back up.
+-->
+<full-backup-content />

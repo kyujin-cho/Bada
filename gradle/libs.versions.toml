@@ -1,0 +1,76 @@
+[versions]
+# Toolchain
+kotlin = "2.1.0"
+agp = "8.7.3"
+ksp = "2.1.0-1.0.29"
+
+# Android SDK levels
+compileSdk = "36"
+minSdk = "24"
+targetSdk = "36"
+
+# AndroidX
+androidxCore = "1.13.1"
+androidxAppcompat = "1.7.0"
+androidxActivity = "1.9.3"
+androidxLifecycle = "2.8.7"
+
+# Coroutines
+kotlinxCoroutines = "1.9.0"
+
+# Protobuf (used from L1 onwards; declared here so :core-protocol is ready)
+protobuf = "4.28.3"
+
+# Crypto (optional helper for HKDF; wired up from L1)
+tink = "1.15.0"
+
+# Testing
+junit4 = "4.13.2"
+junitJupiter = "5.11.3"
+truth = "1.4.4"
+androidxJunit = "1.2.1"
+androidxEspresso = "3.6.1"
+
+# Static analysis
+ktlintPlugin = "12.1.2"
+detekt = "1.23.7"
+
+[libraries]
+# AndroidX
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidxAppcompat" }
+androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "androidxActivity" }
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }
+
+# Kotlin coroutines
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+
+# Protobuf
+protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
+
+# Tink (HKDF helper)
+tink = { module = "com.google.crypto.tink:tink", version.ref = "tink" }
+tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "tink" }
+
+# Testing
+junit4 = { module = "junit:junit", version.ref = "junit4" }
+junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junitJupiter" }
+junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junitJupiter" }
+junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junitJupiter" }
+truth = { module = "com.google.truth:truth", version.ref = "truth" }
+androidx-test-junit = { module = "androidx.test.ext:junit", version.ref = "androidxJunit" }
+androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidxEspresso" }
+
+# Detekt formatting plugin (loadable into detekt's plugin classpath)
+detekt-formatting = { module = "io.gitlab.arturbosch.detekt:detekt-formatting", version.ref = "detekt" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintPlugin" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

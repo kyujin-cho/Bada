@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Placeholder launcher foreground. A proper artwork drop replaces this
+  before public release; the geometry below is just a centered ring so
+  the bootstrap APK has *something* recognizable in the launcher.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 C40.745,30 30,40.745 30,54 C30,67.255 40.745,78 54,78 C67.255,78 78,67.255 78,54 C78,40.745 67.255,30 54,30 Z M54,38 C62.837,38 70,45.163 70,54 C70,62.837 62.837,70 54,70 C45.163,70 38,62.837 38,54 C38,45.163 45.163,38 54,38 Z" />
+</vector>
