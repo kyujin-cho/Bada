@@ -193,5 +193,7 @@ class DiscoveryAdvertiseTest {
         override fun release() {
             releaseCount++
         }
+
+        override fun isHeld(): Boolean = acquireCount > releaseCount
     }
 }

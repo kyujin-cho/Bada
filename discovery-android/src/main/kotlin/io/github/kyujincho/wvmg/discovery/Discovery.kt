@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.discovery
 
 import android.content.Context
+import android.util.Log
 import io.github.kyujincho.wvmg.protocol.endpoint.Base64Url
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import kotlinx.coroutines.Dispatchers
@@ -44,12 +45,20 @@ import javax.jmdns.ServiceListener
  * Wi-Fi multicast lock plus a JmDNS factory bound to the device's current
  * Wi-Fi interface. Tests use the internal [Discovery.forTesting] factory
  * to substitute in a fake JmDNS provider and a noop lock controller.
+ *
+ * Diagnostics: call [snapshot] to obtain a [DiscoveryDiagnostics]
+ * describing the current bound interface, multicast-lock state, and
+ * the most recent JmDNS service events. The receiver service logs this
+ * periodically to make silent failures (issue #83) visible in logcat
+ * via the `WvmgDiscovery` tag.
  */
 public class Discovery internal constructor(
     private val locks: LockController,
     private val jmdnsProvider: (String) -> JmDNS,
     private val networkWatcherFactory: NetworkWatcherFactory = NetworkWatcherFactory.NoOp,
 ) {
+    private val diagnostics: DiagnosticsState = DiagnosticsState()
+
     /**
      * Production constructor. Builds the multicast-lock controller, the
      * JmDNS factory, and the Wi-Fi network-change watcher against the
@@ -60,6 +69,17 @@ public class Discovery internal constructor(
         jmdnsProvider = defaultJmdnsProvider(context),
         networkWatcherFactory = AndroidNetworkWatcherFactory(context.applicationContext),
     )
+
+    /**
+     * Returns a snapshot of the current discovery state.
+     *
+     * The receiver service (and any future debug screen) is expected
+     * to call this periodically and log the result so on-device tests
+     * can correlate "no peers visible" against "lock not held" or
+     * "JmDNS bound to loopback". See [DiscoveryDiagnostics] for the
+     * fields returned.
+     */
+    public fun snapshot(): DiscoveryDiagnostics = diagnostics.snapshot(locks.isHeld())
 
     /**
      * Publish this device as a Quick Share peer.
@@ -97,19 +117,34 @@ public class Discovery internal constructor(
                 port,
                 0,
                 0,
+                // JmDNS encodes Map<String, String> values as `key=value`
+                // ASCII text records on the wire — passing the
+                // already-base64-encoded String here keeps the TXT record
+                // human-readable and survives every router and JmDNS
+                // version we've tested. Passing a ByteArray instead would
+                // be encoded as raw bytes and is not recommended.
                 mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to txtValue),
             )
 
+        Log.i(TAG, "advertise: starting publish instance=$instanceName port=$port")
         locks.acquire()
         return try {
-            JmdnsAdvertiseHandle(
-                serviceInfo = serviceInfo,
-                instanceName = instanceName,
-                port = port,
-                jmdnsProvider = { jmdnsProvider("advertise") },
-                networkWatcherFactory = networkWatcherFactory,
-                onClose = { locks.release() },
-            )
+            val handle =
+                JmdnsAdvertiseHandle(
+                    serviceInfo = serviceInfo,
+                    instanceName = instanceName,
+                    port = port,
+                    jmdnsProvider = { jmdnsProvider("advertise") },
+                    networkWatcherFactory = networkWatcherFactory,
+                    diagnostics = diagnostics,
+                    onClose = {
+                        diagnostics.setAdvertising(false)
+                        diagnostics.setAdvertiseBound(null)
+                        locks.release()
+                    },
+                )
+            diagnostics.setAdvertising(true)
+            handle
         } catch (
             // JmDNS surfaces a mix of IOException, IllegalStateException, and
             // its own RuntimeException-derived errors during setup; catching
@@ -117,6 +152,7 @@ public class Discovery internal constructor(
             // verbatim so callers see the original cause.
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
+            Log.e(TAG, "advertise: failed to publish instance=$instanceName", t)
             // Lock counter must stay balanced even on the failure path.
             locks.release()
             throw t
@@ -140,16 +176,61 @@ public class Discovery internal constructor(
      * context for us; we additionally `flowOn(Dispatchers.IO)` so the
      * acquire/release calls don't block the main thread when collected
      * from a UI scope.
+     *
+     * Re-query: after attaching the listener we synchronously call
+     * [JmDNS.list] to force a fresh PTR query. JmDNS's
+     * `addServiceListener` only triggers a one-shot query and would
+     * otherwise depend on cached announcements being delivered between
+     * receiver-up and sender-up; explicitly listing closes that race.
      */
     public fun browse(): Flow<DiscoveryEvent> =
         callbackFlow {
+            // Acquire the multicast lock *inside* the callbackFlow body so
+            // it is owned by the same coroutine that produced the JmDNS
+            // instance. `flowOn(Dispatchers.IO)` ensures this acquire never
+            // runs on the main thread.
             locks.acquire()
-            val jmdns = jmdnsProvider("browse")
+            Log.i(TAG, "browse: starting collector")
+
+            val jmdns =
+                try {
+                    jmdnsProvider("browse")
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.e(TAG, "browse: JmDNS factory threw; releasing multicast lock", t)
+                    locks.release()
+                    throw t
+                }
             val started = AtomicBoolean(true)
+
+            val boundAddress =
+                try {
+                    jmdns.inetAddress
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") _: Throwable,
+                ) {
+                    null
+                }
+            diagnostics.setBrowseBound(boundAddress)
+            diagnostics.setBrowsing(true)
+            Log.i(
+                TAG,
+                "browse: JmDNS opened bound=${boundAddress?.hostAddress ?: "unknown"} " +
+                    "listening for ${QuickShareMdns.SERVICE_TYPE}",
+            )
 
             val listener =
                 object : ServiceListener {
                     override fun serviceAdded(event: ServiceEvent) {
+                        Log.d(TAG, "browse: serviceAdded name=${event.name}")
+                        diagnostics.recordEvent(
+                            DiagnosticEvent(
+                                kind = DiagnosticEvent.Kind.ADDED,
+                                instanceName = event.name,
+                                timestampMillis = System.currentTimeMillis(),
+                            ),
+                        )
                         // JmDNS frequently fires "added" with no TXT data attached
                         // yet. Triggering an explicit info request causes JmDNS to
                         // send a follow-up DNS-SD query and to redeliver via
@@ -160,10 +241,31 @@ public class Discovery internal constructor(
                     }
 
                     override fun serviceRemoved(event: ServiceEvent) {
+                        Log.d(TAG, "browse: serviceRemoved name=${event.name}")
+                        diagnostics.recordEvent(
+                            DiagnosticEvent(
+                                kind = DiagnosticEvent.Kind.REMOVED,
+                                instanceName = event.name,
+                                timestampMillis = System.currentTimeMillis(),
+                            ),
+                        )
                         trySend(DiscoveryEvent.Lost(event.name)).isSuccess
                     }
 
                     override fun serviceResolved(event: ServiceEvent) {
+                        Log.d(
+                            TAG,
+                            "browse: serviceResolved name=${event.name} " +
+                                "addrs=${event.info?.inetAddresses?.joinToString { it.hostAddress }} " +
+                                "port=${event.info?.port}",
+                        )
+                        diagnostics.recordEvent(
+                            DiagnosticEvent(
+                                kind = DiagnosticEvent.Kind.RESOLVED,
+                                instanceName = event.name,
+                                timestampMillis = System.currentTimeMillis(),
+                            ),
+                        )
                         val resolved = toDiscoveredService(event.info ?: return) ?: return
                         trySend(DiscoveryEvent.Resolved(resolved)).isSuccess
                     }
@@ -171,7 +273,26 @@ public class Discovery internal constructor(
 
             jmdns.addServiceListener(QuickShareMdns.SERVICE_TYPE, listener)
 
+            // Force a synchronous PTR query so that any service already
+            // advertised before this collector started gets re-discovered
+            // immediately rather than waiting for an unsolicited
+            // re-announce. JmDNS.list blocks for up to its internal
+            // timeout — we run the whole callbackFlow under
+            // Dispatchers.IO via flowOn(...), so this is fine.
+            try {
+                val seen = jmdns.list(QuickShareMdns.SERVICE_TYPE, LIST_TIMEOUT_MILLIS)
+                Log.i(TAG, "browse: jmdns.list returned ${seen?.size ?: 0} cached services")
+            } catch (
+                @Suppress("TooGenericExceptionCaught") t: Throwable,
+            ) {
+                // JmDNS occasionally throws on list() if multicast send
+                // fails; the listener is still attached so we'll catch
+                // the next unsolicited announce. Don't propagate.
+                Log.w(TAG, "browse: jmdns.list threw; continuing with listener-only path", t)
+            }
+
             awaitClose {
+                Log.i(TAG, "browse: collector closing")
                 // Guard against double-close from a second cancellation: the
                 // contract for awaitClose blocks is "called exactly once",
                 // but defending against a buggy collector is cheap.
@@ -190,6 +311,8 @@ public class Discovery internal constructor(
                     ) {
                         // Same story — final close is best-effort.
                     }
+                    diagnostics.setBrowsing(false)
+                    diagnostics.setBrowseBound(null)
                     locks.release()
                 }
             }
@@ -234,6 +357,19 @@ public class Discovery internal constructor(
         /** Maximum legal TCP port (`2^16 - 1`). */
         public const val MAX_PORT: Int = 0xFFFF
 
+        /** logcat tag — shared with the rest of the discovery module. */
+        internal const val TAG: String = "WvmgDiscovery"
+
+        /**
+         * Bound on the synchronous `jmdns.list` call inside
+         * [browse]. JmDNS waits up to this many milliseconds for cached
+         * answers before returning. Picked to be short enough that a
+         * UI-bound caller doesn't notice a stall on browse start, but
+         * long enough for one multicast round-trip to land on a typical
+         * home Wi-Fi network.
+         */
+        private const val LIST_TIMEOUT_MILLIS: Long = 1_500L
+
         /**
          * Test-only factory that wires up [Discovery] without an Android
          * [Context]. The caller supplies the JmDNS factory and the
@@ -267,6 +403,9 @@ internal interface LockController {
     fun acquire()
 
     fun release()
+
+    /** Whether the underlying multicast lock is currently held. */
+    fun isHeld(): Boolean
 }
 
 /** Production [LockController] backed by [MulticastLockHolder]. */
@@ -276,6 +415,8 @@ internal class MulticastLockController(
     override fun acquire(): Unit = holder.acquire()
 
     override fun release(): Unit = holder.release()
+
+    override fun isHeld(): Boolean = holder.isHeld()
 }
 
 /**
@@ -297,6 +438,7 @@ internal class JmdnsAdvertiseHandle(
     override val port: Int,
     private val jmdnsProvider: () -> JmDNS,
     networkWatcherFactory: NetworkWatcherFactory,
+    private val diagnostics: DiagnosticsState,
     private val onClose: () -> Unit,
 ) : AdvertiseHandle {
     private val active = AtomicBoolean(true)
@@ -321,6 +463,7 @@ internal class JmdnsAdvertiseHandle(
 
     override fun close() {
         if (!active.compareAndSet(true, false)) return
+        Log.i(Discovery.TAG, "advertise: closing handle instance=$instanceName")
         watcher?.stop()
         synchronized(lifecycle) {
             unregisterAndClose(current)
@@ -331,6 +474,7 @@ internal class JmdnsAdvertiseHandle(
 
     private fun onNetworkChanged() {
         if (!active.get()) return
+        Log.i(Discovery.TAG, "advertise: network changed, re-registering instance=$instanceName")
         synchronized(lifecycle) {
             // Re-check inside the lock — `close` may have raced ahead and
             // disabled the handle while this callback was queued.
@@ -340,13 +484,14 @@ internal class JmdnsAdvertiseHandle(
             try {
                 register()
             } catch (
-                @Suppress("TooGenericExceptionCaught") _: Throwable,
+                @Suppress("TooGenericExceptionCaught") t: Throwable,
             ) {
                 // Re-registration on a network change is best-effort: if
                 // the new network isn't ready yet, JmDNS startup throws
                 // an IOException and we'll get another network callback
                 // when the interface fully comes up. Swallowing here
                 // keeps the handle usable for the next callback.
+                Log.w(Discovery.TAG, "advertise: re-register failed; will retry on next network event", t)
             }
         }
     }
@@ -358,6 +503,20 @@ internal class JmdnsAdvertiseHandle(
             try {
                 fresh.registerService(serviceInfo)
                 current = fresh
+                val bound =
+                    try {
+                        fresh.inetAddress
+                    } catch (
+                        @Suppress("TooGenericExceptionCaught") _: Throwable,
+                    ) {
+                        null
+                    }
+                diagnostics.setAdvertiseBound(bound)
+                Log.i(
+                    Discovery.TAG,
+                    "advertise: registered instance=$instanceName " +
+                        "bound=${bound?.hostAddress ?: "unknown"} port=$port",
+                )
             } catch (
                 @Suppress("TooGenericExceptionCaught") t: Throwable,
             ) {

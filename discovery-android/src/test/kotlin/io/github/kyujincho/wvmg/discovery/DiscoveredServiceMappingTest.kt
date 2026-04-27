@@ -109,6 +109,8 @@ class DiscoveredServiceMappingTest {
                     override fun acquire() = Unit
 
                     override fun release() = Unit
+
+                    override fun isHeld(): Boolean = false
                 },
             jmdnsProvider = { error("toDiscoveredService should not need a JmDNS instance") },
         )

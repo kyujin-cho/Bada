@@ -36,6 +36,17 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests {
+            // The discovery code calls `android.util.Log.i(...)` for the
+            // structured diagnostics added in #83. Without
+            // `returnDefaultValues = true` the AGP unit-test runtime
+            // throws `Method i in android.util.Log not mocked` from
+            // every JVM test that hits a logging path.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 kotlin {

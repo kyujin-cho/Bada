@@ -14,6 +14,7 @@ import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.discovery.Discovery
@@ -28,6 +29,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicReference
 
@@ -198,6 +201,41 @@ public class ReceiverForegroundService : Service() {
                 stopReceiverAndExit()
             }
         }
+
+        // Periodically log the discovery diagnostics so issue #83's
+        // silent-failure surface is visible in logcat without needing a
+        // debug screen. The cadence is intentionally slow (every 10s)
+        // so we don't spam logcat in the steady state.
+        startDiscoveryDiagnosticsLogger()
+    }
+
+    /**
+     * Emit a [DiscoveryDiagnostics] line to logcat every
+     * [DIAGNOSTICS_LOG_INTERVAL_MS] ms while the service is running.
+     * Wired off the [ActiveDiscoveryHolder] so any session factory that
+     * stores a [Discovery] there gets observed for free; if no
+     * [Discovery] is registered (e.g. tests installing a custom
+     * factory) the loop simply skips logging and idles.
+     */
+    private fun startDiscoveryDiagnosticsLogger() {
+        serviceScope.launch {
+            while (isActive) {
+                val discovery = ActiveDiscoveryHolder.current()
+                if (discovery != null) {
+                    val snap = discovery.snapshot()
+                    Log.i(
+                        DIAGNOSTICS_TAG,
+                        "discovery snapshot: " +
+                            "advertising=${snap.advertising} browsing=${snap.browsing} " +
+                            "lockHeld=${snap.multicastLockHeld} " +
+                            "advBound=${snap.advertiseBoundAddress?.hostAddress ?: "-"} " +
+                            "browseBound=${snap.browseBoundAddress?.hostAddress ?: "-"} " +
+                            "events=${snap.recentEvents.size}",
+                    )
+                }
+                delay(DIAGNOSTICS_LOG_INTERVAL_MS)
+            }
+        }
     }
 
     /**
@@ -281,6 +319,7 @@ public class ReceiverForegroundService : Service() {
 
         session?.stop()
         session = null
+        ActiveDiscoveryHolder.clear()
         serviceJob.cancel()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -358,11 +397,16 @@ public class ReceiverForegroundService : Service() {
             SessionFactory { context ->
                 val identity = EndpointIdentityHolder.snapshot.get() ?: defaultEndpointInfo(context)
                 EndpointIdentityHolder.snapshot.compareAndSet(null, identity)
+                // Keep one Discovery per session so the periodic
+                // diagnostic snapshot in [startReceiverSession] reflects
+                // the same instance the advertise lambda is using.
+                val discovery = Discovery(context)
+                ActiveDiscoveryHolder.set(discovery)
                 ReceiverSession(
                     tcpServerFactory = TcpServerFactory.default(),
                     advertiser =
                         DiscoveryAdvertiser { endpointInfo, port ->
-                            Discovery(context).advertise(endpointInfo, port)
+                            discovery.advertise(endpointInfo, port)
                         },
                     multicastLock = AndroidMulticastLockController(context),
                     factoryProvider = { DownloadsWriterFactory.create(context) },
@@ -441,6 +485,40 @@ public class ReceiverForegroundService : Service() {
         // single-byte length limit and is more than enough for typical
         // app-label names ("Quick Share" is 11).
         private const val MAX_DEFAULT_NAME_BYTES = 64
+
+        /**
+         * Cadence for the discovery diagnostics logger spawned in
+         * [startDiscoveryDiagnosticsLogger]. 10 s strikes a balance
+         * between catching the silent-failure window from issue #83
+         * (peers should be visible within a few seconds) and not
+         * flooding logcat in steady state.
+         */
+        private const val DIAGNOSTICS_LOG_INTERVAL_MS: Long = 10_000L
+
+        /** logcat tag for the diagnostics line — matches the discovery module. */
+        private const val DIAGNOSTICS_TAG: String = "WvmgDiscovery"
+    }
+}
+
+/**
+ * Process-wide holder for the active [Discovery] instance. The
+ * receiver session factory stashes its [Discovery] here so the service
+ * body's diagnostic-snapshot loop can read it without expanding the
+ * [SessionFactory] interface. Tests that install a custom factory
+ * never touch this holder and the snapshot loop simply finds `null`.
+ */
+internal object ActiveDiscoveryHolder {
+    @Volatile
+    private var ref: io.github.kyujincho.wvmg.discovery.Discovery? = null
+
+    fun set(discovery: io.github.kyujincho.wvmg.discovery.Discovery) {
+        ref = discovery
+    }
+
+    fun current(): io.github.kyujincho.wvmg.discovery.Discovery? = ref
+
+    fun clear() {
+        ref = null
     }
 }
 
