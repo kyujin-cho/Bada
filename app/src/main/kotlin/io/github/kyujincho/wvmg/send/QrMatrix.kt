@@ -39,6 +39,15 @@ public object QrMatrix {
     public val DEFAULT_ERROR_CORRECTION: ErrorCorrectionLevel = ErrorCorrectionLevel.M
 
     /**
+     * Quiet-zone width around the QR symbol, in modules. The QR spec
+     * mandates 4 modules of light margin for reliable decoding by
+     * stock camera apps; this matches ZXing's default but is set
+     * explicitly to keep the decoder-friendly margin visible at this
+     * seam.
+     */
+    private const val QUIET_ZONE_MODULES: Int = 4
+
+    /**
      * Encode [content] as a QR-code [BitMatrix] of the requested pixel
      * dimensions.
      *
@@ -70,10 +79,12 @@ public object QrMatrix {
                 // Quick Share URLs are pure ASCII; pinning the charset
                 // keeps the encoded byte segments deterministic.
                 EncodeHintType.CHARACTER_SET to "UTF-8",
-                // Standard 4-module quiet zone. ZXing defaults to 4
-                // already, but we set it explicitly to make the
-                // decoder-friendly margin visible at this seam.
-                EncodeHintType.MARGIN to 1,
+                // Standard 4-module quiet zone — required by the QR
+                // spec for reliable decoding by stock camera apps. We
+                // set it explicitly rather than relying on the ZXing
+                // default to make the decoder-friendly margin visible
+                // at this seam.
+                EncodeHintType.MARGIN to QUIET_ZONE_MODULES,
             )
 
         return QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size, hints)
