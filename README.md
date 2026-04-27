@@ -32,7 +32,11 @@ Tink's transitive `protobuf-java` dependency that would clash with
 layer of the Quick Share transport) lives in the same module as
 `FramedConnection` under `...protocol.transport`. The UKEY2 P256_SHA512
 key-exchange handshake (`Ukey2Client`, `Ukey2Server`) lives under
-`...protocol.ukey2` and runs over `FramedConnection`.
+`...protocol.ukey2` and runs over `FramedConnection`. The post-handshake
+HKDF chain that derives the four AES-256 / HMAC-SHA256 traffic keys
+(`D2DKeyDerivation`, `D2DSessionKeys`) lives next to `Hkdf` in
+`...protocol.crypto` and is locked down by KAT vectors in
+`:core-protocol-test`.
 
 ## Toolchain
 
