@@ -171,6 +171,38 @@ public class OutboundConnection(
     private var started: Boolean = false
 
     /**
+     * Whether [cancel] has been invoked. Latched true so duplicate
+     * calls do not produce duplicate FSM events.
+     */
+    @Volatile
+    private var cancelled: Boolean = false
+
+    /**
+     * The socket the dispatch loop owns. Set in [run] right after
+     * `openSocket()` returns; consulted by [cancel] for the pre-
+     * handshake fast-path close. `null` before TCP connect succeeds
+     * (in which case [cancelled] alone is enough — the connect path
+     * polls the flag) and after the lifecycle has torn down the
+     * socket itself.
+     */
+    @Volatile
+    private var socketRef: Socket? = null
+
+    /**
+     * Whether the lifecycle has progressed past the unencrypted
+     * handshake into the dispatch loop. Latched true by
+     * [markHandshakeComplete] once the dispatch loop is ready to drain
+     * [externalEvents]; consulted by [cancel] to decide between the
+     * cooperative FSM path and the raw-socket-close fast-path.
+     */
+    @Volatile
+    private var handshakeComplete: Boolean = false
+
+    internal fun markHandshakeComplete() {
+        handshakeComplete = true
+    }
+
+    /**
      * Drive the entire sender-side lifecycle to completion.
      *
      * MUST be called exactly once per [OutboundConnection]. Subsequent
@@ -210,6 +242,17 @@ public class OutboundConnection(
                 mutableState.value = OutboundConnectionState.Failed(reason)
                 return OutboundResult.Failed(reason)
             }
+        socketRef = socket
+        // A cancel() that arrived while we were blocked in
+        // openSocket() couldn't close the socket then (it didn't exist
+        // yet), but the connect just succeeded. Honour the latched
+        // cancellation by closing the new socket eagerly so the
+        // dispatch loop's first read fails fast. Without this, a
+        // pre-handshake cancel that lost the race against a fast TCP
+        // connect would have to wait for a peer-side timeout.
+        if (cancelled) {
+            runCatching { socket.close() }
+        }
 
         val driver =
             OutboundConnectionDriver(
@@ -221,6 +264,7 @@ public class OutboundConnection(
                 endpointInfo = endpointInfo,
                 qrCodeHandshakeData = qrCodeHandshakeData,
                 files = files,
+                onHandshakeComplete = ::markHandshakeComplete,
             )
 
         return try {
@@ -243,12 +287,35 @@ public class OutboundConnection(
     /**
      * Request local cancellation. Thread-safe.
      *
-     * If the FSM is in a non-terminal state, a `CancelFrame` is sent
-     * to the peer before the connection closes. If the FSM has
-     * already terminated, the request is a no-op.
+     * Behaviour depends on the lifecycle phase:
+     *
+     *  - **Pre-TCP-connect**: latches the cancel flag. The connect
+     *    path observes it as soon as the connect call returns and
+     *    closes the socket immediately, surfacing as Failed/Cancelled.
+     *    No frames are sent because no socket existed yet.
+     *  - **Pre-handshake (during the unencrypted ConnectionRequest /
+     *    UKEY2 leg)**: closes the socket directly. No `CancelFrame`
+     *    is sent because no `SecureChannel` exists yet to encrypt one.
+     *    The peer observes a TCP close.
+     *  - **Post-handshake**: enqueues a `UserCancel` event for the
+     *    dispatch loop, which drives the FSM. The FSM emits
+     *    `SendFrame{CANCEL}` followed by the `Disconnection`
+     *    `OfflineFrame` and the connection closes cleanly.
+     *  - **Terminal**: no-op.
      */
     public fun cancel() {
+        if (cancelled) return
+        cancelled = true
         externalEvents.trySend(OutboundExternalEvent.UserCancel)
+        if (!handshakeComplete) {
+            // Pre-handshake fast-path. Close the socket if it exists
+            // (post-connect, pre-dispatch-loop). If the lifecycle is
+            // still inside `openSocket()` we leave the connect to
+            // fail / succeed naturally; the post-connect block in
+            // [run] re-checks [cancelled] and closes the new socket
+            // immediately.
+            socketRef?.let { runCatching { it.close() } }
+        }
     }
 
     /**

@@ -70,6 +70,7 @@ internal class OutboundConnectionDriver(
     private val endpointInfo: ByteArray,
     private val qrCodeHandshakeData: ByteArray?,
     private val files: List<FileSource>,
+    private val onHandshakeComplete: () -> Unit = {},
 ) {
     private var framedConnection: FramedConnection? = null
     private var secureChannel: SecureChannel? = null
@@ -140,6 +141,13 @@ internal class OutboundConnectionDriver(
 
         // Step 9: surface PIN via state and run the dispatch loop.
         mutableState.value = OutboundConnectionState.AwaitingRemoteAcceptance(pin)
+
+        // Mark the handshake as complete so a racing UI-side cancel()
+        // takes the cooperative FSM path (CANCEL + DISCONNECTION on the
+        // wire) instead of the pre-handshake fast-path (raw socket
+        // close). The dispatch loop drains externalEvents from this
+        // point on.
+        onHandshakeComplete()
 
         return runReceiveLoop(channel, negotiationFsm)
     }

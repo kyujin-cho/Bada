@@ -734,8 +734,9 @@ class PayloadAssemblerTest {
     @Test
     fun `factory exception on first FILE chunk leaks no state`() {
         val throwingFactory =
-            FileDestinationFactory { _ ->
-                throw java.io.IOException("simulated open failure")
+            object : FileDestinationFactory {
+                override fun open(header: PayloadHeader): WritableByteChannel =
+                    throw java.io.IOException("simulated open failure")
             }
         val assembler = PayloadAssembler(fileDestinationFactory = throwingFactory)
         assertThrows<java.io.IOException> {

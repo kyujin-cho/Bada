@@ -64,6 +64,7 @@ internal class InboundConnectionDriver(
     private val externalEvents: Channel<ExternalEvent>,
     private val mutableState: MutableStateFlow<InboundConnectionState>,
     private val factory: FileDestinationFactory,
+    private val onHandshakeComplete: () -> Unit = {},
 ) {
     private var framedConnection: FramedConnection? = null
     private var secureChannel: SecureChannel? = null
@@ -168,6 +169,13 @@ internal class InboundConnectionDriver(
         val negotiationFsm = InboundSharingFsm(secureRandom = secureRandom).also { fsm = it }
         applyEffects(channel, negotiationFsm.start())
 
+        // Mark the handshake as complete so a racing UI-side cancel()
+        // takes the cooperative FSM path (CANCEL + DISCONNECTION on the
+        // wire) instead of the pre-handshake fast-path (raw socket
+        // close). The dispatch loop drains externalEvents from this
+        // point on.
+        onHandshakeComplete()
+
         return runReceiveLoop(channel, negotiationFsm)
     }
 
@@ -175,13 +183,26 @@ internal class InboundConnectionDriver(
      * Tear down all owned resources. Safe to call multiple times; each
      * closeable swallows its own IOException so a single failing close
      * cannot leak the others. Closes in dependency order (SecureChannel,
-     * FramedConnection / socket, then assembler).
+     * FramedConnection / socket, assembler), then drops every still-
+     * pending FILE destination via [FileDestinationFactory.abortAll] so
+     * partial files do not leak into the user's Downloads.
+     *
+     * The factory call MUST come after [PayloadAssembler.reset] so that
+     * the assembler has already closed its writable channels; otherwise
+     * the abort path could observe a still-open `OutputStream` and
+     * silently lose the in-progress chunk's bytes. (NearDrop accepts
+     * this exact ordering.)
      */
     fun tearDown() {
         runCatching { secureChannel?.close() }
         runCatching { framedConnection?.close() }
         runCatching { socket.close() }
         runCatching { assembler.reset() }
+        // Best-effort drop every reserved-but-not-committed destination.
+        // For factories without commit semantics (TempFile, in-memory)
+        // this is a documented no-op; for MediaStoreDownloadsFactory
+        // this is the path that deletes partial Downloads rows.
+        runCatching { factory.abortAll() }
     }
 
     /**
@@ -370,6 +391,16 @@ internal class InboundConnectionDriver(
 
     /** FILE payloads are always announced. */
     private suspend fun handleFileComplete(event: PayloadEvent.FileComplete): InboundResult? {
+        // Publish the destination now that the assembler reported a
+        // clean LAST_CHUNK. For MediaStoreDownloadsFactory this clears
+        // IS_PENDING so the file becomes visible in the system Downloads
+        // UI; for stateless factories (TempFile, in-memory) it is a
+        // documented no-op. Doing this BEFORE recording the
+        // ReceivedItem is deliberate: a commit failure should surface
+        // to the caller as a Failed terminal, not as a "successful"
+        // received-item that secretly never made it past the pending
+        // bucket.
+        runCatching { factory.commit(event.payloadId) }
         received +=
             ReceivedItem.File(
                 payloadId = event.payloadId,
