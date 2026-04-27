@@ -8,8 +8,8 @@ package io.github.kyujincho.wvmg.protocol.payload
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadChunk
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
+import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 import java.nio.channels.WritableByteChannel
 
 /**
@@ -413,13 +413,6 @@ public class PayloadAssembler(
         }
     }
 
-    // Used only for the `ByteBuffer.write` no-op branch. Kept as a
-    // private helper so the call site reads naturally.
-    @Suppress("unused")
-    private fun WritableByteChannel.writeAll(buffer: ByteBuffer) {
-        while (buffer.hasRemaining()) write(buffer)
-    }
-
     public companion object {
         /**
          * `LAST_CHUNK` bit in `PayloadChunk.flags`, copied from the proto
@@ -429,15 +422,19 @@ public class PayloadAssembler(
         public const val LAST_CHUNK_FLAG: Int = 0x1
 
         /**
-         * Default `total_size` cap for BYTES payloads. 5 MiB matches the
-         * upper bound Android's Quick Share enforces on negotiation
-         * messages; actual file content is always sent as FILE payloads
-         * (which stream straight to disk and have no in-memory cap).
+         * Default `total_size` cap for BYTES payloads. Anchored to
+         * [FramedConnection.SANE_FRAME_LENGTH] so the assembler-level cap
+         * never exceeds what the transport will even let onto the wire:
+         * a single decrypted `OfflineFrame` cannot be larger than the
+         * frame size cap, so a BYTES payload that fits in one chunk
+         * cannot exceed it either, and even multi-chunk BYTES is
+         * naturally bounded by what the higher protocol uses BYTES for
+         * (small negotiation messages).
          *
          * Exposed publicly so tests can dial it down to drive the
-         * oversized-BYTES rejection path without allocating 5 MiB of test
-         * vector bytes.
+         * oversized-BYTES rejection path without allocating megabytes of
+         * test vector bytes.
          */
-        public const val DEFAULT_SANE_FRAME_LENGTH: Int = 5 * 1024 * 1024
+        public const val DEFAULT_SANE_FRAME_LENGTH: Int = FramedConnection.SANE_FRAME_LENGTH
     }
 }
