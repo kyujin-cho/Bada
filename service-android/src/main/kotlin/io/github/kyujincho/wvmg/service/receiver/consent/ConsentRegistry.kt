@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.service.receiver.consent
 
 import io.github.kyujincho.wvmg.protocol.connection.InboundConnection
+import io.github.kyujincho.wvmg.protocol.connection.TransferItem
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -73,6 +74,7 @@ public class ConsentRegistry {
         public val pin: String,
         public val itemCount: Int,
         public val totalSize: Long,
+        public val items: List<TransferItem> = emptyList(),
         submitConsent: ((Boolean) -> Unit)? = null,
     ) {
         /**
@@ -92,7 +94,8 @@ public class ConsentRegistry {
                 sourceDeviceName == other.sourceDeviceName &&
                 pin == other.pin &&
                 itemCount == other.itemCount &&
-                totalSize == other.totalSize
+                totalSize == other.totalSize &&
+                items == other.items
         }
 
         override fun hashCode(): Int {
@@ -101,12 +104,13 @@ public class ConsentRegistry {
             result = 31 * result + pin.hashCode()
             result = 31 * result + itemCount
             result = 31 * result + totalSize.hashCode()
+            result = 31 * result + items.hashCode()
             return result
         }
 
         override fun toString(): String =
             "Entry(connection=$connection, sourceDeviceName=$sourceDeviceName, pin=$pin, " +
-                "itemCount=$itemCount, totalSize=$totalSize)"
+                "itemCount=$itemCount, totalSize=$totalSize, items=${items.size} entries)"
     }
 
     /**

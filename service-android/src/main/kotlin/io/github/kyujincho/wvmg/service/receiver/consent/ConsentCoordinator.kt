@@ -176,6 +176,7 @@ public class ConsentCoordinator(
             pin = metadata.pin,
             itemCount = metadata.items.size,
             totalSize = metadata.totalSize,
+            items = metadata.items,
             submitConsent = consentSubmitter(connection),
         )
 

@@ -157,18 +157,11 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
         pinView.text = entry.pin
 
-        // The registry only carries a count + summary, not the
-        // individual TransferItem list. Item lines are populated from
-        // the live connection's most recent state — that snapshot
-        // matches what the user is being asked to consent to.
-        val state = entry.connection.state.value
-        val items: List<TransferItem> =
-            if (state is io.github.kyujincho.wvmg.protocol.connection.InboundConnectionState.WaitingForUserConsent) {
-                state.metadata.items
-            } else {
-                emptyList()
-            }
-        renderItemList(list, items)
+        // Render the snapshot captured by the coordinator at the moment
+        // the consent state was reached. Reading state.value would race
+        // with the FSM advancing past WaitingForUserConsent (e.g. the
+        // peer cancelled while the user was reaching for the screen).
+        renderItemList(list, entry.items)
     }
 
     private fun renderItemList(
