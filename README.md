@@ -61,7 +61,16 @@ coroutine-based lifecycle (`suspend fun run(factory)`), a
 `submitUserConsent(accepted)` / `cancel()` pair. The same module surfaces
 the `TransferMetadata` (filenames, sizes, MIME types, the 4-digit
 confirmation PIN derived from the UKEY2 `authString`) that the consent UI
-renders.
+renders. On Android, `:service-android` hosts the `connectedDevice`-typed
+`ReceiverForegroundService` that brings this stack online: it acquires
+the Wi-Fi `MulticastLock`, binds the `TcpReceiverServer` accept loop on
+an ephemeral port, registers the `Discovery.advertise` mDNS record
+against that port, and supplies a fresh `MediaStoreDownloadsFactory` per
+accepted connection so the per-payload `IS_PENDING` state never bleeds
+across transfers. The bulk of the lifecycle logic lives in a pure-JVM
+`ReceiverSession` helper that the `Service` only thinly wraps, keeping
+the start/stop/error-rollback paths exhaustively unit-testable without
+Robolectric.
 
 ## Toolchain
 
