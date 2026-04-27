@@ -168,7 +168,16 @@ internal class InboundConnectionDriver(
         fsm: InboundSharingFsm,
     ): InboundResult =
         coroutineScope {
-            val wireChannel: Channel<WireMessage> = Channel(Channel.UNLIMITED)
+            // RENDEZVOUS capacity (the default) means the inbound pump
+            // suspends on `send` until the dispatch loop is ready to
+            // `receive`. This back-pressures a peer that tries to fire
+            // frames faster than we process them: the pump simply
+            // stops reading the SecureChannel, the SecureChannel stops
+            // reading the FramedConnection, and the FramedConnection's
+            // TCP receive buffer fills up. Anything looser (UNLIMITED,
+            // BUFFERED) would let an attacker grow this process's heap
+            // without bound by spamming small frames.
+            val wireChannel: Channel<WireMessage> = Channel(Channel.RENDEZVOUS)
             val pumpJob: Job = launch { runInboundPump(channel, wireChannel) }
             try {
                 dispatchLoop(channel, fsm, wireChannel)
