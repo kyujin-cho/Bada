@@ -97,11 +97,13 @@ import kotlinx.coroutines.launch
  *
  * [BleScannerGate] abstracts the platform `BluetoothLeScanner` so unit
  * tests on a plain JVM can drive the lifecycle through a fake. Tests
- * that need to observe the [activity] flow flip use a
- * [kotlinx.coroutines.test.TestScope] with a virtual time source.
+ * that need to observe the [activity] flow flip drive the inactivity
+ * timer through `runTest`'s virtual scheduler — see
+ * `BleQuickShareScannerTest`.
  *
- * @param coroutineScope scope that owns the inactivity-timeout job and
- *   the hot conversion of [pulses]; cancelling it stops the scanner.
+ * @param coroutineScope scope that owns the inactivity-timeout
+ *   coroutine. Cancelling the scope only stops the timer — call [stop]
+ *   explicitly to release the platform scan registration.
  * @param gate platform-scanner abstraction; tests inject a fake.
  * @param permissionChecker checks `BLUETOOTH_SCAN` at start time;
  *   defaults to a [ContextCompat]-backed implementation.
