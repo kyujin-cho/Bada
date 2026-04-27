@@ -28,7 +28,9 @@ framing have hundreds of edge cases that we need KAT coverage on. HKDF-SHA256
 is implemented directly on `javax.crypto.Mac("HmacSHA256")` (see
 `:core-protocol`'s `Hkdf` object) rather than via Google Tink, avoiding
 Tink's transitive `protobuf-java` dependency that would clash with
-`protobuf-javalite` on Android.
+`protobuf-javalite` on Android. Length-prefixed TCP framing (the lowest
+layer of the Quick Share transport) lives in the same module as
+`FramedConnection` under `...protocol.transport`.
 
 ## Toolchain
 
