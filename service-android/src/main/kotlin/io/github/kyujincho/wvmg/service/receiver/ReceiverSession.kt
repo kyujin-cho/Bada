@@ -156,7 +156,7 @@ public class ReceiverSession(
      *
      * @return The bound TCP port (also reachable via [boundPort]).
      */
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
     public suspend fun start(): Int {
         check(started.compareAndSet(false, true)) {
             "ReceiverSession.start() may only be invoked once"

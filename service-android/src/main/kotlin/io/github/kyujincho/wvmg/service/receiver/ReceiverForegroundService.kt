@@ -162,12 +162,20 @@ public class ReceiverForegroundService : Service() {
         serviceScope.launch {
             try {
                 newSession.start()
-            } catch (t: Throwable) {
+            } catch (
+                @Suppress("SwallowedException") t: Throwable,
+            ) {
                 // Setup failed — bring the service down so the user
                 // notification doesn't claim we're listening when we
                 // aren't. The error path is intentionally quiet here;
-                // surfacing it to the UI is the consent-screen / error
-                // toast story tracked in #22.
+                // surfacing the throwable to the UI is the
+                // consent-screen / error-toast story tracked in #22,
+                // which will subscribe to a richer error flow added by
+                // that PR. Until then we deliberately swallow the
+                // throwable: the alternative (logging via android.util.Log
+                // here) drags an Android dependency into the otherwise
+                // pure-coordination path and pre-empts the design space
+                // for #22.
                 stopReceiverAndExit()
             }
         }
@@ -288,7 +296,9 @@ public class ReceiverForegroundService : Service() {
          */
         private fun defaultEndpointInfo(context: Context): EndpointInfo {
             val name =
-                context.applicationInfo.loadLabel(context.packageManager).toString()
+                context.applicationInfo
+                    .loadLabel(context.packageManager)
+                    .toString()
                     .ifBlank { DEFAULT_DEVICE_NAME }
                     .take(MAX_DEFAULT_NAME_BYTES)
             return EndpointInfo(

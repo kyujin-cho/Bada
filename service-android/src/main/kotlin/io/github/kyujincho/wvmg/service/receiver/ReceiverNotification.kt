@@ -90,7 +90,8 @@ internal object ReceiverNotification {
         context: Context,
         contentIntent: PendingIntent?,
     ): Notification =
-        NotificationCompat.Builder(context, CHANNEL_ID)
+        NotificationCompat
+            .Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(context.getString(R.string.receiver_notification_title))
             .setContentText(context.getString(R.string.receiver_notification_text))
@@ -124,12 +125,10 @@ internal object ReceiverNotification {
             Intent(context, target).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
-        val flags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
+        // FLAG_IMMUTABLE was introduced in API 23. The :service-android
+        // module's minSdk is 24 (see libs.versions.toml), so the flag is
+        // always available — no SDK_INT branch needed.
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         return PendingIntent.getActivity(context, OPEN_APP_REQUEST_CODE, intent, flags)
     }
 
