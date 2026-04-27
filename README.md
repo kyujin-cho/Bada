@@ -36,7 +36,13 @@ key-exchange handshake (`Ukey2Client`, `Ukey2Server`) lives under
 HKDF chain that derives the four AES-256 / HMAC-SHA256 traffic keys
 (`D2DKeyDerivation`, `D2DSessionKeys`) lives next to `Hkdf` in
 `...protocol.crypto` and is locked down by KAT vectors in
-`:core-protocol-test`.
+`:core-protocol-test`. The authenticated-encryption layer that wraps
+every post-UKEY2 frame in a `SecureMessage` envelope (AES-256-CBC for
+confidentiality + HMAC-SHA256 for integrity, with strict pre-incremented
+sequence numbers and HMAC-before-decrypt order) lives under
+`...protocol.crypto.securemessage` as `SecureMessageCodec` (stateless
+primitive) and `SecureChannel` (per-connection wrapper around
+`FramedConnection` that reads and writes `OfflineFrame` protos).
 
 ## Toolchain
 
