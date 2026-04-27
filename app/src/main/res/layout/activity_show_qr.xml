@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  QR-code display screen launched from SendActivity (#24 + #20).
+  QR-code display screen launched from SendActivity (#24 + #20 + #84).
 
-  Phase 1 stub: zxing isn't on the dependency graph yet, so we render
-  the QR URL as monospace text. The receiver-side flow that pairs with
-  this URL is not yet wired in (#28 brings the e2e wiring), so the
-  Phase 1 build only needs to surface the URL.
+  Renders the canonical Quick Share QR URL (built by `QrUrl.build`) as a
+  scannable bitmap via ZXing (#84). The URL is also surfaced verbatim as
+  monospace selectable text directly below the bitmap so the user can
+  copy/share it as a fallback when QR scanning is not an option.
+
+  Layout shape: vertical LinearLayout — title, intro, square QR ImageView
+  (~75% of the shorter screen edge, sized programmatically by
+  ShowQrActivity), monospace selectable URL TextView, OK/Done button.
+  Wrapped in a ScrollView so the OK button is always reachable on small
+  screens / large font scales.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -31,6 +37,21 @@
             android:layout_marginTop="8dp"
             android:text="@string/show_qr_intro"
             android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+        <!--
+          Square QR bitmap. Width/height are set programmatically by
+          ShowQrActivity to ~75% of the shorter screen edge. The default
+          values here keep the preview looking sensible in Layout
+          Editor; they are overridden at runtime.
+        -->
+        <ImageView
+            android:id="@+id/show_qr_bitmap"
+            android:layout_width="240dp"
+            android:layout_height="240dp"
+            android:layout_marginTop="24dp"
+            android:layout_gravity="center_horizontal"
+            android:contentDescription="@string/show_qr_image_description"
+            android:background="@android:color/white" />
 
         <TextView
             android:id="@+id/show_qr_url"

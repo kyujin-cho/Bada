@@ -58,9 +58,10 @@
     <string name="send_status_failure_reason">Reason: %1$s</string>
     <string name="send_status_progress">%1$s of %2$s</string>
 
-    <!-- QR-code (#20) screen. -->
+    <!-- QR-code (#20 + #84) screen. -->
     <string name="show_qr_title">Scan from receiver</string>
-    <string name="show_qr_intro">Have the receiver scan this code (or copy the URL) to pair without manual selection. The QR bitmap renderer is not yet wired up — paste this URL on the receiver side instead.</string>
+    <string name="show_qr_intro">Have the receiver scan this code to pair without manual selection. If their camera cannot read it, copy the URL below as a fallback.</string>
+    <string name="show_qr_image_description">QR code for the Quick Share pairing URL</string>
     <string name="show_qr_done">Done</string>
 
     <!-- Consent trampoline (#22). -->
