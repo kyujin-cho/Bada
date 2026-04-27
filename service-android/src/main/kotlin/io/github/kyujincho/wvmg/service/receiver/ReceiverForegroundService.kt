@@ -18,6 +18,7 @@ import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.discovery.Discovery
+import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareScanner
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.downloads.DownloadsWriterFactory
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentBroadcastReceiver
@@ -109,6 +110,9 @@ public class ReceiverForegroundService : Service() {
     @Volatile
     private var consentReceiver: BroadcastReceiver? = null
 
+    @Volatile
+    private var bleScanner: BleQuickShareScanner? = null
+
     override fun onCreate() {
         super.onCreate()
         ReceiverNotification.ensureChannel(this)
@@ -160,9 +164,36 @@ public class ReceiverForegroundService : Service() {
         // just keeps the existing session alive.
         if (session == null) {
             startReceiverSession()
+            startBleScanner()
         }
 
         return START_STICKY
+    }
+
+    /**
+     * Start the Phase 2 BLE pulse scanner (#33). The scanner observes
+     * sender BLE advertisements so a downstream feature (#34, mDNS
+     * gating) can hold off mDNS publish until a matching pulse is
+     * seen. Failures here — `BLUETOOTH_SCAN` not granted, adapter
+     * disabled, no LE support — are non-fatal and logged inside
+     * [BleQuickShareScanner.start]; the receiver continues in
+     * mDNS-only mode.
+     *
+     * Owns the scanner instance so [stopReceiverAndExit] can stop it
+     * symmetrically.
+     */
+    private fun startBleScanner() {
+        if (bleScanner != null) return
+        val scanner =
+            BleQuickShareScanner(
+                context = applicationContext,
+                coroutineScope = serviceScope,
+            )
+        bleScanner = scanner
+        ActiveBleScannerHolder.set(scanner)
+        // start() is idempotent and non-suspending; the receiver service
+        // controls the single scan registration over its lifetime.
+        scanner.start()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -325,6 +356,14 @@ public class ReceiverForegroundService : Service() {
         session?.stop()
         session = null
         ActiveDiscoveryHolder.clear()
+
+        // Stop the BLE scanner before cancelling the scope so the
+        // platform `stopScan` actually runs synchronously; otherwise
+        // the registration could outlive the service for a window.
+        bleScanner?.stop()
+        bleScanner = null
+        ActiveBleScannerHolder.clear()
+
         serviceJob.cancel()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -502,6 +541,32 @@ public class ReceiverForegroundService : Service() {
 
         /** logcat tag for the diagnostics line — matches the discovery module. */
         private const val DIAGNOSTICS_TAG: String = "WvmgDiscovery"
+    }
+}
+
+/**
+ * Process-wide holder for the active [BleQuickShareScanner] instance.
+ *
+ * Issue #34's mDNS-gating logic needs read-only access to the scanner's
+ * `activity` StateFlow without re-architecting the foreground service
+ * dependency graph. Stashing it on a process-wide holder mirrors
+ * [ActiveDiscoveryHolder]: no behaviour change unless a downstream
+ * caller subscribes; tests that don't construct a real scanner simply
+ * find `null` here.
+ */
+public object ActiveBleScannerHolder {
+    @Volatile
+    private var ref: BleQuickShareScanner? = null
+
+    internal fun set(scanner: BleQuickShareScanner) {
+        ref = scanner
+    }
+
+    /** The active scanner, or `null` if the receiver service is not running. */
+    public fun current(): BleQuickShareScanner? = ref
+
+    internal fun clear() {
+        ref = null
     }
 }
 

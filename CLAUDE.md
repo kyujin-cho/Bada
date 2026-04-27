@@ -43,7 +43,7 @@ CI (`.github/workflows/ci.yml`) runs `staticAnalysis`, `:core-protocol:test`, `:
 Several diagnostic logcat tags are wired up for real-device testing — useful when discovery or transfer behaves differently from JVM tests:
 
 ```bash
-adb logcat -s WvmgDiscovery WvmgSend WvmgOutbound
+adb logcat -s WvmgDiscovery WvmgSend WvmgOutbound WvmgBleScan
 ```
 
 If a manufacturer's logcat filter swallows the app's `Log.i` output (vivo Funtouch OS does this), `OutboundConnection`'s logger uses `Log.e` and also appends to `getExternalFilesDir(null)/wvmg-outbound.log` — pull it with:
@@ -62,7 +62,8 @@ Five Gradle modules. The split is driven by one hard rule: the protocol implemen
                        NO android.* imports. Adding one is a regression — guard in review.
 :core-protocol-test    KAT vectors and shared fixtures. Pure JVM.
 :discovery-android     mDNS publish/browse via JmDNS, multicast lock, network-change watcher.
-                       Android-only; wraps :core-protocol's EndpointInfo.
+                       Phase 2: BLE pulse scanner (BleQuickShareScanner) under
+                       `discovery.ble`. Android-only; wraps :core-protocol's EndpointInfo.
 :service-android       Foreground receiver service (connectedDevice type), MediaStore-backed
                        FileDestinationFactory, consent notification + broadcast receiver.
 :app                   UI: permissions onboarding, share-intent SendActivity, ShowQrActivity,
