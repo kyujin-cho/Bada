@@ -1,0 +1,128 @@
+/*
+ * Copyright 2026 WhenVivoMeetsGoogle contributors.
+ *
+ * Licensed under the Apache License, Version 2.0.
+ */
+package io.github.kyujincho.wvmg.protocol.qr
+
+import io.github.kyujincho.wvmg.protocol.crypto.Hkdf
+import java.nio.charset.StandardCharsets
+
+/**
+ * Derives the two HKDF-SHA256 keys that the Quick Share QR-code path uses.
+ *
+ * Per PROTOCOL.md "QR codes":
+ *
+ * ```
+ * advertisingToken    = HKDF-SHA256(ikm=keyData, salt="", info="advertisingContext", L=16)
+ * nameEncryptionKey   = HKDF-SHA256(ikm=keyData, salt="", info="encryptionKey",      L=16)
+ * ```
+ *
+ * Both info strings are ASCII and are deliberately encoded with `US-ASCII`
+ * rather than the platform default to keep the byte representation stable
+ * across JVMs and Android API levels (the values fit in ASCII so UTF-8 vs.
+ * US-ASCII produces identical bytes; using US-ASCII makes the intent obvious
+ * and rules out a future regression if a maintainer ever reuses these
+ * constants for something containing non-ASCII characters).
+ *
+ * The salt is **always empty** for the QR-code path; per RFC 5869 §2.2 an
+ * empty salt is replaced internally with `HashLen` (= 32) zero bytes. This is
+ * not a property we choose — it's mandated by the protocol — and changing it
+ * would break interop with every Quick Share peer in the wild.
+ *
+ * Sensitive data discipline: never log [QrKeyData] bytes, the derived keys,
+ * or the IKM used here. The receiver's name-encryption key in particular
+ * gates AAD-bound AES-GCM decryption of the device name; leaking it lets a
+ * passive attacker recover the (potentially personal) device name.
+ */
+public object QrKeyDerivation {
+    /** Length of each derived key in bytes (16 = 128 bits, AES-128 sized). */
+    public const val DERIVED_KEY_LEN: Int = 16
+
+    /** HKDF info string for the advertising token. */
+    private const val ADVERTISING_INFO: String = "advertisingContext"
+
+    /** HKDF info string for the name encryption key. */
+    private const val NAME_ENCRYPTION_INFO: String = "encryptionKey"
+
+    /** Cached UTF-8/ASCII bytes of [ADVERTISING_INFO]; the value is interop-critical. */
+    internal val ADVERTISING_INFO_BYTES: ByteArray =
+        ADVERTISING_INFO.toByteArray(StandardCharsets.US_ASCII)
+
+    /** Cached UTF-8/ASCII bytes of [NAME_ENCRYPTION_INFO]; the value is interop-critical. */
+    internal val NAME_ENCRYPTION_INFO_BYTES: ByteArray =
+        NAME_ENCRYPTION_INFO.toByteArray(StandardCharsets.US_ASCII)
+
+    /**
+     * Derives the advertising token used both as the visible-mode TLV value
+     * and as the AAD for hidden-mode AES-GCM encryption of the device name.
+     */
+    public fun deriveAdvertisingToken(keyData: QrKeyData): ByteArray =
+        Hkdf.derive(
+            ikm = keyData.encode(),
+            salt = ByteArray(0),
+            info = ADVERTISING_INFO_BYTES,
+            length = DERIVED_KEY_LEN,
+        )
+
+    /**
+     * Derives the AES-128-GCM key used to encrypt/decrypt the device name in
+     * hidden mode. Authenticated against the advertising token (passed as
+     * AAD), so possession of this key alone is insufficient to decrypt — an
+     * attacker also needs the matching advertising token, which is itself
+     * derived from the same QR payload.
+     */
+    public fun deriveNameEncryptionKey(keyData: QrKeyData): ByteArray =
+        Hkdf.derive(
+            ikm = keyData.encode(),
+            salt = ByteArray(0),
+            info = NAME_ENCRYPTION_INFO_BYTES,
+            length = DERIVED_KEY_LEN,
+        )
+
+    /**
+     * Convenience helper that derives both keys in one call. Returns a pair
+     * of `(advertisingToken, nameEncryptionKey)` — both freshly allocated,
+     * exactly [DERIVED_KEY_LEN] bytes each.
+     */
+    public fun deriveKeys(keyData: QrKeyData): DerivedQrKeys =
+        DerivedQrKeys(
+            advertisingToken = deriveAdvertisingToken(keyData),
+            nameEncryptionKey = deriveNameEncryptionKey(keyData),
+        )
+}
+
+/**
+ * The two HKDF-derived keys that gate the QR-code matching protocol.
+ *
+ * Both arrays are exactly [QrKeyDerivation.DERIVED_KEY_LEN] bytes. Equality
+ * is value-based on array contents so KAT tests can compare instances with
+ * plain `assertEquals`.
+ *
+ * @property advertisingToken 16-byte raw value advertised by the receiver in
+ *   visible mode (TLV type=1) and used as AES-GCM AAD in hidden mode.
+ * @property nameEncryptionKey 16-byte AES-128 key used to encrypt the device
+ *   name in hidden mode.
+ */
+public class DerivedQrKeys(
+    public val advertisingToken: ByteArray,
+    public val nameEncryptionKey: ByteArray,
+) {
+    init {
+        require(advertisingToken.size == QrKeyDerivation.DERIVED_KEY_LEN) {
+            "advertisingToken must be ${QrKeyDerivation.DERIVED_KEY_LEN} bytes"
+        }
+        require(nameEncryptionKey.size == QrKeyDerivation.DERIVED_KEY_LEN) {
+            "nameEncryptionKey must be ${QrKeyDerivation.DERIVED_KEY_LEN} bytes"
+        }
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is DerivedQrKeys) return false
+        return advertisingToken.contentEquals(other.advertisingToken) &&
+            nameEncryptionKey.contentEquals(other.nameEncryptionKey)
+    }
+
+    override fun hashCode(): Int = 31 * advertisingToken.contentHashCode() + nameEncryptionKey.contentHashCode()
+}
