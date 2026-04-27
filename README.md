@@ -107,6 +107,14 @@ Static analysis is wired up out of the box via
 ./gradlew staticAnalysis
 ```
 
+## Testing
+
+Manual interop runbooks (markdown checklists) live under
+[`docs/testing/`](docs/testing):
+
+- Stock Android Quick Share interop (Pixel + Samsung):
+  [`docs/testing/interop-stock-quick-share-android.md`](docs/testing/interop-stock-quick-share-android.md)
+
 ## Status
 
 Phase 1 is in active development. Track progress on the
