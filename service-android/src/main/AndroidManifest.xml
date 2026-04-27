@@ -4,8 +4,22 @@
 
   This module's foreground receiver service, notification channels, and
   MediaStore-related permissions are declared here as they're added (#21,
-  #22, #23, #26). Today the manifest is intentionally empty so the library
-  can build without dragging in capabilities it doesn't yet implement.
+  #22, #23, #26).
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Legacy-storage write permission used by LegacyDownloadsEnvironment
+      on API 24-28 (where MediaStore.Downloads does not yet exist).
+
+      maxSdkVersion="28" is critical: the permission is a no-op on API
+      29+ and requesting it there would only confuse the user with an
+      irrelevant runtime prompt. MediaStoreDownloadsEnvironment uses
+      MediaStore.Downloads inserts which require no storage permission
+      on Q and above.
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
 </manifest>
