@@ -2,9 +2,25 @@
 <!--
   :discovery-android module manifest.
 
-  Permissions for NEARBY_WIFI_DEVICES (Android 13+), CHANGE_WIFI_MULTICAST_STATE,
-  ACCESS_WIFI_STATE, and BLE-related runtime permissions are declared here as
-  they're wired up in #18 and #26.
+  These permissions are required by the JmDNS publish + browse code wired up
+  in #18. They are declared at the library level so any consuming app
+  automatically inherits them; the umbrella set in :app/AndroidManifest.xml
+  remains authoritative for the runtime-prompt entries (NEARBY_WIFI_DEVICES
+  etc.) added in #26.
+
+  Compile-time (no runtime prompt):
+    * CHANGE_WIFI_MULTICAST_STATE — required to acquire the
+      WifiManager.MulticastLock that keeps mDNS multicast traffic flowing
+      while the screen is off / Wi-Fi is in power-save mode.
+    * ACCESS_WIFI_STATE — needed to obtain WifiManager via getSystemService
+      on every API level we support.
+
+  BLE-related runtime permissions for Phase 2 are intentionally omitted.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
 </manifest>
