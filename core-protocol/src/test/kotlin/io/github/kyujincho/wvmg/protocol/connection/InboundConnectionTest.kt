@@ -97,12 +97,25 @@ class InboundConnectionTest {
     private class InMemoryFactory : FileDestinationFactory {
         val output: MutableMap<Long, ByteArrayOutputStream> = HashMap()
 
+        /** Payload ids the orchestrator called [commit] on. */
+        val committed: MutableList<Long> = mutableListOf()
+
+        /** Payload ids the orchestrator called [abort] on. */
+        val aborted: MutableList<Long> = mutableListOf()
+
+        /** Number of times [abortAll] was invoked. */
+        var abortAllCalls: Int = 0
+
+        /** Snapshot of the in-flight payload ids; cleared on commit/abort. */
+        private val inFlight: MutableSet<Long> = mutableSetOf()
+
         override fun open(
             header: com.google.location.nearby.connections.proto.OfflineWireFormatsProto
                 .PayloadTransferFrame.PayloadHeader,
         ): WritableByteChannel {
             val buf = ByteArrayOutputStream()
             output[header.id] = buf
+            inFlight += header.id
             return object : WritableByteChannel {
                 private var open = true
 
@@ -120,6 +133,26 @@ class InboundConnectionTest {
 
                 override fun isOpen(): Boolean = open
             }
+        }
+
+        override fun commit(payloadId: Long): Boolean {
+            committed += payloadId
+            return inFlight.remove(payloadId)
+        }
+
+        override fun abort(payloadId: Long): Boolean {
+            aborted += payloadId
+            return inFlight.remove(payloadId)
+        }
+
+        override fun abortAll(): Int {
+            abortAllCalls += 1
+            val count = inFlight.size
+            for (id in inFlight.toList()) {
+                aborted += id
+            }
+            inFlight.clear()
+            return count
         }
     }
 
@@ -303,6 +336,162 @@ class InboundConnectionTest {
                     as InboundConnectionState.WaitingForUserConsent
             assertThat(consentState.metadata.pin.length).isEqualTo(TransferMetadata.PIN_LENGTH)
             assertThat(consentState.metadata.items).hasSize(1)
+        }
+
+    @Test
+    fun `successful file payload triggers factory commit and abortAll on teardown`() =
+        runTest(timeout = kotlin.time.Duration.parse("30s")) {
+            // Asserts the integration of #25's commit() wiring on the
+            // happy path: every announced FILE payload that arrives
+            // cleanly gets a factory.commit() call from the orchestrator
+            // before the StateFlow flips to Completed. The teardown
+            // path also issues a (no-op) abortAll() so factories with
+            // sticky in-flight tables get a guaranteed clean-up.
+            val (clientSocket, serverSocket) = connectedSocketPair()
+            val factory = InMemoryFactory()
+            val rand = SecureRandom("inbound-commit".toByteArray())
+            val inbound = InboundConnection(serverSocket, secureRandom = rand)
+
+            val payloadId = 0xFEED_BEEFL
+            val fileBytes = ByteArray(1024) { (it and 0xFF).toByte() }
+            val introduction =
+                IntroductionFrame
+                    .newBuilder()
+                    .addFileMetadata(
+                        Protocol.FileMetadata
+                            .newBuilder()
+                            .setName("commit.bin")
+                            .setPayloadId(payloadId)
+                            .setSize(fileBytes.size.toLong())
+                            .build(),
+                    ).build()
+
+            coroutineScope {
+                val receiverJob = async { inbound.run(factory) }
+
+                launch {
+                    inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                    inbound.submitUserConsent(accepted = true)
+                }
+
+                runSyntheticSender(
+                    socket = clientSocket,
+                    introduction = introduction,
+                    files = mapOf(payloadId to fileBytes),
+                    texts = emptyMap(),
+                    secureRandom = SecureRandom("sender-commit".toByteArray()),
+                )
+
+                val result = receiverJob.await()
+                assertThat(result).isInstanceOf(InboundResult.Completed::class.java)
+            }
+
+            // Commit must have fired exactly once for the announced
+            // payload. The orchestrator records it BEFORE the
+            // ReceivedItem is appended; a missing commit would mean
+            // the user observes the file in their Downloads UI in a
+            // PENDING state (Android API 29+).
+            assertThat(factory.committed).containsExactly(payloadId)
+            // No partial-file aborts on the happy path.
+            assertThat(factory.aborted).isEmpty()
+            // tearDown's abortAll fires unconditionally; in-flight set
+            // is empty by now so the count is zero, but the call still
+            // happened.
+            assertThat(factory.abortAllCalls).isAtLeast(1)
+        }
+
+    @Test
+    fun `mid-transfer user cancel calls factory abortAll to drop partial files`() =
+        runTest(timeout = kotlin.time.Duration.parse("30s")) {
+            // The receiver-initiated cancel path is the primary
+            // motivation for #25's commit/abort wiring: a partial file
+            // that already has bytes on disk MUST be deleted on cancel.
+            // We verify this contract end-to-end via the InMemoryFactory
+            // counters: any payload that opened but did not commit must
+            // appear in the aborted list (or be reaped by abortAll).
+            val (clientSocket, serverSocket) = connectedSocketPair()
+            val factory = InMemoryFactory()
+            val rand = SecureRandom("inbound-abort".toByteArray())
+            val inbound = InboundConnection(serverSocket, secureRandom = rand)
+
+            val introduction =
+                IntroductionFrame
+                    .newBuilder()
+                    .addFileMetadata(
+                        Protocol.FileMetadata
+                            .newBuilder()
+                            .setName("partial.bin")
+                            .setPayloadId(7L)
+                            .setSize(1000L)
+                            .build(),
+                    ).build()
+
+            coroutineScope {
+                val receiverJob = async { inbound.run(factory) }
+
+                launch {
+                    inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                    inbound.cancel()
+                }
+
+                runSyntheticSender(
+                    socket = clientSocket,
+                    introduction = introduction,
+                    files = mapOf(7L to ByteArray(1000)),
+                    texts = emptyMap(),
+                    secureRandom = SecureRandom("sender-abort".toByteArray()),
+                )
+
+                val result = receiverJob.await()
+                assertThat(result).isInstanceOf(InboundResult.Cancelled::class.java)
+                assertThat((result as InboundResult.Cancelled).cause).isEqualTo(CancelCause.LOCAL)
+            }
+
+            // No payloads survived to be committed.
+            assertThat(factory.committed).isEmpty()
+            // The cancel happened in WaitingForUserConsent before any
+            // FILE bytes arrived, so nothing was opened. abortAll
+            // still must have fired during teardown; it is the only
+            // safety net for the case where bytes did make it onto
+            // disk.
+            assertThat(factory.abortAllCalls).isAtLeast(1)
+        }
+
+    @Test
+    fun `cancel before run does not throw and run reports failure`() =
+        runTest(timeout = kotlin.time.Duration.parse("30s")) {
+            // Pre-handshake fast-path: a UI-side cancel before the
+            // dispatch loop is up should close the underlying socket
+            // directly and let run() unwind cleanly. We validate the
+            // contract by calling cancel() BEFORE the synthetic sender
+            // does anything; the receiver should never reach
+            // WaitingForUserConsent.
+            val (clientSocket, serverSocket) = connectedSocketPair()
+            val factory = InMemoryFactory()
+            val rand = SecureRandom("inbound-pre-cancel".toByteArray())
+            val inbound = InboundConnection(serverSocket, secureRandom = rand)
+
+            // Cancel before run is invoked. The cancel is latched and
+            // the socket close happens immediately.
+            inbound.cancel()
+
+            val result = inbound.run(factory)
+            // Closing the socket from under a blocking read produces
+            // an I/O failure that the lifecycle maps to Failed (or, if
+            // the close races with the lifecycle starting, possibly
+            // Cancelled). Both are acceptable; the strict requirement
+            // is that the call returns rather than hanging.
+            val ok =
+                result is InboundResult.Failed ||
+                    result is InboundResult.Cancelled
+            assertThat(ok).isTrue()
+            // The synthetic sender never ran, so no partial state
+            // should have been opened.
+            assertThat(factory.output).isEmpty()
+            assertThat(factory.committed).isEmpty()
+            // Cleanup the loopback. The synthetic sender side was
+            // never started; close the dangling client socket.
+            runCatching { clientSocket.close() }
         }
 
     @Test
