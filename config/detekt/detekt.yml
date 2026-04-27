@@ -1,0 +1,74 @@
+# Project-wide detekt configuration.
+#
+# We start from detekt's defaults (`buildUponDefaultConfig = true` in the
+# root build) and only override what we explicitly want different for this
+# codebase. As Phase 1 progresses we'll likely tighten thresholds rather
+# than relax them — keep this file lean.
+
+build:
+  maxIssues: 0
+  weights:
+    complexity: 2
+    LongParameterList: 1
+    style: 1
+    comments: 1
+
+complexity:
+  active: true
+  LongMethod:
+    active: true
+    threshold: 80
+  LongParameterList:
+    active: true
+    functionThreshold: 7
+    constructorThreshold: 8
+  TooManyFunctions:
+    active: true
+    thresholdInClasses: 25
+    thresholdInObjects: 25
+    thresholdInFiles: 25
+
+style:
+  active: true
+  MagicNumber:
+    active: true
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreEnums: true
+    ignoreRanges: true
+    ignoreNumbers:
+      - '-1'
+      - '0'
+      - '1'
+      - '2'
+      - '8'
+      - '16'
+      - '32'
+      - '64'
+      - '128'
+      - '256'
+  MaxLineLength:
+    active: true
+    maxLineLength: 120
+  WildcardImport:
+    active: true
+    excludeImports:
+      - 'kotlinx.coroutines.*'
+
+formatting:
+  # ktlint rules are surfaced through detekt-formatting. Disable them here so
+  # ktlint stays the single source of truth and we don't get double reports.
+  active: false
+
+naming:
+  active: true
+  FunctionNaming:
+    # Allow PascalCase factory-style functions and Compose-style functions
+    # without forcing a special suppression on every site.
+    functionPattern: '[a-zA-Z][a-zA-Z0-9]*'
+
+empty-blocks:
+  active: true
+  EmptyFunctionBlock:
+    active: true
+    ignoreOverridden: true

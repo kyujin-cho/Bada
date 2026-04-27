@@ -1,0 +1,45 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+out/
+
+# Android
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+release/
+
+# Kotlin
+.kotlin/
+
+# IntelliJ / Android Studio
+.idea/
+*.ipr
+*.iws
+
+# macOS
+.DS_Store
+
+# Linux / general
+*~
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Coverage
+/coverage/
+*.exec
+
+# Detekt / ktlint
+.editorconfig.bak
+build/reports/

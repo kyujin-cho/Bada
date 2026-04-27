@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pre-Android-O launcher icon. We support API 24+ (minSdk = 24), so this
+  fallback is consulted on devices running 7.0–7.1 that don't read the
+  adaptive-icon variant under mipmap-anydpi-v26/.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item android:drawable="@drawable/ic_launcher_foreground" />
+</layer-list>

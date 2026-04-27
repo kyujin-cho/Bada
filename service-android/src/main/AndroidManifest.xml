@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  :service-android module manifest.
+
+  This module's foreground receiver service, notification channels, and
+  MediaStore-related permissions are declared here as they're added (#21,
+  #22, #23, #26). Today the manifest is intentionally empty so the library
+  can build without dragging in capabilities it doesn't yet implement.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+</manifest>
