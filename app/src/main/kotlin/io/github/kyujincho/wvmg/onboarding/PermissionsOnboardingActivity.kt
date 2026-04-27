@@ -42,17 +42,34 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
     private val rowsByPermission: MutableMap<String, ItemPermissionRowBinding> = mutableMapOf()
 
     /**
+     * True once the user has tapped "Grant permissions" at least once
+     * in this activity instance. Used to distinguish a true first-run
+     * request (where `shouldShowRequestPermissionRationale` returning
+     * false means "first ever ask") from a permanent denial (where the
+     * same flag means "Don't ask again").
+     */
+    private var hasRequestedOnce: Boolean = false
+
+    /**
      * Multi-permission request launcher. We request the full set in one
      * dialog so the user does not get a chain of system prompts.
      */
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            // The result map is the source of truth for the rows we just
-            // asked about. For any permission that was already granted
-            // before launch (and so was not re-requested) we still need
-            // to refresh the row from the system, hence refreshAllRows().
-            results.forEach { (permission, _) -> refreshRow(permission) }
+            // Re-sync every row from the system. We cannot trust the
+            // results map alone because permissions that were already
+            // granted at launch time are absent from it.
             refreshAllRows()
+            // Surface the Settings shortcut for any permission that came
+            // back denied without the rationale flag — that's the
+            // platform's "Don't ask again" signal.
+            val permanentlyDenied =
+                results.any { (permission, granted) ->
+                    !granted && !shouldShowRequestPermissionRationale(permission)
+                }
+            if (permanentlyDenied) {
+                binding.onboardingSettingsButton.visibility = View.VISIBLE
+            }
             updateContinueButton()
         }
 
@@ -61,10 +78,29 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         binding = ActivityPermissionsOnboardingBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Restore launch state across configuration changes so we don't
+        // mistakenly treat a rotation as a fresh first run.
+        savedInstanceState?.let {
+            hasRequestedOnce = it.getBoolean(STATE_HAS_REQUESTED_ONCE, false)
+            if (it.getBoolean(STATE_SETTINGS_BUTTON_VISIBLE, false)) {
+                // Visibility is restored after the views are inflated.
+                binding.onboardingSettingsButton.visibility = View.VISIBLE
+            }
+        }
+
         renderPermissionRows()
         binding.onboardingGrantButton.setOnClickListener { onGrantClicked() }
         binding.onboardingContinueButton.setOnClickListener { finish() }
         binding.onboardingSettingsButton.setOnClickListener { openAppSettings() }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_HAS_REQUESTED_ONCE, hasRequestedOnce)
+        outState.putBoolean(
+            STATE_SETTINGS_BUTTON_VISIBLE,
+            binding.onboardingSettingsButton.visibility == View.VISIBLE,
+        )
     }
 
     override fun onResume() {
@@ -106,15 +142,6 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         }
     }
 
-    private fun refreshRow(permission: String) {
-        val requirement =
-            PermissionRequirements
-                .requirementsFor()
-                .firstOrNull { it.permission == permission } ?: return
-        val row = rowsByPermission[permission] ?: return
-        renderRowState(requirement, row)
-    }
-
     private fun refreshAllRows() {
         for (requirement in PermissionRequirements.requirementsFor()) {
             val row = rowsByPermission[requirement.permission] ?: continue
@@ -146,42 +173,21 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
             return
         }
 
-        // If the system has stopped showing the rationale dialog (user
-        // tapped "Don't ask again"), `shouldShowRequestPermissionRationale`
-        // returns false even though the permission isn't granted. In that
-        // case the only path forward is the system Settings screen, so we
-        // surface that button to the user.
-        val needsSettingsFallback =
-            missing.any { permission ->
-                !shouldShowRequestPermissionRationale(permission) &&
-                    !isFirstTimeRequest(permission)
+        // If we've already asked at least once and the platform still
+        // says rationale is not appropriate for any missing permission,
+        // the user has hit "Don't ask again". The only remaining path
+        // is the system Settings screen, so reveal that shortcut now —
+        // we still issue the launch in case the platform decides to
+        // re-prompt.
+        if (hasRequestedOnce) {
+            val permanentlyDenied =
+                missing.any { permission -> !shouldShowRequestPermissionRationale(permission) }
+            if (permanentlyDenied) {
+                binding.onboardingSettingsButton.visibility = View.VISIBLE
             }
-        if (needsSettingsFallback) {
-            binding.onboardingSettingsButton.visibility = View.VISIBLE
         }
+        hasRequestedOnce = true
         permissionLauncher.launch(missing.toTypedArray())
-    }
-
-    /**
-     * Heuristic for "have we ever asked for this permission before?".
-     * The Android platform doesn't expose this directly, so we check
-     * `shouldShowRequestPermissionRationale` against a sentinel:
-     *   * granted   -> not first time
-     *   * denied with rationale flag false on the very first launch is
-     *     indistinguishable from "permanent deny"; we accept that minor
-     *     UX wrinkle — at worst we show the Settings shortcut one
-     *     prompt earlier than strictly necessary.
-     */
-    private fun isFirstTimeRequest(permission: String): Boolean {
-        val granted =
-            ContextCompat.checkSelfPermission(this, permission) ==
-                PackageManager.PERMISSION_GRANTED
-        if (granted) return false
-        // If we've never launched the request, the launcher hasn't
-        // recorded any state. The cheapest signal we have is that the
-        // Settings button is still hidden (its visibility flips on the
-        // first denial-with-permanent path).
-        return binding.onboardingSettingsButton.visibility != View.VISIBLE
     }
 
     private fun openAppSettings() {
@@ -207,5 +213,10 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
                 else -> R.string.onboarding_continue_partial
             },
         )
+    }
+
+    private companion object {
+        const val STATE_HAS_REQUESTED_ONCE = "wvmg.onboarding.hasRequestedOnce"
+        const val STATE_SETTINGS_BUTTON_VISIBLE = "wvmg.onboarding.settingsButtonVisible"
     }
 }
