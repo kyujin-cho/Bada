@@ -342,6 +342,7 @@ public class ReceiverForegroundService : Service() {
                         ),
                 alwaysVisibleOverride = MdnsVisibilityOverrideHolder.activeFlow,
                 qrSessionActive = QrSessionActiveHolder.activeFlow,
+                outboundSessionActive = OutboundSessionActiveHolder.activeFlow,
             )
         gate.start(serviceScope)
         mdnsGate = gate
@@ -792,6 +793,53 @@ public object QrSessionActiveHolder {
      * or is cancelled.
      */
     public fun setQrSessionActive(active: Boolean) {
+        state.value = active
+    }
+}
+
+/**
+ * Process-wide flag for "an outbound send is currently in progress".
+ *
+ * Flipped on by `SendActivity.onCreate` and off by `onDestroy`. When set,
+ * [MdnsAdvertisementGate] vetoes its publish decision and tears the
+ * receiver-side mDNS record down for the duration of the send.
+ *
+ * **Why veto?** Empirical observation against Samsung Galaxy S24 Ultra
+ * (One UI 8.0.5 / Android 16): when WVMG concurrently publishes its
+ * receiver-side mDNS record AND opens an outbound `OutboundConnection`
+ * to the same Galaxy peer, Samsung's GMS Nearby (`NearbyConnections`)
+ * caches state for our endpoint from the WIFI_LAN service it
+ * discovered, then on the incoming TCP connect — same source IP,
+ * different endpoint id, sender role — Samsung's
+ * `securegcm::UKey2Handshake::ParseHandshakeMessage` fails on
+ * `client_finished` (verified ~73-267 ms after Samsung writes
+ * `server_init`, far below the 15-second `CancelableAlarm` timeout).
+ * Force-stopping the receiver service before a send unblocks UKEY2
+ * cleanly (verified end-to-end on the same hotspot setup); pausing the
+ * gate is the same effect, scoped automatically to the send.
+ *
+ * The gate's existing 30-second idle debounce remains in effect on the
+ * resume side: when `SendActivity` finishes and the flag flips off, the
+ * gate re-evaluates and re-publishes mDNS if any of the existing
+ * `bleActive` / `overrideOn` / `qrActive` signals call for it.
+ */
+public object OutboundSessionActiveHolder {
+    private val state: kotlinx.coroutines.flow.MutableStateFlow<Boolean> =
+        kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /** Hot flow signalling whether an outbound send is in progress. */
+    public val activeFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = state
+
+    /** Current snapshot of [activeFlow]. */
+    public val isActive: Boolean
+        get() = state.value
+
+    /**
+     * Set the outbound-session flag. The host activity flips this on
+     * when [io.github.kyujincho.wvmg.send.SendActivity] enters the
+     * foreground and off when it leaves.
+     */
+    public fun setOutboundSessionActive(active: Boolean) {
         state.value = active
     }
 }

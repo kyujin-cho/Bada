@@ -66,8 +66,8 @@ internal object Ukey2KeyEncoding {
      */
     fun serialize(publicKey: ECPublicKey): ByteArray {
         val w = publicKey.w
-        val x = toFixedWidthCoordinate(w.affineX)
-        val y = toFixedWidthCoordinate(w.affineY)
+        val x = encodeP256Coordinate(w.affineX)
+        val y = encodeP256Coordinate(w.affineY)
         val ecKey =
             EcP256PublicKey
                 .newBuilder()
@@ -272,14 +272,27 @@ internal object Ukey2KeyEncoding {
      *
      *  - For values whose magnitude fits in `< 256` bits and whose top
      *    bit is `0`, the result is already 1..32 bytes — left-pad with
-     *    zeros.
-     *  - For values whose magnitude has the top bit set in 256 bits
-     *    (i.e., `>= 2^255`), the result is 33 bytes with a leading
-     *    `0x00` sign byte — drop it.
+     *    zeros to 32 bytes.
+     *  - For values whose magnitude has the top bit of the 256-bit
+     *    representation set (i.e., `>= 2^255`), `toByteArray()` returns
+     *    33 bytes with a leading `0x00` sign byte. **Keep the sign
+     *    byte** — Samsung One UI 8.0.5's GMS Nearby parses these bytes
+     *    via `new BigInteger(byte[])` (signed two's complement) and
+     *    rejects MSB-set 32-byte input as a negative integer with
+     *    `Point encoding must use only non-negative integers`. The
+     *    leading `0x00` makes the encoding unambiguously non-negative
+     *    under either parsing convention (signed two's complement or
+     *    `BigInteger(1, bytes)` unsigned magnitude). Verified on-device
+     *    against a Galaxy S24 Ultra: ~50% of P-256 keypairs trigger the
+     *    bug (top-bit-set is uniformly random), exactly matching the
+     *    "intermittent UKEY2 silent FIN" symptom we'd been chasing.
      *
-     * The output is always exactly [P256_COORDINATE_SIZE] bytes.
+     * Output is therefore variable length: typically 32 bytes,
+     * occasionally 33 bytes (when MSB=1). The proto field is `bytes`,
+     * so receivers that parse via `BigInteger(1, bytes)` see the
+     * correct magnitude either way.
      */
-    private fun toFixedWidthCoordinate(coordinate: BigInteger): ByteArray {
+    private fun encodeP256Coordinate(coordinate: BigInteger): ByteArray {
         require(coordinate.signum() >= 0) {
             // Public-key coordinates from a real P-256 keypair are always
             // in [0, p), so this is a sanity check, not an interop guard.
@@ -287,16 +300,22 @@ internal object Ukey2KeyEncoding {
         }
         val raw = coordinate.toByteArray()
         return when {
+            // 32 bytes: top bit is 0, so the encoding is already
+            // unambiguously non-negative under any parser.
             raw.size == P256_COORDINATE_SIZE -> raw
+            // 33 bytes: leading 0x00 sign byte + 32-byte magnitude. The
+            // top bit of the magnitude is 1; KEEPING the sign byte is
+            // what unblocks Samsung's strict-signed parser.
             raw.size == P256_COORDINATE_SIZE + 1 -> {
-                // 33 bytes: drop the leading sign byte (always 0x00 for
-                // non-negative BigInteger).
                 check(raw[0] == 0.toByte()) {
                     "Unexpected sign byte 0x${raw[0].toInt().and(BYTE_MASK).toString(HEX_RADIX)} " +
                         "in non-negative coordinate"
                 }
-                raw.copyOfRange(1, raw.size)
+                raw
             }
+            // Smaller than 32 bytes (small magnitude): left-pad with
+            // zeros to a fixed 32-byte form. The top bit will be 0 by
+            // construction, so no sign byte is needed.
             raw.size < P256_COORDINATE_SIZE -> {
                 val padded = ByteArray(P256_COORDINATE_SIZE)
                 raw.copyInto(padded, destinationOffset = P256_COORDINATE_SIZE - raw.size)

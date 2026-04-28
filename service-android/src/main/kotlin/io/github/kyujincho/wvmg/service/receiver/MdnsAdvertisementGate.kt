@@ -10,6 +10,7 @@ import io.github.kyujincho.wvmg.discovery.ble.ScanActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -74,6 +75,14 @@ import kotlinx.coroutines.launch
  *   `BleQuickShareScanner.activity` via [ActiveBleScannerHolder].
  * @param alwaysVisibleOverride sticky user-controlled override.
  * @param qrSessionActive QR-code-flow bypass flag.
+ * @param outboundSessionActive when `true`, vetoes any publish decision
+ *   and tears the mDNS record down. Used by `SendActivity` to prevent
+ *   the receiver-side mDNS publish from racing with our outbound
+ *   connection — Samsung One UI 8.0.5's GMS Nearby caches state for
+ *   our endpoint from the discovered WIFI_LAN service and then fails
+ *   `securegcm::UKey2Handshake::ParseHandshakeMessage` on the incoming
+ *   `client_finished` from the same IP. See
+ *   [OutboundSessionActiveHolder] for the full rationale.
  * @param debounceIdleMillis time after the last "should publish" signal
  *   before the gate unpublishes the advertisement. 30 s by default per
  *   issue #34.
@@ -83,6 +92,7 @@ public class MdnsAdvertisementGate(
     private val bleActivity: StateFlow<ScanActivity>,
     private val alwaysVisibleOverride: StateFlow<Boolean>,
     private val qrSessionActive: StateFlow<Boolean>,
+    private val outboundSessionActive: StateFlow<Boolean> = MutableStateFlow(false),
     private val debounceIdleMillis: Long = DEFAULT_DEBOUNCE_IDLE_MILLIS,
 ) {
     @Volatile
@@ -139,6 +149,9 @@ public class MdnsAdvertisementGate(
                 launch {
                     qrSessionActive.collect { apply(currentDecision(), scope) }
                 }
+                launch {
+                    outboundSessionActive.collect { apply(currentDecision(), scope) }
+                }
             }
     }
 
@@ -147,6 +160,7 @@ public class MdnsAdvertisementGate(
             bleActive = bleActivity.value is ScanActivity.Active,
             overrideOn = alwaysVisibleOverride.value,
             qrActive = qrSessionActive.value,
+            outboundActive = outboundSessionActive.value,
         )
 
     /**
@@ -172,7 +186,30 @@ public class MdnsAdvertisementGate(
         decision: Decision,
         scope: CoroutineScope,
     ) = synchronized(applyLock) {
-        val shouldPublish = decision.bleActive || decision.overrideOn || decision.qrActive
+        // An active outbound send unconditionally vetoes publishing,
+        // regardless of any other "should publish" signal — and tears
+        // down immediately, bypassing the 30-second debounce window.
+        // The race window with Samsung's UKEY2 server is on the order of
+        // milliseconds; honouring the BLE-pulse debounce here would
+        // leave the receiver-side mDNS advertised throughout the entire
+        // outbound session and re-trigger Samsung's
+        // `securegcm::UKey2Handshake::ParseHandshakeMessage` failure on
+        // every connect.
+        if (decision.outboundActive) {
+            debounceJob?.cancel()
+            debounceJob = null
+            if (session.isAdvertising) {
+                try {
+                    session.unpublishAdvertisement()
+                    Log.w(TAG, "unpublish: outbound send active; mDNS taken down immediately")
+                } catch (t: Throwable) {
+                    Log.w(TAG, "unpublish: threw during outbound veto", t)
+                }
+            }
+            return
+        }
+        val shouldPublish =
+            decision.bleActive || decision.overrideOn || decision.qrActive
         if (shouldPublish) {
             // Cancel any pending unpublish — we're back inside the
             // "should publish" half of the gate.
@@ -228,6 +265,7 @@ public class MdnsAdvertisementGate(
         val bleActive: Boolean,
         val overrideOn: Boolean,
         val qrActive: Boolean,
+        val outboundActive: Boolean,
     )
 
     public companion object {
