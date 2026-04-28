@@ -5,7 +5,6 @@
  */
 package io.github.kyujincho.wvmg.protocol.connection
 
-import com.google.android.gms.nearby.sharing.Protocol
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import com.google.protobuf.ByteString
@@ -16,7 +15,6 @@ import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
 import io.github.kyujincho.wvmg.protocol.payload.PayloadTransferEncoder
-import io.github.kyujincho.wvmg.protocol.sharing.IntroductionFrame
 import io.github.kyujincho.wvmg.protocol.sharing.OutboundSharingFsm
 import io.github.kyujincho.wvmg.protocol.sharing.OutboundSharingState
 import io.github.kyujincho.wvmg.protocol.sharing.PairedKeyEncryptionFrame
@@ -38,6 +36,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.Socket
 import java.security.SecureRandom
 
@@ -161,7 +160,7 @@ internal class OutboundConnectionDriver(
         val channel = SecureChannel(transport, sessionKeys, secureRandom).also { secureChannel = it }
 
         // Step 7: build the OutboundSharingFsm with our IntroductionFrame.
-        val introduction = buildIntroductionFrame()
+        val introduction = buildIntroductionFrame(files)
         val negotiationFsm =
             OutboundSharingFsm(introduction = introduction, secureRandom = secureRandom)
                 .also { fsm = it }
@@ -198,45 +197,6 @@ internal class OutboundConnectionDriver(
         runCatching { framedConnection?.close() }
         runCatching { socket.close() }
     }
-
-    /**
-     * Construct the outgoing [IntroductionFrame] from the supplied
-     * [files] list. We only populate `file_metadata` here — Quick
-     * Share also supports text / Wi-Fi / app metadata, but this issue
-     * scopes us to file transfers only (the Android share-intent
-     * layer is the consumer that decides what to ship; if it ever
-     * wants to send text, the public API can be extended).
-     */
-    private fun buildIntroductionFrame(): IntroductionFrame {
-        val builder = IntroductionFrame.newBuilder()
-        for (f in files) {
-            builder.addFileMetadata(
-                Protocol.FileMetadata
-                    .newBuilder()
-                    .setName(f.name)
-                    .setPayloadId(f.payloadId)
-                    .setSize(f.size)
-                    .setMimeType(f.mimeType)
-                    .setType(mimeTypeToFileType(f.mimeType))
-                    .build(),
-            )
-        }
-        return builder.build()
-    }
-
-    /**
-     * Map the user-provided MIME type onto the proto's `Type` enum.
-     * Quick Share's receiver UI uses this to choose an icon and for
-     * autoplay heuristics; getting it slightly wrong is harmless.
-     */
-    private fun mimeTypeToFileType(mimeType: String): Protocol.FileMetadata.Type =
-        when {
-            mimeType.startsWith("image/") -> Protocol.FileMetadata.Type.IMAGE
-            mimeType.startsWith("video/") -> Protocol.FileMetadata.Type.VIDEO
-            mimeType.startsWith("audio/") -> Protocol.FileMetadata.Type.AUDIO
-            mimeType == "application/vnd.android.package-archive" -> Protocol.FileMetadata.Type.ANDROID_APP
-            else -> Protocol.FileMetadata.Type.UNKNOWN
-        }
 
     /**
      * If [qrCodeHandshakeData] is non-null and the FSM's first effect
@@ -295,8 +255,11 @@ internal class OutboundConnectionDriver(
     }
 
     /**
-     * Main receive loop. Spawns an inbound pump coroutine, then
-     * interleaves wire-frame and external-event delivery via [select].
+     * Main receive loop. Spawns an inbound pump coroutine, interleaves
+     * wire-frame and external-event delivery via [select], and runs
+     * the safe-disconnect drain (for terminals where we sent the
+     * `request_safe_to_disconnect=true` Disconnection ourselves)
+     * before letting the `finally` block close the socket.
      */
     private suspend fun runReceiveLoop(
         channel: SecureChannel,
@@ -308,7 +271,33 @@ internal class OutboundConnectionDriver(
             val wireChannel: Channel<OutboundWireMessage> = Channel(Channel.RENDEZVOUS)
             val pumpJob: Job = launch { runInboundPump(channel, wireChannel) }
             try {
-                dispatchLoop(channel, fsm, wireChannel)
+                val result = dispatchLoop(channel, fsm, wireChannel)
+                // Safe-disconnect drain: we advertised
+                // safe_to_disconnect_version=1 in our ConnectionResponseFrame,
+                // so any DISCONNECTION we ourselves emit goes out with
+                // request_safe_to_disconnect=true and Samsung One UI 7+
+                // enforces that contract — an abrupt FIN before its read
+                // pipeline drains marks every in-flight PAYLOAD_TRANSFER as
+                // failed and surfaces "couldn't receive file". Wait briefly
+                // for the peer's ack_safe_to_disconnect=true (or its own
+                // FIN) before closing.
+                //
+                // Only drain on terminals where WE sent the request:
+                //   - Completed: terminal Disconnection from streamFilesAndComplete
+                //   - Rejected: applyEffects emitted Disconnection
+                //   - Cancelled(LOCAL): user cancel emitted Disconnection
+                // On Cancelled(PEER) and Failed paths we never sent the
+                // request, so the peer has no reason to ack and the drain
+                // would just block for the full timeout window.
+                if (shouldDrainForSafeDisconnect(result)) {
+                    withTimeoutOrNull(SAFE_DISCONNECT_ACK_TIMEOUT_MS) {
+                        drainSafeDisconnectAck(wireChannel)
+                    } ?: logger(
+                        "fsm: safe-disconnect drain timed out after " +
+                            "${SAFE_DISCONNECT_ACK_TIMEOUT_MS}ms",
+                    )
+                }
+                result
             } finally {
                 // Close the socket BEFORE cancelAndJoin: the pump is parked
                 // in SecureChannel.receiveOfflineFrame()'s blocking Socket
@@ -324,6 +313,59 @@ internal class OutboundConnectionDriver(
                 pumpJob.cancelAndJoin()
             }
         }
+
+    /**
+     * True when [result] is a terminal we ourselves drove a
+     * `request_safe_to_disconnect=true` Disconnection for; only then
+     * is it worth waiting for the peer's ack. Cancelled-by-peer and
+     * Failed paths never sent that request, so the peer has nothing
+     * to ack and the drain would only block for the full timeout.
+     */
+    private fun shouldDrainForSafeDisconnect(result: OutboundResult): Boolean =
+        when (result) {
+            OutboundResult.Completed -> true
+            is OutboundResult.Rejected -> true
+            is OutboundResult.Cancelled -> result.cause == CancelCause.LOCAL
+            is OutboundResult.Failed -> false
+        }
+
+    /**
+     * Body of the safe-disconnect drain loop, wrapped in
+     * `withTimeoutOrNull(SAFE_DISCONNECT_ACK_TIMEOUT_MS)` at the call
+     * site so the timeout text can be logged on null return without
+     * threading another logger reference through this helper.
+     */
+    @Suppress("ReturnCount") // Three branches × early-return is the cleanest dispatch shape.
+    private suspend fun drainSafeDisconnectAck(ch: Channel<OutboundWireMessage>) {
+        while (true) {
+            val msg = ch.receive()
+            when (msg) {
+                is OutboundWireMessage.Frame -> {
+                    val isDisc =
+                        msg.frame.hasV1() &&
+                            msg.frame.v1.type == V1Frame.FrameType.DISCONNECTION
+                    if (isDisc) {
+                        val ack = msg.frame.v1.disconnection.ackSafeToDisconnect
+                        logger("fsm: safe-disconnect peer Disconnection ack=$ack")
+                        return
+                    }
+                    // Non-Disconnection frame mid-drain (e.g. a stale
+                    // PAYLOAD_TRANSFER): ignore and keep waiting.
+                }
+                OutboundWireMessage.Closed -> {
+                    logger("fsm: safe-disconnect peer FIN observed")
+                    return
+                }
+                is OutboundWireMessage.Error -> {
+                    logger(
+                        "fsm: safe-disconnect drain pump error " +
+                            (msg.cause::class.simpleName ?: "<unknown>"),
+                    )
+                    return
+                }
+            }
+        }
+    }
 
     /**
      * Inbound pump. Reads frames from the [SecureChannel] in a loop and
@@ -375,10 +417,27 @@ internal class OutboundConnectionDriver(
                     }
                 }
 
+            logger("fsm: dispatch event=${describeDriverEvent(event)} fsmState=${fsm.state::class.simpleName}")
+
             val terminal = handleDriverEvent(channel, fsm, event)
-            if (terminal != null) return terminal
+            if (terminal != null) {
+                logger("fsm: dispatch terminal=${terminal::class.simpleName}")
+                return terminal
+            }
         }
     }
+
+    private fun describeDriverEvent(event: OutboundDriverEvent): String =
+        when (event) {
+            is OutboundDriverEvent.External -> "External(${event.event::class.simpleName})"
+            is OutboundDriverEvent.Wire -> {
+                val v1Type = if (event.frame.hasV1()) "${event.frame.v1.type}" else "no-v1"
+                "Wire($v1Type)"
+            }
+            OutboundDriverEvent.PeerClosed -> "PeerClosed"
+            is OutboundDriverEvent.PumpError ->
+                "PumpError(${event.cause::class.simpleName}: ${event.cause.message ?: "null"})"
+        }
 
     /** Handle one driver-level event. Non-null result triggers termination. */
     private suspend fun handleDriverEvent(
@@ -472,6 +531,7 @@ internal class OutboundConnectionDriver(
         event: PayloadEvent.BytesComplete,
     ): OutboundResult? {
         val sharingFrame = SharingFrames.parse(event.data)
+        logger("fsm: rx SharingFrame type=${sharingFrame.v1.type}")
         val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(sharingFrame))
         applyEffects(channel, effects)
         if (effects.any { it is SharingFsmEffect.ReadyToSendPayloads }) {
@@ -491,6 +551,7 @@ internal class OutboundConnectionDriver(
      * before we close.
      */
     private suspend fun streamFilesAndComplete(channel: SecureChannel): OutboundResult {
+        logger("fsm: streamFilesAndComplete START files=${files.size} totalSize=$totalSize")
         mutableState.value =
             OutboundConnectionState.Sending(
                 pin = pin,
@@ -501,12 +562,18 @@ internal class OutboundConnectionDriver(
 
         for (file in files) {
             currentItemPayloadId = file.payloadId
+            logger("fsm: streamOneFile START name=${file.name} size=${file.size} payloadId=${file.payloadId}")
             val cancelled = streamOneFile(channel, file)
-            if (cancelled != null) return cancelled
+            if (cancelled != null) {
+                logger("fsm: streamOneFile EARLY-RETURN ${cancelled::class.simpleName}")
+                return cancelled
+            }
+            logger("fsm: streamOneFile DONE name=${file.name}")
         }
 
         // All files streamed. Emit Disconnection and complete.
-        runCatching { channel.sendOfflineFrame(OfflineFrames.disconnection()) }
+        logger("fsm: all files streamed, sending Disconnection")
+        runCatching { sendTerminalDisconnection(channel) }
         mutableState.value = OutboundConnectionState.Completed
         return OutboundResult.Completed
     }
@@ -521,6 +588,7 @@ internal class OutboundConnectionDriver(
         file: FileSource,
     ): OutboundResult? {
         val source = file.openChannel()
+        var chunkIdx = 0
         try {
             val frames =
                 PayloadTransferEncoder.encodeFilePayload(
@@ -542,7 +610,12 @@ internal class OutboundConnectionDriver(
                 channel.sendOfflineFrame(frame)
                 bytesSent += chunkBodySize(frame)
                 publishSendingProgress()
+                if (chunkIdx == 0) {
+                    logger("fsm: streamOneFile first chunk written bytesSent=$bytesSent")
+                }
+                chunkIdx++
             }
+            logger("fsm: streamOneFile loop end chunks=$chunkIdx bytesSent=$bytesSent")
         } finally {
             runCatching { source.close() }
         }
@@ -572,7 +645,7 @@ internal class OutboundConnectionDriver(
     private suspend fun userCancelDuringTransfer(channel: SecureChannel): OutboundResult {
         runCatching {
             sendSharingFrame(channel, SharingFrames.cancel())
-            channel.sendOfflineFrame(OfflineFrames.disconnection())
+            channel.sendOfflineFrame(OfflineFrames.disconnection(requestSafeToDisconnect = true))
         }
         mutableState.value = OutboundConnectionState.Cancelled(CancelCause.LOCAL)
         return OutboundResult.Cancelled(CancelCause.LOCAL)
@@ -583,6 +656,7 @@ internal class OutboundConnectionDriver(
      */
     private fun handlePeerClosed(): OutboundResult {
         val current = mutableState.value
+        logger("fsm: peerClosed observed (currentState=${current::class.simpleName})")
         // If the FSM/state already resolved this transfer (e.g. we
         // just finished streaming and the peer hung up after our
         // Disconnection), keep the existing terminal.
@@ -619,6 +693,7 @@ internal class OutboundConnectionDriver(
      * peer-cancel.
      */
     private fun cancelFromPeer(): OutboundResult {
+        logger("fsm: cancelFromPeer (peer Disconnection observed)")
         publishCancelled(CancelCause.PEER)
         return OutboundResult.Cancelled(CancelCause.PEER)
     }
@@ -634,6 +709,7 @@ internal class OutboundConnectionDriver(
         effects: List<SharingFsmEffect>,
     ) {
         for (effect in effects) {
+            logger("fsm: effect=${describeEffect(effect)}")
             when (effect) {
                 is SharingFsmEffect.SendFrame -> {
                     sendSharingFrame(channel, effect.frame)
@@ -651,7 +727,7 @@ internal class OutboundConnectionDriver(
                 }
                 is SharingFsmEffect.Rejected -> {
                     mutableState.value = OutboundConnectionState.Rejected(effect.status)
-                    runCatching { channel.sendOfflineFrame(OfflineFrames.disconnection()) }
+                    runCatching { sendTerminalDisconnection(channel) }
                 }
                 SharingFsmEffect.Cancelled -> {
                     val rejected = effects.any { it is SharingFsmEffect.Rejected }
@@ -660,13 +736,13 @@ internal class OutboundConnectionDriver(
                         // terminal. Do not overwrite with Cancelled.
                     } else if (mutableState.value !is OutboundConnectionState.Cancelled) {
                         publishCancelled(CancelCause.LOCAL)
-                        runCatching { channel.sendOfflineFrame(OfflineFrames.disconnection()) }
+                        runCatching { sendTerminalDisconnection(channel) }
                     }
                 }
                 SharingFsmEffect.Completed -> Unit
                 is SharingFsmEffect.ProtocolError -> {
                     mutableState.value = OutboundConnectionState.Failed(effect.reason)
-                    runCatching { channel.sendOfflineFrame(OfflineFrames.disconnection()) }
+                    runCatching { sendTerminalDisconnection(channel) }
                 }
                 SharingFsmEffect.ReadyToSendPayloads -> Unit
                 // Receiver-only effects — should never be produced by
@@ -683,6 +759,18 @@ internal class OutboundConnectionDriver(
             }
         }
     }
+
+    private fun describeEffect(effect: SharingFsmEffect): String =
+        when (effect) {
+            is SharingFsmEffect.SendFrame -> "SendFrame(${effect.frame.v1.type})"
+            is SharingFsmEffect.Rejected -> "Rejected(status=${effect.status})"
+            SharingFsmEffect.Cancelled -> "Cancelled"
+            SharingFsmEffect.Completed -> "Completed"
+            is SharingFsmEffect.ProtocolError -> "ProtocolError(${effect.reason})"
+            SharingFsmEffect.ReadyToSendPayloads -> "ReadyToSendPayloads"
+            SharingFsmEffect.ReadyToReceivePayloads -> "ReadyToReceivePayloads"
+            is SharingFsmEffect.IntroductionReceived -> "IntroductionReceived"
+        }
 
     /**
      * Encode a [SharingFrame] as a BYTES payload and push every
@@ -715,8 +803,10 @@ internal class OutboundConnectionDriver(
     /**
      * Resolve the FSM's terminal state into a final [OutboundResult].
      */
-    private fun terminalResultFromState(): OutboundResult =
-        when (val s = mutableState.value) {
+    private fun terminalResultFromState(): OutboundResult {
+        val s = mutableState.value
+        logger("fsm: terminalResultFromState resolving state=${s::class.simpleName}")
+        return when (s) {
             OutboundConnectionState.Completed -> OutboundResult.Completed
             is OutboundConnectionState.Rejected -> OutboundResult.Rejected(s.status)
             is OutboundConnectionState.Cancelled -> OutboundResult.Cancelled(s.cause)
@@ -727,6 +817,7 @@ internal class OutboundConnectionDriver(
                 OutboundResult.Failed(reason)
             }
         }
+    }
 
     private fun publishCancelled(cause: CancelCause) {
         mutableState.value = OutboundConnectionState.Cancelled(cause)
@@ -740,5 +831,31 @@ internal class OutboundConnectionDriver(
     private suspend fun readOfflineFrameUnencrypted(transport: FramedConnection): OfflineFrame {
         val bytes = transport.receiveFrame()
         return OfflineFrame.parseFrom(bytes)
+    }
+
+    /**
+     * Send the terminal `DisconnectionFrame` with
+     * `request_safe_to_disconnect = true`. Receiver must drain its
+     * read pipeline (writing any in-flight payloads to disk) before
+     * acknowledging. Wrap call sites in `runCatching` because the
+     * socket may already be half-closed by the time we get here on
+     * the cancel/reject paths.
+     */
+    private suspend fun sendTerminalDisconnection(channel: SecureChannel) {
+        channel.sendOfflineFrame(OfflineFrames.disconnection(requestSafeToDisconnect = true))
+    }
+
+    private companion object {
+        /**
+         * Maximum time the orchestrator waits for the peer's
+         * `DisconnectionFrame{ack_safe_to_disconnect=true}` (or peer
+         * FIN) after sending its own request. 1500 ms covers Samsung
+         * One UI 8.0.5's observed drain time for an 87 KiB single-chunk
+         * file (~14 ms socket-to-FIN on a clean network plus headroom);
+         * larger payloads dominate over this timeout because the
+         * receiver only acks after writing all pending payloads to
+         * disk.
+         */
+        const val SAFE_DISCONNECT_ACK_TIMEOUT_MS: Long = 1500L
     }
 }

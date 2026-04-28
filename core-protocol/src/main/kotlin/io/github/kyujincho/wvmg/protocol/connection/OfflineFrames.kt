@@ -71,7 +71,7 @@ internal object OfflineFrames {
      *   4. `multiplex_socket_bitmask = 0` — absence triggers One UI 8.0.5
      *      silent FIN; 0 = "no medium supports multiplex".
      *   5. `safe_to_disconnect_version = 1` — required by One UI 7+.
-     *   6. `keep_alive_timeout_millis = 30_000` — proto field 9, required
+     *   6. `keep_alive_timeout_millis = 600_000` — proto field 9, required
      *      by One UI 8.0.5 (verified on-device); see
      *      [OutboundFrames.connectionResponse] for the full rationale.
      */
@@ -104,24 +104,44 @@ internal object OfflineFrames {
     }
 
     /**
-     * Build an `OfflineFrame{V1, DISCONNECTION}` with the safe-to-
-     * disconnect flags both set to `false`.
+     * Build an `OfflineFrame{V1, DISCONNECTION}`.
      *
-     * The orchestrator pushes this frame through the SecureChannel
-     * (it is encrypted) right before closing the socket. The empty
-     * body is fine -- `DisconnectionFrame` is functionally a marker;
-     * the safe-to-disconnect protocol it gates is not used by
-     * NearDrop or by us.
+     * Because [connectionResponse] advertises
+     * `safe_to_disconnect_version = 1`, the Samsung One UI 7+ peer
+     * enforces the safe-disconnect handshake on teardown: an abrupt
+     * TCP FIN mid-payload makes the receiver flag every in-flight
+     * payload as failed and surface "couldn't receive file" — even
+     * when the bytes already landed in its socket buffer. Setting
+     * `request_safe_to_disconnect=true` tells the peer to drain its
+     * read pipeline cleanly before acknowledging; we then wait briefly
+     * for the peer's `ack_safe_to_disconnect=true` (or peer-FIN) before
+     * closing our socket. The orchestrator's drain loop in
+     * `runReceiveLoop` is the matching wait.
+     *
+     * @param requestSafeToDisconnect Set the request flag. True for
+     *   the happy-path teardown after streaming files and for
+     *   cancel/reject cases — receiver still benefits from draining
+     *   buffered bytes before tearing down. The ack-side flag is not
+     *   yet wired up; receiver-side `InboundConnectionDriver` still
+     *   sends the empty default and the contract is not enforced
+     *   when stock Quick Share is the *sender*. Add an
+     *   `ackSafeToDisconnect` parameter when that gap is closed.
      */
-    fun disconnection(): OfflineFrame =
-        OfflineFrame
+    fun disconnection(requestSafeToDisconnect: Boolean = false): OfflineFrame {
+        val disconnection =
+            DisconnectionFrame
+                .newBuilder()
+                .setRequestSafeToDisconnect(requestSafeToDisconnect)
+                .build()
+        return OfflineFrame
             .newBuilder()
             .setVersion(OfflineFrame.Version.V1)
             .setV1(
                 V1Frame
                     .newBuilder()
                     .setType(V1Frame.FrameType.DISCONNECTION)
-                    .setDisconnection(DisconnectionFrame.getDefaultInstance())
+                    .setDisconnection(disconnection)
                     .build(),
             ).build()
+    }
 }

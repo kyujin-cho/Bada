@@ -153,7 +153,7 @@ internal object OutboundFrames {
      *      which matches our single-Wi-Fi-LAN-socket implementation.
      *   5. `safe_to_disconnect_version = 1` — Samsung One UI 7+ refuses
      *      to advance past the unencrypted handshake when absent.
-     *   6. `keep_alive_timeout_millis = 30_000` — `ConnectionResponseFrame`
+     *   6. `keep_alive_timeout_millis = 600_000` — `ConnectionResponseFrame`
      *      proto field 9, added to google/nearby on 2024-12-06
      *      (PiperOrigin-RevId 703665365), contemporaneous with One UI 8
      *      development. Verified on-device: with fields 1–5 only, Galaxy
@@ -161,7 +161,7 @@ internal object OutboundFrames {
      *      after our ConnectionResponse{ACCEPT}; adding this field makes
      *      Samsung respond with its own ConnectionResponse{ACCEPT} ~50 ms
      *      later and the protocol advances cleanly to PIN derivation. We
-     *      mirror the request-side keep-alive timeout (30 s) to keep both
+     *      mirror the request-side keep-alive timeout (10 min) to keep both
      *      sides on the same KEEP_ALIVE schedule.
      */
     fun connectionResponse(): OfflineFrame {

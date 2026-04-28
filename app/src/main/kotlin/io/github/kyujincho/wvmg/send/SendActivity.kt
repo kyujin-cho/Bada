@@ -18,7 +18,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.kyujincho.wvmg.R
-import io.github.kyujincho.wvmg.service.receiver.OutboundSessionActiveHolder
 import io.github.kyujincho.wvmg.databinding.ActivitySendBinding
 import io.github.kyujincho.wvmg.databinding.ItemPeerRowBinding
 import io.github.kyujincho.wvmg.discovery.DiscoveredService
@@ -31,6 +30,7 @@ import io.github.kyujincho.wvmg.protocol.connection.OutboundConnection
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnectionState
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.service.receiver.OutboundSessionActiveHolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -64,7 +64,13 @@ import java.security.SecureRandom
  * — Phase 1's protocol-level support for text payloads on the sender
  * side is a follow-up. We surface a clear "Done" with an explanation
  * for now rather than stubbing out a half-broken text path.
+ *
+ * `@Suppress("TooManyFunctions")` — this Activity owns the share-intent
+ * lifecycle, discovery, the picker, and the OutboundConnection driver.
+ * Splitting it would require non-trivial separation of UI state from
+ * coroutine plumbing and is out of scope for the Galaxy interop fix.
  */
+@Suppress("TooManyFunctions")
 public class SendActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySendBinding
     private lateinit var fileSourceFactory: UriFileSourceFactory
@@ -248,54 +254,7 @@ public class SendActivity : AppCompatActivity() {
 
     private fun onDiscoveryEvent(event: DiscoveryEvent) {
         when (event) {
-            is DiscoveryEvent.Resolved -> {
-                val incoming = event.service
-                // Dedup by primary address + port, NOT by mDNS instance
-                // name. Stock Quick Share rotates instance names rapidly
-                // for privacy and frequently publishes multiple records
-                // simultaneously (e.g., one with the friendly name and
-                // one without) — captured on a Galaxy S24 Ultra, all
-                // pointing at the same TCP listener. Keying on instance
-                // name leaves the picker with several rows for the same
-                // device, some of them stale, and tapping a stale row
-                // intermittently triggers a silent UKEY2 FIN on the peer
-                // (its current internal state no longer matches the
-                // older instance ID baked into the row).
-                //
-                // We deliberately do NOT filter by EndpointInfo's
-                // `hidden` bit. Stock peers publish every device — even
-                // "Everyone" mode — with visibility=1 and no plaintext
-                // name; the Everyone-vs-Contacts-only decision happens
-                // during the connection negotiation, not at the mDNS
-                // layer. Filtering here would hide the very peers the
-                // user is trying to send to.
-                val key = peerDedupKey(incoming)
-                if (key == null) {
-                    // Defensive: if the resolved record has no usable
-                    // address (rare; the discovery layer normally drops
-                    // these earlier), fall back to instance-name dedup
-                    // so the row at least appears.
-                    val ix = peers.indexOfFirst { it.instanceName == incoming.instanceName }
-                    if (ix >= 0) peers[ix] = incoming else peers.add(incoming)
-                } else {
-                    val existingIndex = peers.indexOfFirst { peerDedupKey(it) == key }
-                    if (existingIndex >= 0) {
-                        // Keep whichever record carries a friendly device
-                        // name. Stock Samsung alternates anonymous and
-                        // named instances on the wire; the picker should
-                        // settle on the named one once seen rather than
-                        // flicker back to "Quick Share Device".
-                        val existing = peers[existingIndex]
-                        val existingNamed = existing.endpointInfo?.deviceName != null
-                        val incomingNamed = incoming.endpointInfo?.deviceName != null
-                        if (incomingNamed || !existingNamed) {
-                            peers[existingIndex] = incoming
-                        }
-                    } else {
-                        peers.add(incoming)
-                    }
-                }
-            }
+            is DiscoveryEvent.Resolved -> upsertResolvedPeer(event.service)
             is DiscoveryEvent.Lost -> {
                 // Lost events fire per-instance-name. Because Resolved
                 // events may have replaced an older instance under the
@@ -307,6 +266,54 @@ public class SendActivity : AppCompatActivity() {
             }
         }
         renderPeerList()
+    }
+
+    /**
+     * Insert or replace [incoming] in the picker's [peers] list.
+     *
+     * Dedup by primary address + port, NOT by mDNS instance name. Stock
+     * Quick Share rotates instance names rapidly for privacy and
+     * frequently publishes multiple records simultaneously (e.g., one
+     * with the friendly name and one without) — captured on a Galaxy
+     * S24 Ultra, all pointing at the same TCP listener. Keying on
+     * instance name leaves the picker with several rows for the same
+     * device, some of them stale, and tapping a stale row intermittently
+     * triggers a silent UKEY2 FIN on the peer (its current internal
+     * state no longer matches the older instance ID baked into the row).
+     *
+     * We deliberately do NOT filter by EndpointInfo's `hidden` bit.
+     * Stock peers publish every device — even "Everyone" mode — with
+     * visibility=1 and no plaintext name; the Everyone-vs-Contacts-only
+     * decision happens during the connection negotiation, not at the
+     * mDNS layer. Filtering here would hide the very peers the user is
+     * trying to send to.
+     */
+    private fun upsertResolvedPeer(incoming: DiscoveredService) {
+        val key = peerDedupKey(incoming)
+        if (key == null) {
+            // Defensive: if the resolved record has no usable address
+            // (rare; the discovery layer normally drops these earlier),
+            // fall back to instance-name dedup so the row at least
+            // appears.
+            val ix = peers.indexOfFirst { it.instanceName == incoming.instanceName }
+            if (ix >= 0) peers[ix] = incoming else peers.add(incoming)
+            return
+        }
+        val existingIndex = peers.indexOfFirst { peerDedupKey(it) == key }
+        if (existingIndex < 0) {
+            peers.add(incoming)
+            return
+        }
+        // Keep whichever record carries a friendly device name. Stock
+        // Samsung alternates anonymous and named instances on the wire;
+        // the picker should settle on the named one once seen rather
+        // than flicker back to "Quick Share Device".
+        val existing = peers[existingIndex]
+        val existingNamed = existing.endpointInfo?.deviceName != null
+        val incomingNamed = incoming.endpointInfo?.deviceName != null
+        if (incomingNamed || !existingNamed) {
+            peers[existingIndex] = incoming
+        }
     }
 
     /**

@@ -104,7 +104,11 @@ Every cell in the matrix must be exercised once per RC build.
 
 For each cell, run **both** a small file (≤ 1 MB, e.g. a JPEG) and a
 large file (≥ 200 MB, e.g. a video). The large-file run is what catches
-two-frame BYTES quirks and `IS_PENDING` MediaStore bleed bugs.
+`IS_PENDING` MediaStore bleed bugs. The small-file run (single-chunk FILE
+payload) is the regression guard for the Samsung One UI 7+ two-frame quirk:
+if the terminator is fused into the data chunk the receiver silently discards
+the attachment and shows "couldn't receive file" — but only on small files
+that fit in one chunk, so it was invisible in large-file-only testing.
 
 ---
 
@@ -151,6 +155,25 @@ implements QR scanning as the receiver-side entry point — there is no
 - Time-to-connect (QR scan → consent dialog visible)
 - Time-to-complete (consent accepted → progress 100%)
 - Source SHA-256, received SHA-256
+
+#### Samsung-specific checks (Test 2 only)
+
+- [ ] The Samsung peer shows "File received" (not "Couldn't receive
+      file"). The latter is the symptom of the One UI 7+ FILE two-frame
+      quirk or a missing safe-disconnect handshake; both are fixed in
+      PR #108.
+- [ ] Run the test with a **small file (≤ 512 KiB, single chunk)** in
+      addition to the large-file run. The single-chunk case is what
+      catches a fused terminator.
+- [ ] In the WVMG logcat, confirm `fsm: safe-disconnect peer
+      Disconnection ack=true` (or `fsm: safe-disconnect peer FIN
+      observed`) appears after the transfer completes. Absence means
+      the drain timed out and the socket may have closed before the
+      receiver finished writing.
+- [ ] `adb logcat -s WvmgOutbound` on the WVMG device shows
+      `fsm: streamOneFile DONE` for each file and
+      `fsm: all files streamed, sending Disconnection` before the
+      safe-disconnect drain line.
 
 ### Test 3 / Test 4: Receive file from stock Android (peer initiates)
 
@@ -230,6 +253,26 @@ UX. If a test step fails, walk this list before assuming a WVMG bug.
   scan.
 - Samsung Knox DeX or Secure Folder profiles may have a separate Quick
   Share visibility setting; do testing on the main user profile only.
+- **One UI 7+ requires a separate empty `LAST_CHUNK` terminator for FILE
+  payloads.** If a transfer appears to complete (safe-disconnect ack fires,
+  progress reaches 100%) but the file is not on disk and the receiver shows
+  "couldn't receive file", this is the symptom. The fix (`encodeFilePayload`
+  emitting a zero-byte terminator frame after all data chunks) landed in
+  PR #108. Verify by sending an ≤ 512 KiB file (single data chunk) and
+  confirming `sha256sum` matches.
+- **One UI 7+ enforces the safe-disconnect handshake.** We advertise
+  `safe_to_disconnect_version = 1` in `ConnectionResponseFrame`, so every
+  outbound `DisconnectionFrame` must set `request_safe_to_disconnect = true`
+  and we must wait for the peer's ack (or FIN) before closing the socket.
+  An abrupt FIN while payloads are in the receiver's socket buffer causes
+  "couldn't receive file" even though the bytes were already transmitted.
+  The orchestrator drains for up to 1500 ms; the logcat line to look for is
+  `fsm: safe-disconnect peer Disconnection ack=true`.
+- **One UI 8.0.5 requires non-zero `FileMetadata.id` and
+  `IntroductionFrame.use_case = NEARBY_SHARE`.** Leaving `id` at the proto
+  default (0) makes Samsung silently discard the announced attachment with
+  only a `NULL_MESSAGE` line at the medium layer. Both fields are set by
+  `buildIntroductionFrame` since PR #108.
 
 ### Both
 

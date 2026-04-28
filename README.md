@@ -45,12 +45,15 @@ have hundreds of edge cases that need KAT coverage.
   HMAC-before-decrypt order).
 - **`...protocol.payload`** — `PayloadAssembler` reassembles
   `PayloadTransferFrame` chunks into BYTES and FILE payloads, validating
-  per-`payload_id` offsets and tolerating Android's "two-frame BYTES"
-  quirk on receive. FILE bytes stream through a caller-supplied
+  per-`payload_id` offsets and tolerating Android's "two-frame" quirk on
+  receive. FILE bytes stream through a caller-supplied
   `FileDestinationFactory` (the Android wiring substitutes a `MediaStore`
   content-URI factory at this seam). `PayloadTransferEncoder` emits the
-  same two-frame shape on send for compatibility with stock Quick Share
-  peers.
+  same shape on send for both payload types: data chunks with `flags=0`
+  followed by a dedicated empty `LAST_CHUNK` terminator at
+  `offset=totalSize`. Samsung One UI 7+ requires the split terminator for
+  FILE payloads; fusing it into the last data chunk causes silent
+  discard on the receiver.
 - **`...protocol.connection`** — `InboundConnection` ties everything
   together: accepts a TCP connection, runs UKEY2, derives the
   `D2DSessionKeys` with the correct role swap, drives the
