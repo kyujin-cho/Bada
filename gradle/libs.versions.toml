@@ -27,11 +27,6 @@ protobufPlugin = "0.9.5"
 # Crypto (optional helper for HKDF; wired up from L1)
 tink = "1.15.0"
 
-# mDNS (used by :discovery-android for Quick Share LAN publish + browse via #18).
-# JmDNS is the de-facto Java implementation; 3.5.x is stable, Android-friendly,
-# and is the version used by recent third-party Quick Share / NearDrop ports.
-jmdns = "3.5.12"
-
 # ZXing (used by :app to render the Quick Share QR-code URL as a scannable
 # bitmap on the sender's screen, see #84). 3.5.3 is the current stable
 # release of the pure-Java `core` artifact; the Android-flavoured
@@ -74,12 +69,6 @@ protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.
 # Tink (HKDF helper)
 tink = { module = "com.google.crypto.tink:tink", version.ref = "tink" }
 tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "tink" }
-
-# JmDNS — pure-Java mDNS/DNS-SD implementation used by :discovery-android
-# for Quick Share Wi-Fi LAN advertise/browse (#18). Pure JVM (no native
-# bits) so the publish/browse logic can also be exercised in unit tests
-# on a host JVM.
-jmdns = { module = "org.jmdns:jmdns", version.ref = "jmdns" }
 
 # ZXing core — pure-Java QR encoder/decoder. Used by :app to render the
 # Quick Share QR URL as a scannable bitmap (#84). Pure JVM (no Android

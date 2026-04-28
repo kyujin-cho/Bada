@@ -12,7 +12,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -93,12 +92,12 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * For tests, the service exposes [Companion.sessionFactoryOverride].
  * Production paths use the default factory which wires up a real
- * `MediaStoreDownloadsFactory`, real `Discovery`, and a real multicast
- * lock against the application context. The override is process-wide
- * but only consulted on `onCreate`; a unit test can install a fake,
- * spawn a service via Robolectric, and observe the resulting
- * [ReceiverSession] interactions without touching real Android
- * subsystems. Phase 1 keeps the override path purely as a seam — the
+ * `MediaStoreDownloadsFactory` and a real `Discovery` instance against
+ * the application context. The override is process-wide but only
+ * consulted on `onCreate`; a unit test can install a fake, spawn a
+ * service via Robolectric, and observe the resulting [ReceiverSession]
+ * interactions without touching real Android subsystems. Phase 1 keeps
+ * the override path purely as a seam — the
  * `ReceiverSession` itself is exhaustively unit-tested on plain JVM
  * (see [ReceiverSession]) so the service body remains the only
  * Android-coupled surface.
@@ -261,8 +260,8 @@ public class ReceiverForegroundService : Service() {
 
     override fun onDestroy() {
         // Tear the receiver down before the scope is cancelled so the
-        // JmDNS goodbye packet and TCP listener close get a chance to
-        // run on the IO dispatcher.
+        // NSD unregister and TCP listener close get a chance to run on
+        // the IO dispatcher.
         stopReceiverAndExit()
         super.onDestroy()
     }
@@ -287,9 +286,12 @@ public class ReceiverForegroundService : Service() {
             try {
                 newSession.start()
                 // Once start() returns successfully the TCP listener is
-                // bound and the multicast lock is held. With the
-                // gated-advertise factory in production, mDNS publish is
-                // not yet up — the gate launched below handles that.
+                // bound. With the gated-advertise factory in production,
+                // the mDNS publish is not yet up — the gate launched
+                // below handles that. Multicast-lock acquisition is no
+                // longer needed: NsdManager owns the system mDNS
+                // responder, which has its own multicast filter
+                // exemption.
                 startMdnsGate(newSession)
             } catch (
                 @Suppress("SwallowedException") t: Throwable,
@@ -560,7 +562,7 @@ public class ReceiverForegroundService : Service() {
         /**
          * The active [SessionFactory]. Returns the override if one was
          * installed, otherwise the production default that wires up a
-         * real `Discovery` + `DownloadsWriterFactory` + multicast lock.
+         * real `Discovery` and `DownloadsWriterFactory`.
          */
         public val sessionFactory: SessionFactory
             get() = sessionFactoryOverride ?: defaultSessionFactory
@@ -585,7 +587,6 @@ public class ReceiverForegroundService : Service() {
                         DiscoveryAdvertiser { endpointInfo, port ->
                             discovery.advertise(endpointInfo, port)
                         },
-                    multicastLock = AndroidMulticastLockController(context),
                     factoryProvider = { DownloadsWriterFactory.create(context) },
                     endpointInfo = identity,
                     // Issue #34: defer mDNS publish to the
@@ -814,79 +815,6 @@ internal object ActiveDiscoveryHolder {
  */
 internal object EndpointIdentityHolder {
     val snapshot: AtomicReference<EndpointInfo?> = AtomicReference(null)
-}
-
-/**
- * Production [MulticastLockController] that holds a Wi-Fi multicast lock
- * **and** a `WIFI_MODE_FULL_HIGH_PERF` Wi-Fi lock for the duration of the
- * service.
- *
- * Why both locks: vivo / Funtouch / OriginOS routinely treat
- * [WifiManager.MulticastLock.acquire] as a no-op for non-system apps —
- * the Java-side `isHeld` returns `true` but `dumpsys wifi` shows
- * "Multicast Locks held:" empty, and inbound mDNS multicast traffic
- * never reaches our JmDNS responder. Consequence: our initial JmDNS
- * announce burst still goes out (UDP send is allowed), but ongoing PTR
- * queries from peers receive no response, so peers cache us briefly and
- * then we vanish from their service browse. Found while running the
- * docs/testing/interop-ble-trigger.md runbook against a Vivo X300 Ultra
- * (Funtouch 16 / OriginOS 6).
- *
- * The standard escape hatch is to also acquire a [WifiManager.WifiLock]
- * with mode [WifiManager.WIFI_MODE_FULL_HIGH_PERF]. While that lock is
- * held the device disables Wi-Fi power save, and the multicast filter
- * that Funtouch installs in power-save mode is correspondingly lifted —
- * which is what lets multicast actually reach our app on these devices.
- * On stock AOSP / Pixel / Samsung the multicast lock alone already
- * works; the Wi-Fi lock is then redundant but harmless (slight increase
- * in idle power, mitigated by the lock only being held while the
- * receiver foreground service is running).
- *
- * Both locks are tagged with service-specific names so they show up in
- * `dumpsys wifi` for diagnostics. Reference counting is disabled on
- * both — we own the lifecycle through our own boolean tracking inside
- * `ReceiverSession.holdingLock`.
- */
-internal class AndroidMulticastLockController(
-    context: Context,
-    tag: String = DEFAULT_TAG,
-) : MulticastLockController {
-    private val wifi: WifiManager =
-        context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-    private val multicastLock: WifiManager.MulticastLock =
-        wifi.createMulticastLock(tag).apply {
-            setReferenceCounted(false)
-        }
-
-    /**
-     * Companion Wi-Fi lock that disables power save while the receiver
-     * is running. This is the workaround that lets Funtouch / OriginOS
-     * actually deliver multicast to our app — see the class KDoc for
-     * the gory details.
-     */
-    private val wifiLock: WifiManager.WifiLock =
-        wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, tag + "-highperf").apply {
-            setReferenceCounted(false)
-        }
-
-    override fun acquire() {
-        if (!multicastLock.isHeld) multicastLock.acquire()
-        if (!wifiLock.isHeld) wifiLock.acquire()
-    }
-
-    override fun release() {
-        // Release in reverse acquisition order so that if Funtouch
-        // releasing the wifi lock causes power save to re-enable, the
-        // multicast lock can be observed correctly (or, more often,
-        // already silently dropped — but the OS bookkeeping prefers
-        // this order regardless).
-        if (wifiLock.isHeld) wifiLock.release()
-        if (multicastLock.isHeld) multicastLock.release()
-    }
-
-    private companion object {
-        const val DEFAULT_TAG = "wvmg-receiver-foreground"
-    }
 }
 
 /**

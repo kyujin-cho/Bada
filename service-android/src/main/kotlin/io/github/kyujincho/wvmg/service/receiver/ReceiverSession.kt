@@ -31,15 +31,19 @@ import java.util.concurrent.atomic.AtomicBoolean
  *     inbound Quick Share connections, runs each through
  *     [io.github.kyujincho.wvmg.protocol.connection.InboundConnection].
  *  2. An mDNS publisher (#18) — abstracted by [DiscoveryAdvertiser] so
- *     unit tests don't need to stand up real JmDNS / `Discovery` against
+ *     unit tests don't need to stand up real `Discovery` against
  *     loopback.
- *  3. A [MulticastLockController] — the foreground service owns the
- *     `WifiManager.MulticastLock` while the receiver is active so JmDNS
- *     multicast actually reaches the chip on Android.
- *  4. A per-connection [FileDestinationFactory] provider — the
+ *  3. A per-connection [FileDestinationFactory] provider — the
  *     `MediaStoreDownloadsFactory` (#23) holds per-transfer state, so the
  *     server is given a `() -> FileDestinationFactory` rather than one
  *     shared instance.
+ *
+ * Phase 1 also held a [WifiManager.MulticastLock] across the receiver
+ * lifecycle so the Wi-Fi chip would not drop inbound multicast while
+ * the screen was off. After the #98 migration to `NsdManager`, the
+ * system mDNS responder process owns the multicast filter exemption and
+ * the in-app multicast lock is no longer needed — the parameter and
+ * the related lifecycle calls were removed from this class.
  *
  * ### Why this is a pure-JVM class
  *
@@ -53,14 +57,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * ### Lifecycle contract
  *
- *  - [start] is one-shot. It binds the listener, acquires the multicast
- *    lock, registers the mDNS advertisement against the bound port, and
- *    forwards completions onto [completions]. Any failure during setup
- *    rolls back the partially-acquired resources before throwing.
+ *  - [start] is one-shot. It binds the listener, registers the mDNS
+ *    advertisement against the bound port, and forwards completions
+ *    onto [completions]. Any failure during setup rolls back the
+ *    partially-acquired resources before throwing.
  *  - [stop] is idempotent and may be called from any thread. It tears
  *    everything down in reverse order: close the advertise handle, stop
- *    the TCP server, release the multicast lock, cancel the internal
- *    coroutine scope.
+ *    the TCP server, cancel the internal coroutine scope.
  *  - [completions] re-emits every [InboundConnectionCompletion] from the
  *    underlying server. Higher layers (the consent UI in #22, transfer
  *    history) collect this; for now the foreground service forwards it
@@ -80,9 +83,6 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @property advertiser Publishes the receiver via mDNS and returns an
  *   [AdvertiseHandle]. Production wires `Discovery::advertise`; tests
  *   inject a recording fake.
- * @property multicastLock Acquire / release the WifiManager multicast
- *   lock. Production wires the [MulticastLockController] backed by a
- *   real `WifiManager.MulticastLock`; tests inject a counting fake.
  * @property factoryProvider Per-connection [FileDestinationFactory]
  *   factory. Production wires `DownloadsWriterFactory.create(context)`
  *   (which yields a fresh `MediaStoreDownloadsFactory` each time); tests
@@ -95,18 +95,17 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   accepted connection (UKEY2 keypairs / SecureMessage IVs). Tests
  *   inject a deterministic stub.
  * @property advertiseGated When `true`, [start] binds the TCP listener
- *   and acquires the multicast lock but does **not** publish the mDNS
- *   advertisement. The caller is then responsible for calling
- *   [publishAdvertisement] / [unpublishAdvertisement] to drive the
- *   advertise lifecycle externally. Used by [MdnsAdvertisementGate]
- *   (#34) to bind publish to BLE pulse activity. Defaults to `false`
- *   for backward-compatibility — `start()` publishes immediately as in
+ *   but does **not** publish the mDNS advertisement. The caller is
+ *   then responsible for calling [publishAdvertisement] /
+ *   [unpublishAdvertisement] to drive the advertise lifecycle
+ *   externally. Used by [MdnsAdvertisementGate] (#34) to bind publish
+ *   to BLE pulse activity. Defaults to `false` for
+ *   backward-compatibility — `start()` publishes immediately as in
  *   Phase 1.
  */
 public class ReceiverSession(
     private val tcpServerFactory: TcpServerFactory,
     private val advertiser: DiscoveryAdvertiser,
-    private val multicastLock: MulticastLockController,
     private val factoryProvider: () -> FileDestinationFactory,
     private val endpointInfo: EndpointInfo,
     private val secureRandomProvider: () -> SecureRandom = { SecureRandom() },
@@ -128,9 +127,6 @@ public class ReceiverSession(
 
     @Volatile
     private var advertiseHandle: AdvertiseHandle? = null
-
-    @Volatile
-    private var holdingLock: Boolean = false
 
     private val mutableCompletions: MutableSharedFlow<InboundConnectionCompletion> =
         MutableSharedFlow(replay = 0, extraBufferCapacity = COMPLETIONS_BUFFER)
@@ -169,14 +165,13 @@ public class ReceiverSession(
         get() = server?.boundPort ?: error("ReceiverSession has not been started")
 
     /**
-     * Bind the listener, acquire the multicast lock, register the mDNS
-     * advertisement, and start forwarding completions.
+     * Bind the listener, register the mDNS advertisement, and start
+     * forwarding completions.
      *
      * On any failure during setup every partially-acquired resource is
      * released before the throwable propagates to the caller. This
-     * keeps [start] safe to retry against a fresh
-     * [ReceiverSession] without leaking sockets, locks, or JmDNS
-     * instances.
+     * keeps [start] safe to retry against a fresh [ReceiverSession]
+     * without leaking sockets or NSD registrations.
      *
      * @return The bound TCP port (also reachable via [boundPort]).
      */
@@ -187,20 +182,6 @@ public class ReceiverSession(
         }
         check(!stopped.get()) { "ReceiverSession has already been stopped" }
 
-        // Order matters here. JmDNS' first announcement is sent inside
-        // registerService, and that announcement is silently dropped on
-        // Android Wi-Fi power-save unless the multicast lock is held.
-        // So: acquire lock -> bind TCP -> publish mDNS, and unwind in
-        // strict reverse on failure.
-        try {
-            multicastLock.acquire()
-            holdingLock = true
-        } catch (t: Throwable) {
-            holdingLock = false
-            stopped.set(true)
-            throw t
-        }
-
         val tcpServer: TcpReceiverServer
         val port: Int
         try {
@@ -208,10 +189,6 @@ public class ReceiverSession(
             port = tcpServer.start()
             server = tcpServer
         } catch (t: Throwable) {
-            // Listener bind failed. Roll back the lock and mark
-            // terminal so a stray stop() doesn't double-release.
-            runCatching { multicastLock.release() }
-            holdingLock = false
             stopped.set(true)
             scope.cancel()
             throw t
@@ -226,11 +203,8 @@ public class ReceiverSession(
             try {
                 advertiseHandle = advertiser.advertise(endpointInfo, port)
             } catch (t: Throwable) {
-                // mDNS publish failed. Roll back the listener and the lock.
                 runCatching { tcpServer.stop() }
                 server = null
-                runCatching { multicastLock.release() }
-                holdingLock = false
                 stopped.set(true)
                 scope.cancel()
                 throw t
@@ -264,9 +238,7 @@ public class ReceiverSession(
      * before stopping the listener avoids a race where a peer that just
      * resolved our mDNS record connects to a listener we are about to
      * close (they would observe a `ConnectException`, but the user sees
-     * "couldn't connect" instead of "device went away"). Releasing the
-     * multicast lock last keeps JmDNS' final goodbye packet flowing on
-     * power-save Wi-Fi.
+     * "couldn't connect" instead of "device went away").
      */
     public fun stop() {
         if (!stopped.compareAndSet(false, true)) return
@@ -283,11 +255,6 @@ public class ReceiverSession(
 
         runCatching { server?.stopBlocking() }
         server = null
-
-        if (holdingLock) {
-            runCatching { multicastLock.release() }
-            holdingLock = false
-        }
 
         scope.cancel()
     }
@@ -334,9 +301,9 @@ public class ReceiverSession(
     /**
      * Unpublish the mDNS advertisement if one is currently in flight.
      * Idempotent: calling this when no advertisement is published is a
-     * no-op. Other resources (the TCP listener, the multicast lock) are
-     * unaffected — the receiver remains reachable for already-resolved
-     * peers and can be re-published via [publishAdvertisement].
+     * no-op. The TCP listener is unaffected — the receiver remains
+     * reachable for already-resolved peers and can be re-published via
+     * [publishAdvertisement].
      */
     public fun unpublishAdvertisement() {
         synchronized(advertiseLock) {
@@ -406,17 +373,4 @@ public fun interface DiscoveryAdvertiser {
         endpointInfo: EndpointInfo,
         port: Int,
     ): AdvertiseHandle
-}
-
-/**
- * Acquire / release the WifiManager multicast lock. Mirrors the
- * package-private contract of
- * [io.github.kyujincho.wvmg.discovery.MulticastLockHolder] but exposed
- * publicly so the foreground service in this module can inject the
- * lock without dragging the Android `WifiManager` into [ReceiverSession].
- */
-public interface MulticastLockController {
-    public fun acquire()
-
-    public fun release()
 }

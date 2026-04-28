@@ -17,10 +17,12 @@ import io.github.kyujincho.wvmg.R
 /**
  * Single source of truth for the runtime permissions onboarding asks for.
  *
- * Compile-time permissions (`CHANGE_WIFI_MULTICAST_STATE`, `INTERNET`,
- * `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, legacy `BLUETOOTH` /
- * `BLUETOOTH_ADMIN` on API ≤ 30) are declared in the manifest and never
- * appear here — they are granted at install time.
+ * Compile-time permissions (`INTERNET`, `ACCESS_NETWORK_STATE`,
+ * `ACCESS_WIFI_STATE`, legacy `BLUETOOTH` / `BLUETOOTH_ADMIN` on API ≤ 30)
+ * are declared in the manifest and never appear here — they are granted
+ * at install time. `CHANGE_WIFI_MULTICAST_STATE` was previously in this
+ * set for the JmDNS publisher and was dropped in #98 once the discovery
+ * layer migrated to NsdManager.
  *
  * Runtime permissions are gated by API level:
  *   * `NEARBY_WIFI_DEVICES` and `POST_NOTIFICATIONS` only exist on API 33+.

@@ -1,7 +1,8 @@
-// :discovery-android — Android-specific peer discovery. Hosts the JmDNS /
-// NsdManager wrappers (#18) and, in Phase 2, BLE advertise/scan code.
-// Lives in its own module so :core-protocol stays JVM-pure and so the
-// transport layer can be swapped without touching protocol logic.
+// :discovery-android — Android-specific peer discovery. Hosts the
+// NsdManager publish/browse wrappers (#18, migrated from JmDNS in #98)
+// and, in Phase 2, BLE advertise/scan code. Lives in its own module so
+// :core-protocol stays JVM-pure and so the transport layer can be
+// swapped without touching protocol logic.
 
 plugins {
     alias(libs.plugins.android.library)
@@ -58,11 +59,6 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
-
-    // JmDNS for Quick Share mDNS publish + browse (#18). The Android
-    // platform's NsdManager has historically had bugs with multi-key TXT
-    // records, so we use JmDNS for full control over the wire format.
-    implementation(libs.jmdns)
 
     // Junit Jupiter is the project-wide test runtime; align with
     // :core-protocol so all unit tests run under the same engine.

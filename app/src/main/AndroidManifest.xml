@@ -23,11 +23,15 @@
           the location-permission requirement.
 
       Compile-time (no runtime prompt):
-        * CHANGE_WIFI_MULTICAST_STATE — held while mDNS is active via
-          WifiManager.MulticastLock. mDNS multicasts (224.0.0.251) are
-          dropped on Android by default unless the lock is acquired.
         * INTERNET / ACCESS_NETWORK_STATE / ACCESS_WIFI_STATE — local
           socket I/O, network/Wi-Fi state inspection.
+
+      Note: CHANGE_WIFI_MULTICAST_STATE was previously declared while the
+      app used JmDNS to publish + browse mDNS records out of process. After
+      the #98 migration to NsdManager, mDNS runs in the system mDNS
+      responder process which has the multicast filter exemption baked in,
+      so the in-app multicast lock is no longer needed and the permission
+      is no longer requested.
         * BLUETOOTH / BLUETOOTH_ADMIN (API ≤ 30, #31) — legacy permission
           model for pre-Android-12 devices. Capped with maxSdkVersion=30
           so API 31+ devices use the runtime BLUETOOTH_ADVERTISE /
@@ -78,9 +82,6 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
-
-    <!-- Multicast lock for mDNS service discovery (compile-time). -->
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <!-- General networking (compile-time). -->
     <uses-permission android:name="android.permission.INTERNET" />

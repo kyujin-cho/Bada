@@ -2,20 +2,27 @@
 <!--
   :discovery-android module manifest.
 
-  These permissions are required by the JmDNS publish + browse code wired up
-  in #18, the BLE service-data advertiser added in #32, and the BLE pulse
-  scanner added in #33. They are declared at the library level so any
-  consuming app automatically inherits them; the umbrella set in
-  :app/AndroidManifest.xml remains authoritative for the runtime-prompt
-  entries (NEARBY_WIFI_DEVICES, BLUETOOTH_ADVERTISE, BLUETOOTH_SCAN, etc.)
-  and is the single place that declares user-visible permission rationales.
+  These permissions are required by the NsdManager-backed publish + browse
+  code (#18, migrated from JmDNS in #98), the BLE service-data advertiser
+  added in #32, and the BLE pulse scanner added in #33. They are declared
+  at the library level so any consuming app automatically inherits them;
+  the umbrella set in :app/AndroidManifest.xml remains authoritative for
+  the runtime-prompt entries (NEARBY_WIFI_DEVICES, BLUETOOTH_ADVERTISE,
+  BLUETOOTH_SCAN, etc.) and is the single place that declares user-visible
+  permission rationales.
+
+  Note: CHANGE_WIFI_MULTICAST_STATE was previously required for the JmDNS
+  in-app publisher (it acquired a WifiManager.MulticastLock to keep mDNS
+  multicast flowing while the screen was off). After the #98 migration to
+  NsdManager, the system mDNS responder process handles all multicast
+  inbound for us and the in-app multicast lock is no longer needed.
 
   Compile-time (no runtime prompt):
-    * CHANGE_WIFI_MULTICAST_STATE — required to acquire the
-      WifiManager.MulticastLock that keeps mDNS multicast traffic flowing
-      while the screen is off / Wi-Fi is in power-save mode.
     * ACCESS_WIFI_STATE — needed to obtain WifiManager via getSystemService
-      on every API level we support.
+      on every API level we support, used by NetworkChangeWatcher to
+      observe Wi-Fi network transitions.
+    * ACCESS_NETWORK_STATE — required by NetworkChangeWatcher to register
+      a ConnectivityManager.NetworkCallback.
 
   Runtime (must be granted by the user on API 31+):
     * BLUETOOTH_ADVERTISE — required by BleAdvertiser (#32) to broadcast
@@ -38,7 +45,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 

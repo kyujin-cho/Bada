@@ -10,30 +10,24 @@ import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
-import java.net.InetAddress
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import javax.jmdns.JmDNS
 
 /**
  * Tests for [Discovery.snapshot] — the diagnostic API added for issue
- * #83 so on-device debugging can show whether the multicast lock was
- * actually held, which interface JmDNS bound to, and whether any
- * service events flowed.
+ * #83 so on-device debugging can show whether discovery was actually
+ * running and which events flowed.
  *
- * These tests cover the snapshot transitions on the publish side
- * (advertise → close) and ensure the recent-events buffer is bounded.
- * The browse-side transitions are exercised by an instrumentation /
- * on-device test (see the @Disabled placeholder at the bottom).
+ * After the #98 NsdManager migration the `multicastLockHeld` flag
+ * always reports `false` (the system mDNS responder owns the multicast
+ * filter exemption); the field is retained on the data class for source
+ * compatibility but is no longer meaningful diagnostically.
  */
 class DiscoveryDiagnosticsTest {
     @Test
-    fun `snapshot reports lock state and quiescent flags before any operation`() {
-        val locks = ToggleLockController()
+    fun `snapshot reports quiescent flags before any operation`() {
         val discovery =
             Discovery.forTesting(
-                locks = locks,
-                jmdnsProvider = { error("not used") },
+                registrar = CountingNsdRegistrar(),
+                browser = NoopNsdBrowser,
             )
         val snapshot = discovery.snapshot()
         assertThat(snapshot.advertising).isFalse()
@@ -46,17 +40,20 @@ class DiscoveryDiagnosticsTest {
 
     @Test
     fun `advertise transitions advertising flag and bound address`() {
-        val locks = ToggleLockController()
+        val nsd = FakeNsd()
         val discovery =
             Discovery.forTesting(
-                locks = locks,
-                jmdnsProvider = { name -> JmDNS.create(InetAddress.getLoopbackAddress(), name) },
+                registrar = nsd.registrar,
+                browser = nsd.browser,
             )
         val handle = discovery.advertise(sampleEndpointInfo(), port = 23_456)
         try {
             val active = discovery.snapshot()
             assertThat(active.advertising).isTrue()
-            assertThat(active.multicastLockHeld).isTrue()
+            // multicastLockHeld is always false post-#98.
+            assertThat(active.multicastLockHeld).isFalse()
+            // FakeNsd surfaces its advertise address as the bound IP so
+            // the snapshot has something concrete to display.
             assertThat(active.advertiseBoundAddress).isNotNull()
         } finally {
             handle.close()
@@ -64,7 +61,6 @@ class DiscoveryDiagnosticsTest {
 
         val closed = discovery.snapshot()
         assertThat(closed.advertising).isFalse()
-        assertThat(closed.multicastLockHeld).isFalse()
         assertThat(closed.advertiseBoundAddress).isNull()
     }
 
@@ -103,13 +99,11 @@ class DiscoveryDiagnosticsTest {
     @Test
     fun `two devices on the same Wi-Fi network discover each other within five seconds`() {
         // Manual / instrumentation verification only — see issue #83.
-        // Steps:
+        // After #98 the logcat trail looks like:
         //   1. Install on Device A, start the receiver foreground service.
         //   2. Install on Device B, open a share intent → SendActivity.
         //   3. Within 5s, Device B's peer list shows Device A.
         //   4. Tag `WvmgDiscovery` in logcat shows on both devices:
-        //        - "MulticastLockHolder ... acquired"
-        //        - "JmdnsFactory.create: binding ... to wifi address=<LAN IP>"
         //        - "advertise: registered ..." on Device A
         //        - "browse: serviceResolved ..." on Device B
     }
@@ -124,23 +118,4 @@ class DiscoveryDiagnosticsTest {
             deviceName = "Diag Test",
             tlvRecords = emptyList(),
         )
-
-    /**
-     * [LockController] that mirrors a real ref-counted lock: tracks
-     * acquire/release counts and surfaces `isHeld` from those.
-     */
-    private class ToggleLockController : LockController {
-        private val ref = AtomicInteger(0)
-        val held = AtomicBoolean(false)
-
-        override fun acquire() {
-            if (ref.getAndIncrement() == 0) held.set(true)
-        }
-
-        override fun release() {
-            if (ref.decrementAndGet() == 0) held.set(false)
-        }
-
-        override fun isHeld(): Boolean = held.get()
-    }
 }
