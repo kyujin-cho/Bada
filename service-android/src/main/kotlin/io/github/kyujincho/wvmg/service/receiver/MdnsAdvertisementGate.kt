@@ -181,7 +181,7 @@ public class MdnsAdvertisementGate(
             if (!session.isAdvertising) {
                 try {
                     session.publishAdvertisement()
-                    Log.i(TAG, "publish: published mDNS (decision=$decision)")
+                    Log.w(TAG, "publish: published mDNS (decision=$decision)")
                 } catch (t: Throwable) {
                     // The session may have been stopped between the
                     // collector firing and the publish call. Treat as
@@ -208,7 +208,7 @@ public class MdnsAdvertisementGate(
                 if (isActive) {
                     try {
                         session.unpublishAdvertisement()
-                        Log.i(TAG, "unpublish: idle for ${debounceIdleMillis}ms; mDNS taken down")
+                        Log.w(TAG, "unpublish: idle for ${debounceIdleMillis}ms; mDNS taken down")
                     } catch (t: Throwable) {
                         // Best-effort: the session may have been stopped
                         // first, in which case the advertisement is

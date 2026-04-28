@@ -324,71 +324,110 @@ update regresses the BLE wake-up path.
 
 ---
 
-## NsdManager migration (PR #99 / issue #98) — vivo / Funtouch / OriginOS notes
+## Vivo / Funtouch / OriginOS specific quirks
 
-### What changed
+Real-device verification on a vivo X300 Ultra (Funtouch 16, OriginOS 6,
+Android 16) surfaced several behaviours that any tester running the
+matrix on a vivo device must be aware of. Other Funtouch / OriginOS
+versions (and likely most other Chinese-OEM Android skins — Xiaomi
+MIUI, Honor MagicOS, OPPO ColorOS) layer similar restrictions on top
+of stock Android, so these notes apply more broadly than just vivo.
 
-Prior to PR #99 the mDNS publish and browse path ran through the JmDNS
-library in-process. The receiver held a `WifiManager.MulticastLock` for
-the lifetime of the receiver service so the Wi-Fi chip would not drop
-inbound multicast while the screen was off.
+### What changed in PR #99 / issue #98
 
-PR #99 ([issue #98](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/98))
-replaced JmDNS with Android's `NsdManager`, which delegates publish and
-browse to the system mDNS responder process. The system responder has
-the multicast filter exemption baked in; the in-app `MulticastLock` is
-therefore no longer needed and has been removed.
+The mDNS publish + browse path was migrated from the JmDNS library
+in-process to Android's `NsdManager`. `NsdManager` delegates to the
+system mDNS responder process, which has the multicast filter
+exemption baked in; the in-app `WifiManager.MulticastLock` (and the
+`WIFI_MODE_FULL_HIGH_PERF` companion Wi-Fi lock that an earlier
+workaround tried to use) are no longer needed and have been removed.
 
-**What this means for vivo Funtouch OS / OriginOS testers:** the
-previous JmDNS-based implementation silently failed to receive any inbound
-mDNS multicast on vivo devices regardless of `MulticastLock` state — the
-radio layer on those OEM skins drops inbound IPv4 multicast for
-non-system apps at a level below the lock mechanism. The `NsdManager`
-path bypasses this restriction because the system responder has kernel
-CAP\_NET\_RAW privileges that third-party processes cannot obtain. The
-peer picker should now populate within 5 s of the BLE pulse landing on
-vivo hardware.
+**Why this matters on vivo specifically.** Pre-#99 the JmDNS-based
+implementation silently failed to receive any inbound mDNS multicast on
+vivo devices regardless of `MulticastLock` state — the radio layer on
+those OEM skins drops inbound IPv4 multicast for non-system apps at a
+level below the lock mechanism (`dumpsys wifi` reports
+`ipv4RxMulticast=0` even with `MulticastLock.isHeld == true`). The
+`NsdManager` path bypasses this restriction because the system
+responder has kernel `CAP_NET_RAW` privileges that third-party
+processes cannot obtain. The WVMG peer picker should now populate
+within 5 s of the BLE pulse landing on vivo hardware.
 
-### How to verify the migration on a vivo device
+#### How to verify the migration on a vivo device
 
-1. Install the build from PR #99 and open the share flow on the vivo
-   sender.
+1. Install a post-#99 build and open the share flow on the vivo sender.
 2. Verify no in-process multicast lock is held by the app:
    ```bash
    adb shell dumpsys wifi | grep -A 10 "Multicast Locks held"
    ```
    The section should either be absent or show zero locks held by
    `io.github.kyujincho.wvmg.debug`. If a lock entry still appears,
-   the migration is incomplete.
+   the migration is incomplete on this build.
 3. Confirm the WVMG peer picker populates within 5 s of a Pixel or
    Samsung Quick Share sender issuing a BLE pulse (cells 1 and 2 of
    the test matrix above). On pre-#99 builds this would reliably fail
    on vivo; on post-#99 builds it should succeed.
-4. Check logcat for the NsdManager discovery start line:
+4. Check `dumpsys servicediscovery` for the registered listener and
+   the cached peers:
    ```bash
-   adb logcat -s WvmgDiscovery
+   adb shell dumpsys servicediscovery | grep -A 3 -E "Register a DiscoveryListener|onServiceFound"
    ```
-   You should see `NsdBrowser: discovery started for _FC9F5ED42C8A._tcp`
-   followed by `browse: serviceResolved name=<instanceName>` for each
-   visible Quick Share peer. If you see only `serviceFound` lines but
-   no `serviceResolved`, the system responder is queuing resolves but
-   timing out — note the OEM build fingerprint and file a follow-up.
+   You should see at least one `Register a DiscoveryListener … for
+   service type:_FC9F5ED42C8A._tcp.local` line and `onServiceFound`
+   entries for each visible Quick Share peer.
 
-### Historical context: mDNS persistence limitation
+### App freezing must be disabled
 
-Earlier versions of this runbook carried a "mDNS persistence limitation"
-warning documenting that JmDNS browse sessions would silently stop
-receiving updates after the screen turned off on some OEM skins. That
-limitation was a consequence of the in-process multicast lock being
-ignored by the radio firmware.
+Funtouch's "App Freezer" / "Background process management" suspends
+non-system app processes a few minutes after they leave the foreground —
+even when they own a `connectedDevice` foreground service. While
+frozen, the app keeps its persistent notification visible but cannot
+process incoming BLE callbacks or service the system NSD responder. To
+the peer it looks like our receiver simply went silent.
 
-After the NsdManager migration the system mDNS responder is responsible
-for maintaining browse sessions; the app no longer has to hold any lock.
-The limitation is **expected to be lifted** on all supported Android
-versions (API 24+). If you observe the peer picker emptying itself or
-stopping to update while the screen is on, it is now a system-responder
-or NsdManager bug rather than a WVMG-specific issue — capture
-`adb shell dumpsys nsd` output and attach it to any follow-up issue.
+Before any test cell, enable background activity for the WVMG app:
+
+1. **Settings → Battery → Background power consumption management**
+   (the exact path depends on Funtouch version; on OriginOS 6 it is
+   *Settings → Apps & permissions → Background apps*).
+2. Find **WhenVivoMeetsGoogle**.
+3. Set background activity to *Allow* and disable battery optimisation.
+4. If the device exposes an *Auto-start* toggle, enable that too —
+   Funtouch's freezer treats unfreezing as auto-start for some
+   transitions.
+
+You can confirm the freezer is no longer interfering by running:
+
+```bash
+adb shell dumpsys activity broadcasts | grep -B 1 -A 1 "vivo.intent.action.PACKAGE_FREEZE.*kyujincho"
+```
+
+After whitelisting, this should not show new FREEZE entries while the
+app is running. Pre-existing entries from before the whitelist are
+fine to ignore.
+
+### Non-Pixel/Samsung peers may not be installed
+
+The vivo X300 Ultra ships with full GMS but **does NOT** ship with
+stock Quick Share installed. `adb shell pm list packages | grep -i
+nearby` returns nothing on this device class. This is exactly the use
+case WVMG was built for, but it means a vivo device cannot be used as
+a Quick Share *peer* in the test matrix — only as the WVMG sender or
+WVMG receiver. Use a Pixel or Samsung phone for the matrix's peer
+role.
+
+### Logcat filters out app `Log.i` output
+
+Funtouch / OriginOS filters `Log.i` calls from non-system apps —
+`adb logcat -s WvmgDiscovery:*` will return nothing for our success
+paths even when the corresponding code is running. The success-path
+log lines in `BleAdvertiser`, `BleQuickShareScanner`, and
+`MdnsAdvertisementGate` therefore log at `Log.w` level (the same
+mitigation `OutboundConnection` uses with `Log.e`); `Log.w` and
+`Log.e` come through normally. When a test cell on a vivo device
+needs to verify that the BLE advertise actually started, prefer
+`adb shell dumpsys bluetooth_manager | grep -B 1 -A 12 kyujincho`
+over logcat.
 
 ---
 
