@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.ConnectionResponseFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.DisconnectionFrame
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.KeepAliveFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OsInfo
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
@@ -141,6 +142,50 @@ internal object OfflineFrames {
                     .newBuilder()
                     .setType(V1Frame.FrameType.DISCONNECTION)
                     .setDisconnection(disconnection)
+                    .build(),
+            ).build()
+    }
+
+    /**
+     * Build an `OfflineFrame{V1, KEEP_ALIVE}` carrying a `KeepAliveFrame`
+     * with [ack] set as requested.
+     *
+     * Quick Share's contract (see PROTOCOL.md, "Connection management"):
+     * each side fires `KEEP_ALIVE{ack=false}` every 10 seconds and the
+     * peer is expected to do the same. When a side observes the peer's
+     * `ack=false` frame it MAY answer with `ack=true`; both sides
+     * cancel any "peer crashed" watchdog that fires after the
+     * advertised `keep_alive_timeout_millis`. Without an outbound
+     * ticker, long-idle transfers (>`keep_alive_timeout_millis`) get
+     * torn down by the peer's watchdog; with a 10 s outbound ticker
+     * the connection survives indefinitely on a healthy link.
+     *
+     * The `seq_num` field defined in the proto is currently ignored by
+     * stock Quick Share peers (no inbound implementation we have access
+     * to inspects it). Leaving it at the proto default keeps the
+     * outbound shape minimal and matches what NearDrop emits.
+     *
+     * @param ack `false` for a self-initiated tick (the common case
+     *   driven by [OutboundConnectionDriver]'s ticker); `true` for an
+     *   acknowledgement of an inbound `KEEP_ALIVE` (currently no driver
+     *   in this project sends acks — receivers ignore the missing reply
+     *   in steady state — but the helper keeps both shapes available
+     *   for tests and a future ack-reply path).
+     */
+    fun keepAlive(ack: Boolean = false): OfflineFrame {
+        val keepAlive =
+            KeepAliveFrame
+                .newBuilder()
+                .setAck(ack)
+                .build()
+        return OfflineFrame
+            .newBuilder()
+            .setVersion(OfflineFrame.Version.V1)
+            .setV1(
+                V1Frame
+                    .newBuilder()
+                    .setType(V1Frame.FrameType.KEEP_ALIVE)
+                    .setKeepAlive(keepAlive)
                     .build(),
             ).build()
     }
