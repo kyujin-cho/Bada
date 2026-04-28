@@ -25,6 +25,7 @@ class IntroductionFramesTest {
         size: Long,
         mimeType: String,
         payloadId: Long,
+        parentFolder: String = "",
     ): FileSource =
         FileSource(
             name = name,
@@ -32,6 +33,7 @@ class IntroductionFramesTest {
             mimeType = mimeType,
             lastModifiedTimestampMillis = 0L,
             payloadId = payloadId,
+            parentFolder = parentFolder,
             open = { Channels.newChannel(ByteArrayInputStream(ByteArray(0))) as ReadableByteChannel },
         )
 
@@ -64,6 +66,42 @@ class IntroductionFramesTest {
             assertThat(md.payloadId).isEqualTo(expected.payloadId)
             assertThat(md.id).isNotEqualTo(0L)
         }
+    }
+
+    @Test
+    fun `top-level files leave parent_folder unset`() {
+        // Plain file shares (#24's pre-existing flow) must remain
+        // byte-for-byte compatible with the pre-#38 introduction shape.
+        // Receivers that branch on `hasParentFolder()` must observe
+        // false for a top-level file.
+        val intro =
+            buildIntroductionFrame(
+                listOf(fileSource("photo.jpg", 1, "image/jpeg", payloadId = 1L)),
+            )
+        val md = intro.getFileMetadata(0)
+        assertThat(md.hasParentFolder()).isFalse()
+        assertThat(md.parentFolder).isEqualTo("")
+    }
+
+    @Test
+    fun `folder send carries parent_folder for nested files`() {
+        // #38: SAF DocumentTree walks emit one FileMetadata per file
+        // with `parent_folder` set to the relative directory path.
+        // Receivers materialize directories implicitly as files arrive
+        // (Quick Share has no dedicated "create empty directory" frame).
+        val files =
+            listOf(
+                fileSource("README.md", 256, "text/markdown", payloadId = 11L),
+                fileSource("logo.png", 4_096, "image/png", payloadId = 12L, parentFolder = "assets"),
+                fileSource("hero.png", 8_192, "image/png", payloadId = 13L, parentFolder = "assets/img"),
+                fileSource("notes.txt", 1_024, "text/plain", payloadId = 14L, parentFolder = "docs/2024"),
+            )
+        val intro = buildIntroductionFrame(files)
+        assertThat(intro.fileMetadataCount).isEqualTo(4)
+        assertThat(intro.getFileMetadata(0).hasParentFolder()).isFalse()
+        assertThat(intro.getFileMetadata(1).parentFolder).isEqualTo("assets")
+        assertThat(intro.getFileMetadata(2).parentFolder).isEqualTo("assets/img")
+        assertThat(intro.getFileMetadata(3).parentFolder).isEqualTo("docs/2024")
     }
 
     @Test

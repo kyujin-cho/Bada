@@ -598,6 +598,14 @@ internal class OutboundConnectionDriver(
                     source = source,
                     chunkSize = PayloadTransferEncoder.DEFAULT_FILE_CHUNK_SIZE,
                     lastModifiedTimestampMillis = file.lastModifiedTimestampMillis,
+                    // `parent_folder` is also carried on every PayloadHeader,
+                    // not just on FileMetadata. Quick Share receivers can
+                    // reconcile the two sources of truth — but we set both
+                    // to the same value to match stock Android's behaviour
+                    // and to remain robust against receivers that key
+                    // exclusively off the PayloadHeader (which the chunk
+                    // assembler sees first, before negotiation finalizes).
+                    parentFolder = file.parentFolder,
                 )
             for (frame in frames) {
                 // Poll for cancellation between chunks. trySend semantics

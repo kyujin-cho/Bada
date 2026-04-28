@@ -6,11 +6,16 @@
 package io.github.kyujincho.wvmg
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Button
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import io.github.kyujincho.wvmg.onboarding.PermissionRequirements
 import io.github.kyujincho.wvmg.onboarding.PermissionsOnboardingActivity
+import io.github.kyujincho.wvmg.send.SendActivity
 import io.github.kyujincho.wvmg.service.receiver.MdnsVisibilityOverrideHolder
 import io.github.kyujincho.wvmg.service.receiver.ReceiverForegroundService
 
@@ -48,6 +53,21 @@ class MainActivity : AppCompatActivity() {
      */
     private var onboardingLaunched: Boolean = false
 
+    /**
+     * Launcher for SAF's `ACTION_OPEN_DOCUMENT_TREE` (#38). Android
+     * registers the result contract during `onCreate` (it walks the
+     * activity-result API's bookkeeping at that point), so the launcher
+     * is owned at the activity level and triggered by the "Send folder"
+     * button click handler.
+     *
+     * On a successful pick we forward the resolved tree URI to
+     * [SendActivity] via [SendActivity.ACTION_SEND_FOLDER]; the activity
+     * walks the tree, builds one [io.github.kyujincho.wvmg.protocol.connection.FileSource]
+     * per descendant file, and runs the existing peer-discovery /
+     * outbound-connection flow with `parent_folder` populated.
+     */
+    private lateinit var openTreeLauncher: ActivityResultLauncher<Uri?>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -63,6 +83,39 @@ class MainActivity : AppCompatActivity() {
         switch.isChecked = MdnsVisibilityOverrideHolder.isActive
         switch.setOnCheckedChangeListener { _, checked ->
             MdnsVisibilityOverrideHolder.setAlwaysVisible(checked)
+        }
+
+        // SAF tree-picker (#38). The launcher must be registered during
+        // onCreate to satisfy the activity-result API's lifecycle
+        // contract; we hand its result off to SendActivity rather than
+        // duplicating discovery / connection wiring here.
+        openTreeLauncher =
+            registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri: Uri? ->
+                if (treeUri != null) {
+                    val intent =
+                        Intent(this, SendActivity::class.java).apply {
+                            action = SendActivity.ACTION_SEND_FOLDER
+                            data = treeUri
+                            // FLAG_GRANT_READ_URI_PERMISSION propagates the
+                            // SAF read grant to SendActivity. Without it,
+                            // the receiving activity can read top-level
+                            // children but `openInputStream` on individual
+                            // file URIs throws SecurityException. The
+                            // `OpenDocumentTree` contract already takes a
+                            // persistable grant on our behalf, so the read
+                            // is safe to pass through.
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                    startActivity(intent)
+                }
+            }
+
+        findViewById<Button>(R.id.main_send_folder_button).setOnClickListener {
+            // Passing null means "no initial directory hint"; the system
+            // picker opens at its default landing screen (typically the
+            // most recently used location). The user is free to navigate
+            // to any tree they have access to.
+            openTreeLauncher.launch(null)
         }
     }
 

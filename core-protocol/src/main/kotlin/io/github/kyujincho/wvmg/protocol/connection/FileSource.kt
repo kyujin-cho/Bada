@@ -51,6 +51,14 @@ import java.nio.channels.ReadableByteChannel
  *   `PayloadHeader.id`. The caller MUST choose a fresh, positive,
  *   unique value per source — duplicates break the receiver's
  *   reassembler.
+ * @property parentFolder Optional relative parent directory for folder
+ *   sends (#38). Mirrored both onto `FileMetadata.parent_folder` (proto
+ *   field 7) and onto each `PayloadHeader.parent_folder` so the receiver
+ *   can reconstruct the directory tree when materializing files. Empty
+ *   string for top-level files. Path separators are forward slashes,
+ *   matching the wire convention NearDrop's PROTOCOL.md describes.
+ *   Quick Share's receiver implicitly creates intermediate directories
+ *   as files arrive, so empty folders are not transferred.
  */
 public class FileSource(
     public val name: String,
@@ -58,6 +66,7 @@ public class FileSource(
     public val mimeType: String,
     public val lastModifiedTimestampMillis: Long,
     public val payloadId: Long,
+    public val parentFolder: String = "",
     private val open: () -> ReadableByteChannel,
 ) {
     init {

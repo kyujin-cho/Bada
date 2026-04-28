@@ -40,7 +40,7 @@ import io.github.kyujincho.wvmg.protocol.sharing.IntroductionFrame
 internal fun buildIntroductionFrame(files: List<FileSource>): IntroductionFrame {
     val builder = IntroductionFrame.newBuilder()
     for (f in files) {
-        builder.addFileMetadata(
+        val md =
             Protocol.FileMetadata
                 .newBuilder()
                 .setName(f.name)
@@ -49,8 +49,16 @@ internal fun buildIntroductionFrame(files: List<FileSource>): IntroductionFrame 
                 .setMimeType(f.mimeType)
                 .setType(mimeTypeToFileType(f.mimeType))
                 .setId(f.payloadId)
-                .build(),
-        )
+        // `parent_folder` (proto field 7) is the receiver's hint to
+        // reconstruct nested directory layouts on disk. Quick Share's
+        // receiver implicitly creates intermediate folders when it
+        // writes the file, so we only emit the field when non-empty —
+        // top-level attachments stay byte-for-byte compatible with the
+        // pre-#38 introduction wire shape.
+        if (f.parentFolder.isNotEmpty()) {
+            md.setParentFolder(f.parentFolder)
+        }
+        builder.addFileMetadata(md.build())
     }
     builder.setUseCase(Protocol.IntroductionFrame.SharingUseCase.NEARBY_SHARE)
     return builder.build()

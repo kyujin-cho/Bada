@@ -74,6 +74,7 @@ import java.security.SecureRandom
 public class SendActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySendBinding
     private lateinit var fileSourceFactory: UriFileSourceFactory
+    private lateinit var documentTreeFactory: DocumentTreeFileSourceFactory
 
     private var files: List<FileSource> = emptyList()
     private val peers: MutableList<DiscoveredService> = mutableListOf()
@@ -124,32 +125,77 @@ public class SendActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         fileSourceFactory = UriFileSourceFactory(contentResolver)
+        documentTreeFactory = DocumentTreeFileSourceFactory(contentResolver)
 
         binding.sendCancelButton.setOnClickListener { onCancelClicked() }
         binding.sendDoneButton.setOnClickListener { finish() }
         binding.sendShowQrButton.setOnClickListener { onShowQrClicked() }
         binding.sendNetworkHintDismiss.setOnClickListener { onHintDismissed() }
 
-        val parsed = ShareIntentRouter.route(toShareIntent(intent))
-        if (parsed == null) {
-            renderUnsupportedPayload()
-            return
-        }
-
-        files = materializeFiles(parsed)
-        if (files.isEmpty()) {
-            // Currently true for plain-text shares (sender-side text
-            // payload support is a follow-up). Surface the same
-            // unsupported message so the user gets clear feedback.
-            renderUnsupportedPayload()
-            return
-        }
+        // Resolve the intent's file list. May render a terminal UI
+        // state (unsupported / folder empty / folder walk failed) and
+        // return null; in that case we leave `files` as the default
+        // empty list and bail without starting discovery. The terminal
+        // states already display "Done" / explanatory text.
+        val resolved = resolveIntentFiles()
+        if (resolved == null) return
+        files = resolved
 
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
         startDiscovery()
         startEmptyPeerHintTimer()
         startBleAdvertise()
+    }
+
+    /**
+     * Walk [intent] into the canonical [FileSource] list the rest of
+     * the activity expects, or render a terminal UI state and return
+     * null. Centralised here so `onCreate` carries a single early-
+     * return rather than threading the share-sheet vs. folder-send
+     * branching across multiple bail-out paths.
+     *
+     * Two distinct entry points:
+     *
+     *  1. `ACTION_SEND_FOLDER` (#38). The folder-picker on
+     *     [io.github.kyujincho.wvmg.MainActivity] forwards a `tree://`
+     *     URI here. We walk it via [DocumentTreeFileSourceFactory],
+     *     surface a folder-specific empty / failure message if needed,
+     *     and otherwise hand the list back.
+     *  2. `ACTION_SEND` / `ACTION_SEND_MULTIPLE` (#24). The system
+     *     share sheet routes individual file URIs here, which
+     *     [ShareIntentRouter] parses into the canonical input shapes.
+     */
+    @Suppress("ReturnCount") // The branching is inherent — each terminal-state path is its own bail.
+    private fun resolveIntentFiles(): List<FileSource>? {
+        if (intent.action == ACTION_SEND_FOLDER) {
+            val treeUri = intent.data
+            if (treeUri == null) {
+                renderUnsupportedPayload()
+                return null
+            }
+            val walked = materializeFolder(treeUri) ?: return null
+            if (walked.isEmpty()) {
+                // `materializeFolder` already swapped in the folder-
+                // specific empty-state UI before returning.
+                return null
+            }
+            return walked
+        }
+        val parsed = ShareIntentRouter.route(toShareIntent(intent))
+        if (parsed == null) {
+            renderUnsupportedPayload()
+            return null
+        }
+        val files = materializeFiles(parsed)
+        if (files.isEmpty()) {
+            // Currently true for plain-text shares (sender-side text
+            // payload support is a follow-up). Surface the same
+            // unsupported message so the user gets clear feedback.
+            renderUnsupportedPayload()
+            return null
+        }
+        return files
     }
 
     override fun onDestroy() {
@@ -237,6 +283,66 @@ public class SendActivity : AppCompatActivity() {
             is ShareIntentInput.Text ->
                 emptyList()
         }
+
+    /**
+     * Walk the SAF tree under [treeUri] and return one [FileSource] per
+     * descendant file (#38). Returns:
+     *
+     * - A non-empty list on success — the regular discovery / send
+     *   flow takes over from the caller.
+     * - An empty list when the picked folder contains no files (the
+     *   walker recurses into subdirectories but Quick Share has no
+     *   "create empty directory" frame, so we have nothing to ship).
+     *   In this case [renderFolderEmpty] swaps the UI into a
+     *   "no files" state and the caller bails out.
+     * - `null` when the walk threw (e.g. the SAF provider revoked the
+     *   read grant before we got here). [renderFolderWalkFailed] swaps
+     *   the UI into a "couldn't read folder" state and the caller bails
+     *   out.
+     *
+     * The walker runs synchronously on the UI thread because:
+     *
+     * 1. The `OpenDocumentTree` contract just returned, so the system
+     *    picker has already displayed and dismissed — the user is
+     *    actively waiting for our response.
+     * 2. Real-world folder sizes that fit Quick Share's transfer model
+     *    (ten-ish files, low-MB to ~tens-of-MB total) walk in single
+     *    digit milliseconds. Larger trees would block the UI thread,
+     *    but Quick Share's per-transfer payload cap (no formal limit,
+     *    but practical sender memory and timeout pressure) bounds the
+     *    walk's worst case.
+     *
+     * If real devices show jank on huge trees, this is the right place
+     * to move onto a background dispatcher — the rest of the activity
+     * already drives discovery / connection from `lifecycleScope`.
+     */
+    private fun materializeFolder(treeUri: Uri): List<FileSource>? {
+        binding.sendSubtitle.setText(R.string.send_folder_subtitle_walking)
+        // Both SecurityException and IllegalArgumentException land on
+        // the "couldn't read folder" UI:
+        //   - SecurityException: the SAF provider revoked the read
+        //     grant before we got here.
+        //   - IllegalArgumentException: getTreeDocumentId rejected a
+        //     non-tree URI. The OpenDocumentTree contract guarantees a
+        //     tree URI on success, so reaching here means a malformed
+        //     intent extra (e.g. a third-party app started us via a
+        //     future-exported variant of this activity with the wrong
+        //     shape). Surface as a user-visible error rather than
+        //     crashing.
+        val walked =
+            runCatching { documentTreeFactory.walk(treeUri) }
+                .onFailure { e ->
+                    if (e is SecurityException || e is IllegalArgumentException) {
+                        Log.e(OUTBOUND_TAG, "ACTION_SEND_FOLDER walk failed for $treeUri", e)
+                        renderFolderWalkFailed()
+                    } else {
+                        // Unknown throwable: let the framework see it.
+                        throw e
+                    }
+                }.getOrNull() ?: return null
+        if (walked.isEmpty()) renderFolderEmpty()
+        return walked
+    }
 
     // -----------------------------------------------------------------
     // Discovery
@@ -633,6 +739,39 @@ public class SendActivity : AppCompatActivity() {
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
 
+    /**
+     * Folder send (#38) terminal: the picked folder contains zero files
+     * (only empty subdirectories or nothing at all). Quick Share has no
+     * "create empty directory" frame, so there is nothing to transfer —
+     * surface a clear message and let the user back out.
+     */
+    private fun renderFolderEmpty() {
+        binding.sendPayloadSummary.text = getString(R.string.main_send_folder_button)
+        binding.sendSubtitle.text = getString(R.string.send_folder_empty)
+        binding.sendPeerList.visibility = View.GONE
+        binding.sendEmptyState.visibility = View.GONE
+        binding.sendNetworkHint.visibility = View.GONE
+        binding.sendShowQrButton.visibility = View.GONE
+        binding.sendCancelButton.text = getString(R.string.send_done)
+    }
+
+    /**
+     * Folder send (#38) terminal: the SAF walk threw before we could
+     * collect any FileSources. Most likely cause is a provider that
+     * revoked the read grant, but a malformed tree URI (someone
+     * exported this activity later and a third-party app starts us
+     * with the wrong shape) lands here too — see `materializeFolder`.
+     */
+    private fun renderFolderWalkFailed() {
+        binding.sendPayloadSummary.text = getString(R.string.main_send_folder_button)
+        binding.sendSubtitle.text = getString(R.string.send_folder_walk_failed)
+        binding.sendPeerList.visibility = View.GONE
+        binding.sendEmptyState.visibility = View.GONE
+        binding.sendNetworkHint.visibility = View.GONE
+        binding.sendShowQrButton.visibility = View.GONE
+        binding.sendCancelButton.text = getString(R.string.send_done)
+    }
+
     private fun onCancelClicked() {
         // If a connection is mid-flight, ask it to cancel cleanly so a
         // CancelFrame goes out on the wire. The terminal state will
@@ -723,7 +862,18 @@ public class SendActivity : AppCompatActivity() {
         }
     }
 
-    private companion object {
+    public companion object {
+        /**
+         * Custom intent action used by [io.github.kyujincho.wvmg.MainActivity]
+         * to forward a `tree://` URI from `ACTION_OPEN_DOCUMENT_TREE`
+         * (#38). The URI lives in `intent.data` and the read grant is
+         * propagated via [Intent.FLAG_GRANT_READ_URI_PERMISSION] on the
+         * launcher side. This action is intentionally NOT exported in
+         * the manifest — it is an internal contract between MainActivity
+         * and SendActivity.
+         */
+        public const val ACTION_SEND_FOLDER: String = "io.github.kyujincho.wvmg.action.SEND_FOLDER"
+
         private const val OUTBOUND_TAG: String = "WvmgOutbound"
 
         // BLE advertise diagnostics share the discovery tag so a single

@@ -9,6 +9,16 @@
     <string name="main_always_visible_title">Always visible</string>
     <string name="main_always_visible_subtitle">Keep this device discoverable on Wi-Fi even without a Bluetooth pulse from a nearby sender. Turn off to save power; the receiver will only appear briefly while a sender is scanning.</string>
 
+    <!-- Folder-send entry point (#38). Android's share sheet only routes
+         individual files; to ship a directory tree (preserving the
+         layout via Quick Share's `parent_folder` field) we surface a
+         dedicated picker on the launcher. -->
+    <string name="main_send_folder_button">Send folder</string>
+    <string name="main_send_folder_subtitle">Pick a folder on this device to send to a nearby Quick Share peer. Subdirectories and the directory layout are preserved on the receiver.</string>
+    <string name="send_folder_subtitle_walking">Reading folder contents…</string>
+    <string name="send_folder_empty">The folder you picked has no files. Add at least one file and try again.</string>
+    <string name="send_folder_walk_failed">Could not read the folder contents. Pick another folder and try again.</string>
+
     <!-- Permissions onboarding (#26 + #31). -->
     <string name="onboarding_title">App permissions</string>
     <string name="onboarding_intro">Quick Share needs a small set of Android permissions to discover nearby devices over your local Wi-Fi network, to broadcast and listen for short Bluetooth Low Energy pulses that wake nearby Quick Share receivers, and to keep you informed about transfers. Each permission below explains exactly what it is used for.</string>

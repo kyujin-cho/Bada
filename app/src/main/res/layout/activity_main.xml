@@ -36,4 +36,28 @@
         android:text="@string/main_always_visible_subtitle"
         android:textAppearance="?android:attr/textAppearanceSmall" />
 
+    <!--
+      Folder-send entry point (#38). The system share sheet does not
+      expose a way to share a directory — it only routes individual
+      files via ACTION_SEND / ACTION_SEND_MULTIPLE. To send a whole
+      folder (preserving its directory layout via FileMetadata's
+      `parent_folder` field), the user starts here, picks a folder via
+      ACTION_OPEN_DOCUMENT_TREE, and we forward the resulting tree URI
+      to SendActivity.
+    -->
+    <Button
+        android:id="@+id/main_send_folder_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/main_send_folder_button" />
+
+    <TextView
+        android:id="@+id/main_send_folder_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/main_send_folder_subtitle"
+        android:textAppearance="?android:attr/textAppearanceSmall" />
+
 </LinearLayout>
