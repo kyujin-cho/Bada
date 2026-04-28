@@ -8,6 +8,7 @@ package io.github.kyujincho.wvmg.discovery
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.util.Log
+import io.github.kyujincho.wvmg.protocol.endpoint.Base64Url
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -83,11 +84,15 @@ public class Discovery internal constructor(
      * Publish this device as a Quick Share peer.
      *
      * The TXT record is set with the canonical [QuickShareMdns.TXT_KEY_ENDPOINT_INFO]
-     * key whose value is the **binary**-serialised [endpointInfo]. The
-     * binary representation is required by the Quick Share wire spec —
-     * NearDrop on macOS, stock Quick Share on Android, and Windows
-     * Quick Share all parse the bytes directly. The instance name is
-     * generated freshly on every call via [InstanceName.generate].
+     * key whose value is the **URL-safe-base64 (no padding)** encoding
+     * of the binary-serialised [endpointInfo]. This matches the format
+     * google/nearby's `WifiLanServiceInfo` reads (`Base64Utils::Decode`
+     * on the TXT value, see `connections/implementation/wifi_lan_service_info.cc`).
+     * Publishing raw bytes — which we did before — caused GMS Nearby on
+     * a Galaxy peer to log `EndpointParsingFailure` and drop us from
+     * the picker even though our service was visible at the NSD layer.
+     * The instance name is generated freshly on every call via
+     * [InstanceName.generate].
      *
      * Implementation notes:
      *  - The synchronous publish happens through `NsdManager.registerService`,
@@ -110,7 +115,16 @@ public class Discovery internal constructor(
             "port must be in 1..$MAX_PORT (TCP), got $port"
         }
         val instanceName = InstanceName.generate()
-        val attributes = mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to endpointInfo.serialize())
+        // GMS Nearby's WifiLanServiceInfo (google/nearby
+        // `wifi_lan_service_info.cc`) calls `Base64Utils::Decode` on the
+        // TXT `n` value before parsing. We therefore publish the
+        // base64-url (no padding) string as US-ASCII bytes; the
+        // base64 alphabet is a strict subset of ASCII so the bytes
+        // round-trip cleanly through any String/byte[] mDNS attribute
+        // bridge on the platform.
+        val encodedEndpointInfo =
+            Base64Url.encode(endpointInfo.serialize()).toByteArray(Charsets.US_ASCII)
+        val attributes = mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to encodedEndpointInfo)
 
         Log.i(TAG, "advertise: starting publish instance=$instanceName port=$port")
 
@@ -264,35 +278,11 @@ public class Discovery internal constructor(
         }
 
         val rawTxt = event.attributes[QuickShareMdns.TXT_KEY_ENDPOINT_INFO]
-        val endpointInfo = rawTxt?.let(EndpointInfo::parse)
+        val decodedTxt = decodeTxtEndpointInfo(rawTxt)
+        val endpointInfo = decodedTxt?.let(EndpointInfo::parse)
 
         if (endpointInfo == null || endpointInfo.hidden) {
-            val rawTxtHex = rawTxt?.joinToString("") { "%02x".format(it) } ?: "<no decode>"
-            Log.i(
-                TAG,
-                "EndpointInfo for ${event.instanceName}: size=${rawTxt?.size ?: 0} " +
-                    "decodedHex=$rawTxtHex parsed=$endpointInfo",
-            )
-            if (rawTxt != null && rawTxt.isNotEmpty()) {
-                @Suppress("MagicNumber") // Bit positions defined by PROTOCOL.md.
-                val byte0 = rawTxt[0].toInt() and 0xFF
-
-                @Suppress("MagicNumber")
-                val version = (byte0 ushr 5) and 0b111
-
-                @Suppress("MagicNumber")
-                val visibility = (byte0 ushr 4) and 0b1
-
-                @Suppress("MagicNumber")
-                val deviceType = (byte0 ushr 1) and 0b111
-                val reserved = byte0 and 0b1
-                Log.i(
-                    TAG,
-                    "EndpointInfo byte0=0x${"%02x".format(byte0)} " +
-                        "version=$version visibility=$visibility " +
-                        "deviceType=$deviceType reserved=$reserved",
-                )
-            }
+            logUnparseableEndpointInfo(event.instanceName, rawTxt, decodedTxt, endpointInfo)
         }
 
         val raw = InstanceName.decodeRawBytes(event.instanceName)
@@ -305,6 +295,64 @@ public class Discovery internal constructor(
             port = event.port,
             endpointInfo = endpointInfo,
         )
+    }
+
+    /**
+     * Decode the raw bytes stored under TXT key `n` into the binary
+     * EndpointInfo bytes that [EndpointInfo.parse] expects. Modern peers
+     * (and post-fix WVMG builds) publish the value as URL-safe-base64
+     * ASCII per google/nearby's `WifiLanServiceInfo`. Older peers (and
+     * our own pre-fix builds) published it as raw binary; tolerate that
+     * by falling back to the raw bytes when base64 decode fails.
+     */
+    private fun decodeTxtEndpointInfo(rawTxt: ByteArray?): ByteArray? {
+        if (rawTxt == null) return null
+        val asAscii = runCatching { String(rawTxt, Charsets.US_ASCII) }.getOrNull()
+        return asAscii?.let(Base64Url::decode) ?: rawTxt
+    }
+
+    /**
+     * Verbose logging for endpoint records that failed to parse or were
+     * marked hidden. Splitting this off keeps [toDiscoveredService] under
+     * detekt's cyclomatic-complexity threshold; the diagnostic surface
+     * here is only useful when a peer drops us at the parse step (e.g.
+     * issue #83 / GMS Nearby's `EndpointParsingFailure`).
+     */
+    private fun logUnparseableEndpointInfo(
+        instanceName: String,
+        rawTxt: ByteArray?,
+        decodedTxt: ByteArray?,
+        endpointInfo: EndpointInfo?,
+    ) {
+        val rawTxtHex = rawTxt?.joinToString("") { "%02x".format(it) } ?: "<no decode>"
+        val decodedTxtHex = decodedTxt?.joinToString("") { "%02x".format(it) } ?: "<no decode>"
+        Log.i(
+            TAG,
+            "EndpointInfo for $instanceName: " +
+                "rawSize=${rawTxt?.size ?: 0} rawHex=$rawTxtHex " +
+                "decodedSize=${decodedTxt?.size ?: 0} decodedHex=$decodedTxtHex " +
+                "parsed=$endpointInfo",
+        )
+        if (decodedTxt != null && decodedTxt.isNotEmpty()) {
+            @Suppress("MagicNumber") // Bit positions defined by PROTOCOL.md.
+            val byte0 = decodedTxt[0].toInt() and 0xFF
+
+            @Suppress("MagicNumber")
+            val version = (byte0 ushr 5) and 0b111
+
+            @Suppress("MagicNumber")
+            val visibility = (byte0 ushr 4) and 0b1
+
+            @Suppress("MagicNumber")
+            val deviceType = (byte0 ushr 1) and 0b111
+            val reserved = byte0 and 0b1
+            Log.i(
+                TAG,
+                "EndpointInfo byte0=0x${"%02x".format(byte0)} " +
+                    "version=$version visibility=$visibility " +
+                    "deviceType=$deviceType reserved=$reserved",
+            )
+        }
     }
 
     public companion object {

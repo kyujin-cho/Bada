@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.discovery
 
 import com.google.common.truth.Truth.assertThat
+import io.github.kyujincho.wvmg.protocol.endpoint.Base64Url
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import org.junit.jupiter.api.Test
@@ -163,12 +164,15 @@ class DiscoveryAdvertiseTest {
     }
 
     @Test
-    fun `binary endpoint info round-trips through the registrar attributes`() {
-        // Quick Share's `n=` TXT key carries packed binary EndpointInfo
-        // bytes, including high-bit bytes (>=0x80) that would corrupt
-        // through any UTF-8 channel. Pin the round-trip to detect a
-        // regression where some downstream call accidentally re-encodes
-        // the value as a string.
+    fun `endpoint info is base64-url-encoded under TXT key n`() {
+        // Quick Share's `n=` TXT key carries the URL-safe-base64 (no
+        // padding) ASCII encoding of the packed binary EndpointInfo —
+        // not the raw bytes. google/nearby's `WifiLanServiceInfo` calls
+        // `Base64Utils::Decode(txt_endpoint_info_name)` before parsing,
+        // so a Galaxy peer drops mDNS-only records that publish the
+        // bytes raw (`EndpointParsingFailure` on the GMS side).
+        // Pin the round-trip so we don't regress to raw or to a UTF-8
+        // re-encoding.
         val countingRegistrar = CountingNsdRegistrar()
         val discovery =
             Discovery.forTesting(
@@ -176,12 +180,21 @@ class DiscoveryAdvertiseTest {
                 browser = NoopNsdBrowser,
             )
         val endpointInfo = sampleEndpointInfo()
-        val expected = endpointInfo.serialize()
+        val expectedAscii =
+            Base64Url
+                .encode(endpointInfo.serialize())
+                .toByteArray(Charsets.US_ASCII)
         val handle = discovery.advertise(endpointInfo, port = 51_001)
         try {
             val attrs = countingRegistrar.lastRegisteredAttrs.get()
             assertThat(attrs).containsKey(QuickShareMdns.TXT_KEY_ENDPOINT_INFO)
-            assertThat(attrs[QuickShareMdns.TXT_KEY_ENDPOINT_INFO]).isEqualTo(expected)
+            assertThat(attrs[QuickShareMdns.TXT_KEY_ENDPOINT_INFO]).isEqualTo(expectedAscii)
+            // And the round-trip back through Base64Url.decode lands on
+            // the original bytes — so an interop peer reading the TXT
+            // value as ASCII and decoding gets exactly the EndpointInfo
+            // we serialized.
+            val asAscii = String(attrs[QuickShareMdns.TXT_KEY_ENDPOINT_INFO]!!, Charsets.US_ASCII)
+            assertThat(Base64Url.decode(asAscii)).isEqualTo(endpointInfo.serialize())
         } finally {
             handle.close()
         }
