@@ -15,27 +15,38 @@ import java.util.Collections
  * Exposed via [Discovery.snapshot] so callers (the receiver foreground
  * service, a debug screen, on-device logs) can observe whether mDNS is
  * actually wired up correctly without having to grep logcat. This is
- * the primary diagnostic surface for the silent-failure modes called
- * out by issue #83 — multicast lock not held, JmDNS bound to the wrong
- * interface, no events flowing.
+ * the primary diagnostic surface for the silent-failure modes that
+ * motivated issue #83.
  *
- * @property advertiseBoundAddress the [InetAddress] the JmDNS publish
- *   instance is bound to, or `null` if no advertisement is currently
- *   live.
- * @property browseBoundAddress the [InetAddress] the JmDNS browse
- *   instance is bound to, or `null` if no collection is currently
- *   active.
- * @property multicastLockHeld `true` while the underlying
- *   `WifiManager.MulticastLock` is held; if either advertise or browse
- *   is active and this is `false`, multicast traffic is being dropped
- *   by Android's power-save filter and discovery cannot work.
+ * Since the migration to `NsdManager` (#98) the multicast filter
+ * exemption is handled by the system mDNS responder process itself, so
+ * the in-process multicast lock is no longer relevant. The
+ * [multicastLockHeld] field is kept on the data class for source
+ * compatibility but always reports `false`; it will be removed in a
+ * future cleanup once external consumers stop reading it.
+ *
+ * @property advertiseBoundAddress the [InetAddress] the registered NSD
+ *   service is published from, or `null` if no advertisement is
+ *   currently live. Older API levels do not surface this through the
+ *   registration callback; in that case the field stays `null` even
+ *   while [advertising] is true.
+ * @property browseBoundAddress the [InetAddress] the most recently
+ *   resolved peer is reachable on, or `null` if no peer has resolved
+ *   yet. Browse-side bind information is not surfaced by `NsdManager`,
+ *   so the post-#98 implementation populates this from the most recent
+ *   resolved-peer event for diagnostic continuity.
+ * @property multicastLockHeld retained for source compatibility;
+ *   always `false` since #98 (NsdManager runs in the system mDNS
+ *   responder process which does not require an in-process multicast
+ *   lock).
  * @property advertising `true` while at least one [Discovery.advertise]
  *   call has produced a still-open [AdvertiseHandle].
  * @property browsing `true` while at least one [Discovery.browse] flow
  *   is being collected.
  * @property recentEvents the most recent N service events captured by
  *   the browse listener, oldest-first. Useful for spotting cases where
- *   JmDNS fired `serviceAdded` but the address never resolved.
+ *   `NsdManager` reported a peer Found but resolveService never
+ *   surfaced an address.
  */
 public data class DiscoveryDiagnostics(
     val advertiseBoundAddress: InetAddress?,
@@ -50,13 +61,14 @@ public data class DiscoveryDiagnostics(
  * One row in [DiscoveryDiagnostics.recentEvents]. Captures the kind of
  * JmDNS service event observed and the instance name it referenced.
  *
- * @property kind which JmDNS callback fired: `ADDED` from
- *   `serviceAdded`, `RESOLVED` from `serviceResolved`, `REMOVED` from
- *   `serviceRemoved`. Names match JmDNS's terminology rather than the
- *   downstream [DiscoveryEvent] sealed hierarchy because this surface
- *   is for protocol-level debugging.
+ * @property kind which `NsdManager` callback fired: `ADDED` from
+ *   `onServiceFound`, `RESOLVED` from `onServiceResolved`, `REMOVED` from
+ *   `onServiceLost`. Names are kept on the legacy three-state model
+ *   (rather than mirroring the downstream [DiscoveryEvent] sealed
+ *   hierarchy) so existing log scrapers continue to recognise the
+ *   strings.
  * @property instanceName the URL-safe-base64 service-instance name as
- *   reported by JmDNS.
+ *   reported by `NsdManager`.
  * @property timestampMillis the wall-clock time the event was
  *   captured, suitable for correlating against logcat output.
  */
