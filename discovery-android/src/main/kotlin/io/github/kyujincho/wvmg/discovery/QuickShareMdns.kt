@@ -37,6 +37,14 @@ public object QuickShareMdns {
      */
     public const val SERVICE_TYPE_SHORT: String = "_FC9F5ED42C8A._tcp."
 
+    /**
+     * Form expected by Android's [android.net.nsd.NsdManager]: the bare
+     * `_<service>._<protocol>` pair with **no** trailing dot and **no**
+     * `local.` suffix. NsdManager.registerService validates this format
+     * and rejects either of the dotted variants.
+     */
+    public const val SERVICE_TYPE_NSD: String = "_FC9F5ED42C8A._tcp"
+
     /** Length of the raw (pre-base64) service-instance name byte string. */
     public const val INSTANCE_NAME_RAW_LEN: Int = 10
 
