@@ -66,6 +66,22 @@ internal class InboundConnectionDriver(
     private val mutableState: MutableStateFlow<InboundConnectionState>,
     private val factory: FileDestinationFactory,
     private val onHandshakeComplete: () -> Unit = {},
+    /**
+     * Wall-clock source for the rate estimator. Defaults to
+     * [System.currentTimeMillis]; tests inject a deterministic
+     * `LongArray.iterator`-style supplier so EMA samples have stable
+     * timestamps.
+     */
+    private val nowMillisSource: () -> Long = System::currentTimeMillis,
+    /**
+     * Rate estimator backing [InboundConnectionState.Receiving.progress].
+     * One per connection — the driver feeds it on every chunk and the
+     * progress publisher reads its [TransferRateEstimator.bytesPerSecond]
+     * back out into the published snapshot. Injectable for unit tests
+     * that want to exercise rate-aware code paths without timing
+     * sensitivity.
+     */
+    private val rateEstimator: TransferRateEstimator = TransferRateEstimator(),
 ) {
     private var framedConnection: FramedConnection? = null
     private var secureChannel: SecureChannel? = null
@@ -461,10 +477,20 @@ internal class InboundConnectionDriver(
     }
 
     private fun publishReceiving(itemBytes: Long) {
+        val cumulative = bytesReceived + itemBytes
+        // Feed the rate estimator on every chunk so its EMA tracks the
+        // instantaneous Wi-Fi LAN throughput, then publish the smoothed
+        // bytes/sec back through TransferProgress so observers can
+        // render a rate + ETA without re-deriving the maths.
+        rateEstimator.sample(bytesTransferred = cumulative, nowMillis = nowMillisSource())
         mutableState.value =
             InboundConnectionState.Receiving(
-                bytesReceived = bytesReceived + itemBytes,
-                totalSize = totalSize,
+                progress =
+                    TransferProgress.of(
+                        bytesTransferred = cumulative,
+                        totalSize = totalSize,
+                        bytesPerSecond = rateEstimator.bytesPerSecond(),
+                    ),
                 currentItemPayloadId = currentItemPayloadId,
                 currentItemType = currentItemType,
             )
@@ -582,10 +608,19 @@ internal class InboundConnectionDriver(
 
     /** Surface the initial Receiving snapshot so the UI can render 0% immediately. */
     private fun publishInitialReceiving() {
+        // Seed the rate estimator with a zero-bytes sample so the
+        // first real chunk sample produces a non-degenerate Δt. The
+        // estimator's first sample is a seed-only no-op for the EMA
+        // itself, so this does not bias the rate.
+        rateEstimator.sample(bytesTransferred = 0L, nowMillis = nowMillisSource())
         mutableState.value =
             InboundConnectionState.Receiving(
-                bytesReceived = 0L,
-                totalSize = totalSize,
+                progress =
+                    TransferProgress.of(
+                        bytesTransferred = 0L,
+                        totalSize = totalSize,
+                        bytesPerSecond = 0L,
+                    ),
                 currentItemPayloadId = null,
                 currentItemType = null,
             )

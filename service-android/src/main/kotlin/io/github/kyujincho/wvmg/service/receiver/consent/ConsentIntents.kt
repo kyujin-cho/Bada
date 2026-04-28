@@ -54,6 +54,19 @@ public object ConsentIntents {
     public const val ACTION_REJECT: String = "io.github.kyujincho.wvmg.consent.REJECT"
 
     /**
+     * Broadcast action fired when the user taps the **Cancel** action
+     * on the in-flight transfer progress notification (#46). Distinct
+     * from `ACTION_REJECT` because Reject lives on the
+     * `WaitingForUserConsent` heads-up notification (the user has not
+     * yet accepted) while Cancel lives on the `Receiving` progress
+     * notification (the user already accepted; they want to abort
+     * mid-transfer). The receiver dispatches Cancel through
+     * [io.github.kyujincho.wvmg.protocol.connection.InboundConnection.cancel]
+     * rather than `submitUserConsent`.
+     */
+    public const val ACTION_CANCEL_TRANSFER: String = "io.github.kyujincho.wvmg.consent.CANCEL_TRANSFER"
+
+    /**
      * Activity action used by the trampoline activity's launch
      * `PendingIntent`. The activity reads the same connection-id extra
      * and looks the connection up in [ConsentRegistry].

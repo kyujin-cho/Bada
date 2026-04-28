@@ -30,6 +30,9 @@ import io.github.kyujincho.wvmg.service.receiver.consent.ConsentBroadcastReceive
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentCoordinator
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentNotification
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentRegistry
+import io.github.kyujincho.wvmg.service.receiver.progress.TransferCancelRegistry
+import io.github.kyujincho.wvmg.service.receiver.progress.TransferProgressCoordinator
+import io.github.kyujincho.wvmg.service.receiver.progress.TransferProgressNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -113,6 +116,9 @@ public class ReceiverForegroundService : Service() {
     private var consentCoordinator: ConsentCoordinator? = null
 
     @Volatile
+    private var progressCoordinator: TransferProgressCoordinator? = null
+
+    @Volatile
     private var consentReceiver: BroadcastReceiver? = null
 
     @Volatile
@@ -143,6 +149,10 @@ public class ReceiverForegroundService : Service() {
         // heads-up notification — the platform silently drops
         // notifications targeting a missing channel on API 26+.
         ConsentNotification.ensureChannel(this)
+        // Same lifecycle invariant for the progress notification
+        // channel (#46) — created upfront so the first chunk's
+        // progress post lands.
+        TransferProgressNotification.ensureChannel(this)
         registerConsentReceiver()
     }
 
@@ -281,6 +291,10 @@ public class ReceiverForegroundService : Service() {
         // SharedFlow subscriptions are in place when the first
         // accepted connection is emitted.
         startConsentCoordinator(newSession)
+        // Same shape for the progress coordinator (#46): subscribe
+        // before the session starts so the first `Receiving` state
+        // transition produces a progress notification.
+        startProgressCoordinator(newSession)
 
         serviceScope.launch {
             try {
@@ -414,6 +428,55 @@ public class ReceiverForegroundService : Service() {
     }
 
     /**
+     * Wire a [TransferProgressCoordinator] over the session's flows
+     * so that each `Receiving` transition is surfaced as a progress
+     * notification (#46), and so the Cancel action on that
+     * notification routes back to the live `InboundConnection` via
+     * [TransferCancelRegistry].
+     */
+    private fun startProgressCoordinator(session: ReceiverSession) {
+        val ctx = applicationContext
+        val coordinator =
+            TransferProgressCoordinator(
+                activeConnections = session.activeConnections,
+                results = session.completions,
+                sink =
+                    object : TransferProgressCoordinator.Sink {
+                        override fun postProgress(
+                            connectionId: Long,
+                            sourceDeviceName: String?,
+                            progress: io.github.kyujincho.wvmg.protocol.connection.TransferProgress,
+                        ) {
+                            TransferProgressNotification.post(
+                                context = ctx,
+                                connectionId = connectionId,
+                                sourceDeviceName = sourceDeviceName,
+                                progress = progress,
+                            )
+                        }
+
+                        override fun dismissProgress(connectionId: Long) {
+                            TransferProgressNotification.dismiss(ctx, connectionId)
+                        }
+
+                        override fun registerCancel(
+                            connectionId: Long,
+                            onCancel: () -> Unit,
+                        ) {
+                            TransferCancelRegistry.instance.register(connectionId, onCancel)
+                        }
+
+                        override fun unregisterCancel(connectionId: Long) {
+                            TransferCancelRegistry.instance.unregister(connectionId)
+                        }
+                    },
+                scope = serviceScope,
+            )
+        coordinator.start()
+        progressCoordinator = coordinator
+    }
+
+    /**
      * Register the [ConsentBroadcastReceiver] dynamically. We use
      * dynamic registration because the registry is in-process state —
      * a manifest-registered receiver that survives process death
@@ -460,6 +523,8 @@ public class ReceiverForegroundService : Service() {
     private fun stopReceiverAndExit() {
         consentCoordinator?.stop()
         consentCoordinator = null
+        progressCoordinator?.stop()
+        progressCoordinator = null
         // Dismiss every pending consent notification we know about.
         // The connection itself will be torn down when the session
         // stops; without explicit dismissal the heads-up would linger
@@ -468,6 +533,14 @@ public class ReceiverForegroundService : Service() {
         ConsentRegistry.instance.snapshotIds().forEach { id ->
             ConsentRegistry.instance.unregister(id)
             ConsentNotification.dismiss(ctx, id)
+        }
+        // Same hygiene for the in-flight progress notifications
+        // posted by #46 — a dangling progress card pointing at a
+        // dead connection would invite the user to tap a Cancel
+        // action that lands in /dev/null.
+        TransferCancelRegistry.instance.snapshotIds().forEach { id ->
+            TransferCancelRegistry.instance.unregister(id)
+            TransferProgressNotification.dismiss(ctx, id)
         }
         unregisterConsentReceiverIfNeeded()
 

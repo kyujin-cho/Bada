@@ -96,21 +96,33 @@ public sealed interface OutboundConnectionState {
      * @property pin The same PIN previously surfaced in
      *   [AwaitingRemoteAcceptance], retained so consumers do not have
      *   to remember it across state transitions.
-     * @property bytesSent Cumulative bytes pushed onto the wire across
-     *   all outbound payloads. Resets per-connection.
-     * @property totalSize Sum of [FileSource.size] across every
-     *   announced file. The ratio `bytesSent / totalSize` is a faithful
-     *   overall progress estimate.
+     * @property progress Cumulative byte counters plus the smoothed
+     *   bytes-per-second rate and ETA produced by issue #46's rate
+     *   estimator. UI renders progress + "12 MB of 100 MB, 30 seconds
+     *   remaining" off this object. [TransferProgress.bytesPerSecond]
+     *   is `0` while warming up; [TransferProgress.etaSeconds] is
+     *   `null` until the rate is non-zero.
      * @property currentItemPayloadId If a single payload is currently
      *   in flight (most common), its `payload_id`. `null` between
      *   payloads or before the first chunk has been written.
      */
     public data class Sending(
         val pin: String,
-        val bytesSent: Long,
-        val totalSize: Long,
+        val progress: TransferProgress,
         val currentItemPayloadId: Long?,
-    ) : OutboundConnectionState
+    ) : OutboundConnectionState {
+        /**
+         * Cumulative bytes pushed onto the wire. Convenience accessor
+         * that reads from [progress] so the two stay in sync.
+         */
+        public val bytesSent: Long get() = progress.bytesTransferred
+
+        /**
+         * Sum of [FileSource.size] across every announced file.
+         * Convenience accessor that reads from [progress].
+         */
+        public val totalSize: Long get() = progress.totalSize
+    }
 
     /**
      * Terminal — every announced file streamed in full and the

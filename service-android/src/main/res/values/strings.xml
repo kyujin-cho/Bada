@@ -93,4 +93,49 @@
     <string name="consent_notification_action_accept">Accept</string>
     <string name="consent_notification_action_reject">Reject</string>
 
+    <!--
+      Transfer progress notification (#46). Posted once the user
+      accepts a transfer and the FSM enters Receiving. Distinct
+      low-importance channel so progress updates do not peek over
+      other UI. Updates every ~500 ms with bytes transferred,
+      smoothed bytes/sec rate, and ETA.
+    -->
+    <string name="transfer_progress_channel_name">Transfer progress</string>
+    <string name="transfer_progress_channel_description">Quiet progress notification for in-flight Quick Share transfers</string>
+
+    <!--
+      Title variants. `with_name` is preferred when the sender device
+      name is known (carried over from the consent metadata);
+      `unknown_sender` is used when the sender advertised in hidden
+      visibility mode or when EndpointInfo.parse rejected the bytes.
+    -->
+    <string name="transfer_progress_title_with_name">Receiving from %1$s</string>
+    <string name="transfer_progress_title_unknown_sender">Receiving files</string>
+
+    <!--
+      Body subtitle pieces. The full body is built by joining whatever
+      pieces are known with " · " separators — a freshly-started
+      transfer with no rate sample yet renders just the size segment;
+      a steady-state transfer shows all three.
+    -->
+    <string name="transfer_progress_body_size">%1$s of %2$s</string>
+    <string name="transfer_progress_body_rate">%1$s/s</string>
+    <string name="transfer_progress_body_eta">%1$s remaining</string>
+
+    <!--
+      Duration phrasing for the ETA segment. The acceptance criterion
+      calls for accessibility-friendly text ("30 seconds remaining"),
+      so we spell out "seconds" / "minutes" / "hours" rather than
+      using single-letter suffixes. Pluralisation handled in code
+      today; `plurals` resources land with the Korean translation
+      pass.
+    -->
+    <string name="transfer_progress_duration_few_seconds">less than a second</string>
+    <string name="transfer_progress_duration_seconds" tools:ignore="PluralsCandidate">%1$d seconds</string>
+    <string name="transfer_progress_duration_about_minutes" tools:ignore="PluralsCandidate">about %1$d minutes</string>
+    <string name="transfer_progress_duration_about_hours" tools:ignore="PluralsCandidate">about %1$d hours</string>
+
+    <!-- Cancel-action label on the progress notification (#46). -->
+    <string name="transfer_progress_action_cancel">Cancel</string>
+
 </resources>
