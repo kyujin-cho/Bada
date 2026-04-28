@@ -32,7 +32,7 @@ import io.github.kyujincho.wvmg.service.receiver.ReceiverForegroundService
  * status, and settings screens replace this implementation as the rest
  * of the phase rolls in.
  *
- * The one bit of real logic today is:
+ * The real logic today is:
  *
  *  - Permissions gate: if any of the runtime permissions Phase 1 needs
  *    (#26) is missing on cold start, we send the user to
@@ -45,10 +45,18 @@ import io.github.kyujincho.wvmg.service.receiver.ReceiverForegroundService
  *    the BLE-pulse gate. Useful on devices where BLE scan is
  *    unavailable (no permission, no LE hardware) or whenever the user
  *    wants to stay discoverable.
+ *  - Battery-optimization banner (#47): a one-time, dismissible banner
+ *    that detects the OEM family and routes the user to the right
+ *    "exempt this app from background killing" Settings page. Hidden
+ *    automatically once the platform reports the app as exempt or once
+ *    the user taps Skip.
  *
  * The override flag is process-wide and lives in memory only. Persisting
  * the toggle across process death is a follow-up; the in-memory surface
- * is the minimum #34 needs to ship the override path.
+ * is the minimum #34 needs to ship the override path. The
+ * battery-optimization dismiss flag is persisted in
+ * [BatteryOptimizationPreferences] (SharedPreferences-backed) so it
+ * survives a cold start.
  */
 class MainActivity : AppCompatActivity() {
     /**

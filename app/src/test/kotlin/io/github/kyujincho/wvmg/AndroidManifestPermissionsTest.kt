@@ -86,6 +86,21 @@ class AndroidManifestPermissionsTest {
     }
 
     @Test
+    fun `request ignore battery optimizations is declared for issue 47`() {
+        // The OEM-aware battery-optimization banner (#47) opens
+        // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS on stock Android
+        // as its generic fallback. Without REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+        // declared in the manifest, the system Settings activity still
+        // shows but the toggle is a no-op, so the user cannot actually
+        // exempt the app — a regression that would render the entire
+        // banner pointless on Pixel devices.
+        assertTrue(
+            "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS must be declared so #47 banner can grant exemption",
+            manifest.contains("android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"),
+        )
+    }
+
+    @Test
     fun `bluetooth advertise declared for phase 2 ble auto-discovery`() {
         // BLUETOOTH_ADVERTISE is required (API 31+) so we can broadcast
         // the Quick Share BLE service-data pulse that wakes nearby
