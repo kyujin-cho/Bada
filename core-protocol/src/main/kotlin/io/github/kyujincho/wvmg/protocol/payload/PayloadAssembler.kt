@@ -83,10 +83,37 @@ import java.nio.channels.SeekableByteChannel
  *   keep a malicious peer from making us reserve hundreds of MiB of
  *   heap. 5 MiB matches Android Quick Share's negotiation message
  *   ceiling — actual file content is sent as FILE payloads, not BYTES.
+ * @param resumeStateStore Optional resume-state persistence layer
+ *   (#43). When non-null, the assembler:
+ *     - On every successful FILE chunk write, calls
+ *       [ResumeStateStore.recordCoverage] so a process crash mid-payload
+ *       leaves the on-disk bytes recoverable.
+ *     - On the first chunk of a FILE payload, looks up any existing
+ *       coverage for `(resumeEndpointId, payloadId)` and seeds the
+ *       per-payload [ByteRangeSet] from it. A peer that retransmits
+ *       from offset 0 (because it does not speak AUTO_RESUME) then
+ *       has every previously-received chunk silently deduplicated.
+ *     - On `LAST_CHUNK` for a successfully-completed payload, calls
+ *       [ResumeStateStore.forget] so the now-stale resume record is
+ *       reclaimed.
+ *   When null, the assembler is stateless across connections (the
+ *   pre-#43 behaviour) and resume is not attempted.
+ * @param resumeEndpointId The peer endpoint identifier under which to
+ *   key resume records. Required for the resume-state lookups to be
+ *   peer-scoped; the empty default is a sentinel that disables resume
+ *   even if [resumeStateStore] is non-null. Production callers that
+ *   know the peer's endpoint id pass it through; tests that don't
+ *   exercise resume can leave it empty.
+ * @param clock Wall-clock source for resume-record timestamps.
+ *   Defaults to [System.currentTimeMillis]; tests inject a fixed lambda
+ *   so the GC-window assertions are deterministic.
  */
 public class PayloadAssembler(
     private val fileDestinationFactory: FileDestinationFactory = TempFileDestinationFactory(),
     private val saneFrameLength: Int = DEFAULT_SANE_FRAME_LENGTH,
+    private val resumeStateStore: ResumeStateStore? = null,
+    private val resumeEndpointId: String = "",
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     // ------------------------------------------------------------------
     // Per-payload state
@@ -372,10 +399,19 @@ public class PayloadAssembler(
                 // registered any state yet, so there is nothing to
                 // clean up.
                 val channel = fileDestinationFactory.open(header)
+                // #43 resume seed: if we have a persisted record for
+                // this (endpoint, payload), pre-populate the coverage
+                // set so chunks retransmitted from offset 0 are
+                // dedup'd against on-disk bytes. Records that disagree
+                // on `total_size` are ignored — the sender is announcing
+                // a logically different payload.
+                val seededCoverage =
+                    loadResumeCoverage(payloadId, header.totalSize)
+                        ?: ByteRangeSet()
                 FileState(
                     header = header,
                     channel = channel,
-                    coverage = ByteRangeSet(),
+                    coverage = seededCoverage,
                     cursor = 0L,
                 ).also {
                     filesInFlight[payloadId] = it
@@ -449,6 +485,10 @@ public class PayloadAssembler(
                         // so an I/O failure does not leave the set
                         // claiming bytes the channel never received.
                         state.coverage.add(chunkOffset, chunkEnd)
+                        // #43 resume: persist the new coverage so a
+                        // process crash before LAST_CHUNK leaves the
+                        // bytes recoverable on the next reconnect.
+                        recordResumeCoverage(payloadId, totalSize, chunkOffset, chunkEnd)
                     } catch (e: java.io.IOException) {
                         filesInFlight.remove(payloadId)
                         runCatching { state.channel.close() }
@@ -499,6 +539,10 @@ public class PayloadAssembler(
                     e,
                 )
             }
+            // #43 resume: payload completed successfully — drop the
+            // resume record so it cannot be applied to a future
+            // payload that happens to reuse the id.
+            forgetResumeRecord(payloadId)
             PayloadEvent.FileComplete(payloadId, state.header, totalSize)
         } else {
             PayloadEvent.Progress(
@@ -520,6 +564,78 @@ public class PayloadAssembler(
      * contained, fully fresh, or a mixed partial-overlap is enough.
      */
     private enum class FileChunkClassification { AlreadyCovered, PartialOverlap, NewBytes }
+
+    // ------------------------------------------------------------------
+    // Resume-state hooks (#43)
+    // ------------------------------------------------------------------
+
+    /**
+     * Pull any persisted coverage for `(resumeEndpointId, payloadId)`
+     * out of [resumeStateStore] and seed a fresh [ByteRangeSet] with
+     * it.
+     *
+     * Returns `null` when no resume should be attempted, signaling
+     * the caller to start with an empty coverage set:
+     *  - The store is not configured.
+     *  - The endpoint id is empty (resume opt-out sentinel).
+     *  - There is no record for this `(endpoint, payload)` key.
+     *  - The recorded `total_size` disagrees with the announced one
+     *    (the sender has logically replaced the payload, not resumed
+     *    it).
+     */
+    private fun loadResumeCoverage(
+        payloadId: Long,
+        announcedTotalSize: Long,
+    ): ByteRangeSet? {
+        // Compose the early-out conditions into a single boolean rather
+        // than using guard returns; detekt caps return statements per
+        // function at 2.
+        val resumeAvailable =
+            resumeStateStore != null &&
+                resumeEndpointId.isNotEmpty()
+        val record =
+            if (resumeAvailable) {
+                resumeStateStore!!.loadCoverage(resumeEndpointId, payloadId)
+            } else {
+                null
+            }
+        return if (record != null && record.totalSize == announcedTotalSize) {
+            record.toByteRangeSet()
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Persist the just-written `[start, end)` range to the resume
+     * store. No-op when the store / endpoint id is not configured.
+     */
+    private fun recordResumeCoverage(
+        payloadId: Long,
+        totalSize: Long,
+        start: Long,
+        end: Long,
+    ) {
+        if (resumeStateStore == null || resumeEndpointId.isEmpty()) return
+        resumeStateStore.recordCoverage(
+            endpointId = resumeEndpointId,
+            payloadId = payloadId,
+            totalSize = totalSize,
+            start = start,
+            end = end,
+            updatedAtMillis = clock(),
+        )
+    }
+
+    /**
+     * Drop the resume record for [payloadId] now that it has
+     * completed. No-op when the store / endpoint id is not
+     * configured.
+     */
+    private fun forgetResumeRecord(payloadId: Long) {
+        if (resumeStateStore == null || resumeEndpointId.isEmpty()) return
+        resumeStateStore.forget(resumeEndpointId, payloadId)
+    }
 
     private fun classifyFileChunk(
         coverage: ByteRangeSet,

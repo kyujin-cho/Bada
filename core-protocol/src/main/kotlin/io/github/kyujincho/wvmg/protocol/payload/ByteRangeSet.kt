@@ -63,6 +63,17 @@ public class ByteRangeSet {
     internal val ranges: ArrayList<Range> = ArrayList()
 
     /**
+     * Read-only snapshot of the canonical range list. Returns a fresh
+     * list on every call so external mutators cannot corrupt the
+     * internal layout. `O(n)` — typically a handful of ranges.
+     *
+     * Use this to iterate the set from outside `:core-protocol`
+     * (resume-state persistence layers in `:service-android` need it
+     * to serialize coverage to disk).
+     */
+    public fun snapshot(): List<Range> = ranges.toList()
+
+    /**
      * Half-open interval `[start, end)`. Equality / hash code are
      * structural so a [ByteRangeSet] can be compared by content in
      * tests.
