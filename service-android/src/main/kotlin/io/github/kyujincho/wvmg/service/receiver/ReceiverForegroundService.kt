@@ -817,10 +817,35 @@ internal object EndpointIdentityHolder {
 }
 
 /**
- * Production [MulticastLockController] that holds a single Wi-Fi
- * multicast lock for the duration of the service. We tag the lock with a
- * service-specific name so it shows up correctly in `dumpsys wifi` for
- * diagnostics.
+ * Production [MulticastLockController] that holds a Wi-Fi multicast lock
+ * **and** a `WIFI_MODE_FULL_HIGH_PERF` Wi-Fi lock for the duration of the
+ * service.
+ *
+ * Why both locks: vivo / Funtouch / OriginOS routinely treat
+ * [WifiManager.MulticastLock.acquire] as a no-op for non-system apps —
+ * the Java-side `isHeld` returns `true` but `dumpsys wifi` shows
+ * "Multicast Locks held:" empty, and inbound mDNS multicast traffic
+ * never reaches our JmDNS responder. Consequence: our initial JmDNS
+ * announce burst still goes out (UDP send is allowed), but ongoing PTR
+ * queries from peers receive no response, so peers cache us briefly and
+ * then we vanish from their service browse. Found while running the
+ * docs/testing/interop-ble-trigger.md runbook against a Vivo X300 Ultra
+ * (Funtouch 16 / OriginOS 6).
+ *
+ * The standard escape hatch is to also acquire a [WifiManager.WifiLock]
+ * with mode [WifiManager.WIFI_MODE_FULL_HIGH_PERF]. While that lock is
+ * held the device disables Wi-Fi power save, and the multicast filter
+ * that Funtouch installs in power-save mode is correspondingly lifted —
+ * which is what lets multicast actually reach our app on these devices.
+ * On stock AOSP / Pixel / Samsung the multicast lock alone already
+ * works; the Wi-Fi lock is then redundant but harmless (slight increase
+ * in idle power, mitigated by the lock only being held while the
+ * receiver foreground service is running).
+ *
+ * Both locks are tagged with service-specific names so they show up in
+ * `dumpsys wifi` for diagnostics. Reference counting is disabled on
+ * both — we own the lifecycle through our own boolean tracking inside
+ * `ReceiverSession.holdingLock`.
  */
 internal class AndroidMulticastLockController(
     context: Context,
@@ -828,21 +853,35 @@ internal class AndroidMulticastLockController(
 ) : MulticastLockController {
     private val wifi: WifiManager =
         context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-    private val lock: WifiManager.MulticastLock =
+    private val multicastLock: WifiManager.MulticastLock =
         wifi.createMulticastLock(tag).apply {
-            // The receiver service holds one lock for its entire
-            // lifetime; we don't need the WifiManager's reference
-            // counting on top of our own boolean tracking in
-            // ReceiverSession.
+            setReferenceCounted(false)
+        }
+
+    /**
+     * Companion Wi-Fi lock that disables power save while the receiver
+     * is running. This is the workaround that lets Funtouch / OriginOS
+     * actually deliver multicast to our app — see the class KDoc for
+     * the gory details.
+     */
+    private val wifiLock: WifiManager.WifiLock =
+        wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, tag + "-highperf").apply {
             setReferenceCounted(false)
         }
 
     override fun acquire() {
-        if (!lock.isHeld) lock.acquire()
+        if (!multicastLock.isHeld) multicastLock.acquire()
+        if (!wifiLock.isHeld) wifiLock.acquire()
     }
 
     override fun release() {
-        if (lock.isHeld) lock.release()
+        // Release in reverse acquisition order so that if Funtouch
+        // releasing the wifi lock causes power save to re-enable, the
+        // multicast lock can be observed correctly (or, more often,
+        // already silently dropped — but the OS bookkeeping prefers
+        // this order regardless).
+        if (wifiLock.isHeld) wifiLock.release()
+        if (multicastLock.isHeld) multicastLock.release()
     }
 
     private companion object {

@@ -324,6 +324,121 @@ update regresses the BLE wake-up path.
 
 ---
 
+## Vivo / Funtouch / OriginOS specific quirks
+
+Real-device verification on a vivo X300 Ultra (Funtouch 16, OriginOS 6,
+Android 16) surfaced four behaviours that any tester running the matrix
+on a vivo device must be aware of. Other Funtouch / OriginOS versions
+(and likely most other Chinese-OEM Android skins — Xiaomi MIUI, Honor
+MagicOS, OPPO ColorOS) layer similar restrictions on top of stock
+Android, so these notes apply more broadly than just vivo.
+
+### 1. App freezing must be disabled
+
+Funtouch's "App Freezer" / "Background process management" suspends
+non-system app processes a few minutes after they leave the foreground —
+even when they own a `connectedDevice` foreground service. While
+frozen, the app keeps its persistent notification visible but cannot
+hold Wi-Fi locks, run JmDNS, or process incoming BLE callbacks. To the
+peer it looks like our receiver simply went silent.
+
+Before any test cell, enable background activity for the WVMG app:
+
+1. **Settings → Battery → Background power consumption management**
+   (the exact path depends on Funtouch version; on OriginOS 6 it is
+   *Settings → Apps & permissions → Background apps*).
+2. Find **WhenVivoMeetsGoogle**.
+3. Set background activity to *Allow* and disable battery optimisation.
+4. If the device exposes an *Auto-start* toggle, enable that too —
+   Funtouch's freezer treats unfreezing as auto-start for some
+   transitions.
+
+You can confirm the freezer is no longer interfering by running:
+
+```bash
+adb shell dumpsys activity broadcasts | grep -B 1 -A 1 "vivo.intent.action.PACKAGE_FREEZE.*kyujincho"
+```
+
+After whitelisting, this should not show new FREEZE entries while the
+app is running. Pre-existing entries from before the whitelist are
+fine to ignore.
+
+### 2. Wi-Fi multicast lock is silently refused (both publish AND browse)
+
+Even with the freezer disabled, vivo's Wi-Fi power-save layer **does
+not honour `WifiManager.MulticastLock.acquire()`** for non-system apps.
+The Java-side `lock.isHeld` returns `true` (so our code thinks the lock
+is held), but `dumpsys wifi` shows "Multicast Locks held:" empty and
+multicast traffic is filtered before reaching the app.
+
+Both the receiver-side `AndroidMulticastLockController` and the
+sender/browse-side `MulticastLockHolder` additionally acquire a
+companion `WIFI_MODE_FULL_HIGH_PERF` Wi-Fi lock as a workaround. On
+stock AOSP / Pixel / Samsung that companion is what makes things work;
+on vivo Funtouch 16 / OriginOS 6 it is **also silently refused**
+(`dumpsys wifi` reports `Active lock owners: {}` for non-system apps),
+leaving these symptoms on this device class:
+
+  - **Publish**: the initial JmDNS announce burst still goes out (UDP
+    send is allowed), so peers see us once, but ongoing PTR queries
+    from peers receive no response — peers cache us for ~30 s and we
+    vanish from their service browse.
+  - **Browse**: incoming IPv4 multicast (mDNS at 224.0.0.251) is
+    dropped at the radio layer before our JmDNS instance sees it.
+    `dumpsys wifi` reports `ipv4RxMulticast=0` despite IPv6 multicast
+    (`ipv6Multicast` counter) being non-zero. Practically, the
+    `SendActivity` peer picker stays empty even when a stock Quick
+    Share device on the same LAN is actively advertising
+    (`dns-sd -B _FC9F5ED42C8A._tcp. local.` from a third-party Mac
+    confirms the peer is visible to non-vivo devices on the same SSID).
+
+Practical impact for the BLE-trigger matrix on a vivo *sender*:
+
+  - **Cell A1/A2 (BLE half)**: stock Quick Share receivers still see
+    our BLE pulse — confirmed via `dumpsys bluetooth_manager` on a
+    Samsung Galaxy S24 Ultra showing `Results=19` for the
+    `0xfe2c FC 12 8E` filter and `NearbySharing` logging
+    `EndpointDiscovered(...)` within ~2 seconds of advertise start.
+  - **Cell A1/A2 (mDNS half)**: the WVMG sender's peer picker stays
+    empty even though the BLE pulse landed, because vivo's JmDNS
+    browse cannot receive the receiver's mDNS announces back — and
+    without finding the peer's TCP endpoint, the consent pop-up that
+    the matrix counts as success never gets the chance to appear on
+    the receiver.
+
+These two failure modes mean **the BLE-trigger matrix cells A1/A2
+cannot pass on a vivo *sender* until the discovery layer migrates
+from JmDNS to Android's built-in `NsdManager`** (which uses the
+system mDNS responder and does not need the app-level multicast
+lock at all). Tracked as a follow-up issue. The matrix is fully
+runnable from a Pixel or Samsung sender to a vivo receiver, or from
+any sender to a non-vivo receiver, without this caveat.
+
+### 3. Non-Pixel/Samsung peers may not be installed
+
+The vivo X300 Ultra ships with full GMS but **does NOT** ship with
+stock Quick Share installed. `adb shell pm list packages | grep -i
+nearby` returns nothing on this device class. This is exactly the use
+case WVMG was built for, but it means a vivo device cannot be used as
+a Quick Share *peer* in the test matrix — only as the WVMG sender or
+WVMG receiver. Use a Pixel or Samsung phone for the matrix's peer
+role.
+
+### 4. Logcat filters out app `Log.i` output
+
+Funtouch / OriginOS filters `Log.i` calls from non-system apps —
+`adb logcat -s WvmgDiscovery:*` will return nothing for our success
+paths even when the corresponding code is running. The success-path
+log lines in `BleAdvertiser`, `BleQuickShareScanner`, and
+`MdnsAdvertisementGate` therefore log at `Log.w` level (the same
+mitigation `OutboundConnection` uses with `Log.e`); `Log.w` and
+`Log.e` come through normally. When a test cell on a vivo device
+needs to verify that the BLE advertise actually started, prefer
+`adb shell dumpsys bluetooth_manager | grep -B 1 -A 12 kyujincho`
+over logcat.
+
+---
+
 ## Common Quick Share BLE quirks
 
 These are real-world properties of stock Quick Share's BLE side that
