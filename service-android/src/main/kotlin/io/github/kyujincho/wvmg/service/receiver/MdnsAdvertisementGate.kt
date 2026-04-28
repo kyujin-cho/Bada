@@ -92,6 +92,16 @@ public class MdnsAdvertisementGate(
     private var debounceJob: Job? = null
 
     /**
+     * Serialises [apply] across the three child collectors so a racing
+     * BLE/override/QR transition cannot interleave the
+     * `session.isAdvertising` check with the publish/schedule write.
+     * Synchronous and held only over fast in-memory state transitions
+     * — the actual `session.publishAdvertisement` / `unpublish` calls
+     * are themselves serialised by the session's internal lock.
+     */
+    private val applyLock: Any = Any()
+
+    /**
      * Begin observing the gating signals on [scope].
      *
      * Idempotent: a second call while the gate is already running is a
@@ -161,7 +171,7 @@ public class MdnsAdvertisementGate(
     private fun apply(
         decision: Decision,
         scope: CoroutineScope,
-    ) {
+    ) = synchronized(applyLock) {
         val shouldPublish = decision.bleActive || decision.overrideOn || decision.qrActive
         if (shouldPublish) {
             // Cancel any pending unpublish — we're back inside the
@@ -210,10 +220,9 @@ public class MdnsAdvertisementGate(
     }
 
     /**
-     * Snapshot of the three input flags. Lifted to a data class so the
-     * collector path is `combine -> distinctUntilChanged -> onEach`
-     * with a value type that has structural equality, instead of a
-     * `Triple<Boolean, Boolean, Boolean>` whose meaning is positional.
+     * Snapshot of the three input flags. Lifted to a data class with
+     * named fields rather than a `Triple<Boolean, Boolean, Boolean>` so
+     * the meaning of each value stays explicit at every call site.
      */
     private data class Decision(
         val bleActive: Boolean,

@@ -266,7 +266,12 @@ public class ReceiverForegroundService : Service() {
      * in mDNS-only mode.
      */
     private fun startMdnsGate(activeSession: ReceiverSession) {
+        // Bail out if the service has already been torn down between
+        // session.start() returning and this method running. Without
+        // the running check, a quick start/stop sequence could leak a
+        // gate whose collector keeps a reference to a stopped session.
         if (mdnsGate != null) return
+        if (!activeSession.isRunning) return
         val gate =
             MdnsAdvertisementGate(
                 session = activeSession,
