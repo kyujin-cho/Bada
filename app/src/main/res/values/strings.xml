@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">WhenVivoMeetsGoogle</string>
 
     <!-- Launcher activity (#34). The "always visible" override lets the
@@ -110,6 +110,20 @@
     <string name="send_status_pin_prompt">Confirm this code matches the receiver\'s screen.</string>
     <string name="send_status_failure_reason">Reason: %1$s</string>
     <string name="send_status_progress">%1$s of %2$s</string>
+
+    <!--
+      Rate + ETA suffixes appended to the progress line during a
+      send. The acceptance criterion calls for accessibility-friendly
+      duration phrasing so we spell out "seconds remaining" rather
+      than abbreviate. The full status message reads like
+      "12 MB of 100 MB · 4.2 MB/s · 30 seconds remaining".
+    -->
+    <string name="send_status_rate">%1$s/s</string>
+    <string name="send_status_eta">%1$s remaining</string>
+    <string name="send_status_duration_few_seconds">less than a second</string>
+    <string name="send_status_duration_seconds" tools:ignore="PluralsCandidate">%1$d seconds</string>
+    <string name="send_status_duration_about_minutes" tools:ignore="PluralsCandidate">about %1$d minutes</string>
+    <string name="send_status_duration_about_hours" tools:ignore="PluralsCandidate">about %1$d hours</string>
 
     <!-- QR-code (#20 + #84) screen. -->
     <string name="show_qr_title">Scan from receiver</string>

@@ -85,13 +85,14 @@ public sealed interface InboundConnectionState {
      * `PayloadTransferFrame` chunk so observers can drive a progress
      * bar without polling.
      *
-     * @property bytesReceived Cumulative bytes received across all
-     *   in-flight payloads (FILE writes + BYTES buffer fill). Resets
-     *   per-connection — does NOT include terminated transfers.
-     * @property totalSize Sum of `total_size` across every announced
-     *   FILE / BYTES item from the [TransferMetadata]. The ratio
-     *   `bytesReceived / totalSize` is a faithful overall progress
-     *   estimate.
+     * @property progress Cumulative byte counters plus the smoothed
+     *   bytes-per-second rate and ETA produced by issue #46's rate
+     *   estimator. The UI renders a progress bar from
+     *   [TransferProgress.fraction] and a "12 MB of 100 MB, 30 seconds
+     *   remaining" subtitle from the byte counts + ETA.
+     *   [TransferProgress.bytesPerSecond] is `0` while warming up
+     *   (fewer than two rate samples); [TransferProgress.etaSeconds] is
+     *   `null` until the rate is non-zero.
      * @property currentItemPayloadId If a single payload is currently
      *   active (most common), its `payload_id`. `null` between
      *   payloads or if no DATA chunk has arrived yet.
@@ -100,11 +101,23 @@ public sealed interface InboundConnectionState {
      *   between BYTES and FILE.
      */
     public data class Receiving(
-        val bytesReceived: Long,
-        val totalSize: Long,
+        val progress: TransferProgress,
         val currentItemPayloadId: Long?,
         val currentItemType: PayloadHeader.PayloadType?,
-    ) : InboundConnectionState
+    ) : InboundConnectionState {
+        /**
+         * Cumulative bytes received. Convenience accessor for callers
+         * that do not need the rate / ETA fields. Reads from
+         * [progress] so the two stay in sync.
+         */
+        public val bytesReceived: Long get() = progress.bytesTransferred
+
+        /**
+         * Sum of `total_size` across every announced FILE / BYTES
+         * item. Convenience accessor that reads from [progress].
+         */
+        public val totalSize: Long get() = progress.totalSize
+    }
 
     /**
      * Terminal -- every announced item arrived in full and the

@@ -8,6 +8,8 @@ package io.github.kyujincho.wvmg.service.receiver.consent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import io.github.kyujincho.wvmg.service.receiver.progress.TransferCancelRegistry
+import io.github.kyujincho.wvmg.service.receiver.progress.TransferProgressNotification
 
 /**
  * Broadcast receiver that translates an Accept / Reject notification
@@ -53,21 +55,50 @@ public class ConsentBroadcastReceiver : BroadcastReceiver() {
     ) {
         if (intent == null) return
         val ctx = context
-        ConsentRouter.dispatch(
-            intent = ConsentIntents.IntentLike.from(intent),
-            registry = ConsentRegistry.instance,
-            onConsentSubmitted = { connectionId ->
-                // Best-effort dismissal of the notification once the
-                // user has acted on it. Without a Context we cannot
-                // reach the NotificationManager — that path is exercised
-                // when the broadcast was triggered programmatically by
-                // a test rather than through the system, so silently
-                // skipping is fine.
-                if (ctx != null) {
-                    ConsentNotification.dismiss(ctx, connectionId)
-                }
-            },
-        )
+        when (intent.action) {
+            ConsentIntents.ACTION_CANCEL_TRANSFER -> handleCancelTransfer(ctx, intent)
+            else ->
+                ConsentRouter.dispatch(
+                    intent = ConsentIntents.IntentLike.from(intent),
+                    registry = ConsentRegistry.instance,
+                    onConsentSubmitted = { connectionId ->
+                        // Best-effort dismissal of the notification once the
+                        // user has acted on it. Without a Context we cannot
+                        // reach the NotificationManager — that path is exercised
+                        // when the broadcast was triggered programmatically by
+                        // a test rather than through the system, so silently
+                        // skipping is fine.
+                        if (ctx != null) {
+                            ConsentNotification.dismiss(ctx, connectionId)
+                        }
+                    },
+                )
+        }
+    }
+
+    /**
+     * Translate a Cancel-button broadcast (from the in-flight
+     * progress notification, #46) into a call on the registered
+     * cancel callback. Idempotent: a stale broadcast for an already-
+     * terminated transfer finds no entry in the registry and is
+     * silently dropped.
+     */
+    private fun handleCancelTransfer(
+        ctx: Context?,
+        intent: Intent,
+    ) {
+        val connectionId =
+            intent.getLongExtra(ConsentIntents.EXTRA_CONNECTION_ID, ConsentIntents.MISSING_CONNECTION_ID)
+        if (connectionId == ConsentIntents.MISSING_CONNECTION_ID) return
+        val callback = TransferCancelRegistry.instance.unregister(connectionId) ?: return
+        callback.invoke()
+        if (ctx != null) {
+            // Dismiss the progress notification immediately. The
+            // connection's terminal state will flow up through the
+            // existing observer and trigger a redundant dismiss; that
+            // call is a no-op on the now-unknown notification id.
+            TransferProgressNotification.dismiss(ctx, connectionId)
+        }
     }
 
     public companion object {
@@ -83,6 +114,7 @@ public class ConsentBroadcastReceiver : BroadcastReceiver() {
             arrayOf(
                 ConsentIntents.ACTION_ACCEPT,
                 ConsentIntents.ACTION_REJECT,
+                ConsentIntents.ACTION_CANCEL_TRANSFER,
             )
     }
 }

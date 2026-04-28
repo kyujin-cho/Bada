@@ -680,12 +680,14 @@ public class SendActivity : AppCompatActivity() {
                 binding.sendStatusPhase.setText(R.string.send_phase_sending)
                 binding.sendPin.text = state.pin
                 binding.sendPin.visibility = View.VISIBLE
+                // #46: include smoothed bytes/sec rate + ETA in the
+                // status subtitle. The formatter drops the rate / ETA
+                // segments while warming up so the user does not see
+                // "0 B/s, unknown ETA" — a bare "12 MB of 100 MB"
+                // line shows up first, then rate + ETA fade in once
+                // the EMA has two samples.
                 binding.sendStatusMessage.text =
-                    getString(
-                        R.string.send_status_progress,
-                        PayloadSummary.formatBytes(state.bytesSent),
-                        PayloadSummary.formatBytes(state.totalSize),
-                    )
+                    SendProgressFormatter.format(this, state.progress)
             }
             OutboundConnectionState.Completed ->
                 renderTerminal(

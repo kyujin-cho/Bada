@@ -71,6 +71,19 @@ internal class OutboundConnectionDriver(
     private val files: List<FileSource>,
     private val onHandshakeComplete: () -> Unit = {},
     private val logger: (String) -> Unit = {},
+    /**
+     * Wall-clock source for the rate estimator. Defaults to
+     * [System.currentTimeMillis]; tests inject deterministic
+     * timestamps to make EMA samples stable.
+     */
+    private val nowMillisSource: () -> Long = System::currentTimeMillis,
+    /**
+     * Rate estimator backing [OutboundConnectionState.Sending.progress].
+     * Fed on every chunk write; the publisher reads
+     * [TransferRateEstimator.bytesPerSecond] back into the published
+     * [TransferProgress] so the sender UI can render rate + ETA.
+     */
+    private val rateEstimator: TransferRateEstimator = TransferRateEstimator(),
 ) {
     private var framedConnection: FramedConnection? = null
     private var secureChannel: SecureChannel? = null
@@ -606,11 +619,18 @@ internal class OutboundConnectionDriver(
      */
     private suspend fun streamFilesAndComplete(channel: SecureChannel): OutboundResult {
         logger("fsm: streamFilesAndComplete START files=${files.size} totalSize=$totalSize")
+        // Seed the rate estimator with a zero-bytes sample so the
+        // first chunk write produces a non-degenerate Δt for the EMA.
+        rateEstimator.sample(bytesTransferred = 0L, nowMillis = nowMillisSource())
         mutableState.value =
             OutboundConnectionState.Sending(
                 pin = pin,
-                bytesSent = 0L,
-                totalSize = totalSize,
+                progress =
+                    TransferProgress.of(
+                        bytesTransferred = 0L,
+                        totalSize = totalSize,
+                        bytesPerSecond = 0L,
+                    ),
                 currentItemPayloadId = files.firstOrNull()?.payloadId,
             )
 
@@ -691,11 +711,20 @@ internal class OutboundConnectionDriver(
             .toLong()
 
     private fun publishSendingProgress() {
+        // Feed the rate estimator on every chunk so its EMA tracks the
+        // instantaneous wire throughput, then publish the smoothed
+        // bytes/sec back through TransferProgress so the sender UI can
+        // render rate + ETA.
+        rateEstimator.sample(bytesTransferred = bytesSent, nowMillis = nowMillisSource())
         mutableState.value =
             OutboundConnectionState.Sending(
                 pin = pin,
-                bytesSent = bytesSent,
-                totalSize = totalSize,
+                progress =
+                    TransferProgress.of(
+                        bytesTransferred = bytesSent,
+                        totalSize = totalSize,
+                        bytesPerSecond = rateEstimator.bytesPerSecond(),
+                    ),
                 currentItemPayloadId = currentItemPayloadId,
             )
     }
