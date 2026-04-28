@@ -123,7 +123,7 @@ public class BleAdvertiser internal constructor(
                     onClosed = { active.compareAndSet(it, null) },
                 )
             active.set(handle)
-            Log.i(
+            Log.w(
                 TAG,
                 "BLE advertise: startAdvertising submitted bytes=" + payload.size +
                     " uuid=" + BleAdvertisePayload.SERVICE_UUID_128,
@@ -275,7 +275,7 @@ public class BleAdvertiser internal constructor(
             if (!activeFlag.compareAndSet(true, false)) return
             try {
                 advertiser.stopAdvertising(callback)
-                Log.i(TAG, "BLE advertise: stopAdvertising complete")
+                Log.w(TAG, "BLE advertise: stopAdvertising complete")
             } catch (
                 // stopAdvertising can throw SecurityException if the user
                 // revoked BLUETOOTH_ADVERTISE while we were running, or
@@ -303,7 +303,7 @@ public class BleAdvertiser internal constructor(
             private set
 
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.i(TAG, "BLE advertise: onStartSuccess settings=$settingsInEffect")
+            Log.w(TAG, "BLE advertise: onStartSuccess settings=$settingsInEffect")
         }
 
         override fun onStartFailure(errorCode: Int) {

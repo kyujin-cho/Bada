@@ -267,7 +267,7 @@ public class BleQuickShareScanner internal constructor(
                 }
             gate.addSink(sink)
             primarySink = sink
-            Log.i(TAG, "start: BLE pulse scan started mode=${describeScanMode(currentScanMode)}")
+            Log.w(TAG, "start: BLE pulse scan started mode=${describeScanMode(currentScanMode)}")
             true
         }
 
@@ -314,7 +314,7 @@ public class BleQuickShareScanner internal constructor(
             // Mode change while idle: just remember the new mode for the
             // next start(). No platform call is needed.
             if (registration == null) {
-                Log.i(
+                Log.w(
                     TAG,
                     "setScanMode: scanner idle, pinned mode for next start: " +
                         "${describeScanMode(previous)} -> ${describeScanMode(mode)}",
@@ -362,7 +362,7 @@ public class BleQuickShareScanner internal constructor(
                 return@synchronized false
             }
             registration = restarted
-            Log.i(
+            Log.w(
                 TAG,
                 "setScanMode: ${describeScanMode(previous)} -> ${describeScanMode(mode)}",
             )
@@ -397,7 +397,7 @@ public class BleQuickShareScanner internal constructor(
             inactivityJob?.cancel()
             inactivityJob = null
             activityState.value = ScanActivity.Idle
-            Log.i(TAG, "stop: BLE pulse scan stopped")
+            Log.w(TAG, "stop: BLE pulse scan stopped")
         }
     }
 
