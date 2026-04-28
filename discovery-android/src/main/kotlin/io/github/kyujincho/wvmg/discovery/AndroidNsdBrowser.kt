@@ -118,11 +118,37 @@ internal class AndroidNsdBrowser(
                     override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                         val name = serviceInfo.serviceName ?: return
                         trySend(NsdBrowserEvent.Found(name))
-                        // Queue the resolve so we serialise pre-API-30
-                        // single-flight constraints. Bounded capacity
-                        // with DROP_OLDEST under sustained churn —
-                        // see RESOLVE_QUEUE_CAPACITY for sizing.
-                        resolveQueue.trySend(serviceInfo)
+
+                        // Android 12+ ships a new MdnsDiscoveryManager
+                        // pipeline in the system NSD service (Conscrypt
+                        // module). Under that pipeline `onServiceFound`
+                        // delivers an already-resolved NsdServiceInfo
+                        // — port, host, and TXT records are populated
+                        // up front, and calling `resolveService` on an
+                        // already-resolved info silently no-ops on some
+                        // platform versions, leaving the resolve worker
+                        // waiting on a callback that never fires (then
+                        // timing out at RESOLVE_TIMEOUT_MILLIS and
+                        // emitting an Error rather than a Resolved).
+                        // The picker stays empty as a result.
+                        //
+                        // Detected via: a port > 0 in the onServiceFound
+                        // payload — the legacy pipeline always delivered
+                        // port=0 here and required an explicit resolve.
+                        // When the system has already done the resolve
+                        // for us, emit Resolved directly and skip the
+                        // round-trip.
+                        if (serviceInfo.port > 0) {
+                            trySend(mapResolved(serviceInfo))
+                        } else {
+                            // Legacy / pre-MdnsDiscoveryManager pipeline:
+                            // queue the resolve so we serialise
+                            // pre-API-30 single-flight constraints.
+                            // Bounded capacity with DROP_OLDEST under
+                            // sustained churn — see
+                            // RESOLVE_QUEUE_CAPACITY for sizing.
+                            resolveQueue.trySend(serviceInfo)
+                        }
                     }
 
                     override fun onServiceLost(serviceInfo: NsdServiceInfo) {
