@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +23,8 @@ import io.github.kyujincho.wvmg.battery.BatteryOptimizationPreferences
 import io.github.kyujincho.wvmg.onboarding.PermissionRequirements
 import io.github.kyujincho.wvmg.onboarding.PermissionsOnboardingActivity
 import io.github.kyujincho.wvmg.send.SendActivity
+import io.github.kyujincho.wvmg.service.downloads.SaveLocationDisplayName
+import io.github.kyujincho.wvmg.service.downloads.SaveLocationPreferences
 import io.github.kyujincho.wvmg.service.receiver.MdnsVisibilityOverrideHolder
 import io.github.kyujincho.wvmg.service.receiver.ReceiverForegroundService
 
@@ -81,6 +84,16 @@ class MainActivity : AppCompatActivity() {
      * outbound-connection flow with `parent_folder` populated.
      */
     private lateinit var openTreeLauncher: ActivityResultLauncher<Uri?>
+
+    /**
+     * Launcher for the SAF tree picker that backs the "Save received
+     * files to" setting (#42). The result URI is persisted via
+     * [SaveLocationPreferences] which also takes the persistable
+     * read+write grant so the choice survives reboots. The activity
+     * refreshes its current-location label after every successful
+     * selection.
+     */
+    private lateinit var saveLocationLauncher: ActivityResultLauncher<Uri?>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,6 +155,34 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.main_battery_banner_skip).setOnClickListener {
             onBatteryBannerSkipClicked()
         }
+
+        // Save-location settings (#42). The launcher must be registered
+        // during onCreate per the activity-result API contract; the
+        // pick / clear buttons just trigger it / clear the preference
+        // and refresh the label.
+        saveLocationLauncher =
+            registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri: Uri? ->
+                if (treeUri == null) return@registerForActivityResult
+                try {
+                    SaveLocationPreferences.from(this).setSaveTreeUri(treeUri)
+                    refreshSaveLocationLabel()
+                } catch (e: SecurityException) {
+                    // The platform refused to take the persistable grant
+                    // (typically because the URI didn't come from
+                    // ACTION_OPEN_DOCUMENT_TREE — defensive guard, the
+                    // contract should always return a tree URI). Surface
+                    // a soft error so the user picks a different folder.
+                    Log.w(TAG, "Save-location pick failed: ${e.message}", e)
+                    Toast.makeText(this, R.string.main_save_location_pick_failed, Toast.LENGTH_LONG).show()
+                }
+            }
+        findViewById<Button>(R.id.main_save_location_pick).setOnClickListener {
+            saveLocationLauncher.launch(null)
+        }
+        findViewById<Button>(R.id.main_save_location_clear).setOnClickListener {
+            SaveLocationPreferences.from(this).clear()
+            refreshSaveLocationLabel()
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -180,6 +221,13 @@ class MainActivity : AppCompatActivity() {
         // hides automatically the moment the platform reports us as
         // exempt, even if the user never tapped Skip.
         refreshBatteryBanner()
+
+        // Re-read the save-location preference on every onStart so the
+        // label reflects an external change (e.g. the user revoked the
+        // grant in system Settings while we were paused). Falls back to
+        // the "Downloads (default)" label when the URI is unset or its
+        // grant has been lost.
+        refreshSaveLocationLabel()
 
         // Bring up the receiver foreground service so the BLE pulse
         // scanner (#33), mDNS-publish gate (#34), and TCP listener are
@@ -262,6 +310,26 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.main_battery_banner_unavailable, Toast.LENGTH_LONG).show()
         BatteryOptimizationPreferences.from(this).markDismissed()
         refreshBatteryBanner()
+    }
+
+    /**
+     * Update the "Current: …" line under the save-location title to
+     * match the persisted preference. Reads via
+     * [SaveLocationPreferences] (which already drops the URI when its
+     * grant has been revoked) so a stale URI never shows up here as
+     * a misleading label.
+     */
+    private fun refreshSaveLocationLabel() {
+        val label = findViewById<TextView>(R.id.main_save_location_current)
+        val savedUri = SaveLocationPreferences.from(this).getSaveTreeUri()
+        val displayText =
+            if (savedUri != null) {
+                val name = SaveLocationDisplayName.resolve(this, savedUri)
+                getString(R.string.main_save_location_current, name)
+            } else {
+                getString(R.string.main_save_location_default)
+            }
+        label.text = displayText
     }
 
     private fun onBatteryBannerSkipClicked() {

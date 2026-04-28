@@ -22,42 +22,42 @@ import java.io.File
  * call [create] and inject the returned factory into
  * [io.github.kyujincho.wvmg.protocol.connection.InboundConnection.run].
  *
- * ### API selection
+ * ### Environment selection
  *
- *  - **API 29+ (Q and above):** routes through
- *    [MediaStoreDownloadsEnvironment]. No `WRITE_EXTERNAL_STORAGE`
- *    permission is needed.
- *  - **API 24-28:** routes through [LegacyDownloadsEnvironment] writing
- *    to `Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)`.
- *    The caller must already hold `WRITE_EXTERNAL_STORAGE` (declared
- *    in `:service-android/src/main/AndroidManifest.xml` with
- *    `maxSdkVersion="28"`).
+ *  1. **User-chosen save tree (issue #42):** if [SaveLocationPreferences]
+ *     reports a still-valid persisted SAF tree URI, files are written
+ *     there via [SafTreeDownloadsEnvironment]. The user-picked tree
+ *     trumps the device's default Downloads location regardless of
+ *     API level.
+ *  2. **API 29+ (Q and above):** falls back to
+ *     [MediaStoreDownloadsEnvironment] writing under `Downloads/`.
+ *     No `WRITE_EXTERNAL_STORAGE` permission needed.
+ *  3. **API 24-28:** falls back to [LegacyDownloadsEnvironment]
+ *     writing to
+ *     `Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)`.
+ *     The caller must already hold `WRITE_EXTERNAL_STORAGE` (declared
+ *     in `:service-android/src/main/AndroidManifest.xml` with
+ *     `maxSdkVersion="28"`).
  *
- * The branch is taken once at construction time and never re-evaluated.
- * That is correct for our use: a process never crosses an API level
- * mid-execution, and the ABI cost of branching per-payload would
- * otherwise show up as `Build.VERSION.SDK_INT` checks on a hot path.
+ * The branch is taken once per [create] call. Because the foreground
+ * service constructs a fresh factory per accepted connection
+ * (`factoryProvider = { DownloadsWriterFactory.create(context) }`),
+ * a settings change between transfers picks up automatically without
+ * any explicit invalidation.
  */
 public object DownloadsWriterFactory {
     /**
      * Build a [MediaStoreDownloadsFactory] suitable for the running
-     * device.
+     * device, honouring any user-chosen save location.
      *
-     * @param context Android context. Only used to obtain the
-     *   [android.content.ContentResolver] on API 29+; the legacy path
-     *   does not retain a reference. Pass `applicationContext` so
-     *   the returned factory does not pin an Activity.
+     * @param context Android context. Used to obtain the
+     *   [android.content.ContentResolver], the spool directory, and
+     *   the [SaveLocationPreferences] for the user's chosen save
+     *   tree. Pass `applicationContext` so the returned factory does
+     *   not pin an Activity.
      */
     public fun create(context: Context): MediaStoreDownloadsFactory {
-        val environment: DownloadsEnvironment =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaStoreDownloadsEnvironment(context.contentResolver)
-            } else {
-                @Suppress("DEPRECATION")
-                LegacyDownloadsEnvironment(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                )
-            }
+        val environment = chooseEnvironment(context)
         // Spool inbound FILE payloads under a private cache subdirectory
         // so we can keep them off the public Downloads scan even on
         // legacy storage. cacheDir is automatically reclaimed by the
@@ -65,6 +65,37 @@ public object DownloadsWriterFactory {
         // for transient transfer state.
         val spoolDirectory = File(context.cacheDir, SPOOL_SUBDIRECTORY)
         return MediaStoreDownloadsFactory(DownloadsWriter(environment), spoolDirectory)
+    }
+
+    /**
+     * Select the right [DownloadsEnvironment] for the current device
+     * + user settings. Pulled out so unit tests can probe the
+     * decision logic without instantiating the real factory.
+     *
+     * The user-chosen save tree URI takes precedence over both the
+     * MediaStore and legacy paths. When the URI is missing or its
+     * persisted grant has been revoked (signaled by
+     * [SaveLocationPreferences.getSaveTreeUri] returning `null`), we
+     * fall through to the platform-default Downloads environment so
+     * receives keep working even if the chosen folder went away.
+     */
+    private fun chooseEnvironment(context: Context): DownloadsEnvironment {
+        val app = context.applicationContext
+        val savedTreeUri = SaveLocationPreferences.from(app).getSaveTreeUri()
+        if (savedTreeUri != null) {
+            return SafTreeDownloadsEnvironment(
+                contentResolver = app.contentResolver,
+                treeUri = savedTreeUri,
+            )
+        }
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStoreDownloadsEnvironment(app.contentResolver)
+        } else {
+            @Suppress("DEPRECATION")
+            LegacyDownloadsEnvironment(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            )
+        }
     }
 
     /**
