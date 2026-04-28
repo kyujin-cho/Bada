@@ -6,17 +6,16 @@
 package io.github.kyujincho.wvmg.discovery
 
 import com.google.common.truth.Truth.assertThat
-import io.github.kyujincho.wvmg.protocol.endpoint.Base64Url
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import org.junit.jupiter.api.Test
-import javax.jmdns.ServiceInfo
+import java.net.InetAddress
 
 /**
  * Unit tests for [Discovery.toDiscoveredService] that exercise the TXT
  * record + instance-name parsing logic in isolation, without spinning up
- * any actual JmDNS infrastructure. We hand-craft [ServiceInfo] objects
- * via the documented `ServiceInfo.create(...)` factory.
+ * any actual `NsdManager` infrastructure. We hand-craft
+ * [NsdBrowserEvent.Resolved] events directly.
  */
 class DiscoveredServiceMappingTest {
     @Test
@@ -30,19 +29,16 @@ class DiscoveredServiceMappingTest {
                 metadata = ByteArray(EndpointInfo.METADATA_LEN) { (0x10 + it).toByte() },
                 deviceName = "Pixel 9",
             )
-        val txt = Base64Url.encode(endpointInfo.serialize())
-        val info =
-            ServiceInfo.create(
-                QuickShareMdns.SERVICE_TYPE,
-                // 10-byte raw -> 14-char URL-safe base64 (no padding).
-                "IzAxMjP8n14AAA",
-                54_321,
-                0,
-                0,
-                mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to txt),
+        val txtBytes = endpointInfo.serialize()
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 54_321,
+                attributes = mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to txtBytes),
             )
 
-        val result = newDiscovery().toDiscoveredService(info)
+        val result = newDiscovery().toDiscoveredService(event)
         assertThat(result).isNotNull()
         assertThat(result!!.port).isEqualTo(54_321)
         assertThat(result.endpointInfo).isEqualTo(endpointInfo)
@@ -54,64 +50,74 @@ class DiscoveredServiceMappingTest {
 
     @Test
     fun `missing TXT key yields null endpointInfo but still surfaces the peer`() {
-        val info =
-            ServiceInfo.create(
-                QuickShareMdns.SERVICE_TYPE,
-                "IzAxMjP8n14AAA",
-                54_322,
-                0,
-                0,
-                // Empty map -> no TXT properties at all.
-                emptyMap<String, String>(),
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 54_322,
+                attributes = emptyMap(),
             )
-        val result = newDiscovery().toDiscoveredService(info)
+        val result = newDiscovery().toDiscoveredService(event)
         assertThat(result).isNotNull()
         assertThat(result!!.endpointInfo).isNull()
     }
 
     @Test
-    fun `garbage TXT value yields null endpointInfo but does not crash`() {
-        val info =
-            ServiceInfo.create(
-                QuickShareMdns.SERVICE_TYPE,
-                "IzAxMjP8n14AAA",
-                54_323,
-                0,
-                0,
-                mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to "@@@@invalid-base64@@@@"),
+    fun `garbage TXT bytes yield null endpointInfo but does not crash`() {
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 54_323,
+                attributes = mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to byteArrayOf(0xFF.toByte(), 0xFE.toByte())),
             )
-        val result = newDiscovery().toDiscoveredService(info)
+        val result = newDiscovery().toDiscoveredService(event)
         assertThat(result).isNotNull()
         assertThat(result!!.endpointInfo).isNull()
     }
 
     @Test
     fun `non-base64 instance name yields null endpointId`() {
-        val info =
-            ServiceInfo.create(
-                QuickShareMdns.SERVICE_TYPE,
-                "not-a-valid-instance-name",
-                54_324,
-                0,
-                0,
-                emptyMap<String, String>(),
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "not-a-valid-instance-name",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 54_324,
+                attributes = emptyMap(),
             )
-        val result = newDiscovery().toDiscoveredService(info)
+        val result = newDiscovery().toDiscoveredService(event)
         assertThat(result).isNotNull()
         assertThat(result!!.endpointId).isNull()
         assertThat(result.instanceName).isEqualTo("not-a-valid-instance-name")
     }
 
+    @Test
+    fun `loopback-only peer is filtered out`() {
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getLoopbackAddress()),
+                port = 54_325,
+                attributes = emptyMap(),
+            )
+        val result = newDiscovery().toDiscoveredService(event)
+        assertThat(result).isNull()
+    }
+
     private fun newDiscovery(): Discovery =
         Discovery.forTesting(
-            locks =
-                object : LockController {
-                    override fun acquire() = Unit
-
-                    override fun release() = Unit
-
-                    override fun isHeld(): Boolean = false
+            registrar =
+                object : NsdRegistrar {
+                    override suspend fun register(
+                        serviceType: String,
+                        instanceName: String,
+                        port: Int,
+                        attributes: Map<String, ByteArray>,
+                    ): NsdRegistrationHandle = error("toDiscoveredService should not need a registrar")
                 },
-            jmdnsProvider = { error("toDiscoveredService should not need a JmDNS instance") },
+            browser =
+                object : NsdBrowser {
+                    override fun discover(serviceType: String) = error("toDiscoveredService should not need a browser")
+                },
         )
 }

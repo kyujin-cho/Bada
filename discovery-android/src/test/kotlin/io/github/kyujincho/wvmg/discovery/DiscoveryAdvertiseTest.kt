@@ -10,29 +10,25 @@ import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicInteger
-import javax.jmdns.JmDNS
 
 /**
- * Integration-style smoke tests for [Discovery.advertise] running on the
- * host JVM.
+ * Smoke tests for [Discovery.advertise] running on the host JVM.
  *
- * These tests bypass the Android multicast-lock and Wi-Fi address lookup
- * by injecting a noop [LockController] and a JmDNS factory that binds to
- * the loopback interface. They cover the publish path (TXT contents,
- * lifecycle, lock counter) but stop short of round-tripping through a
- * real multicast hop — JmDNS multicast loopback delivery is unreliable
- * across OS / JDK combinations. The TXT parsing logic is exercised
- * deterministically by [DiscoveredServiceMappingTest].
+ * These tests inject a [FakeNsd] (or a [CountingNsdRegistrar]) so the
+ * advertise path can be exercised without a real Android `NsdManager`.
+ * They cover the publish path's contract — port validation, instance
+ * name surfacing (including auto-suffix on collision), TXT round-trip
+ * including binary payloads, network-change re-registration, and
+ * lifecycle idempotency.
  */
 class DiscoveryAdvertiseTest {
     @Test
     fun `port outside 1 to 65535 is rejected`() {
         val discovery =
             Discovery.forTesting(
-                locks = NoopLockController(),
-                jmdnsProvider = { error("not used") },
+                registrar = CountingNsdRegistrar(),
+                browser = NoopNsdBrowser,
             )
         assertThrows<IllegalArgumentException> {
             discovery.advertise(sampleEndpointInfo(), port = 0)
@@ -43,59 +39,99 @@ class DiscoveryAdvertiseTest {
     }
 
     @Test
-    fun `advertise registers a service through JmDNS without throwing`() {
-        // We can't reliably observe JmDNS's internal cache after register
-        // (`list()` triggers a real multicast query on loopback, which is
-        // OS-dependent), so this smoke test simply asserts that the
-        // publish path opens JmDNS, registers the service, and surfaces a
-        // valid handle. The bit-exact TXT-contents path is covered
-        // deterministically by [DiscoveredServiceMappingTest], which
-        // reads back through the same `getPropertyString(...)` API
-        // JmDNS uses internally.
-        val locks = NoopLockController()
-        val sharedJmdns = JmDNS.create(InetAddress.getLoopbackAddress(), "wvmg-adv-test")
-        val publisher =
+    fun `advertise publishes through the registrar and surfaces a usable handle`() {
+        val nsd = FakeNsd()
+        val discovery =
             Discovery.forTesting(
-                locks = locks,
-                jmdnsProvider = { sharedJmdns },
+                registrar = nsd.registrar,
+                browser = nsd.browser,
             )
+
         val endpointInfo = sampleEndpointInfo()
-        val handle = publisher.advertise(endpointInfo, port = 12_345)
+        val handle = discovery.advertise(endpointInfo, port = 12_345)
         try {
             assertThat(handle.instanceName).isNotEmpty()
             assertThat(handle.port).isEqualTo(12_345)
             assertThat(handle.isActive).isTrue()
+            assertThat(nsd.publishedNames()).contains(handle.instanceName)
         } finally {
             handle.close()
-            sharedJmdns.close()
         }
+
+        assertThat(nsd.publishedNames()).doesNotContain(handle.instanceName)
+        assertThat(handle.isActive).isFalse()
     }
 
     @Test
-    fun `advertise increments and decrements lock holder`() {
-        val locks = NoopLockController()
+    fun `closing the advertise handle is idempotent`() {
+        val nsd = FakeNsd()
         val discovery =
             Discovery.forTesting(
-                locks = locks,
-                jmdnsProvider = { name -> JmDNS.create(InetAddress.getLoopbackAddress(), name) },
+                registrar = nsd.registrar,
+                browser = nsd.browser,
             )
-        val handle = discovery.advertise(sampleEndpointInfo(), port = 23_456)
-        try {
-            assertThat(locks.acquireCount).isEqualTo(1)
-            assertThat(locks.releaseCount).isEqualTo(0)
-        } finally {
-            handle.close()
-        }
-        assertThat(locks.acquireCount).isEqualTo(1)
-        assertThat(locks.releaseCount).isEqualTo(1)
+
+        val handle = discovery.advertise(sampleEndpointInfo(), port = 34_567)
+        handle.close()
+        handle.close() // second close must not double-unregister.
+        assertThat(handle.isActive).isFalse()
+        assertThat(nsd.publishedNames()).isEmpty()
     }
 
     @Test
-    fun `network change triggers JmDNS re-registration`() {
-        // Use a counting JmDNS provider so we can observe how many times
-        // a fresh instance was opened across the lifecycle.
+    fun `instance-name collision surfaces the platform auto-suffix`() {
+        val nsd = FakeNsd()
+        val firstDiscovery =
+            Discovery.forTesting(
+                registrar = nsd.registrar,
+                browser = nsd.browser,
+            )
+        val secondDiscovery =
+            Discovery.forTesting(
+                registrar = nsd.registrar,
+                browser = nsd.browser,
+            )
+
+        // Force an exact instance-name collision by registering the
+        // same name twice. The fake mirrors NsdManager's auto-suffix
+        // behaviour ("name", "name (1)", …); the second handle must
+        // observe the suffixed name.
+        val first = firstDiscovery.advertise(sampleEndpointInfo(), port = 22_001)
+        val firstName = first.instanceName
+
+        // Pin the second registrar's "requested" name to the first one
+        // so we deterministically hit the collision path.
+        val pinningRegistrar =
+            object : NsdRegistrar by nsd.registrar {
+                override suspend fun register(
+                    serviceType: String,
+                    instanceName: String,
+                    port: Int,
+                    attributes: Map<String, ByteArray>,
+                ): NsdRegistrationHandle = nsd.registrar.register(serviceType, firstName, port, attributes)
+            }
+        val pinned =
+            Discovery.forTesting(
+                registrar = pinningRegistrar,
+                browser = nsd.browser,
+            )
+        val second = pinned.advertise(sampleEndpointInfo(), port = 22_002)
+        try {
+            assertThat(second.instanceName).isNotEqualTo(firstName)
+            assertThat(second.instanceName).startsWith(firstName)
+        } finally {
+            second.close()
+            first.close()
+            // suppress unused warnings while keeping discovery refs alive
+            secondDiscovery.snapshot()
+        }
+    }
+
+    @Test
+    fun `network change triggers re-registration through NsdRegistrar`() {
         val opened = AtomicInteger(0)
-        val locks = NoopLockController()
+        val countingRegistrar =
+            CountingNsdRegistrar(onRegister = { _, _, _ -> opened.incrementAndGet() })
         val fakeWatcher = FakeNetworkWatcher()
         val factory =
             object : NetworkWatcherFactory {
@@ -106,11 +142,8 @@ class DiscoveryAdvertiseTest {
             }
         val discovery =
             Discovery.forTesting(
-                locks = locks,
-                jmdnsProvider = { name ->
-                    opened.incrementAndGet()
-                    JmDNS.create(InetAddress.getLoopbackAddress(), "$name-${opened.get()}")
-                },
+                registrar = countingRegistrar,
+                browser = NoopNsdBrowser,
                 networkWatcherFactory = factory,
             )
         val handle = discovery.advertise(sampleEndpointInfo(), port = 45_678)
@@ -118,7 +151,6 @@ class DiscoveryAdvertiseTest {
             assertThat(opened.get()).isEqualTo(1)
             assertThat(fakeWatcher.started).isTrue()
 
-            // Simulate a Wi-Fi network change.
             fakeWatcher.fire()
             assertThat(opened.get()).isEqualTo(2)
 
@@ -131,18 +163,28 @@ class DiscoveryAdvertiseTest {
     }
 
     @Test
-    fun `closing the advertise handle is idempotent`() {
-        val locks = NoopLockController()
+    fun `binary endpoint info round-trips through the registrar attributes`() {
+        // Quick Share's `n=` TXT key carries packed binary EndpointInfo
+        // bytes, including high-bit bytes (>=0x80) that would corrupt
+        // through any UTF-8 channel. Pin the round-trip to detect a
+        // regression where some downstream call accidentally re-encodes
+        // the value as a string.
+        val countingRegistrar = CountingNsdRegistrar()
         val discovery =
             Discovery.forTesting(
-                locks = locks,
-                jmdnsProvider = { name -> JmDNS.create(InetAddress.getLoopbackAddress(), name) },
+                registrar = countingRegistrar,
+                browser = NoopNsdBrowser,
             )
-        val handle = discovery.advertise(sampleEndpointInfo(), port = 34_567)
-        handle.close()
-        handle.close() // second close must not double-release the lock
-        assertThat(locks.releaseCount).isEqualTo(1)
-        assertThat(handle.isActive).isFalse()
+        val endpointInfo = sampleEndpointInfo()
+        val expected = endpointInfo.serialize()
+        val handle = discovery.advertise(endpointInfo, port = 51_001)
+        try {
+            val attrs = countingRegistrar.lastRegisteredAttrs.get()
+            assertThat(attrs).containsKey(QuickShareMdns.TXT_KEY_ENDPOINT_INFO)
+            assertThat(attrs[QuickShareMdns.TXT_KEY_ENDPOINT_INFO]).isEqualTo(expected)
+        } finally {
+            handle.close()
+        }
     }
 
     private fun sampleEndpointInfo(): EndpointInfo =
@@ -151,7 +193,9 @@ class DiscoveryAdvertiseTest {
             hidden = false,
             deviceType = DeviceType.PHONE,
             reserved = false,
-            metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
+            // Fill metadata with a full 0x00..0xFF round-trip pattern so
+            // a regression that mangles high-bit bytes shows up.
+            metadata = ByteArray(EndpointInfo.METADATA_LEN) { (it * 17).toByte() },
             deviceName = "Test Device",
             tlvRecords = emptyList(),
         )
@@ -178,22 +222,5 @@ class DiscoveryAdvertiseTest {
         fun fire() {
             onChanged()
         }
-    }
-
-    private class NoopLockController : LockController {
-        var acquireCount: Int = 0
-            private set
-        var releaseCount: Int = 0
-            private set
-
-        override fun acquire() {
-            acquireCount++
-        }
-
-        override fun release() {
-            releaseCount++
-        }
-
-        override fun isHeld(): Boolean = acquireCount > releaseCount
     }
 }
