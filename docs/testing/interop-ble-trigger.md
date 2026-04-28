@@ -363,31 +363,56 @@ After whitelisting, this should not show new FREEZE entries while the
 app is running. Pre-existing entries from before the whitelist are
 fine to ignore.
 
-### 2. Wi-Fi multicast lock is silently refused
+### 2. Wi-Fi multicast lock is silently refused (both publish AND browse)
 
 Even with the freezer disabled, vivo's Wi-Fi power-save layer **does
 not honour `WifiManager.MulticastLock.acquire()`** for non-system apps.
 The Java-side `lock.isHeld` returns `true` (so our code thinks the lock
 is held), but `dumpsys wifi` shows "Multicast Locks held:" empty and
-multicast traffic is filtered before reaching the app. Symptom: the
-initial JmDNS announce burst still goes out (UDP send is allowed), so
-peers see us briefly, but ongoing PTR queries from peers receive no
-response — peers cache us for ~30 s and then we vanish from their
-service browse.
+multicast traffic is filtered before reaching the app.
 
-The receiver service mitigates this by additionally acquiring a
-`WIFI_MODE_FULL_HIGH_PERF` Wi-Fi lock — see `AndroidMulticastLockController`.
-On stock AOSP / Pixel / Samsung this is redundant but harmless; on
-vivo it is also silently refused on at least Funtouch 16 / OriginOS 6,
-so this device class still has a known **mDNS persistence limitation**.
+Both the receiver-side `AndroidMulticastLockController` and the
+sender/browse-side `MulticastLockHolder` additionally acquire a
+companion `WIFI_MODE_FULL_HIGH_PERF` Wi-Fi lock as a workaround. On
+stock AOSP / Pixel / Samsung that companion is what makes things work;
+on vivo Funtouch 16 / OriginOS 6 it is **also silently refused**
+(`dumpsys wifi` reports `Active lock owners: {}` for non-system apps),
+leaving these symptoms on this device class:
 
-Practical impact for the BLE-trigger matrix: stock Quick Share
-receivers should still pop up within ~5 s of the BLE pulse because
-they cache the initial JmDNS announce. Sustained discovery (peer
-browsing for our device for several minutes) is not expected to work
-on vivo until the mDNS layer migrates from JmDNS to Android's built-in
-`NsdManager`, which uses the system mDNS responder and does not need
-the multicast lock at all. Tracked as a follow-up.
+  - **Publish**: the initial JmDNS announce burst still goes out (UDP
+    send is allowed), so peers see us once, but ongoing PTR queries
+    from peers receive no response — peers cache us for ~30 s and we
+    vanish from their service browse.
+  - **Browse**: incoming IPv4 multicast (mDNS at 224.0.0.251) is
+    dropped at the radio layer before our JmDNS instance sees it.
+    `dumpsys wifi` reports `ipv4RxMulticast=0` despite IPv6 multicast
+    (`ipv6Multicast` counter) being non-zero. Practically, the
+    `SendActivity` peer picker stays empty even when a stock Quick
+    Share device on the same LAN is actively advertising
+    (`dns-sd -B _FC9F5ED42C8A._tcp. local.` from a third-party Mac
+    confirms the peer is visible to non-vivo devices on the same SSID).
+
+Practical impact for the BLE-trigger matrix on a vivo *sender*:
+
+  - **Cell A1/A2 (BLE half)**: stock Quick Share receivers still see
+    our BLE pulse — confirmed via `dumpsys bluetooth_manager` on a
+    Samsung Galaxy S24 Ultra showing `Results=19` for the
+    `0xfe2c FC 12 8E` filter and `NearbySharing` logging
+    `EndpointDiscovered(...)` within ~2 seconds of advertise start.
+  - **Cell A1/A2 (mDNS half)**: the WVMG sender's peer picker stays
+    empty even though the BLE pulse landed, because vivo's JmDNS
+    browse cannot receive the receiver's mDNS announces back — and
+    without finding the peer's TCP endpoint, the consent pop-up that
+    the matrix counts as success never gets the chance to appear on
+    the receiver.
+
+These two failure modes mean **the BLE-trigger matrix cells A1/A2
+cannot pass on a vivo *sender* until the discovery layer migrates
+from JmDNS to Android's built-in `NsdManager`** (which uses the
+system mDNS responder and does not need the app-level multicast
+lock at all). Tracked as a follow-up issue. The matrix is fully
+runnable from a Pixel or Samsung sender to a vivo receiver, or from
+any sender to a non-vivo receiver, without this caveat.
 
 ### 3. Non-Pixel/Samsung peers may not be installed
 
