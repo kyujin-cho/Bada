@@ -630,22 +630,40 @@ public class ReceiverForegroundService : Service() {
         /**
          * Build the default [EndpointInfo] for this device.
          *
-         * The device name defaults to the application label (typically
-         * "Quick Share" for this build), capped at
-         * [MAX_DEFAULT_NAME_BYTES] so it always fits the 255-byte
-         * single-byte length field on the wire. Visibility is set to
-         * "visible" — the device is discoverable by all peers on the
-         * LAN. A user-facing settings UI for changing the device name
-         * and toggling hidden / contacts-only visibility is the
-         * responsibility of #22; for now this default is the production
-         * identity.
+         * **Visibility bit = 1 (hidden).** Stock Quick Share unconditionally
+         * publishes mDNS records with `EndpointInfo.hidden = true`,
+         * regardless of whether the user has selected "Everyone" or
+         * "Contacts only" in the Quick Share UI. The Everyone-vs-Contacts
+         * decision is enforced during the protocol negotiation, not at
+         * the mDNS layer. Samsung One UI's stock Quick Share picker
+         * appears to whitelist records with this canonical shape and
+         * silently drops `visBit=0` records as malformed/non-conformant —
+         * which is why WVMG was invisible to a Galaxy peer's send sheet
+         * despite mDNS being fully reachable on the wire (verified via
+         * `dns-sd` from a third device on the same hotspot).
+         *
+         * **`deviceName = null` follows from `hidden = true`.** The
+         * `EndpointInfo` invariant requires the inline UTF-8 name to be
+         * absent when the visibility bit is set; stock conveys the
+         * friendly name through other channels (BLE service-data on the
+         * sender pulse, plus the encrypted-name TLV in Contacts mode).
+         * For our GMS-free Everyone-only use case the consequence is that
+         * Samsung's picker shows a generic label until connect — that is
+         * acceptable interop for now and is tracked as a follow-up to
+         * surface the friendly name via TLV type 1 (advertising token /
+         * encrypted name material) when we can.
          *
          * Random salt + encrypted-metadata-key bytes are indistinguishable
          * to peers from real GMS-issued ones for the GMS-free use case
          * targeted by this project.
          */
         private fun defaultEndpointInfo(context: Context): EndpointInfo {
-            val name =
+            // The application label is still loaded so future code paths
+            // (e.g. consent UI, BLE service data) that surface a friendly
+            // name can pull from the same source. The mDNS record itself
+            // intentionally does not carry it — see the kdoc above.
+            @Suppress("UNUSED_VARIABLE")
+            val applicationLabel =
                 context.applicationInfo
                     .loadLabel(context.packageManager)
                     .toString()
@@ -653,12 +671,12 @@ public class ReceiverForegroundService : Service() {
                     .take(MAX_DEFAULT_NAME_BYTES)
             return EndpointInfo(
                 version = 1,
-                hidden = false,
+                hidden = true,
                 deviceType =
                     io.github.kyujincho.wvmg.protocol.endpoint.DeviceType.PHONE,
                 reserved = false,
                 metadata = ByteArray(EndpointInfo.METADATA_LEN).also { java.security.SecureRandom().nextBytes(it) },
-                deviceName = name,
+                deviceName = null,
                 tlvRecords = emptyList(),
             )
         }
