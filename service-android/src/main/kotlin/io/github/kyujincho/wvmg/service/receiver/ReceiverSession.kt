@@ -301,9 +301,9 @@ public class ReceiverSession(
     /**
      * Unpublish the mDNS advertisement if one is currently in flight.
      * Idempotent: calling this when no advertisement is published is a
-     * no-op. Other resources (the TCP listener, the multicast lock) are
-     * unaffected — the receiver remains reachable for already-resolved
-     * peers and can be re-published via [publishAdvertisement].
+     * no-op. The TCP listener is unaffected — the receiver remains
+     * reachable for already-resolved peers and can be re-published via
+     * [publishAdvertisement].
      */
     public fun unpublishAdvertisement() {
         synchronized(advertiseLock) {

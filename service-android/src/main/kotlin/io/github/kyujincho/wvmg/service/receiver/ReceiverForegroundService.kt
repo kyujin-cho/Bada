@@ -92,12 +92,12 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * For tests, the service exposes [Companion.sessionFactoryOverride].
  * Production paths use the default factory which wires up a real
- * `MediaStoreDownloadsFactory`, real `Discovery`, and a real multicast
- * lock against the application context. The override is process-wide
- * but only consulted on `onCreate`; a unit test can install a fake,
- * spawn a service via Robolectric, and observe the resulting
- * [ReceiverSession] interactions without touching real Android
- * subsystems. Phase 1 keeps the override path purely as a seam — the
+ * `MediaStoreDownloadsFactory` and a real `Discovery` instance against
+ * the application context. The override is process-wide but only
+ * consulted on `onCreate`; a unit test can install a fake, spawn a
+ * service via Robolectric, and observe the resulting [ReceiverSession]
+ * interactions without touching real Android subsystems. Phase 1 keeps
+ * the override path purely as a seam — the
  * `ReceiverSession` itself is exhaustively unit-tested on plain JVM
  * (see [ReceiverSession]) so the service body remains the only
  * Android-coupled surface.
@@ -286,9 +286,12 @@ public class ReceiverForegroundService : Service() {
             try {
                 newSession.start()
                 // Once start() returns successfully the TCP listener is
-                // bound and the multicast lock is held. With the
-                // gated-advertise factory in production, mDNS publish is
-                // not yet up — the gate launched below handles that.
+                // bound. With the gated-advertise factory in production,
+                // the mDNS publish is not yet up — the gate launched
+                // below handles that. Multicast-lock acquisition is no
+                // longer needed: NsdManager owns the system mDNS
+                // responder, which has its own multicast filter
+                // exemption.
                 startMdnsGate(newSession)
             } catch (
                 @Suppress("SwallowedException") t: Throwable,
@@ -559,7 +562,7 @@ public class ReceiverForegroundService : Service() {
         /**
          * The active [SessionFactory]. Returns the override if one was
          * installed, otherwise the production default that wires up a
-         * real `Discovery` + `DownloadsWriterFactory` + multicast lock.
+         * real `Discovery` and `DownloadsWriterFactory`.
          */
         public val sessionFactory: SessionFactory
             get() = sessionFactoryOverride ?: defaultSessionFactory

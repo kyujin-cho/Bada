@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -187,7 +188,25 @@ internal class AndroidNsdBrowser(
             return
         }
 
-        signal.await()
+        // Bound the wait. The whole point of migrating to NsdManager is
+        // to fix discovery on OEM Android skins (vivo / Funtouch /
+        // OriginOS, Xiaomi MIUI, OPPO ColorOS, …) where the system mDNS
+        // responder occasionally hangs or silently swallows callbacks
+        // under stress. Without a timeout, a single misbehaving resolve
+        // would block the single-flight worker and stall every later
+        // resolve in the discovery session — exactly the failure mode
+        // this PR is meant to remove. 5 s matches the spirit of stock
+        // Quick Share's "must pop up within 5 s of advertise start"
+        // acceptance criterion.
+        if (withTimeoutOrNull(RESOLVE_TIMEOUT_MILLIS) { signal.await() } == null) {
+            Log.w(TAG, "resolveService($name) timed out after ${RESOLVE_TIMEOUT_MILLIS}ms")
+            emit(
+                NsdBrowserEvent.Error(
+                    instanceName = name,
+                    message = "resolveService timed out after ${RESOLVE_TIMEOUT_MILLIS}ms",
+                ),
+            )
+        }
     }
 
     private fun mapResolved(serviceInfo: NsdServiceInfo): NsdBrowserEvent.Resolved {
@@ -214,5 +233,14 @@ internal class AndroidNsdBrowser(
 
     private companion object {
         private const val TAG = Discovery.TAG
+
+        /**
+         * Maximum time to wait for a `resolveService` callback before
+         * emitting an [NsdBrowserEvent.Error] and unblocking the
+         * single-flight queue. Longer than the typical sub-second mDNS
+         * round-trip but still bounded so a single hung resolve cannot
+         * starve every follow-on resolve in the same browse session.
+         */
+        private const val RESOLVE_TIMEOUT_MILLIS: Long = 5_000L
     }
 }
