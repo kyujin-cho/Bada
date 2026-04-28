@@ -124,10 +124,10 @@ internal object OutboundFrames {
      * response=ACCEPT, os_info=ANDROID}`.
      *
      * Same shape as [OfflineFrames.connectionResponse]. Both paths must
-     * emit the same five-field shape because the validating peer does not
+     * emit the same six-field shape because the validating peer does not
      * know which role we are playing.
      *
-     * The five Samsung One UI 8-required fields, in the order used by
+     * The six Samsung One UI 8-required fields, in the order used by
      * google/nearby's `ForConnectionResponse`:
      *   1. `status = 0` (STATUS_OK — legacy int field; older receivers
      *      inspect it for backwards compat).
@@ -135,11 +135,20 @@ internal object OutboundFrames {
      *   3. `os_info.type = ANDROID` — LINUX = 100 is reserved for the
      *      g3 test environment; Samsung One UI silently FINs on LINUX.
      *   4. `multiplex_socket_bitmask = 0` — Samsung One UI 8.0.5+
-     *      silently FINs without it; stock Google Nearby Connections
-     *      always sets it. 0 = "no medium supports multiplex", which
-     *      matches our single-Wi-Fi-LAN-socket implementation.
+     *      silently FINs without it. 0 = "no medium supports multiplex",
+     *      which matches our single-Wi-Fi-LAN-socket implementation.
      *   5. `safe_to_disconnect_version = 1` — Samsung One UI 7+ refuses
      *      to advance past the unencrypted handshake when absent.
+     *   6. `keep_alive_timeout_millis = 30_000` — `ConnectionResponseFrame`
+     *      proto field 9, added to google/nearby on 2024-12-06
+     *      (PiperOrigin-RevId 703665365), contemporaneous with One UI 8
+     *      development. Verified on-device: with fields 1–5 only, Galaxy
+     *      S24 Ultra (One UI 8.0.5 / Android 16) silently FINs ~150 ms
+     *      after our ConnectionResponse{ACCEPT}; adding this field makes
+     *      Samsung respond with its own ConnectionResponse{ACCEPT} ~50 ms
+     *      later and the protocol advances cleanly to PIN derivation. We
+     *      mirror the request-side keep-alive timeout (30 s) to keep both
+     *      sides on the same KEEP_ALIVE schedule.
      */
     fun connectionResponse(): OfflineFrame {
         @Suppress("DEPRECATION")
@@ -155,6 +164,7 @@ internal object OutboundFrames {
                         .build(),
                 ).setMultiplexSocketBitmask(MULTIPLEX_SOCKET_BITMASK_NONE)
                 .setSafeToDisconnectVersion(SAFE_TO_DISCONNECT_VERSION)
+                .setKeepAliveTimeoutMillis(KEEP_ALIVE_TIMEOUT_MILLIS)
                 .build()
         return OfflineFrame
             .newBuilder()

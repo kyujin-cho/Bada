@@ -22,7 +22,7 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Fr
  *    frame the receiver sends before the SecureChannel turns on.
  *    NearDrop's `InboundNearbyConnection.swift` calls this
  *    `processConnectionResponseFrame()`; we build the equivalent here.
- *    Must emit the same five-field shape as
+ *    Must emit the same six-field shape as
  *    [OutboundFrames.connectionResponse] — the validating peer does not
  *    know which role we are in, and One UI 8.0.5 validates the presence
  *    of each field unconditionally.
@@ -50,20 +50,30 @@ internal object OfflineFrames {
     private const val MULTIPLEX_SOCKET_BITMASK_NONE: Int = 0
 
     /**
+     * Keep-alive timeout we advertise on `ConnectionResponseFrame`.
+     * See [OutboundFrames.KEEP_ALIVE_TIMEOUT_MILLIS] for the full rationale
+     * (One UI 8.0.5 silent-FIN guard; mirrors our request-side value).
+     */
+    private const val KEEP_ALIVE_TIMEOUT_MILLIS: Int = 30_000
+
+    /**
      * Build an unencrypted `OfflineFrame{V1, CONNECTION_RESPONSE,
      * response=ACCEPT, os_info=ANDROID}`.
      *
      * Matches [OutboundFrames.connectionResponse] field-for-field.
-     * Both the sender and receiver paths must emit the same five-field
+     * Both the sender and receiver paths must emit the same six-field
      * shape because the validating peer (e.g. Samsung One UI 8.0.5)
      * does not know which role we are playing and validates every field
-     * unconditionally. The five required fields are:
+     * unconditionally. The six required fields are:
      *   1. `status = 0` (STATUS_OK — legacy int field).
      *   2. `response = ACCEPT` (modern enum field).
      *   3. `os_info.type = ANDROID` — LINUX causes Samsung silent FINs.
      *   4. `multiplex_socket_bitmask = 0` — absence triggers One UI 8.0.5
      *      silent FIN; 0 = "no medium supports multiplex".
      *   5. `safe_to_disconnect_version = 1` — required by One UI 7+.
+     *   6. `keep_alive_timeout_millis = 30_000` — proto field 9, required
+     *      by One UI 8.0.5 (verified on-device); see
+     *      [OutboundFrames.connectionResponse] for the full rationale.
      */
     fun connectionResponse(): OfflineFrame {
         @Suppress("DEPRECATION")
@@ -79,6 +89,7 @@ internal object OfflineFrames {
                         .build(),
                 ).setMultiplexSocketBitmask(MULTIPLEX_SOCKET_BITMASK_NONE)
                 .setSafeToDisconnectVersion(SAFE_TO_DISCONNECT_VERSION)
+                .setKeepAliveTimeoutMillis(KEEP_ALIVE_TIMEOUT_MILLIS)
                 .build()
         return OfflineFrame
             .newBuilder()
