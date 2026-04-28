@@ -19,6 +19,18 @@
     <string name="send_folder_empty">The folder you picked has no files. Add at least one file and try again.</string>
     <string name="send_folder_walk_failed">Could not read the folder contents. Pick another folder and try again.</string>
 
+    <!-- Battery-optimization onboarding banner (#47). One-time prompt
+         shown on the launcher when the OEM-aware helper detects that the
+         app is not yet exempt from background-app killing. The body copy
+         is intentionally vendor-neutral so the same string serves every
+         OEM family; the helper takes the user to the right Settings
+         page. -->
+    <string name="main_battery_banner_title">Allow background activity</string>
+    <string name="main_battery_banner_body">This phone may stop receiving Quick Share files in the background unless this app is exempted from battery optimization. Tap Open Settings to add the exemption, or Skip if you only use Quick Share with the app open.</string>
+    <string name="main_battery_banner_open">Open Settings</string>
+    <string name="main_battery_banner_skip">Skip</string>
+    <string name="main_battery_banner_unavailable">No suitable Settings page was found on this device. You can manage battery optimization manually from system Settings.</string>
+
     <!-- Permissions onboarding (#26 + #31). -->
     <string name="onboarding_title">App permissions</string>
     <string name="onboarding_intro">Quick Share needs a small set of Android permissions to discover nearby devices over your local Wi-Fi network, to broadcast and listen for short Bluetooth Low Energy pulses that wake nearby Quick Share receivers, and to keep you informed about transfers. Each permission below explains exactly what it is used for.</string>

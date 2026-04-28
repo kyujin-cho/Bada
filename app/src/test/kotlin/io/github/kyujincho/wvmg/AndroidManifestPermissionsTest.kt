@@ -68,14 +68,19 @@ class AndroidManifestPermissionsTest {
     }
 
     @Test
-    fun `multicast lock permission is no longer declared after nsd migration`() {
-        // CHANGE_WIFI_MULTICAST_STATE was previously needed for the JmDNS
-        // in-app publisher to acquire WifiManager.MulticastLock. After the
-        // #98 migration to NsdManager, the system mDNS responder process
-        // handles inbound multicast and the in-app lock is unused. Guard
-        // against accidentally re-declaring it.
-        assertFalse(
-            "CHANGE_WIFI_MULTICAST_STATE must NOT be declared after the NsdManager migration (#98)",
+    fun `multicast permission is declared to satisfy fgs connectedDevice gate`() {
+        // CHANGE_WIFI_MULTICAST_STATE was originally pulled in for the
+        // JmDNS in-app publisher's MulticastLock. After the #98 migration
+        // to NsdManager that lock is unused, but the permission was
+        // re-declared in commit 16fbf43 to satisfy the Android 14+
+        // foreground-service-type gate for `connectedDevice` (the FGS
+        // type used by ReceiverForegroundService). The platform requires
+        // the app to hold at least one permission from a fixed set when
+        // starting that FGS type, and CHANGE_WIFI_MULTICAST_STATE is the
+        // cleanest normal-protection-level entry that does not depend on
+        // a runtime grant.
+        assertTrue(
+            "CHANGE_WIFI_MULTICAST_STATE must be declared so the receiver FGS can launch on API 34+",
             manifest.contains("android.permission.CHANGE_WIFI_MULTICAST_STATE"),
         )
     }
