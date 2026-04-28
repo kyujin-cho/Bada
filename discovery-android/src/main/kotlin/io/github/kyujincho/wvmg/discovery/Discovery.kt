@@ -57,6 +57,14 @@ public class Discovery internal constructor(
     private val registrar: NsdRegistrar,
     private val browser: NsdBrowser,
     private val networkWatcherFactory: NetworkWatcherFactory = NetworkWatcherFactory.NoOp,
+    /**
+     * When `true`, the browse path drops any record whose mDNS instance
+     * name matches one currently advertised by this process — that is,
+     * the multicast-loopback echo of our own publish. Disabled in
+     * tests that exercise the full publish→browse round-trip in a
+     * single fake-NSD harness, since the harness IS the loopback.
+     */
+    private val filterSelfPublishedInstances: Boolean = true,
 ) {
     private val diagnostics: DiagnosticsState = DiagnosticsState()
 
@@ -184,7 +192,7 @@ public class Discovery internal constructor(
                     browser.discover(QuickShareMdns.SERVICE_TYPE_NSD).collect { event ->
                         when (event) {
                             is NsdBrowserEvent.Found -> {
-                                Log.d(TAG, "browse: serviceFound name=${event.instanceName}")
+                                Log.i(TAG, "browse: serviceFound name=${event.instanceName}")
                                 diagnostics.recordEvent(
                                     DiagnosticEvent(
                                         kind = DiagnosticEvent.Kind.ADDED,
@@ -195,11 +203,12 @@ public class Discovery internal constructor(
                             }
 
                             is NsdBrowserEvent.Resolved -> {
-                                Log.d(
+                                Log.i(
                                     TAG,
                                     "browse: serviceResolved name=${event.instanceName} " +
                                         "addrs=${event.addresses.joinToString { it.hostAddress }} " +
-                                        "port=${event.port}",
+                                        "port=${event.port} " +
+                                        "txt=${formatTxtRecord(event.attributes)}",
                                 )
                                 diagnostics.recordEvent(
                                     DiagnosticEvent(
@@ -214,7 +223,7 @@ public class Discovery internal constructor(
                             }
 
                             is NsdBrowserEvent.Lost -> {
-                                Log.d(TAG, "browse: serviceLost name=${event.instanceName}")
+                                Log.i(TAG, "browse: serviceLost name=${event.instanceName}")
                                 diagnostics.recordEvent(
                                     DiagnosticEvent(
                                         kind = DiagnosticEvent.Kind.REMOVED,
@@ -276,6 +285,20 @@ public class Discovery internal constructor(
         if (addresses.isNotEmpty() && addresses.all { it.isLoopbackAddress }) {
             return null
         }
+        // The system mDNS responder reflects our own published
+        // advertisement back to our own browser through multicast
+        // loopback (the LAN IP the responder bound to is reachable on
+        // the same interface the browser listens on). Without this
+        // check, the sender-side picker would surface our own receiver
+        // TCP listener as a peer — picking it runs a WVMG-to-WVMG
+        // self-loopback transfer that completes successfully but never
+        // reaches a remote device. Cross-checking by instanceName is
+        // sufficient because mDNS-name uniqueness is guaranteed by the
+        // system NSD's auto-suffix-on-collision behaviour.
+        if (filterSelfPublishedInstances && LocalAdvertisedInstances.contains(event.instanceName)) {
+            Log.i(TAG, "browse: dropping self-loopback record ${event.instanceName}")
+            return null
+        }
 
         val rawTxt = event.attributes[QuickShareMdns.TXT_KEY_ENDPOINT_INFO]
         val decodedTxt = decodeTxtEndpointInfo(rawTxt)
@@ -295,6 +318,36 @@ public class Discovery internal constructor(
             port = event.port,
             endpointInfo = endpointInfo,
         )
+    }
+
+    /**
+     * Render a TXT record as a single-line `k1=v1, k2=v2, ...` string
+     * for diagnostic logging. Values are tried as ASCII first (so Quick
+     * Share's typical `n=<base64>` / `IPv4=<dotted>` / `b=<MAC>` keys
+     * stay human-readable); any value that isn't valid printable ASCII
+     * is rendered as `0x<hex>`. The output is bounded — values longer
+     * than 256 bytes are truncated with `…(<n> more)` so a misbehaving
+     * peer can't blow up logcat.
+     */
+    private fun formatTxtRecord(attributes: Map<String, ByteArray>): String {
+        if (attributes.isEmpty()) return "<empty>"
+        return attributes.entries
+            .sortedBy { it.key }
+            .joinToString(", ") { (key, value) -> "$key=${formatTxtValue(value)}" }
+    }
+
+    private fun formatTxtValue(value: ByteArray): String {
+        val cap = 256
+        val truncated = value.size > cap
+        val view = if (truncated) value.copyOfRange(0, cap) else value
+        val printable = view.all { b -> b.toInt() in 0x20..0x7E }
+        val rendered =
+            if (printable) {
+                "\"${String(view, Charsets.US_ASCII)}\""
+            } else {
+                "0x${view.joinToString("") { "%02x".format(it) }}"
+            }
+        return if (truncated) "$rendered…(${value.size - cap} more)" else rendered
     }
 
     /**
@@ -372,7 +425,14 @@ public class Discovery internal constructor(
             registrar: NsdRegistrar,
             browser: NsdBrowser,
             networkWatcherFactory: NetworkWatcherFactory = NetworkWatcherFactory.NoOp,
-        ): Discovery = Discovery(registrar, browser, networkWatcherFactory)
+            filterSelfPublishedInstances: Boolean = false,
+        ): Discovery =
+            Discovery(
+                registrar = registrar,
+                browser = browser,
+                networkWatcherFactory = networkWatcherFactory,
+                filterSelfPublishedInstances = filterSelfPublishedInstances,
+            )
 
         private fun systemNsdManager(context: Context): NsdManager =
             context.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
@@ -448,6 +508,7 @@ internal class NsdAdvertiseHandle(
             current?.close()
             current = null
         }
+        LocalAdvertisedInstances.unregister(registeredName)
         onClose()
     }
 
@@ -482,6 +543,9 @@ internal class NsdAdvertiseHandle(
             // contract of [Discovery.advertise] is "publish synchronously
             // before returning"; the call is bounded by NsdManager's
             // own timeout.
+            // Drop any prior name from the self-publish set if the
+            // platform auto-suffixed our name on a previous re-register.
+            LocalAdvertisedInstances.unregister(registeredName)
             val handle =
                 runBlocking {
                     registrar.register(
@@ -493,6 +557,14 @@ internal class NsdAdvertiseHandle(
                 }
             current = handle
             registeredName = handle.instanceName
+            // Add to the process-wide self-publish set so the browse
+            // path can drop our own record when the system NSD reflects
+            // it back through multicast loopback. Without this, the
+            // sender-side picker shows "Quick Share Device" entries
+            // that point at our own receiver TCP listener — picking
+            // one runs a self-loopback transfer that "succeeds" but
+            // does not actually reach a remote peer.
+            LocalAdvertisedInstances.register(registeredName)
             diagnostics.setAdvertiseBound(handle.hostAddress)
             Log.i(
                 Discovery.TAG,
@@ -501,6 +573,37 @@ internal class NsdAdvertiseHandle(
             )
         }
     }
+}
+
+/**
+ * Process-wide registry of mDNS instance names this app is currently
+ * advertising. Populated by [NsdAdvertiseHandle.register] and drained
+ * by [NsdAdvertiseHandle.close]; consulted by
+ * [Discovery.toDiscoveredService] to drop multicast-loopback echoes of
+ * our own advertisements.
+ *
+ * **Why a process-wide singleton?** The receiver-side
+ * [Discovery.advertise] and the sender-side [Discovery.browse] live on
+ * separate [Discovery] instances (the receiver foreground service and
+ * `SendActivity` each construct their own), but they share the same
+ * JVM. The cross-instance state is small (a single `Set<String>`),
+ * write-on-publish/close, and contention-free in practice.
+ */
+internal object LocalAdvertisedInstances {
+    private val names: java.util.concurrent.ConcurrentHashMap<String, Unit> =
+        java.util.concurrent.ConcurrentHashMap()
+
+    fun register(instanceName: String) {
+        if (instanceName.isBlank()) return
+        names[instanceName] = Unit
+    }
+
+    fun unregister(instanceName: String) {
+        if (instanceName.isBlank()) return
+        names.remove(instanceName)
+    }
+
+    fun contains(instanceName: String): Boolean = names.containsKey(instanceName)
 }
 
 /**
