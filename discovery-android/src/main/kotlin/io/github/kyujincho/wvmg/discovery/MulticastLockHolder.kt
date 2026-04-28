@@ -111,7 +111,7 @@ internal class MulticastLockHolder internal constructor(
         ): MulticastLockGate {
             val wifi =
                 context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val lock =
+            val multicastLock =
                 wifi.createMulticastLock(tag).apply {
                     // `setReferenceCounted(false)` makes a single release() call always
                     // fully release the lock, regardless of how many times the system
@@ -119,7 +119,26 @@ internal class MulticastLockHolder internal constructor(
                     // gives unambiguous acquire/release semantics.
                     setReferenceCounted(false)
                 }
-            return SystemMulticastLockGate(lock)
+            // Companion `WIFI_MODE_FULL_HIGH_PERF` Wi-Fi lock — the same
+            // workaround `AndroidMulticastLockController` uses on the
+            // receiver side. vivo / Funtouch / OriginOS silently refuses
+            // multicast-lock acquires for non-system apps; while the
+            // HIGH_PERF Wi-Fi lock is held, the device disables Wi-Fi
+            // power save and the multicast filter Funtouch installs in
+            // power save is correspondingly lifted. On stock AOSP this
+            // is redundant but harmless. Without this, the sender-side
+            // mDNS browse on vivo silently sees zero peers — found
+            // while running docs/testing/interop-ble-trigger.md against
+            // a Vivo X300 Ultra peering with a Galaxy S24 Ultra.
+            val wifiLock =
+                wifi
+                    .createWifiLock(
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                        "$tag-highperf",
+                    ).apply {
+                        setReferenceCounted(false)
+                    }
+            return SystemMulticastLockGate(multicastLock, wifiLock)
         }
     }
 }
@@ -137,13 +156,32 @@ internal interface MulticastLockGate {
     fun isHeld(): Boolean
 }
 
-/** Production [MulticastLockGate] backed by a real [WifiManager.MulticastLock]. */
+/**
+ * Production [MulticastLockGate] backed by a real [WifiManager.MulticastLock]
+ * **and** a companion [WifiManager.WifiLock] at
+ * [WifiManager.WIFI_MODE_FULL_HIGH_PERF]. See `systemMulticastLockGate`'s
+ * KDoc for why both are needed on vivo / Funtouch / OriginOS.
+ */
 private class SystemMulticastLockGate(
-    private val lock: WifiManager.MulticastLock,
+    private val multicastLock: WifiManager.MulticastLock,
+    private val wifiLock: WifiManager.WifiLock,
 ) : MulticastLockGate {
-    override fun acquire(): Unit = lock.acquire()
+    override fun acquire() {
+        multicastLock.acquire()
+        wifiLock.acquire()
+    }
 
-    override fun release(): Unit = lock.release()
+    override fun release() {
+        // Reverse order: drop the high-perf lock first so the multicast
+        // lock observes a more typical power state on its release path.
+        wifiLock.release()
+        multicastLock.release()
+    }
 
-    override fun isHeld(): Boolean = lock.isHeld
+    /**
+     * Held iff the multicast lock is held. The wifi lock is acquired and
+     * released in lockstep with the multicast lock, so reporting on the
+     * multicast side keeps the existing observable contract intact.
+     */
+    override fun isHeld(): Boolean = multicastLock.isHeld
 }
