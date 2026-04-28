@@ -12,6 +12,7 @@ import androidx.appcompat.widget.SwitchCompat
 import io.github.kyujincho.wvmg.onboarding.PermissionRequirements
 import io.github.kyujincho.wvmg.onboarding.PermissionsOnboardingActivity
 import io.github.kyujincho.wvmg.service.receiver.MdnsVisibilityOverrideHolder
+import io.github.kyujincho.wvmg.service.receiver.ReceiverForegroundService
 
 /**
  * Empty launcher activity for the WhenVivoMeetsGoogle app.
@@ -86,13 +87,31 @@ class MainActivity : AppCompatActivity() {
         // #21 lands, the foreground service will re-check at start time
         // and surface a dismissible error instead of relaunching
         // onboarding from here.
-        if (onboardingLaunched) return
-        if (!PermissionRequirements.allGranted(this) &&
+        if (!onboardingLaunched &&
+            !PermissionRequirements.allGranted(this) &&
             !PermissionRequirements.onlyOptionalMissing(this)
         ) {
             onboardingLaunched = true
             startActivity(Intent(this, PermissionsOnboardingActivity::class.java))
+            return
         }
+
+        // Bring up the receiver foreground service so the BLE pulse
+        // scanner (#33), mDNS-publish gate (#34), and TCP listener are
+        // running while the user has the launcher visible. Without this
+        // call the production code had no other entry point that ever
+        // started the service, so the receiver pipeline was effectively
+        // dead-code on real devices — found while running the BLE-trigger
+        // interop runbook against a Vivo X300 Ultra. The service handles
+        // repeated startService calls idempotently.
+        //
+        // We only reach this point when the mandatory permissions are
+        // granted (the early-return above bounces the user to onboarding
+        // first). If the user denied an optional permission like
+        // POST_NOTIFICATIONS, BleQuickShareScanner.start() and the JmDNS
+        // publish path each re-check their own permissions internally
+        // and gracefully no-op rather than crash.
+        ReceiverForegroundService.start(this)
     }
 
     private companion object {
