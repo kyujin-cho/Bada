@@ -61,8 +61,9 @@ Five Gradle modules. The split is driven by one hard rule: the protocol implemen
                        reassembly, sharing FSM, Inbound/OutboundConnection orchestrators.
                        NO android.* imports. Adding one is a regression — guard in review.
 :core-protocol-test    KAT vectors and shared fixtures. Pure JVM.
-:discovery-android     mDNS publish/browse via JmDNS, multicast lock, network-change watcher.
-                       Phase 2: BLE pulse scanner (BleQuickShareScanner) under
+:discovery-android     mDNS publish/browse via Android NsdManager (migrated from JmDNS
+                       in #98 to fix vivo / Funtouch / OriginOS interop), network-change
+                       watcher. Phase 2: BLE pulse scanner (BleQuickShareScanner) under
                        `discovery.ble`. Android-only; wraps :core-protocol's EndpointInfo.
 :service-android       Foreground receiver service (connectedDevice type), MediaStore-backed
                        FileDestinationFactory, consent notification + broadcast receiver.
