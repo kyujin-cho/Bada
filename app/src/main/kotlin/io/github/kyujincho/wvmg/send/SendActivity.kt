@@ -18,6 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.kyujincho.wvmg.R
+import io.github.kyujincho.wvmg.service.receiver.OutboundSessionActiveHolder
 import io.github.kyujincho.wvmg.databinding.ActivitySendBinding
 import io.github.kyujincho.wvmg.databinding.ItemPeerRowBinding
 import io.github.kyujincho.wvmg.discovery.DiscoveredService
@@ -103,6 +104,16 @@ public class SendActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Veto receiver-side mDNS publish for the duration of this
+        // activity. When WVMG concurrently publishes its receiver-side
+        // mDNS record AND opens an outbound `OutboundConnection` to the
+        // same peer, Samsung One UI 8.0.5's GMS Nearby caches state for
+        // our endpoint from the discovered WIFI_LAN service and then
+        // fails `securegcm::UKey2Handshake::ParseHandshakeMessage` on
+        // our incoming `client_finished` (verified ~73-267 ms after the
+        // peer writes server_init). Pausing the gate for the lifetime
+        // of `SendActivity` clears that race window.
+        OutboundSessionActiveHolder.setOutboundSessionActive(true)
         binding = ActivitySendBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -146,6 +157,10 @@ public class SendActivity : AppCompatActivity() {
         connectionJob?.cancel()
         emptyPeerHintJob?.cancel()
         stopBleAdvertise()
+        // Lift the gate veto so the receiver-side mDNS record can come
+        // back up if any of the gate's existing publish signals
+        // (BLE pulse, always-visible override, QR session) call for it.
+        OutboundSessionActiveHolder.setOutboundSessionActive(false)
     }
 
     // -----------------------------------------------------------------
@@ -235,27 +250,76 @@ public class SendActivity : AppCompatActivity() {
         when (event) {
             is DiscoveryEvent.Resolved -> {
                 val incoming = event.service
-                // Note: we deliberately do NOT filter by EndpointInfo's
-                // `hidden` bit. On-device interop testing showed that
-                // stock Quick Share publishes EVERY device — including
-                // those set to "Everyone" — with the visibility bit set
-                // to 1 and no plaintext device name in the TXT record.
-                // The Everyone-vs-Contacts-only decision is enforced
-                // later during the connection negotiation, not at the
-                // mDNS layer. Filtering here would hide the very peers
-                // the user is trying to send to.
-                val existingIndex = peers.indexOfFirst { it.instanceName == incoming.instanceName }
-                if (existingIndex >= 0) {
-                    peers[existingIndex] = incoming
+                // Dedup by primary address + port, NOT by mDNS instance
+                // name. Stock Quick Share rotates instance names rapidly
+                // for privacy and frequently publishes multiple records
+                // simultaneously (e.g., one with the friendly name and
+                // one without) — captured on a Galaxy S24 Ultra, all
+                // pointing at the same TCP listener. Keying on instance
+                // name leaves the picker with several rows for the same
+                // device, some of them stale, and tapping a stale row
+                // intermittently triggers a silent UKEY2 FIN on the peer
+                // (its current internal state no longer matches the
+                // older instance ID baked into the row).
+                //
+                // We deliberately do NOT filter by EndpointInfo's
+                // `hidden` bit. Stock peers publish every device — even
+                // "Everyone" mode — with visibility=1 and no plaintext
+                // name; the Everyone-vs-Contacts-only decision happens
+                // during the connection negotiation, not at the mDNS
+                // layer. Filtering here would hide the very peers the
+                // user is trying to send to.
+                val key = peerDedupKey(incoming)
+                if (key == null) {
+                    // Defensive: if the resolved record has no usable
+                    // address (rare; the discovery layer normally drops
+                    // these earlier), fall back to instance-name dedup
+                    // so the row at least appears.
+                    val ix = peers.indexOfFirst { it.instanceName == incoming.instanceName }
+                    if (ix >= 0) peers[ix] = incoming else peers.add(incoming)
                 } else {
-                    peers.add(incoming)
+                    val existingIndex = peers.indexOfFirst { peerDedupKey(it) == key }
+                    if (existingIndex >= 0) {
+                        // Keep whichever record carries a friendly device
+                        // name. Stock Samsung alternates anonymous and
+                        // named instances on the wire; the picker should
+                        // settle on the named one once seen rather than
+                        // flicker back to "Quick Share Device".
+                        val existing = peers[existingIndex]
+                        val existingNamed = existing.endpointInfo?.deviceName != null
+                        val incomingNamed = incoming.endpointInfo?.deviceName != null
+                        if (incomingNamed || !existingNamed) {
+                            peers[existingIndex] = incoming
+                        }
+                    } else {
+                        peers.add(incoming)
+                    }
                 }
             }
             is DiscoveryEvent.Lost -> {
+                // Lost events fire per-instance-name. Because Resolved
+                // events may have replaced an older instance under the
+                // same addr+port row, the lost name may not match any
+                // current peer's `instanceName` — that's fine, we
+                // silently skip. The next mDNS query will re-resolve a
+                // still-valid record if Samsung is just rotating ids.
                 peers.removeAll { it.instanceName == event.instanceName }
             }
         }
         renderPeerList()
+    }
+
+    /**
+     * Returns the (primaryAddress, port) tuple used to dedup the picker's
+     * peer list, or `null` if [peer] has no usable connect target. Two
+     * mDNS records that resolve to the same TCP listener share this key
+     * regardless of mDNS instance name; that lets us collapse stock
+     * Quick Share's rotating-instance-id record stream into one stable
+     * row.
+     */
+    private fun peerDedupKey(peer: DiscoveredService): Pair<String, Int>? {
+        val addr = peer.primaryAddress()?.hostAddress ?: return null
+        return addr to peer.port
     }
 
     private fun renderPeerList() {
@@ -313,6 +377,53 @@ public class SendActivity : AppCompatActivity() {
         binding.sendNetworkHint.visibility = View.GONE
     }
 
+    /**
+     * Build a single-line diagnostic string capturing everything we know
+     * about [peer] at the moment the user picks it. Logged via
+     * [onPeerSelected] before any TCP work so a subsequent failure can
+     * be correlated against the exact target shape.
+     */
+    private fun formatPeerSnapshot(
+        peer: DiscoveredService,
+        chosenTarget: InetAddress,
+    ): String {
+        val instanceName = peer.instanceName
+        val endpointIdHex =
+            peer.endpointId
+                ?.joinToString("") { "%02x".format(it) }
+                ?: "<none>"
+        val addressList =
+            if (peer.addresses.isEmpty()) {
+                "<none>"
+            } else {
+                peer.addresses.joinToString(",") { it.hostAddress ?: "<unresolved>" }
+            }
+        val info = peer.endpointInfo
+        val infoSummary =
+            if (info == null) {
+                "<none>"
+            } else {
+                buildString {
+                    append("v=").append(info.version)
+                    append(" hidden=").append(info.hidden)
+                    append(" type=").append(info.deviceType.name)
+                    append(" name=")
+                    append(info.deviceName?.let { "\"$it\"" } ?: "<null>")
+                    if (info.tlvRecords.isNotEmpty()) {
+                        append(" tlv=").append(
+                            info.tlvRecords.joinToString(",") { tlv ->
+                                val valueHex = tlv.value.joinToString("") { "%02x".format(it) }
+                                "${tlv.type}:$valueHex"
+                            },
+                        )
+                    }
+                }
+            }
+        return "instance=$instanceName endpointId=$endpointIdHex " +
+            "addrs=[$addressList] picked=${chosenTarget.hostAddress} " +
+            "port=${peer.port} endpointInfo={$infoSummary}"
+    }
+
     @Suppress("ReturnCount")
     private fun peerLabel(peer: DiscoveredService): String {
         val name = peer.endpointInfo?.deviceName
@@ -345,6 +456,18 @@ public class SendActivity : AppCompatActivity() {
                 )
                 return
             }
+        // Verbose target snapshot at the moment of pick. Routed through
+        // Log.e (and the on-disk outbound log) because Funtouch filters
+        // Log.i for non-system apps — without this a Galaxy "peer
+        // closed" report leaves us guessing whether we even dialed the
+        // right address. Includes everything we know about the peer:
+        // mDNS instance name, the 4-byte endpoint id slice, the full
+        // address list (so we can spot IPv6 vs IPv4 selection bugs) plus
+        // the chosen primary, the TCP port, and the parsed EndpointInfo
+        // header byte (visBit / version / deviceType) and device name.
+        val targetSnapshot = formatPeerSnapshot(peer, target)
+        Log.e(OUTBOUND_TAG, "picked target: $targetSnapshot")
+        appendOutboundLog("picked target: $targetSnapshot")
         // Stop discovery — we've made our pick and don't want the JmDNS
         // browser holding the multicast lock during the actual transfer.
         discoveryJob?.cancel()
