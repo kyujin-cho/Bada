@@ -104,24 +104,47 @@ internal object OfflineFrames {
     }
 
     /**
-     * Build an `OfflineFrame{V1, DISCONNECTION}` with the safe-to-
-     * disconnect flags both set to `false`.
+     * Build an `OfflineFrame{V1, DISCONNECTION}`.
      *
-     * The orchestrator pushes this frame through the SecureChannel
-     * (it is encrypted) right before closing the socket. The empty
-     * body is fine -- `DisconnectionFrame` is functionally a marker;
-     * the safe-to-disconnect protocol it gates is not used by
-     * NearDrop or by us.
+     * Because [connectionResponse] advertises
+     * `safe_to_disconnect_version = 1`, the Samsung One UI 7+ peer
+     * enforces the safe-disconnect handshake on teardown: an abrupt
+     * TCP FIN mid-payload makes the receiver flag every in-flight
+     * payload as failed and surface "couldn't receive file" — even
+     * when the bytes already landed in its socket buffer. Setting
+     * `request_safe_to_disconnect=true` tells the peer to drain its
+     * read pipeline cleanly before acknowledging; we then wait briefly
+     * for the peer's `ack_safe_to_disconnect=true` (or peer-FIN) before
+     * closing our socket. The orchestrator's drain loop in
+     * `runReceiveLoop` is the matching wait.
+     *
+     * @param requestSafeToDisconnect Set the request flag (sender
+     *   side). True for the happy-path teardown after streaming files
+     *   and for cancel/reject cases — receiver still benefits from
+     *   draining buffered bytes before tearing down.
+     * @param ackSafeToDisconnect Set the ack flag (receiver side).
+     *   The receiver path uses this when answering a peer's
+     *   `request_safe_to_disconnect=true`.
      */
-    fun disconnection(): OfflineFrame =
-        OfflineFrame
+    fun disconnection(
+        requestSafeToDisconnect: Boolean = false,
+        ackSafeToDisconnect: Boolean = false,
+    ): OfflineFrame {
+        val disconnection =
+            DisconnectionFrame
+                .newBuilder()
+                .setRequestSafeToDisconnect(requestSafeToDisconnect)
+                .setAckSafeToDisconnect(ackSafeToDisconnect)
+                .build()
+        return OfflineFrame
             .newBuilder()
             .setVersion(OfflineFrame.Version.V1)
             .setV1(
                 V1Frame
                     .newBuilder()
                     .setType(V1Frame.FrameType.DISCONNECTION)
-                    .setDisconnection(DisconnectionFrame.getDefaultInstance())
+                    .setDisconnection(disconnection)
                     .build(),
             ).build()
+    }
 }

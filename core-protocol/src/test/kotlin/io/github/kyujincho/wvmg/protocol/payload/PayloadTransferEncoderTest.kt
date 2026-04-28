@@ -72,7 +72,7 @@ class PayloadTransferEncoderTest {
     }
 
     @Test
-    fun `encodeFilePayload chunks a small file into frames with the right offsets`() {
+    fun `encodeFilePayload chunks a small file into data frames plus a terminator`() {
         val data = Random(0xC0DE).nextBytes(2500)
         val source = Channels.newChannel(ByteArrayInputStream(data))
         val frames =
@@ -84,26 +84,33 @@ class PayloadTransferEncoderTest {
                     source = source,
                     chunkSize = 1024,
                 ).toList()
-        // 2500 / 1024 = 2 full + 452 trailing = 3 frames.
-        assertThat(frames).hasSize(3)
+        // 2500 / 1024 = 2 full + 452 trailing data chunks + 1 dedicated
+        // zero-byte LAST_CHUNK terminator = 4 frames. Mirrors the BYTES
+        // two-frame quirk and is what stock Quick Share on Samsung One
+        // UI 7+ requires for FILE payloads (see encoder kdoc).
+        assertThat(frames).hasSize(4)
 
-        // First two frames: 1024 bytes each, no LAST_CHUNK.
-        for ((i, f) in frames.withIndex().take(2)) {
-            val chunk = f.v1.payloadTransfer.payloadChunk
-            assertThat(chunk.offset).isEqualTo((i * 1024).toLong())
+        // First three frames: data chunks, all flags=0.
+        val expectedSizes = listOf(1024, 1024, 2500 - 2048)
+        var runningOffset = 0L
+        for ((i, expectedSize) in expectedSizes.withIndex()) {
+            val chunk = frames[i].v1.payloadTransfer.payloadChunk
+            assertThat(chunk.offset).isEqualTo(runningOffset)
             assertThat(chunk.flags).isEqualTo(0)
-            assertThat(chunk.body.size()).isEqualTo(1024)
+            assertThat(chunk.body.size()).isEqualTo(expectedSize)
+            runningOffset += expectedSize
         }
-        // Last frame: trailing bytes + LAST_CHUNK.
-        val last = frames[2].v1.payloadTransfer.payloadChunk
-        assertThat(last.offset).isEqualTo(2048L)
-        assertThat(last.flags).isEqualTo(PayloadAssembler.LAST_CHUNK_FLAG)
-        assertThat(last.body.size()).isEqualTo(2500 - 2048)
+        // Final frame: dedicated empty terminator with LAST_CHUNK.
+        val terminator = frames[3].v1.payloadTransfer.payloadChunk
+        assertThat(terminator.offset).isEqualTo(2500L)
+        assertThat(terminator.flags).isEqualTo(PayloadAssembler.LAST_CHUNK_FLAG)
+        assertThat(terminator.body.size()).isEqualTo(0)
 
-        // Reassemble bytes and confirm bit-equal.
+        // Reassemble data bytes and confirm bit-equal. (Skip the
+        // terminator — its body is empty by construction.)
         val rebuilt = ByteArray(data.size)
         var pos = 0
-        for (f in frames) {
+        for (f in frames.dropLast(1)) {
             val chunk = f.v1.payloadTransfer.payloadChunk
             val body = chunk.body.toByteArray()
             System.arraycopy(body, 0, rebuilt, pos, body.size)
@@ -113,7 +120,7 @@ class PayloadTransferEncoderTest {
     }
 
     @Test
-    fun `encodeFilePayload with totalSize zero still produces a terminator frame`() {
+    fun `encodeFilePayload with totalSize zero produces only the terminator frame`() {
         val source = Channels.newChannel(ByteArrayInputStream(ByteArray(0)))
         val frames =
             PayloadTransferEncoder
@@ -128,6 +135,37 @@ class PayloadTransferEncoderTest {
         assertThat(chunk.offset).isEqualTo(0L)
         assertThat(chunk.flags).isEqualTo(PayloadAssembler.LAST_CHUNK_FLAG)
         assertThat(chunk.body.size()).isEqualTo(0)
+    }
+
+    @Test
+    fun `encodeFilePayload single-chunk small file emits data plus terminator`() {
+        // Regression guard for the Samsung One UI 7+ fix: a file whose
+        // body fits in a single chunk must still produce a separate
+        // zero-byte LAST_CHUNK terminator. The previous implementation
+        // emitted a single fused frame, which Samsung's Quick Share
+        // silently rejected.
+        val data = Random(0xBEEF).nextBytes(89_482)
+        val source = Channels.newChannel(ByteArrayInputStream(data))
+        val frames =
+            PayloadTransferEncoder
+                .encodeFilePayload(
+                    payloadId = 42,
+                    fileName = "photo.jpeg",
+                    totalSize = data.size.toLong(),
+                    source = source,
+                    // Default 512 KiB easily covers 89 KiB in one chunk.
+                ).toList()
+        assertThat(frames).hasSize(2)
+
+        val data0 = frames[0].v1.payloadTransfer.payloadChunk
+        assertThat(data0.offset).isEqualTo(0L)
+        assertThat(data0.flags).isEqualTo(0)
+        assertThat(data0.body.size()).isEqualTo(data.size)
+
+        val terminator = frames[1].v1.payloadTransfer.payloadChunk
+        assertThat(terminator.offset).isEqualTo(data.size.toLong())
+        assertThat(terminator.flags).isEqualTo(PayloadAssembler.LAST_CHUNK_FLAG)
+        assertThat(terminator.body.size()).isEqualTo(0)
     }
 
     @Test

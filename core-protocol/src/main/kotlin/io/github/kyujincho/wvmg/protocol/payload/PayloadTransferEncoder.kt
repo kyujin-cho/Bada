@@ -114,15 +114,23 @@ public object PayloadTransferEncoder {
     /**
      * Encode an outbound FILE payload.
      *
-     * Reads bytes from [source] in chunks of [chunkSize] and emits one
-     * `OfflineFrame` per chunk. The last chunk carries the `LAST_CHUNK`
-     * flag.
+     * Emits **data chunks** with `flags = 0` followed by a dedicated
+     * **empty `LAST_CHUNK` terminator** at `offset = total_size`. This
+     * is the same two-frame shape the BYTES encoder uses, just split
+     * across multiple data chunks for large files.
      *
-     * Unlike the BYTES encoder, the FILE encoder does **not** emit a
-     * trailing zero-byte terminator. The Android two-frame quirk is
-     * specific to BYTES (negotiation messages); FILE payloads end with
-     * the last data chunk having `LAST_CHUNK` set directly. NearDrop's
-     * file send path does the same.
+     * Stock Quick Share on Samsung One UI 7+ rejects FILE payloads
+     * whose final data chunk fuses the body with the `LAST_CHUNK`
+     * flag — the SecureMessage decode succeeds, the safe-disconnect
+     * handshake completes, but the file is never written to disk and
+     * the receiver UI shows "couldn't receive file" with only a
+     * `RECEIVE_PAYLOAD_FAILED [NULL_MESSAGE]` line at the medium
+     * layer to mark the failure. Splitting the terminator into its
+     * own zero-byte frame is what stock Android's Quick Share
+     * sender does and is sufficient to make the receiver accept the
+     * attachment. (Quick Share's iOS and macOS implementations
+     * tolerate the fused shape, which masked the bug in NearDrop
+     * interop testing.)
      *
      * The function is implemented as a [Sequence] so the caller's send
      * loop reads exactly one chunk at a time and pushes it through the
@@ -171,24 +179,6 @@ public object PayloadTransferEncoder {
                 .build()
 
         return sequence {
-            // Special case: a zero-byte file must still produce one
-            // frame (with body empty and LAST_CHUNK set), otherwise the
-            // receiver never sees a terminating chunk.
-            if (totalSize == 0L) {
-                yield(
-                    wrap(
-                        header,
-                        PayloadChunk
-                            .newBuilder()
-                            .setFlags(PayloadAssembler.LAST_CHUNK_FLAG)
-                            .setOffset(0L)
-                            .setBody(ByteString.EMPTY)
-                            .build(),
-                    ),
-                )
-                return@sequence
-            }
-
             val readBuffer = ByteBuffer.allocate(chunkSize)
             var offset = 0L
             while (offset < totalSize) {
@@ -207,11 +197,10 @@ public object PayloadTransferEncoder {
                 }
                 readBuffer.flip()
 
-                val isLast = offset + read >= totalSize
                 val chunk =
                     PayloadChunk
                         .newBuilder()
-                        .setFlags(if (isLast) PayloadAssembler.LAST_CHUNK_FLAG else 0)
+                        .setFlags(0)
                         .setOffset(offset)
                         .setBody(ByteString.copyFrom(readBuffer))
                         .build()
@@ -222,6 +211,20 @@ public object PayloadTransferEncoder {
                 // mismatch as a protocol error and we let it.
                 if (read == 0) break
             }
+
+            // Dedicated zero-byte LAST_CHUNK terminator at offset =
+            // total_size. Same two-frame shape as `encodeBytesPayload`.
+            yield(
+                wrap(
+                    header,
+                    PayloadChunk
+                        .newBuilder()
+                        .setFlags(PayloadAssembler.LAST_CHUNK_FLAG)
+                        .setOffset(totalSize)
+                        .setBody(ByteString.EMPTY)
+                        .build(),
+                ),
+            )
         }
     }
 
