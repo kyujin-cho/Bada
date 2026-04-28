@@ -58,8 +58,10 @@ internal object OutboundFrames {
         //     connection is using; absence of any medium hits a validation
         //     in Nearby Connections that rejects the request.
         //   * keep_alive_interval / timeout are read by the receiver to
-        //     decide its own KEEP_ALIVE cadence; defaults of 5s / 30s are
-        //     what the Chromium reference and NearDrop both ship.
+        //     decide its own KEEP_ALIVE cadence. We advertise 10 s / 10 min
+        //     — PROTOCOL.md documents stock Android emitting KEEP_ALIVE
+        //     every 10 seconds; see KEEP_ALIVE_INTERVAL_MILLIS for the
+        //     timeout rationale.
         //   * endpoint_name is a legacy string field; some forks (older
         //     Samsung Quick Share) still inspect it. Setting it to the
         //     empty string keeps modern peers happy and gives legacy peers
@@ -86,20 +88,29 @@ internal object OutboundFrames {
             ).build()
     }
 
-    private const val KEEP_ALIVE_INTERVAL_MILLIS: Int = 5_000
+    /**
+     * Cadence at which our outbound `KEEP_ALIVE` ticker fires once the
+     * SecureChannel is up. Matches the value PROTOCOL.md documents stock
+     * Android Quick Share emitting ("Android sends offline frames of
+     * type KEEP_ALIVE every 10 seconds and expects the server to do
+     * the same"). The ticker itself lives in [KeepAliveTicker]; we
+     * only advertise the cadence here so the receiver knows what to
+     * expect on its watchdog.
+     */
+    private const val KEEP_ALIVE_INTERVAL_MILLIS: Int = 10_000
 
     /**
      * Keep-alive timeout we advertise to the peer. Stock google/nearby's
-     * default is 30 s under the assumption that the peer will send
-     * explicit `KEEP_ALIVE` frames at the advertised interval. We do
-     * not run a keep-alive sender yet (we only handle inbound
-     * `KEEP_ALIVE` frames, like NearDrop), so a 30-second silence
-     * during slow file transfers — easy to hit on a phone hotspot link
-     * — caused Samsung One UI to disconnect mid-payload at ~81 %
-     * (verified on-device). 10 minutes covers reasonable file sizes
-     * over Wi-Fi LAN; the canonical fix is a periodic
-     * `KEEP_ALIVE` sender driven from the secure channel, tracked
-     * separately.
+     * default is 30 s, predicated on the peer sending explicit
+     * `KEEP_ALIVE` frames at the advertised interval. We now run a
+     * 10 s outbound ticker (issue #37) so the spec-default 30 s would
+     * suffice in steady state, but 10 minutes preserves headroom for
+     * slow-network corner cases (phone-hotspot uplinks, momentary
+     * stalls during large-file SD-card writes) where a single missed
+     * KEEP_ALIVE under load shouldn't tear the connection down. Verified
+     * on-device that bumping from 30 s to 10 min cleared the
+     * Samsung One UI mid-payload disconnect at ~81 % on phone-hotspot
+     * links.
      */
     private const val KEEP_ALIVE_TIMEOUT_MILLIS: Int = 600_000
 

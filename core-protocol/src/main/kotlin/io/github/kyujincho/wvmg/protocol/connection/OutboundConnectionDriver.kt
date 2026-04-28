@@ -270,6 +270,20 @@ internal class OutboundConnectionDriver(
             // InboundConnectionDriver.
             val wireChannel: Channel<OutboundWireMessage> = Channel(Channel.RENDEZVOUS)
             val pumpJob: Job = launch { runInboundPump(channel, wireChannel) }
+            // Outbound KEEP_ALIVE ticker (issue #37). PROTOCOL.md:
+            // "Android sends offline frames of type KEEP_ALIVE every
+            // 10 seconds and expects the server to do the same. If you
+            // don't, it will terminate the connection after a while
+            // thinking your app crashed or something." Without this
+            // ticker, our advertised keep_alive_timeout_millis (10 min)
+            // is the upper bound on how long an idle large-file send
+            // can take before the receiver tears the connection down.
+            //
+            // SecureChannel's send half is mutex-serialized internally,
+            // so the ticker can race with payload writes / FSM frame
+            // emissions safely — the next chunk simply waits behind a
+            // queued KEEP_ALIVE rather than interleaving inside it.
+            val keepAliveJob: Job = launch { runKeepAliveTicker(channel) }
             try {
                 val result = dispatchLoop(channel, fsm, wireChannel)
                 // Safe-disconnect drain: we advertised
@@ -299,20 +313,60 @@ internal class OutboundConnectionDriver(
                 }
                 result
             } finally {
-                // Close the socket BEFORE cancelAndJoin: the pump is parked
-                // in SecureChannel.receiveOfflineFrame()'s blocking Socket
-                // read under withContext(Dispatchers.IO), which does NOT
-                // honour coroutine cancellation while parked in a syscall.
-                // Closing the socket throws SocketException out of the read
-                // (the pump catches it as a Throwable and exits), so
-                // cancelAndJoin can complete. TCP guarantees any bytes
-                // already in the send buffer (CANCEL / Disconnection) are
-                // transmitted before the FIN, so the peer still reads our
-                // final frames before observing EOF.
+                // Cancel the KEEP_ALIVE ticker FIRST, before any socket
+                // close: the ticker spends almost all its life parked
+                // in delay() (which is cancellable, unlike a blocking
+                // socket read), so cancelAndJoin returns near-instantly
+                // and we avoid racing a tick against the in-flight
+                // terminal Disconnection. If the ticker happens to be
+                // mid-send when we cancel, it observes
+                // CancellationException out of the SecureChannel write
+                // and exits cleanly.
+                keepAliveJob.cancelAndJoin()
+                // Close the socket BEFORE cancelAndJoin'ing the pump:
+                // the pump is parked in SecureChannel.receiveOfflineFrame()'s
+                // blocking Socket read under withContext(Dispatchers.IO),
+                // which does NOT honour coroutine cancellation while
+                // parked in a syscall. Closing the socket throws
+                // SocketException out of the read (the pump catches it
+                // as a Throwable and exits), so cancelAndJoin can
+                // complete. TCP guarantees any bytes already in the
+                // send buffer (CANCEL / Disconnection) are transmitted
+                // before the FIN, so the peer still reads our final
+                // frames before observing EOF.
                 runCatching { socket.close() }
                 pumpJob.cancelAndJoin()
             }
         }
+
+    /**
+     * Outbound KEEP_ALIVE ticker. Once the SecureChannel is up,
+     * emits `KEEP_ALIVE{ack=false}` every
+     * [KeepAliveTicker.DEFAULT_INTERVAL_MILLIS] (10 s) to keep the
+     * peer's "peer crashed" watchdog from firing during long idle
+     * stretches (in particular: large-file payloads on slow Wi-Fi
+     * where chunk-to-chunk gaps can rival the advertised
+     * `keep_alive_timeout_millis`).
+     *
+     * Cancellation: structured-concurrency child of [runReceiveLoop]'s
+     * `coroutineScope`. The first `delay` is cancellable, so on
+     * teardown the ticker exits near-instantly without firing one last
+     * tick. If a `delay` elapses concurrently with teardown the next
+     * `sendOfflineFrame` either succeeds (race, harmless — the bytes
+     * sit in the TCP send buffer alongside the terminal frames) or
+     * throws a socket I/O exception out of the write, which the
+     * shared [KeepAliveTicker] forwards to the supplied error handler
+     * so cancellation isn't noisy. CancellationException is the
+     * explicit termination path and is rethrown.
+     */
+    private suspend fun runKeepAliveTicker(channel: SecureChannel) {
+        KeepAliveTicker.run(
+            send = channel::sendOfflineFrame,
+            onError = { e ->
+                logger("keep-alive: ticker stopped (${e::class.simpleName}: ${e.message ?: "null"})")
+            },
+        )
+    }
 
     /**
      * True when [result] is a terminal we ourselves drove a
