@@ -58,7 +58,6 @@ class AndroidManifestPermissionsTest {
     fun `compile-time wifi and network permissions declared`() {
         val required =
             listOf(
-                "android.permission.CHANGE_WIFI_MULTICAST_STATE",
                 "android.permission.INTERNET",
                 "android.permission.ACCESS_NETWORK_STATE",
                 "android.permission.ACCESS_WIFI_STATE",
@@ -66,6 +65,19 @@ class AndroidManifestPermissionsTest {
         for (permission in required) {
             assertTrue("$permission must be declared", manifest.contains(permission))
         }
+    }
+
+    @Test
+    fun `multicast lock permission is no longer declared after nsd migration`() {
+        // CHANGE_WIFI_MULTICAST_STATE was previously needed for the JmDNS
+        // in-app publisher to acquire WifiManager.MulticastLock. After the
+        // #98 migration to NsdManager, the system mDNS responder process
+        // handles inbound multicast and the in-app lock is unused. Guard
+        // against accidentally re-declaring it.
+        assertFalse(
+            "CHANGE_WIFI_MULTICAST_STATE must NOT be declared after the NsdManager migration (#98)",
+            manifest.contains("android.permission.CHANGE_WIFI_MULTICAST_STATE"),
+        )
     }
 
     @Test
