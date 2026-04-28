@@ -9,6 +9,17 @@
     <string name="main_always_visible_title">Always visible</string>
     <string name="main_always_visible_subtitle">Keep this device discoverable on Wi-Fi even without a Bluetooth pulse from a nearby sender. Turn off to save power; the receiver will only appear briefly while a sender is scanning.</string>
 
+    <!-- Save location settings (#42). The "current location" line shows
+         either the picked folder's display name or "Downloads" as the
+         default fallback. -->
+    <string name="main_save_location_title">Save received files to</string>
+    <string name="main_save_location_subtitle">Choose where incoming files are saved. The default is the system Downloads folder.</string>
+    <string name="main_save_location_default">Downloads (default)</string>
+    <string name="main_save_location_current">Current: %1$s</string>
+    <string name="main_save_location_pick">Choose folder…</string>
+    <string name="main_save_location_clear">Reset to Downloads</string>
+    <string name="main_save_location_pick_failed">Could not save that folder. Please pick a different location.</string>
+
     <!-- Folder-send entry point (#38). Android's share sheet only routes
          individual files; to ship a directory tree (preserving the
          layout via Quick Share's `parent_folder` field) we surface a
