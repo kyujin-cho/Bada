@@ -223,18 +223,28 @@ public class BleAdvertiser internal constructor(
             .build()
 
     /**
-     * Build the [AdvertiseData] with the 16-bit Quick Share service UUID
-     * and the 24-byte service-data payload. The result fits within the
-     * legacy 31-byte advertising budget:
-     *   * 3 bytes for the 16-bit service-UUID list (length+type+UUID),
-     *   * 26 bytes for the service-data (length+type+UUID+24 payload),
-     *   * 2 bytes for flags (auto-added by the platform).
+     * Build the [AdvertiseData] with only the 16-bit Quick Share
+     * service-data AD. The 16-bit service-UUID is embedded *inside* the
+     * service-data structure (AD type 0x16), so there is no need for a
+     * separate "Complete List of 16-bit Service UUIDs" AD — the
+     * receiver's [ScanFilter] from #33 matches on service data, not on
+     * the service-UUID list, so the extra AD has no consumer.
+     *
+     * Including both pushed the total advertising payload to 32 bytes
+     * (4 for the redundant UUID list + 28 for service data), one byte
+     * over the 31-byte legacy budget, causing
+     * `AdvertiseCallback.onStartFailure(ADVERTISE_FAILED_DATA_TOO_LARGE)`
+     * on real hardware. Found while running the BLE-trigger interop
+     * runbook against the Vivo X300 Ultra (Funtouch 16 / OriginOS 6).
+     *
+     * Final payload size, well under 31 bytes:
+     *   * 4 bytes for the service-data AD header (length+type+16-bit UUID),
+     *   * 24 bytes for the Quick Share service-data payload itself.
      */
     private fun buildAdvertiseData(payload: ByteArray): AdvertiseData {
         val parcelUuid = ParcelUuid(UUID.fromString(BleAdvertisePayload.SERVICE_UUID_128))
         return AdvertiseData
             .Builder()
-            .addServiceUuid(parcelUuid)
             .addServiceData(parcelUuid, payload)
             // Skip device name and TX power level — they would push us
             // over the 31-byte budget and aren't part of the Quick Share
