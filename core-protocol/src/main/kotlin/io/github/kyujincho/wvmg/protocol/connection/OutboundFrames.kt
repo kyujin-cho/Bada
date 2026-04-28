@@ -87,7 +87,21 @@ internal object OutboundFrames {
     }
 
     private const val KEEP_ALIVE_INTERVAL_MILLIS: Int = 5_000
-    private const val KEEP_ALIVE_TIMEOUT_MILLIS: Int = 30_000
+
+    /**
+     * Keep-alive timeout we advertise to the peer. Stock google/nearby's
+     * default is 30 s under the assumption that the peer will send
+     * explicit `KEEP_ALIVE` frames at the advertised interval. We do
+     * not run a keep-alive sender yet (we only handle inbound
+     * `KEEP_ALIVE` frames, like NearDrop), so a 30-second silence
+     * during slow file transfers — easy to hit on a phone hotspot link
+     * — caused Samsung One UI to disconnect mid-payload at ~81 %
+     * (verified on-device). 10 minutes covers reasonable file sizes
+     * over Wi-Fi LAN; the canonical fix is a periodic
+     * `KEEP_ALIVE` sender driven from the secure channel, tracked
+     * separately.
+     */
+    private const val KEEP_ALIVE_TIMEOUT_MILLIS: Int = 600_000
 
     /** Legacy `status` field value for "STATUS_OK". 0 in the proto enum. */
     private const val STATUS_OK: Int = 0

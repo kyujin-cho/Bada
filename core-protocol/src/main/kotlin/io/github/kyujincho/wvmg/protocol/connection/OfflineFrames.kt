@@ -54,7 +54,7 @@ internal object OfflineFrames {
      * See [OutboundFrames.KEEP_ALIVE_TIMEOUT_MILLIS] for the full rationale
      * (One UI 8.0.5 silent-FIN guard; mirrors our request-side value).
      */
-    private const val KEEP_ALIVE_TIMEOUT_MILLIS: Int = 30_000
+    private const val KEEP_ALIVE_TIMEOUT_MILLIS: Int = 600_000
 
     /**
      * Build an unencrypted `OfflineFrame{V1, CONNECTION_RESPONSE,

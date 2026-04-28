@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test
  *   3. `os_info.type = ANDROID`
  *   4. `multiplex_socket_bitmask = 0` (no medium supports multiplex)
  *   5. `safe_to_disconnect_version = 1`
- *   6. `keep_alive_timeout_millis = 30_000`
+ *   6. `keep_alive_timeout_millis = 600_000`
  *
  * One UI 8.0.5 silently FINs ~150 ms after our `ConnectionResponse{ACCEPT}`
  * when either of fields 4 or 6 is absent (issue #101). Verified on-device
@@ -72,6 +72,6 @@ class ConnectionResponseFrameShapeTest {
         assertThat(cr.safeToDisconnectVersion).isEqualTo(1)
 
         assertThat(cr.hasKeepAliveTimeoutMillis()).isTrue()
-        assertThat(cr.keepAliveTimeoutMillis).isEqualTo(30_000)
+        assertThat(cr.keepAliveTimeoutMillis).isEqualTo(600_000)
     }
 }
