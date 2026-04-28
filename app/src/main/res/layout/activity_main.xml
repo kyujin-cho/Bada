@@ -3,61 +3,128 @@
     Phase 1 / 2 launcher activity layout.
 
     The launcher is a thin scaffold (the real device list, transfer
-    status, and full settings screens are still tracked elsewhere). The
-    one piece of real UI today is the always-visible override toggle for
-    issue #34 — the user-facing escape hatch that bypasses the BLE-pulse
-    mDNS gate so the receiver works on devices without BLE scan.
+    status, and full settings screens are still tracked elsewhere).
+    Today it carries:
+      * #34 always-visible override toggle.
+      * #38 folder-send entry point (SAF DocumentTree picker).
+      * #47 battery-optimization banner — one-time, OEM-aware prompt
+        that opens the vendor's "exempt from background killing"
+        Settings page (or the stock Android dialog as fallback).
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp">
+    android:fillViewport="true">
 
-    <TextView
-        android:id="@+id/main_title"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/app_name"
-        android:textAppearance="?android:attr/textAppearanceLarge" />
+        android:orientation="vertical"
+        android:padding="24dp">
 
-    <androidx.appcompat.widget.SwitchCompat
-        android:id="@+id/main_always_visible_switch"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="@string/main_always_visible_title" />
+        <TextView
+            android:id="@+id/main_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textAppearance="?android:attr/textAppearanceLarge" />
 
-    <TextView
-        android:id="@+id/main_always_visible_subtitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="@string/main_always_visible_subtitle"
-        android:textAppearance="?android:attr/textAppearanceSmall" />
+        <!--
+          Battery-optimization banner (#47). Hidden by default so the
+          activity does not flicker on launch; MainActivity reveals it
+          only when the helper detects the app is not yet exempt and
+          the user has not previously dismissed the prompt.
+        -->
+        <LinearLayout
+            android:id="@+id/main_battery_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="?android:attr/colorBackgroundFloating"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
 
-    <!--
-      Folder-send entry point (#38). The system share sheet does not
-      expose a way to share a directory — it only routes individual
-      files via ACTION_SEND / ACTION_SEND_MULTIPLE. To send a whole
-      folder (preserving its directory layout via FileMetadata's
-      `parent_folder` field), the user starts here, picks a folder via
-      ACTION_OPEN_DOCUMENT_TREE, and we forward the resulting tree URI
-      to SendActivity.
-    -->
-    <Button
-        android:id="@+id/main_send_folder_button"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="@string/main_send_folder_button" />
+            <TextView
+                android:id="@+id/main_battery_banner_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/main_battery_banner_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/main_send_folder_subtitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="@string/main_send_folder_subtitle"
-        android:textAppearance="?android:attr/textAppearanceSmall" />
+            <TextView
+                android:id="@+id/main_battery_banner_body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/main_battery_banner_body"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
 
-</LinearLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="end"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/main_battery_banner_skip"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/main_battery_banner_skip" />
+
+                <Button
+                    android:id="@+id/main_battery_banner_open"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/main_battery_banner_open" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/main_always_visible_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/main_always_visible_title" />
+
+        <TextView
+            android:id="@+id/main_always_visible_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/main_always_visible_subtitle"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+        <!--
+          Folder-send entry point (#38). The system share sheet does not
+          expose a way to share a directory — it only routes individual
+          files via ACTION_SEND / ACTION_SEND_MULTIPLE. To send a whole
+          folder (preserving its directory layout via FileMetadata's
+          `parent_folder` field), the user starts here, picks a folder via
+          ACTION_OPEN_DOCUMENT_TREE, and we forward the resulting tree URI
+          to SendActivity.
+        -->
+        <Button
+            android:id="@+id/main_send_folder_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/main_send_folder_button" />
+
+        <TextView
+            android:id="@+id/main_send_folder_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/main_send_folder_subtitle"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+    </LinearLayout>
+
+</ScrollView>

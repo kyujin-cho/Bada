@@ -103,6 +103,19 @@
          depend on a runtime grant. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!-- #47 battery-optimization onboarding. Required for the user to
+         actually accept the exemption from the
+         ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS dialog the helper
+         opens — without this declaration the system Settings activity
+         still shows but the toggle is a no-op. The permission is normal
+         protection level (no runtime prompt) and must be paired with a
+         clear in-app rationale per Google Play policy; the banner copy
+         in main_battery_banner_body explains why we ask. The Quick
+         Share receiver is foreground-service driven, so the exemption
+         is the only way to keep Galaxy / vivo / MIUI background-app
+         killers from severing in-flight transfers. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:name=".WvmgApplication"
         android:allowBackup="false"
