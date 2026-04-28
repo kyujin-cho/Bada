@@ -255,6 +255,83 @@ class ReceiverSessionTest {
         }
 
     @Test
+    fun `advertiseGated start does not publish until publishAdvertisement is called`() =
+        runBlocking {
+            val advertiser = RecordingAdvertiser()
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    advertiseGated = true,
+                )
+
+            session.start()
+            assertThat(advertiser.calls).isEmpty()
+            assertThat(session.isAdvertising).isFalse()
+
+            session.publishAdvertisement()
+            assertThat(advertiser.calls).hasSize(1)
+            assertThat(session.isAdvertising).isTrue()
+            assertThat(advertiser.calls[0].port).isEqualTo(session.boundPort)
+
+            // Idempotent: a second call with the advertisement up does
+            // not double-publish.
+            session.publishAdvertisement()
+            assertThat(advertiser.calls).hasSize(1)
+
+            session.unpublishAdvertisement()
+            assertThat(session.isAdvertising).isFalse()
+            assertThat(advertiser.calls[0].handle.isActive).isFalse()
+
+            // Re-publish after an unpublish opens a fresh handle.
+            session.publishAdvertisement()
+            assertThat(advertiser.calls).hasSize(2)
+
+            session.stop()
+        }
+
+    @Test
+    fun `unpublishAdvertisement is a no-op when nothing is published`() =
+        runBlocking {
+            val advertiser = RecordingAdvertiser()
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    advertiseGated = true,
+                )
+
+            session.start()
+            session.unpublishAdvertisement()
+            session.unpublishAdvertisement()
+            assertThat(advertiser.calls).isEmpty()
+
+            session.stop()
+        }
+
+    @Test
+    fun `publishAdvertisement throws before start`() {
+        val session = makeSession(advertiseGated = true)
+        assertThrows<IllegalStateException> { session.publishAdvertisement() }
+    }
+
+    @Test
+    fun `stop tears down a gated advertisement`() =
+        runBlocking {
+            val advertiser = RecordingAdvertiser()
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    advertiseGated = true,
+                )
+
+            session.start()
+            session.publishAdvertisement()
+            assertThat(session.isAdvertising).isTrue()
+
+            session.stop()
+            assertThat(advertiser.calls.map { it.handle.isActive }).containsExactly(false)
+        }
+
+    @Test
     fun `default tcp server factory binds on all interfaces`() =
         runBlocking {
             // A smoke test for the TcpServerFactory.default() helper —
@@ -287,6 +364,7 @@ class ReceiverSessionTest {
         advertiser: DiscoveryAdvertiser = RecordingAdvertiser(),
         endpointInfo: EndpointInfo = sampleEndpointInfo(),
         factoryProvider: () -> FileDestinationFactory = { TempFileDestinationFactory() },
+        advertiseGated: Boolean = false,
     ): ReceiverSession =
         ReceiverSession(
             tcpServerFactory =
@@ -307,6 +385,7 @@ class ReceiverSessionTest {
             multicastLock = locks,
             factoryProvider = factoryProvider,
             endpointInfo = endpointInfo,
+            advertiseGated = advertiseGated,
         )
 
     private fun sampleEndpointInfo(name: String = "Test Device"): EndpointInfo =
@@ -374,6 +453,7 @@ class ReceiverSessionTest {
         override val port: Int,
         override val instanceName: String = "wvmg-test-instance",
     ) : AdvertiseHandle {
+        @Volatile
         private var active: Boolean = true
 
         override val isActive: Boolean

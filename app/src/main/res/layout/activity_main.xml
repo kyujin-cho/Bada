@@ -1,4 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    Phase 1 / 2 launcher activity layout.
+
+    The launcher is a thin scaffold (the real device list, transfer
+    status, and full settings screens are still tracked elsewhere). The
+    one piece of real UI today is the always-visible override toggle for
+    issue #34 — the user-facing escape hatch that bypasses the BLE-pulse
+    mDNS gate so the receiver works on devices without BLE scan.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent" />
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/main_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/app_name"
+        android:textAppearance="?android:attr/textAppearanceLarge" />
+
+    <androidx.appcompat.widget.SwitchCompat
+        android:id="@+id/main_always_visible_switch"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/main_always_visible_title" />
+
+    <TextView
+        android:id="@+id/main_always_visible_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/main_always_visible_subtitle"
+        android:textAppearance="?android:attr/textAppearanceSmall" />
+
+</LinearLayout>

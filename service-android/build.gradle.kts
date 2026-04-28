@@ -36,6 +36,21 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests {
+            // The mDNS gate (#34) and a few other paths in this module
+            // call `android.util.Log.i / Log.w` for structured diagnostics
+            // and observability. Without `returnDefaultValues = true` the
+            // AGP unit-test runtime throws "Method i in android.util.Log
+            // not mocked" from every JVM test that hits a logging path,
+            // which then propagates through generic catch blocks and hides
+            // the real test outcome. Default-values mode returns 0/null
+            // for any unmocked Android API call — safe for our tests
+            // since none of them assert on Log.* output.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 kotlin {
