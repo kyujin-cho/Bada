@@ -5,6 +5,7 @@
  */
 package io.github.kyujincho.wvmg.discovery.ble
 
+import android.bluetooth.le.ScanSettings
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -112,6 +113,120 @@ class BleQuickShareScannerTest {
             // the spec-aligned tests above. Here we only assert that
             // start did, in fact, hit the gate.
             assertThat(gate.startCount).isEqualTo(1)
+        }
+
+    @Test
+    fun `start uses SCAN_MODE_BALANCED by default`() =
+        runTest {
+            // Issue #35 acceptance criterion: the scan registers in
+            // BALANCED mode by default. LOW_LATENCY is opt-in via
+            // setScanMode while the user has the app foregrounded.
+            val gate = FakeBleScannerGate()
+            val scanner =
+                BleQuickShareScanner.forTesting(
+                    coroutineScope = backgroundScope,
+                    gate = gate,
+                    permissionChecker = { true },
+                )
+
+            scanner.start()
+            assertThat(gate.lastScanMode).isEqualTo(ScanSettings.SCAN_MODE_BALANCED)
+            assertThat(scanner.activeScanMode).isEqualTo(ScanSettings.SCAN_MODE_BALANCED)
+        }
+
+    @Test
+    fun `setScanMode while idle pins the mode for the next start`() =
+        runTest {
+            // No platform call should happen until start() runs — we
+            // don't want to thrash the kernel scan registration before
+            // the receiver service has even decided to bring it up.
+            val gate = FakeBleScannerGate()
+            val scanner =
+                BleQuickShareScanner.forTesting(
+                    coroutineScope = backgroundScope,
+                    gate = gate,
+                    permissionChecker = { true },
+                )
+
+            assertThat(scanner.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)).isTrue()
+            assertThat(gate.startCount).isEqualTo(0)
+            assertThat(scanner.activeScanMode).isEqualTo(ScanSettings.SCAN_MODE_LOW_LATENCY)
+
+            scanner.start()
+            assertThat(gate.lastScanMode).isEqualTo(ScanSettings.SCAN_MODE_LOW_LATENCY)
+        }
+
+    @Test
+    fun `setScanMode while active re-registers with the new mode`() =
+        runTest {
+            // Simulates the foreground -> background transition: the
+            // app comes to the foreground (LOW_LATENCY) and then leaves
+            // it (BALANCED). The scanner should tear down the existing
+            // registration and bring up a new one each time.
+            val gate = FakeBleScannerGate()
+            val scanner =
+                BleQuickShareScanner.forTesting(
+                    coroutineScope = backgroundScope,
+                    gate = gate,
+                    permissionChecker = { true },
+                )
+
+            scanner.start()
+            assertThat(gate.startCount).isEqualTo(1)
+            assertThat(gate.lastScanMode).isEqualTo(ScanSettings.SCAN_MODE_BALANCED)
+
+            assertThat(scanner.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)).isTrue()
+            assertThat(gate.startCount).isEqualTo(2)
+            assertThat(gate.stopCount).isEqualTo(1)
+            assertThat(gate.lastScanMode).isEqualTo(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            assertThat(scanner.isScanning).isTrue()
+
+            assertThat(scanner.setScanMode(ScanSettings.SCAN_MODE_BALANCED)).isTrue()
+            assertThat(gate.startCount).isEqualTo(3)
+            assertThat(gate.stopCount).isEqualTo(2)
+            assertThat(gate.lastScanMode).isEqualTo(ScanSettings.SCAN_MODE_BALANCED)
+        }
+
+    @Test
+    fun `setScanMode is a no-op when already on the requested mode`() =
+        runTest {
+            val gate = FakeBleScannerGate()
+            val scanner =
+                BleQuickShareScanner.forTesting(
+                    coroutineScope = backgroundScope,
+                    gate = gate,
+                    permissionChecker = { true },
+                )
+
+            scanner.start()
+            assertThat(gate.startCount).isEqualTo(1)
+
+            // Same mode, same registration — no restart should happen.
+            assertThat(scanner.setScanMode(ScanSettings.SCAN_MODE_BALANCED)).isTrue()
+            assertThat(gate.startCount).isEqualTo(1)
+            assertThat(gate.stopCount).isEqualTo(0)
+        }
+
+    @Test
+    fun `setScanMode leaves the scanner stopped if re-register fails`() =
+        runTest {
+            // Once the user has switched on Bluetooth airplane-mode etc,
+            // the platform may refuse a re-register. The scanner must
+            // not pretend to still be scanning in that case.
+            val gate = FlakyBleScannerGate()
+            val scanner =
+                BleQuickShareScanner.forTesting(
+                    coroutineScope = backgroundScope,
+                    gate = gate,
+                    permissionChecker = { true },
+                )
+
+            scanner.start()
+            assertThat(scanner.isScanning).isTrue()
+
+            gate.refuseStart = true
+            assertThat(scanner.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)).isFalse()
+            assertThat(scanner.isScanning).isFalse()
         }
 
     @Test
@@ -294,9 +409,19 @@ class BleQuickShareScannerTest {
         var sinkCount: Int = 0
             private set
 
-        override fun startScan(): BleScannerGate.Registration? {
+        /**
+         * Most-recently-requested scan mode. `null` until [startScan]
+         * has been called once. Tests assert this to verify that #35's
+         * BALANCED-by-default / LOW_LATENCY-on-foreground policy
+         * actually reaches the platform.
+         */
+        var lastScanMode: Int? = null
+            private set
+
+        override fun startScan(scanMode: Int): BleScannerGate.Registration? {
             if (refuseStart) return null
             startCount++
+            lastScanMode = scanMode
             return Registration()
         }
 
@@ -312,6 +437,32 @@ class BleQuickShareScannerTest {
             override fun close() {
                 stopCount++
             }
+        }
+    }
+
+    /**
+     * [FakeBleScannerGate] variant whose `refuseStart` flag is mutable
+     * so a single test can flip the platform from "scan accepted" to
+     * "scan rejected" mid-flight. Used to exercise the
+     * setScanMode-fails-mid-flight branch of the scanner.
+     */
+    private class FlakyBleScannerGate : BleScannerGate {
+        var refuseStart: Boolean = false
+        var lastScanMode: Int? = null
+            private set
+
+        override fun startScan(scanMode: Int): BleScannerGate.Registration? {
+            if (refuseStart) return null
+            lastScanMode = scanMode
+            return Registration()
+        }
+
+        override fun addSink(sink: BleScannerGate.PulseSink) = Unit
+
+        override fun removeSink(sink: BleScannerGate.PulseSink) = Unit
+
+        private class Registration : BleScannerGate.Registration {
+            override fun close() = Unit
         }
     }
 }

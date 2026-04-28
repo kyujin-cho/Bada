@@ -66,6 +66,10 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    // ProcessLifecycleOwner — drives the BLE scan-mode switch between
+    // BALANCED (background) and LOW_LATENCY (foreground) in
+    // ReceiverForegroundService (#35).
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.kotlinx.coroutines.android)
 
     // Junit Jupiter is the project-wide test runtime. Aligning with
