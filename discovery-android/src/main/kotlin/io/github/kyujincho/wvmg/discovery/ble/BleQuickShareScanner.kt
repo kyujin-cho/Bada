@@ -74,6 +74,26 @@ import kotlinx.coroutines.launch
  * ~10–20 mAh/day") makes the always-on simpler approach acceptable for
  * Phase 2.
  *
+ * ### Scan-mode tuning (#35)
+ *
+ * The scan registration runs in [ScanSettings.SCAN_MODE_BALANCED] by
+ * default — the documented "low-power, foreground-service-friendly"
+ * mode that Android allows to run continuously without throttling. The
+ * scanner exposes [setScanMode] so the owning foreground service can
+ * temporarily upgrade to [ScanSettings.SCAN_MODE_LOW_LATENCY] while the
+ * user has the app foregrounded (responsiveness matters more than power
+ * during active interaction) and revert back to BALANCED when the app
+ * returns to the background. `setReportDelay(0)` is pinned for both
+ * modes — non-zero delay batches advertisements which is unsuitable for
+ * a near-real-time interactive trigger.
+ *
+ * Switching the scan mode while a scan is in flight tears down the
+ * platform registration and re-registers with the new settings. This is
+ * the platform-recommended pattern (`BluetoothLeScanner.startScan` is
+ * idempotent on the callback identity but takes its `ScanSettings`
+ * snapshot at registration time) and is fast in practice — the kernel
+ * just updates the in-flight scan parameters.
+ *
  * ### Threading
  *
  * `start` and `stop` are safe to call from any thread; they serialize
@@ -150,6 +170,20 @@ public class BleQuickShareScanner internal constructor(
     @Volatile
     private var registration: BleScannerGate.Registration? = null
 
+    /**
+     * Currently-active platform scan mode. Defaults to
+     * [ScanSettings.SCAN_MODE_BALANCED] per the issue #35 acceptance
+     * criterion — the mode that Android allows a foreground service to
+     * run indefinitely without throttling.
+     *
+     * Mutated through [setScanMode] under [lifecycleLock]. Reads outside
+     * the lock are racy in the strict sense but the field is `@Volatile`
+     * and only used as a debug accessor / for the "do nothing if mode
+     * unchanged" early-exit in [setScanMode] itself.
+     */
+    @Volatile
+    private var currentScanMode: Int = ScanSettings.SCAN_MODE_BALANCED
+
     private val activityState: MutableStateFlow<ScanActivity> = MutableStateFlow(ScanActivity.Idle)
 
     @Volatile
@@ -207,7 +241,7 @@ public class BleQuickShareScanner internal constructor(
             }
             val started =
                 try {
-                    gate.startScan()
+                    gate.startScan(currentScanMode)
                 } catch (
                     @Suppress("TooGenericExceptionCaught") t: Throwable,
                 ) {
@@ -233,9 +267,108 @@ public class BleQuickShareScanner internal constructor(
                 }
             gate.addSink(sink)
             primarySink = sink
-            Log.i(TAG, "start: BLE pulse scan started")
+            Log.i(TAG, "start: BLE pulse scan started mode=${describeScanMode(currentScanMode)}")
             true
         }
+
+    /**
+     * Switches the platform scan to the given [ScanSettings] scan-mode
+     * constant. Idempotent — calling with the current mode is a no-op.
+     *
+     * Acceptable values are [ScanSettings.SCAN_MODE_LOW_POWER],
+     * [ScanSettings.SCAN_MODE_BALANCED], and
+     * [ScanSettings.SCAN_MODE_LOW_LATENCY]. Other constants
+     * (`SCAN_MODE_OPPORTUNISTIC` in particular) are intentionally out of
+     * scope: opportunistic mode means "only deliver results that some
+     * other scan would have delivered anyway", and we are the only
+     * BLE scanner in our process.
+     *
+     * If a scan is currently in flight, the platform registration is
+     * torn down and re-registered with the new settings. If no scan is
+     * active, the new mode is simply remembered for the next [start] —
+     * this avoids spurious platform calls when the lifecycle observer
+     * fires before the scanner has been started for the first time.
+     *
+     * Failures during the re-registration are logged but non-fatal: the
+     * receiver service continues without BLE, and the next [start]
+     * attempt will retry.
+     *
+     * @param mode scan mode constant from [ScanSettings].
+     * @return `true` if the scanner ended up running on the requested
+     *   mode (either already running on it, or successfully transitioned
+     *   to it, or the scanner is currently stopped and the mode is now
+     *   pinned for next start). `false` if a re-registration was
+     *   attempted but the platform refused.
+     */
+    public fun setScanMode(mode: Int): Boolean =
+        synchronized(lifecycleLock) {
+            if (mode == currentScanMode && registration != null) return@synchronized true
+            val previous = currentScanMode
+            currentScanMode = mode
+
+            // Mode change while idle: just remember the new mode for the
+            // next start(). No platform call is needed.
+            if (registration == null) {
+                Log.i(
+                    TAG,
+                    "setScanMode: scanner idle, pinned mode for next start: " +
+                        "${describeScanMode(previous)} -> ${describeScanMode(mode)}",
+                )
+                return@synchronized true
+            }
+
+            // Active path: tear down the existing registration and bring
+            // a new one up under the new settings. We deliberately
+            // route through gate.startScan rather than a hypothetical
+            // "update settings in place" call — the platform API does
+            // not expose one and re-registration is the
+            // documented pattern.
+            val sink = primarySink
+            registration?.let { current ->
+                try {
+                    current.close()
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.w(TAG, "setScanMode: close of previous registration threw", t)
+                }
+            }
+            registration = null
+
+            val restarted =
+                try {
+                    gate.startScan(mode)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.w(TAG, "setScanMode: re-register at new mode failed", t)
+                    null
+                }
+            if (restarted == null) {
+                // Restart failed — drop the sink registration as well
+                // so the next start() is a clean slate.
+                if (sink != null) gate.removeSink(sink)
+                primarySink = null
+                Log.w(
+                    TAG,
+                    "setScanMode: ${describeScanMode(previous)} -> ${describeScanMode(mode)} " +
+                        "FAILED, scanner is now stopped",
+                )
+                return@synchronized false
+            }
+            registration = restarted
+            Log.i(
+                TAG,
+                "setScanMode: ${describeScanMode(previous)} -> ${describeScanMode(mode)}",
+            )
+            true
+        }
+
+    /** Currently-active platform scan mode. Reflects the value last
+     *  passed to [setScanMode], or [ScanSettings.SCAN_MODE_BALANCED]
+     *  before the first call. Useful for diagnostics / tests. */
+    public val activeScanMode: Int
+        get() = currentScanMode
 
     /**
      * Stop scanning. Idempotent: calling [stop] when no scan is in
@@ -392,12 +525,41 @@ public class BleQuickShareScanner internal constructor(
                     ).build(),
             )
 
-        internal fun buildScanSettings(): ScanSettings =
+        /**
+         * Builds the platform [ScanSettings] for a given scan-mode
+         * constant. Pinned configuration:
+         *
+         *  * `setScanMode` — variable, defaults to BALANCED at the
+         *    scanner level, but switches to LOW_LATENCY while the user
+         *    has the app foregrounded (#35).
+         *  * `setReportDelay(0)` — pinned. Non-zero delay batches
+         *    advertisements which would block the interactive
+         *    "saw a sender" trigger.
+         *
+         * Throws on a JVM unit-test runtime where AGP stubs out
+         * [ScanSettings.Builder] — never call from a JVM test path.
+         */
+        internal fun buildScanSettings(scanMode: Int = ScanSettings.SCAN_MODE_BALANCED): ScanSettings =
             ScanSettings
                 .Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+                .setScanMode(scanMode)
                 .setReportDelay(0)
                 .build()
+
+        /**
+         * Human-readable label for the [ScanSettings] scan-mode
+         * constants we care about. Used in logcat lines so a power-tuning
+         * triage can grep `WvmgBleScan setScanMode` and read the
+         * transition without translating integers.
+         */
+        internal fun describeScanMode(mode: Int): String =
+            when (mode) {
+                ScanSettings.SCAN_MODE_OPPORTUNISTIC -> "OPPORTUNISTIC"
+                ScanSettings.SCAN_MODE_LOW_POWER -> "LOW_POWER"
+                ScanSettings.SCAN_MODE_BALANCED -> "BALANCED"
+                ScanSettings.SCAN_MODE_LOW_LATENCY -> "LOW_LATENCY"
+                else -> "UNKNOWN($mode)"
+            }
 
         /**
          * Test-only factory matching the existing module convention. The
@@ -483,20 +645,26 @@ internal class AndroidPermissionChecker(
  */
 public interface BleScannerGate {
     /**
-     * Begins a Quick-Share-shaped platform scan. Returns a [Registration]
-     * handle whose [Registration.close] stops the platform scan, or
-     * `null` if the scan could not be started (adapter off, no LE
-     * support, etc.).
+     * Begins a Quick-Share-shaped platform scan with the given scan
+     * mode. Returns a [Registration] handle whose [Registration.close]
+     * stops the platform scan, or `null` if the scan could not be
+     * started (adapter off, no LE support, etc.).
      *
      * The gate is responsible for building the canonical [ScanFilter]
      * (service UUID `0xFE2C` + 14-byte service-data prefix) and the
-     * [ScanSettings] (`SCAN_MODE_BALANCED`, `reportDelay = 0`) from
+     * [ScanSettings] (`reportDelay = 0`, scan mode = [scanMode]) from
      * the public companions on [BleQuickShareScanner].
      *
      * The gate is also responsible for fanning each [ScanResult] out to
      * every [PulseSink] registered via [addSink].
+     *
+     * @param scanMode one of [ScanSettings.SCAN_MODE_LOW_POWER],
+     *   [ScanSettings.SCAN_MODE_BALANCED], or
+     *   [ScanSettings.SCAN_MODE_LOW_LATENCY]. The scanner uses BALANCED
+     *   by default and switches to LOW_LATENCY while the app is
+     *   foregrounded (#35).
      */
-    public fun startScan(): Registration?
+    public fun startScan(scanMode: Int): Registration?
 
     /**
      * Subscribes a [PulseSink] to receive results from the active scan.
@@ -576,11 +744,11 @@ internal class AndroidBleScannerGate(
         }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
-    override fun startScan(): BleScannerGate.Registration? {
+    override fun startScan(scanMode: Int): BleScannerGate.Registration? {
         val scanner = resolveScanner() ?: return null
         scanner.startScan(
             BleQuickShareScanner.buildScanFilters(),
-            BleQuickShareScanner.buildScanSettings(),
+            BleQuickShareScanner.buildScanSettings(scanMode),
             rootCallback,
         )
         return Registration(scanner)
@@ -658,6 +826,13 @@ public class BleScannerHost(
 
     /** Begins scanning. Safe to call multiple times. */
     public fun start(): Boolean = scanner.start()
+
+    /**
+     * Switches the platform scan mode. Forwards to
+     * [BleQuickShareScanner.setScanMode]; see that method for the
+     * acceptable [ScanSettings] constants.
+     */
+    public fun setScanMode(mode: Int): Boolean = scanner.setScanMode(mode)
 
     /** Stops scanning and tears down the owning scope. */
     public fun shutdown() {

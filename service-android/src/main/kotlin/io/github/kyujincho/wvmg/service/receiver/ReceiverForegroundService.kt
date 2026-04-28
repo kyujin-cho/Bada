@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.service.receiver
 
 import android.app.Service
+import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -13,10 +14,15 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareScanner
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
@@ -116,6 +122,21 @@ public class ReceiverForegroundService : Service() {
     @Volatile
     private var mdnsGate: MdnsAdvertisementGate? = null
 
+    /**
+     * Observer attached to [ProcessLifecycleOwner] that switches the
+     * BLE scan mode based on whether the user has the app foregrounded.
+     * `null` while the service is not running; populated by
+     * [startBleScanner] and detached by [stopReceiverAndExit].
+     *
+     * The observer runs on the main thread (per the `ProcessLifecycleOwner`
+     * contract); the [BleQuickShareScanner.setScanMode] call it makes is
+     * synchronized internally and runs the platform call inline, so
+     * blocking the main thread here is bounded by a single
+     * `BluetoothLeScanner.startScan` round-trip.
+     */
+    @Volatile
+    private var processLifecycleObserver: AppLifecycleScanModeObserver? = null
+
     override fun onCreate() {
         super.onCreate()
         ReceiverNotification.ensureChannel(this)
@@ -174,16 +195,27 @@ public class ReceiverForegroundService : Service() {
     }
 
     /**
-     * Start the Phase 2 BLE pulse scanner (#33). The scanner observes
-     * sender BLE advertisements so a downstream feature (#34, mDNS
-     * gating) can hold off mDNS publish until a matching pulse is
-     * seen. Failures here — `BLUETOOTH_SCAN` not granted, adapter
-     * disabled, no LE support — are non-fatal and logged inside
+     * Start the Phase 2 BLE pulse scanner (#33) with the battery-tuned
+     * scan settings from #35. The scanner observes sender BLE
+     * advertisements so a downstream feature (#34, mDNS gating) can
+     * hold off mDNS publish until a matching pulse is seen. Failures
+     * here — `BLUETOOTH_SCAN` not granted, adapter disabled, no LE
+     * support — are non-fatal and logged inside
      * [BleQuickShareScanner.start]; the receiver continues in
      * mDNS-only mode.
      *
-     * Owns the scanner instance so [stopReceiverAndExit] can stop it
-     * symmetrically.
+     * The scan starts in [ScanSettings.SCAN_MODE_BALANCED] (the
+     * documented "low-power, foreground-service-friendly" mode that
+     * Android allows to run continuously without throttling). An
+     * [AppLifecycleScanModeObserver] attached to
+     * [ProcessLifecycleOwner] then upgrades to
+     * [ScanSettings.SCAN_MODE_LOW_LATENCY] while the user has the app
+     * foregrounded — responsiveness matters more than power during
+     * active interaction — and reverts to BALANCED when the app moves
+     * back to the background.
+     *
+     * Owns both the scanner instance and the lifecycle observer so
+     * [stopReceiverAndExit] can tear them down symmetrically.
      */
     private fun startBleScanner() {
         if (bleScanner != null) return
@@ -197,6 +229,32 @@ public class ReceiverForegroundService : Service() {
         // start() is idempotent and non-suspending; the receiver service
         // controls the single scan registration over its lifetime.
         scanner.start()
+
+        // Attach the foreground/background scan-mode observer (#35).
+        // ProcessLifecycleOwner requires its observers to be attached
+        // on the main thread.
+        attachProcessLifecycleObserver(scanner)
+    }
+
+    /**
+     * Add an [AppLifecycleScanModeObserver] to [ProcessLifecycleOwner]
+     * so the scan mode tracks the app's foreground/background state.
+     *
+     * Marshalled onto the main thread because both
+     * `ProcessLifecycleOwner.lifecycle.addObserver` and
+     * `LifecycleOwner` callbacks must run on the main thread per
+     * AndroidX contract. `Service.onStartCommand` is itself called on
+     * the main thread, so this `post` is a no-op when invoked from the
+     * normal lifecycle path — it only exists as a defensive measure
+     * for any future call site that might be migrated off the main
+     * thread.
+     */
+    private fun attachProcessLifecycleObserver(scanner: BleQuickShareScanner) {
+        val observer = AppLifecycleScanModeObserver { mode -> scanner.setScanMode(mode) }
+        processLifecycleObserver = observer
+        runOnMainThread {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(observer)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -375,6 +433,21 @@ public class ReceiverForegroundService : Service() {
         consentReceiver = receiver
     }
 
+    /**
+     * Run [block] on the main thread. If we are already on the main
+     * thread, executes inline; otherwise posts to a [Handler] bound to
+     * [Looper.getMainLooper]. Used to satisfy the `ProcessLifecycleOwner`
+     * "observers must be attached on the main thread" contract from
+     * any future call site.
+     */
+    private fun runOnMainThread(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            Handler(Looper.getMainLooper()).post(block)
+        }
+    }
+
     private fun unregisterConsentReceiverIfNeeded() {
         val receiver = consentReceiver ?: return
         runCatching { unregisterReceiver(receiver) }
@@ -404,6 +477,18 @@ public class ReceiverForegroundService : Service() {
         session?.stop()
         session = null
         ActiveDiscoveryHolder.clear()
+
+        // Detach the ProcessLifecycleOwner observer first — once the
+        // scanner is stopped, any late foreground/background callback
+        // would just be a no-op on a stopped scanner, but holding the
+        // observer attached past `stopReceiverAndExit` would leak the
+        // service through the global ProcessLifecycleOwner.
+        processLifecycleObserver?.let { observer ->
+            runOnMainThread {
+                ProcessLifecycleOwner.get().lifecycle.removeObserver(observer)
+            }
+        }
+        processLifecycleObserver = null
 
         // Stop the BLE scanner before cancelling the scope so the
         // platform `stopScan` actually runs synchronously; otherwise
@@ -773,4 +858,50 @@ internal class AndroidMulticastLockController(
  */
 public fun interface SessionFactory {
     public fun invoke(context: Context): ReceiverSession
+}
+
+/**
+ * `ProcessLifecycleOwner` observer that switches the BLE scan mode
+ * between [ScanSettings.SCAN_MODE_LOW_LATENCY] (foreground) and
+ * [ScanSettings.SCAN_MODE_BALANCED] (background) per the issue #35
+ * acceptance criterion.
+ *
+ * `ProcessLifecycleOwner` aggregates every activity in the process —
+ * `onStart` fires when the first activity becomes visible, `onStop`
+ * fires `LIFECYCLE_DELAY_MS` (≈700 ms in current AndroidX) after the
+ * last activity goes away. The 700 ms hysteresis is exactly what we
+ * want: rotation, transient activity-to-activity transitions, and
+ * brief pauses for system dialogs do not flap the scan mode.
+ *
+ * The observer is intentionally kept tiny and side-effect-free: its
+ * only job is to translate two lifecycle callbacks into two scan-mode
+ * change requests on the supplied [setScanMode] sink. All locking,
+ * restart, and platform-call logic lives inside the
+ * [BleQuickShareScanner] the sink ultimately targets — that lets unit
+ * tests drive the observer with a recording sink instead of needing a
+ * full scanner standing by.
+ *
+ * Made `internal` so the unit test in `:service-android` can exercise
+ * the lifecycle transitions without instantiating the full foreground
+ * service.
+ *
+ * @param setScanMode callback that applies a [ScanSettings] scan-mode
+ *   constant to the active BLE scanner. Production wires this to
+ *   [BleQuickShareScanner.setScanMode]; tests use a recorder.
+ */
+internal class AppLifecycleScanModeObserver(
+    private val setScanMode: (Int) -> Unit,
+) : DefaultLifecycleObserver {
+    override fun onStart(owner: LifecycleOwner) {
+        // App returned to the foreground: upgrade to LOW_LATENCY for
+        // responsiveness while the user is actively interacting.
+        setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        // App backgrounded: revert to BALANCED so the foreground
+        // service can run the scan continuously without throttling and
+        // without burning the battery.
+        setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+    }
 }

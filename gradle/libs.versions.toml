@@ -56,6 +56,12 @@ androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidxAppcompat" }
 androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "androidxActivity" }
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }
+# `lifecycle-process` exposes [androidx.lifecycle.ProcessLifecycleOwner],
+# the singleton LifecycleOwner that tracks "is any activity of this app
+# foreground". The receiver foreground service uses it (#35) to switch
+# the BLE scan mode between BALANCED (background) and LOW_LATENCY
+# (foreground) without inventing a separate process-state mechanism.
+androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidxLifecycle" }
 
 # Kotlin coroutines
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
