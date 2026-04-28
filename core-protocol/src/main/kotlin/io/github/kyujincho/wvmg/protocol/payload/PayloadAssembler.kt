@@ -10,7 +10,7 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Payl
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
 import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import java.io.ByteArrayOutputStream
-import java.nio.channels.WritableByteChannel
+import java.nio.channels.SeekableByteChannel
 
 /**
  * Reassembles `PayloadTransferFrame` chunks into complete BYTES and FILE
@@ -28,13 +28,20 @@ import java.nio.channels.WritableByteChannel
  * chunks of a peer-chosen size. Three properties make a naive
  * implementation wrong:
  *
- *  1. **Strict in-order requirement.** Each chunk's `offset` MUST equal
- *     the cumulative byte count we have already received for that
- *     `payload_id`. The wire is reliable (TCP) but a misbehaving or
- *     malicious peer can still send an offset that does not line up;
- *     accepting that would let the peer corrupt the buffer. NearDrop
- *     rejects this with a protocol error and so do we
- *     ([PayloadProtocolException]).
+ *  1. **Strict in-order BYTES, out-of-order-tolerant FILE.** Each
+ *     BYTES chunk's `offset` MUST equal the cumulative byte count we
+ *     have already received for that `payload_id`. BYTES payloads are
+ *     small negotiation messages and reordering is meaningless for
+ *     them. FILE payloads, however, may arrive in any order: this
+ *     was relaxed in #44 so the receiver can survive future mediums
+ *     (Wi-Fi Direct, BLE L2CAP) where the application layer cannot
+ *     assume FIFO. The FILE path persists each chunk via
+ *     [SeekableByteChannel.position] + write at the chunk's declared
+ *     offset, and tracks coverage with a [ByteRangeSet]. Duplicate
+ *     chunks (offset + body matches a fully-covered range) are
+ *     deduplicated; partial overlaps that ALSO extend an existing
+ *     range remain a protocol error because the wire spec does not
+ *     permit them.
  *  2. **Per-payload state, not per-frame.** Multiple payloads can be
  *     "in flight" simultaneously (Android's transfer-setup phase
  *     interleaves a small BYTES negotiation payload with one or more
@@ -97,13 +104,29 @@ public class PayloadAssembler(
     )
 
     /**
-     * In-flight FILE payload. Tracks the destination channel, the byte
-     * count we have written so far, and the original header.
+     * In-flight FILE payload.
+     *
+     * Tracks:
+     *  - The destination [SeekableByteChannel] returned by the factory.
+     *  - The original [PayloadHeader] (used to keep [PayloadEvent.FileComplete]
+     *    faithful to the original metadata even after several chunks).
+     *  - A [ByteRangeSet] recording exactly which byte ranges the
+     *    assembler has already written to the channel. The set drives
+     *    both the duplicate-chunk shortcut (skip writes that land inside
+     *    an already-covered region) and the LAST_CHUNK completion check
+     *    (require `[0, total_size)` is fully covered before accepting).
+     *  - A `position` cursor we manage explicitly: `SeekableByteChannel.position(off)`
+     *    + write is the canonical out-of-order pattern, but seeking is
+     *    only worth its syscall if we are about to write somewhere other
+     *    than the current cursor. We track the cursor here so the common
+     *    sequential case (write, write, write at successive offsets)
+     *    elides the seek.
      */
     private class FileState(
         val header: PayloadHeader,
-        val channel: WritableByteChannel,
-        var bytesWritten: Long,
+        val channel: SeekableByteChannel,
+        var coverage: ByteRangeSet,
+        var cursor: Long,
     )
 
     private val bytesInFlight: MutableMap<Long, BytesState> = HashMap()
@@ -302,14 +325,36 @@ public class PayloadAssembler(
      *
      * FILE payloads can be GB-scale. We never buffer in memory — every
      * chunk's body is written straight through to the
-     * [WritableByteChannel] that the [fileDestinationFactory] returned
+     * [SeekableByteChannel] that the [fileDestinationFactory] returned
      * for this payload. The factory is invoked exactly once, on the
-     * first chunk; we bail out if the per-chunk offset disagrees with
-     * the running write count, the same way NearDrop does.
+     * first chunk.
+     *
+     * #### Out-of-order tolerance (#44)
+     *
+     * Each chunk carries an `offset` field naming where its body bytes
+     * belong in the file. The assembler:
+     *  1. Validates `offset >= 0` and `offset + body.size <= total_size`.
+     *  2. Consults [ByteRangeSet] to classify the chunk as new,
+     *     duplicate, or partial-overlap.
+     *  3. For genuinely new bytes, seeks the channel to `offset` (only
+     *     if the cursor is not already there — in the sequential happy
+     *     path the seek is elided) and writes the body.
+     *  4. For duplicate chunks (every byte already covered) the body is
+     *     dropped and the cursor is unchanged — the peer simply re-sent
+     *     a chunk after a transient stall, which is allowed.
+     *  5. For partial-overlap chunks (some bytes new, some duplicate-
+     *     in-different-range) the wire is malformed and we surface a
+     *     [PayloadProtocolException].
+     *
+     * `LAST_CHUNK` no longer implies "I have written `total_size` bytes";
+     * it now means "no more chunks are coming". Completion requires the
+     * coverage set to span exactly `[0, total_size)`.
      */
     @Suppress(
         "ThrowsCount", // Each throw documents a distinct FILE-reassembly invariant.
         "NestedBlockDepth", // Streaming-write loop + close cleanup is inherently nested.
+        "LongMethod", // Out-of-order branches + completion check are inherently long; splitting hides flow.
+        "CyclomaticComplexMethod", // The branch count tracks the wire spec's invariant set; flattening obscures it.
     )
     private fun handleFile(
         payloadId: Long,
@@ -327,70 +372,122 @@ public class PayloadAssembler(
                 // registered any state yet, so there is nothing to
                 // clean up.
                 val channel = fileDestinationFactory.open(header)
-                FileState(header, channel, bytesWritten = 0L).also {
+                FileState(
+                    header = header,
+                    channel = channel,
+                    coverage = ByteRangeSet(),
+                    cursor = 0L,
+                ).also {
                     filesInFlight[payloadId] = it
                 }
             }
 
-        val written = state.bytesWritten
-        if (chunk.offset != written) {
-            // Match NearDrop's cleanup behavior: drop the in-flight
-            // record but also close the destination channel so the
-            // partial file is at least flushed.
+        val body = chunk.body
+        val bodySize = body.size()
+        val chunkOffset = chunk.offset
+        val totalSize = state.header.totalSize
+
+        // Validate the offset and the chunk's footprint against the
+        // declared total_size BEFORE consulting coverage. A peer that
+        // claims `offset = -1` or `offset + body > total` is malformed
+        // regardless of what bytes we may have already received.
+        if (chunkOffset < 0) {
             filesInFlight.remove(payloadId)
             runCatching { state.channel.close() }
             throw PayloadProtocolException(
-                "FILE payload_id=$payloadId chunk offset=${chunk.offset} " +
-                    "does not match bytes written=$written",
+                "FILE payload_id=$payloadId chunk offset=$chunkOffset is negative",
             )
         }
-
-        val body = chunk.body
-        val bodySize = body.size()
-        val newWritten = written + bodySize.toLong()
-        if (newWritten > state.header.totalSize) {
+        val chunkEnd = chunkOffset + bodySize.toLong()
+        if (chunkEnd > totalSize) {
             filesInFlight.remove(payloadId)
             runCatching { state.channel.close() }
             throw PayloadProtocolException(
                 "FILE payload_id=$payloadId chunk would write past total_size=" +
-                    "${state.header.totalSize} (current=$written, body=$bodySize)",
+                    "$totalSize (offset=$chunkOffset, body=$bodySize)",
             )
         }
 
         if (bodySize > 0) {
-            // Copy through ByteBuffer: ByteString does not expose a
-            // zero-copy `WritableByteChannel.write` directly, but its
-            // `asReadOnlyByteBufferList()` lets us hand the channel an
-            // already-prepared buffer. For most chunks the list has a
-            // single segment; we still loop in case a peer sends a
-            // segmented body.
-            try {
-                for (segment in body.asReadOnlyByteBufferList()) {
-                    while (segment.hasRemaining()) {
-                        state.channel.write(segment)
+            // Classify the chunk against current coverage so we know
+            // whether to write, dedupe, or fail. The coverage set is
+            // mutated inside `add` only after we have committed to
+            // writing — a partial-overlap result must not leave the set
+            // in a half-merged state, so we check first and only mutate
+            // on the Added path.
+            val classification = classifyFileChunk(state.coverage, chunkOffset, chunkEnd)
+            when (classification) {
+                FileChunkClassification.AlreadyCovered -> {
+                    // Duplicate chunk: drop the body, leave cursor and
+                    // coverage alone. The wire is well-formed.
+                }
+                FileChunkClassification.PartialOverlap -> {
+                    filesInFlight.remove(payloadId)
+                    runCatching { state.channel.close() }
+                    throw PayloadProtocolException(
+                        "FILE payload_id=$payloadId chunk [$chunkOffset, $chunkEnd) partially " +
+                            "overlaps a previously-received range; protocol does not permit " +
+                            "split-and-extend re-delivery",
+                    )
+                }
+                FileChunkClassification.NewBytes -> {
+                    try {
+                        // Only seek if the cursor is not already where
+                        // we need to write. The sequential happy path
+                        // never seeks; the out-of-order path seeks once
+                        // per non-contiguous arrival.
+                        if (state.cursor != chunkOffset) {
+                            state.channel.position(chunkOffset)
+                        }
+                        for (segment in body.asReadOnlyByteBufferList()) {
+                            while (segment.hasRemaining()) {
+                                state.channel.write(segment)
+                            }
+                        }
+                        state.cursor = chunkEnd
+                        // Mutate coverage only after the write succeeded
+                        // so an I/O failure does not leave the set
+                        // claiming bytes the channel never received.
+                        state.coverage.add(chunkOffset, chunkEnd)
+                    } catch (e: java.io.IOException) {
+                        filesInFlight.remove(payloadId)
+                        runCatching { state.channel.close() }
+                        throw PayloadProtocolException(
+                            "FILE payload_id=$payloadId write to destination channel failed",
+                            e,
+                        )
                     }
                 }
-            } catch (e: java.io.IOException) {
-                filesInFlight.remove(payloadId)
-                runCatching { state.channel.close() }
-                throw PayloadProtocolException(
-                    "FILE payload_id=$payloadId write to destination channel failed",
-                    e,
-                )
             }
-            state.bytesWritten = newWritten
+        } else if (chunkOffset != totalSize && !state.coverage.contains(chunkOffset, chunkEnd)) {
+            // Empty body at an offset that is neither the LAST_CHUNK
+            // terminator (offset == total_size) nor inside a covered
+            // range. The wire spec uses empty-body chunks only for the
+            // LAST_CHUNK terminator; an empty body in the middle of the
+            // file with a fresh offset is ambiguous and not something
+            // any conformant peer sends. Allowing it would let a
+            // misbehaving peer steer the cursor without leaving any
+            // observable trace in coverage.
+            filesInFlight.remove(payloadId)
+            runCatching { state.channel.close() }
+            throw PayloadProtocolException(
+                "FILE payload_id=$payloadId empty-body chunk at offset=$chunkOffset is not " +
+                    "the LAST_CHUNK terminator and does not lie inside a covered range",
+            )
         }
 
         return if ((chunk.flags and LAST_CHUNK_FLAG) != 0) {
-            // LAST_CHUNK: the file is complete. Validate the running
-            // count matches the declared total_size and close the
-            // channel. The factory does not own close; we do.
-            if (state.bytesWritten != state.header.totalSize) {
+            // LAST_CHUNK: the peer is telling us no more chunks are
+            // coming. Completion now requires the coverage set to span
+            // [0, total_size) exactly.
+            if (!state.coverage.isComplete(totalSize)) {
                 filesInFlight.remove(payloadId)
                 runCatching { state.channel.close() }
+                val covered = state.coverage.coveredBytes
                 throw PayloadProtocolException(
-                    "FILE payload_id=$payloadId LAST_CHUNK at ${state.bytesWritten} bytes " +
-                        "differs from declared total_size=${state.header.totalSize}",
+                    "FILE payload_id=$payloadId LAST_CHUNK with $covered bytes covered, " +
+                        "differs from declared total_size=$totalSize " +
+                        "(${state.coverage.size} range(s) seen)",
                 )
             }
             filesInFlight.remove(payloadId)
@@ -402,15 +499,46 @@ public class PayloadAssembler(
                     e,
                 )
             }
-            PayloadEvent.FileComplete(payloadId, state.header, state.bytesWritten)
+            PayloadEvent.FileComplete(payloadId, state.header, totalSize)
         } else {
             PayloadEvent.Progress(
                 payloadId = payloadId,
-                bytesReceived = state.bytesWritten,
-                totalSize = state.header.totalSize,
+                bytesReceived = state.coverage.coveredBytes,
+                totalSize = totalSize,
                 type = PayloadHeader.PayloadType.FILE,
             )
         }
+    }
+
+    /**
+     * Classify a FILE chunk's `[start, end)` against the current
+     * coverage set without mutating either. The mutation happens later
+     * in [handleFile], on the success path of the actual write.
+     *
+     * The trio of outcomes mirrors [ByteRangeSet.AddResult] but does not
+     * actually call `add`: probing whether `[start, end)` is fully
+     * contained, fully fresh, or a mixed partial-overlap is enough.
+     */
+    private enum class FileChunkClassification { AlreadyCovered, PartialOverlap, NewBytes }
+
+    private fun classifyFileChunk(
+        coverage: ByteRangeSet,
+        start: Long,
+        end: Long,
+    ): FileChunkClassification {
+        if (start == end || coverage.contains(start, end)) {
+            return FileChunkClassification.AlreadyCovered
+        }
+        // Walk only the prefix of stored ranges whose start lies before
+        // `end`; anything past that point cannot overlap. The chained
+        // `takeWhile` + `any` structure replaces a hand-written loop
+        // with two break statements, which detekt rejects.
+        val partial =
+            coverage.ranges
+                .asSequence()
+                .takeWhile { it.start < end }
+                .any { it.end > start }
+        return if (partial) FileChunkClassification.PartialOverlap else FileChunkClassification.NewBytes
     }
 
     public companion object {

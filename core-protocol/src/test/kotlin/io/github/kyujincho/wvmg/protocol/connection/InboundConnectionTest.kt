@@ -32,12 +32,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
-import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.ByteBuffer
-import java.nio.channels.WritableByteChannel
+import java.nio.channels.SeekableByteChannel
 import java.security.SecureRandom
 
 /**
@@ -93,9 +92,13 @@ class InboundConnectionTest {
         return client to server
     }
 
-    /** In-memory file destination factory. Captures bytes per payload. */
+    /**
+     * In-memory file destination factory. Captures bytes per payload
+     * via a [SeekableByteChannel] so the assembler's #44 out-of-order
+     * write path is exercised end-to-end.
+     */
     private class InMemoryFactory : FileDestinationFactory {
-        val output: MutableMap<Long, ByteArrayOutputStream> = HashMap()
+        val output: MutableMap<Long, InMemorySeekable> = HashMap()
 
         /** Payload ids the orchestrator called [commit] on. */
         val committed: MutableList<Long> = mutableListOf()
@@ -112,27 +115,11 @@ class InboundConnectionTest {
         override fun open(
             header: com.google.location.nearby.connections.proto.OfflineWireFormatsProto
                 .PayloadTransferFrame.PayloadHeader,
-        ): WritableByteChannel {
-            val buf = ByteArrayOutputStream()
-            output[header.id] = buf
+        ): SeekableByteChannel {
+            val ch = InMemorySeekable()
+            output[header.id] = ch
             inFlight += header.id
-            return object : WritableByteChannel {
-                private var open = true
-
-                override fun write(src: ByteBuffer): Int {
-                    val n = src.remaining()
-                    val arr = ByteArray(n)
-                    src.get(arr)
-                    buf.write(arr)
-                    return n
-                }
-
-                override fun close() {
-                    open = false
-                }
-
-                override fun isOpen(): Boolean = open
-            }
+            return ch
         }
 
         override fun commit(payloadId: Long): Boolean {
@@ -153,6 +140,61 @@ class InboundConnectionTest {
             }
             inFlight.clear()
             return count
+        }
+    }
+
+    /**
+     * Lightweight in-memory [SeekableByteChannel] used by the test
+     * factory. Backs a `ByteArray` sized to the largest write seen so
+     * far; supports `position()` + write so chunks can land at any
+     * offset.
+     */
+    private class InMemorySeekable : SeekableByteChannel {
+        private var buffer: ByteArray = ByteArray(0)
+        private var size: Long = 0
+        private var pos: Long = 0
+        private var open: Boolean = true
+
+        fun toByteArray(): ByteArray = buffer.copyOf(size.toInt())
+
+        override fun isOpen(): Boolean = open
+
+        override fun close() {
+            open = false
+        }
+
+        override fun read(dst: ByteBuffer): Int = throw UnsupportedOperationException()
+
+        override fun write(src: ByteBuffer): Int {
+            val n = src.remaining()
+            if (n == 0) return 0
+            ensureCapacity(pos + n)
+            src.get(buffer, pos.toInt(), n)
+            pos += n
+            if (pos > size) size = pos
+            return n
+        }
+
+        override fun position(): Long = pos
+
+        override fun position(newPosition: Long): SeekableByteChannel {
+            pos = newPosition
+            return this
+        }
+
+        override fun size(): Long = size
+
+        override fun truncate(newSize: Long): SeekableByteChannel {
+            if (newSize < size) size = newSize
+            if (pos > size) pos = size
+            return this
+        }
+
+        private fun ensureCapacity(min: Long) {
+            if (min <= buffer.size) return
+            var newCap = buffer.size.coerceAtLeast(16)
+            while (newCap < min) newCap = (newCap + (newCap shr 1)).coerceAtLeast(min.toInt())
+            buffer = buffer.copyOf(newCap)
         }
     }
 

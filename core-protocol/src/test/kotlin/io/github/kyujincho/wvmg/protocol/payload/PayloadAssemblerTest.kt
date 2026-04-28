@@ -12,10 +12,9 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Payl
 import com.google.protobuf.ByteString
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.channels.Channels
-import java.nio.channels.WritableByteChannel
+import java.nio.channels.SeekableByteChannel
 import kotlin.random.Random
 
 /**
@@ -86,47 +85,95 @@ class PayloadAssemblerTest {
 
     /**
      * Capturing [FileDestinationFactory] that hands every payload an
-     * in-memory [java.io.ByteArrayOutputStream] wrapped as a
-     * [WritableByteChannel]. Tests can read back what was written via
-     * [outputs] and inspect [opened] / [closed] counters to confirm the
-     * channel lifecycle.
+     * in-memory [SeekableByteChannel]. Tests can read back what was
+     * written via [outputs] and inspect [opened] / [closed] counters to
+     * confirm the channel lifecycle.
+     *
+     * The channel is seekable so the assembler's #44 out-of-order code
+     * path is exercised directly: chunks delivered with non-sequential
+     * offsets call `position()` and write into the right slot of the
+     * backing buffer, just as a `RandomAccessFile`-backed channel
+     * would on Android.
      */
     private class CapturingFactory : FileDestinationFactory {
-        val outputs: MutableMap<Long, ByteArrayOutputStream> = HashMap()
+        val outputs: MutableMap<Long, InMemorySeekableChannel> = HashMap()
         var opened: Int = 0
             private set
         var closed: Int = 0
             private set
 
-        override fun open(header: PayloadHeader): WritableByteChannel {
+        override fun open(header: PayloadHeader): SeekableByteChannel {
             opened += 1
-            val sink = ByteArrayOutputStream()
-            outputs[header.id] = sink
-            val raw: WritableByteChannel = Channels.newChannel(sink)
-            return CountingChannel(raw, onClose = { closed += 1 })
+            val ch = InMemorySeekableChannel(onClose = { closed += 1 })
+            outputs[header.id] = ch
+            return ch
         }
     }
 
     /**
-     * Wraps a [WritableByteChannel] and increments a counter on close so
-     * the test can assert that the assembler closed the destination
-     * exactly once.
+     * Minimal in-memory [SeekableByteChannel] for tests. Backs a single
+     * `ByteArray` that grows on writes past the current size; supports
+     * out-of-order writes via [position] + [write] (writing past the end
+     * fills any uncovered bytes with zero). The file content is the
+     * concatenation of every byte written; tests read it back via
+     * [toByteArray].
      */
-    private class CountingChannel(
-        private val delegate: WritableByteChannel,
+    private class InMemorySeekableChannel(
         private val onClose: () -> Unit,
-    ) : WritableByteChannel by delegate {
-        private var closed: Boolean = false
+    ) : SeekableByteChannel {
+        private var buffer: ByteArray = ByteArray(0)
+        private var size: Long = 0
+        private var pos: Long = 0
+        private var open: Boolean = true
+
+        fun toByteArray(): ByteArray = buffer.copyOf(size.toInt())
+
+        override fun isOpen(): Boolean = open
 
         override fun close() {
-            if (!closed) {
-                closed = true
-                onClose()
-            }
-            delegate.close()
+            if (!open) return
+            open = false
+            onClose()
         }
 
-        override fun isOpen(): Boolean = !closed && delegate.isOpen
+        override fun read(dst: ByteBuffer): Int = throw UnsupportedOperationException("not used by assembler")
+
+        override fun write(src: ByteBuffer): Int {
+            check(open) { "channel closed" }
+            val n = src.remaining()
+            if (n == 0) return 0
+            ensureCapacity(pos + n)
+            src.get(buffer, pos.toInt(), n)
+            pos += n
+            if (pos > size) size = pos
+            return n
+        }
+
+        override fun position(): Long = pos
+
+        override fun position(newPosition: Long): SeekableByteChannel {
+            require(newPosition >= 0) { "negative position $newPosition" }
+            pos = newPosition
+            return this
+        }
+
+        override fun size(): Long = size
+
+        override fun truncate(newSize: Long): SeekableByteChannel {
+            require(newSize >= 0)
+            if (newSize < size) size = newSize
+            if (pos > size) pos = size
+            return this
+        }
+
+        private fun ensureCapacity(min: Long) {
+            if (min <= buffer.size) return
+            // Match ArrayList's growth heuristic — size + size/2 — so
+            // many small writes do not pay an O(n^2) bill.
+            var newCap = buffer.size.coerceAtLeast(16)
+            while (newCap < min) newCap = (newCap + (newCap shr 1)).coerceAtLeast(min.toInt())
+            buffer = buffer.copyOf(newCap)
+        }
     }
 
     // ------------------------------------------------------------------
@@ -468,10 +515,16 @@ class PayloadAssemblerTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `FILE rejects chunk with offset mismatch and closes the channel`() {
+    fun `FILE rejects chunk that partially overlaps a covered range and extends it`() {
+        // #44 allows chunks to arrive out of order or be re-sent
+        // verbatim. What it does NOT allow is a chunk that overlaps a
+        // covered range AND extends past it: such a chunk would mean the
+        // peer has changed the chunk boundary mid-stream, which the wire
+        // spec does not permit and which would corrupt the receiver's
+        // coverage tracking.
         val factory = CapturingFactory()
         val assembler = PayloadAssembler(fileDestinationFactory = factory)
-        // First chunk 100 bytes, ok.
+        // First chunk covers [0, 100).
         assembler.onPayloadTransfer(
             chunkFrame(
                 payloadId = 300,
@@ -483,7 +536,8 @@ class PayloadAssemblerTest {
                 fileName = "x.bin",
             ),
         )
-        // Second chunk lies about offset (claims 50, real is 100).
+        // Second chunk would cover [50, 150). Overlaps [0, 100) on the
+        // [50, 100) sub-interval AND extends beyond it.
         val ex =
             assertThrows<PayloadProtocolException> {
                 assembler.onPayloadTransfer(
@@ -492,14 +546,13 @@ class PayloadAssemblerTest {
                         type = PayloadHeader.PayloadType.FILE,
                         totalSize = 1000,
                         offset = 50,
-                        body = ByteArray(50) { 0x33 },
+                        body = ByteArray(100) { 0x33 },
                         lastChunk = false,
                         fileName = "x.bin",
                     ),
                 )
             }
-        assertThat(ex.message).contains("offset=50")
-        assertThat(ex.message).contains("bytes written=100")
+        assertThat(ex.message).contains("partially overlaps")
         assertThat(factory.closed).isEqualTo(1)
         assertThat(assembler.inFlightPayloadCount).isEqualTo(0)
     }
@@ -544,7 +597,7 @@ class PayloadAssemblerTest {
                     ),
                 )
             }
-        assertThat(ex.message).contains("LAST_CHUNK at 100 bytes")
+        assertThat(ex.message).contains("100 bytes covered")
         assertThat(ex.message).contains("total_size=1000")
         assertThat(factory.closed).isEqualTo(1)
     }
@@ -735,7 +788,7 @@ class PayloadAssemblerTest {
     fun `factory exception on first FILE chunk leaks no state`() {
         val throwingFactory =
             object : FileDestinationFactory {
-                override fun open(header: PayloadHeader): WritableByteChannel =
+                override fun open(header: PayloadHeader): SeekableByteChannel =
                     throw java.io.IOException("simulated open failure")
             }
         val assembler = PayloadAssembler(fileDestinationFactory = throwingFactory)
@@ -882,5 +935,216 @@ class PayloadAssemblerTest {
         assertThat(lastEvent).isInstanceOf(PayloadEvent.FileComplete::class.java)
         assertThat(factory.outputs[9000]!!.toByteArray()).isEqualTo(data)
         assertThat(factory.closed).isEqualTo(1)
+    }
+
+    // ------------------------------------------------------------------
+    // FILE — out-of-order delivery (#44)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `FILE chunks delivered in shuffled order reassemble into the correct bytes`() {
+        // The acceptance test for #44: feed chunks of a FILE payload in a
+        // randomized order to the assembler and verify the reconstructed
+        // bytes match the original. The terminator (zero-body
+        // LAST_CHUNK) is the very last frame; everything before it can
+        // arrive in any order.
+        val factory = CapturingFactory()
+        val assembler = PayloadAssembler(fileDestinationFactory = factory)
+        val total = 64 * 1024
+        val chunkSize = 4 * 1024
+        val data = Random(0xBADCAFE).nextBytes(total)
+
+        // Build the (offset, body) pairs in declared order...
+        val chunks =
+            buildList {
+                var off = 0
+                while (off < total) {
+                    val end = (off + chunkSize).coerceAtMost(total)
+                    add(off.toLong() to data.copyOfRange(off, end))
+                    off = end
+                }
+            }
+        // ...then shuffle them with a seeded PRNG so the test is
+        // deterministic across runs but exercises a non-trivial order.
+        val shuffled = chunks.shuffled(java.util.Random(0xFA1AFE1L))
+
+        for ((offset, body) in shuffled) {
+            val ev =
+                assembler.onPayloadTransfer(
+                    chunkFrame(
+                        payloadId = 4242,
+                        type = PayloadHeader.PayloadType.FILE,
+                        totalSize = total.toLong(),
+                        offset = offset,
+                        body = body,
+                        lastChunk = false,
+                        fileName = "shuffled.bin",
+                    ),
+                )
+            assertThat(ev).isInstanceOf(PayloadEvent.Progress::class.java)
+        }
+        // Now the LAST_CHUNK terminator at offset == total_size with
+        // empty body. Coverage is already complete so this finalizes.
+        val terminator =
+            assembler.onPayloadTransfer(
+                chunkFrame(
+                    payloadId = 4242,
+                    type = PayloadHeader.PayloadType.FILE,
+                    totalSize = total.toLong(),
+                    offset = total.toLong(),
+                    body = ByteArray(0),
+                    lastChunk = true,
+                    fileName = "shuffled.bin",
+                ),
+            )
+        assertThat(terminator).isInstanceOf(PayloadEvent.FileComplete::class.java)
+        assertThat(factory.outputs[4242]!!.toByteArray()).isEqualTo(data)
+        assertThat(factory.closed).isEqualTo(1)
+    }
+
+    @Test
+    fun `FILE LAST_CHUNK arriving before all data chunks errors with gap report`() {
+        // Variant: the peer sends LAST_CHUNK while the coverage set still
+        // has gaps. This should be rejected — LAST_CHUNK is a final
+        // signal that no more chunks are coming, so a missing range is
+        // an unrecoverable protocol error.
+        val factory = CapturingFactory()
+        val assembler = PayloadAssembler(fileDestinationFactory = factory)
+        val total = 256
+        val data = Random(0xC0FFEE).nextBytes(total)
+        // Send only [0, 128) and then a LAST_CHUNK at offset=total.
+        assembler.onPayloadTransfer(
+            chunkFrame(
+                payloadId = 5,
+                type = PayloadHeader.PayloadType.FILE,
+                totalSize = total.toLong(),
+                offset = 0,
+                body = data.copyOfRange(0, 128),
+                lastChunk = false,
+                fileName = "gap.bin",
+            ),
+        )
+        val ex =
+            assertThrows<PayloadProtocolException> {
+                assembler.onPayloadTransfer(
+                    chunkFrame(
+                        payloadId = 5,
+                        type = PayloadHeader.PayloadType.FILE,
+                        totalSize = total.toLong(),
+                        offset = total.toLong(),
+                        body = ByteArray(0),
+                        lastChunk = true,
+                        fileName = "gap.bin",
+                    ),
+                )
+            }
+        assertThat(ex.message).contains("LAST_CHUNK")
+        assertThat(ex.message).contains("128 bytes covered")
+        assertThat(ex.message).contains("total_size=256")
+        assertThat(factory.closed).isEqualTo(1)
+    }
+
+    @Test
+    fun `FILE duplicate chunk delivered verbatim is silently deduped`() {
+        // A peer that re-sends an exact previously-delivered chunk is
+        // permitted (think: BLE retransmit, or a NIC handing the same
+        // datagram up twice). The assembler must not double-write nor
+        // raise a protocol error. Coverage stays unchanged.
+        val factory = CapturingFactory()
+        val assembler = PayloadAssembler(fileDestinationFactory = factory)
+        val total = 32
+        val data = Random(0xDADADA).nextBytes(total)
+        val first =
+            chunkFrame(
+                payloadId = 9,
+                type = PayloadHeader.PayloadType.FILE,
+                totalSize = total.toLong(),
+                offset = 0,
+                body = data,
+                lastChunk = false,
+                fileName = "dup.bin",
+            )
+        // Send the exact same chunk three times.
+        assembler.onPayloadTransfer(first)
+        assembler.onPayloadTransfer(first)
+        val ev3 = assembler.onPayloadTransfer(first)
+        assertThat(ev3).isInstanceOf(PayloadEvent.Progress::class.java)
+        // Coverage should be exactly [0, 32) — still one range — no
+        // matter how many duplicates we forwarded.
+        // Now finalize.
+        val done =
+            assembler.onPayloadTransfer(
+                chunkFrame(
+                    payloadId = 9,
+                    type = PayloadHeader.PayloadType.FILE,
+                    totalSize = total.toLong(),
+                    offset = total.toLong(),
+                    body = ByteArray(0),
+                    lastChunk = true,
+                    fileName = "dup.bin",
+                ),
+            )
+        assertThat(done).isInstanceOf(PayloadEvent.FileComplete::class.java)
+        assertThat(factory.outputs[9]!!.toByteArray()).isEqualTo(data)
+    }
+
+    @Test
+    fun `FILE rejects a chunk with a negative offset`() {
+        val factory = CapturingFactory()
+        val assembler = PayloadAssembler(fileDestinationFactory = factory)
+        val ex =
+            assertThrows<PayloadProtocolException> {
+                assembler.onPayloadTransfer(
+                    chunkFrame(
+                        payloadId = 1,
+                        type = PayloadHeader.PayloadType.FILE,
+                        totalSize = 100,
+                        offset = -1,
+                        body = ByteArray(10),
+                        lastChunk = false,
+                        fileName = "neg.bin",
+                    ),
+                )
+            }
+        assertThat(ex.message).contains("negative")
+    }
+
+    @Test
+    fun `FILE LAST_CHUNK with body data that completes the file is accepted`() {
+        // The encoder sends LAST_CHUNK as a separate empty frame, but
+        // the assembler must also tolerate a peer that fuses the final
+        // body bytes with the LAST_CHUNK flag (the legacy iOS / macOS
+        // shape). As long as coverage ends exactly at total_size, the
+        // payload completes.
+        val factory = CapturingFactory()
+        val assembler = PayloadAssembler(fileDestinationFactory = factory)
+        val data = Random(0xFEEDFACE).nextBytes(64)
+        // First half, no LAST_CHUNK.
+        assembler.onPayloadTransfer(
+            chunkFrame(
+                payloadId = 11,
+                type = PayloadHeader.PayloadType.FILE,
+                totalSize = data.size.toLong(),
+                offset = 0,
+                body = data.copyOfRange(0, 32),
+                lastChunk = false,
+                fileName = "fused.bin",
+            ),
+        )
+        // Second half WITH LAST_CHUNK on the same data frame.
+        val ev =
+            assembler.onPayloadTransfer(
+                chunkFrame(
+                    payloadId = 11,
+                    type = PayloadHeader.PayloadType.FILE,
+                    totalSize = data.size.toLong(),
+                    offset = 32,
+                    body = data.copyOfRange(32, 64),
+                    lastChunk = true,
+                    fileName = "fused.bin",
+                ),
+            )
+        assertThat(ev).isInstanceOf(PayloadEvent.FileComplete::class.java)
+        assertThat(factory.outputs[11]!!.toByteArray()).isEqualTo(data)
     }
 }

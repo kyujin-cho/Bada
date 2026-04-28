@@ -9,6 +9,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import androidx.annotation.VisibleForTesting
+import java.io.File
 
 /**
  * Public entry point for constructing a [MediaStoreDownloadsFactory]
@@ -57,7 +58,13 @@ public object DownloadsWriterFactory {
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
                 )
             }
-        return MediaStoreDownloadsFactory(DownloadsWriter(environment))
+        // Spool inbound FILE payloads under a private cache subdirectory
+        // so we can keep them off the public Downloads scan even on
+        // legacy storage. cacheDir is automatically reclaimed by the
+        // platform under storage pressure, which is the right behavior
+        // for transient transfer state.
+        val spoolDirectory = File(context.cacheDir, SPOOL_SUBDIRECTORY)
+        return MediaStoreDownloadsFactory(DownloadsWriter(environment), spoolDirectory)
     }
 
     /**
@@ -66,6 +73,16 @@ public object DownloadsWriterFactory {
      * production code paths only see [create].
      */
     @VisibleForTesting
-    internal fun fromEnvironment(environment: DownloadsEnvironment): MediaStoreDownloadsFactory =
-        MediaStoreDownloadsFactory(DownloadsWriter(environment))
+    internal fun fromEnvironment(
+        environment: DownloadsEnvironment,
+        spoolDirectory: File,
+    ): MediaStoreDownloadsFactory = MediaStoreDownloadsFactory(DownloadsWriter(environment), spoolDirectory)
+
+    /**
+     * Subdirectory inside the app's `cacheDir` where in-flight FILE
+     * payloads are spooled. The directory is created lazily on the
+     * first transfer and cleared on factory teardown
+     * ([MediaStoreDownloadsFactory.abortAll]).
+     */
+    internal const val SPOOL_SUBDIRECTORY: String = "wvmg-payload-spool"
 }

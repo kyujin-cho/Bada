@@ -6,7 +6,7 @@
 package io.github.kyujincho.wvmg.protocol.payload
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
-import java.nio.channels.WritableByteChannel
+import java.nio.channels.SeekableByteChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -18,15 +18,19 @@ import java.nio.file.StandardOpenOption
  * "save into this exact path"; every received file gets a destination
  * decided by the host platform:
  *
- *  - On Android we route the bytes through `MediaStore` / `ContentResolver`
- *    and end up with a content URI under `Downloads/`. There is no
- *    `java.io.File` involved at all — the right primitive is a
- *    [WritableByteChannel] that wraps the `OutputStream` returned by
- *    `ContentResolver.openOutputStream(uri)`.
+ *  - On Android we spool bytes through a private-storage `RandomAccessFile`
+ *    until the transfer completes, then publish the spool file's bytes
+ *    into `MediaStore` / `ContentResolver` on commit. The `WritableByteChannel`
+ *    surface alone is not enough — issue #44 added support for chunks
+ *    arriving out of order (necessary once we add Wi-Fi Direct or BLE
+ *    L2CAP mediums in #4.x) and that requires `SeekableByteChannel.position`.
  *  - On the JVM (host-side test harness, or a hypothetical desktop port)
- *    we want a real file on disk under a configurable directory.
+ *    we want a real file on disk under a configurable directory; a
+ *    `FileChannel` from `Files.newByteChannel` already implements
+ *    [SeekableByteChannel].
  *  - For unit tests we want an in-memory channel so we can assert on the
- *    exact bytes that were written without touching the filesystem.
+ *    exact bytes that were written without touching the filesystem; a
+ *    small `ByteBuffer`-backed [SeekableByteChannel] adapter is enough.
  *
  * `:core-protocol` lives below the platform line (no `android.*` imports
  * are allowed), so the assembler cannot itself open a `MediaStore`
@@ -36,9 +40,14 @@ import java.nio.file.StandardOpenOption
  * the payload's first chunk.
  *
  * The factory contract:
- *  - It MUST return a [WritableByteChannel] in a state ready to accept
- *    `header.total_size` bytes worth of `write()` calls. The channel is
- *    opened in *write-from-byte-zero* mode; the assembler does not seek.
+ *  - It MUST return a [SeekableByteChannel] in a state ready to accept
+ *    `header.total_size` bytes worth of `write()` calls at arbitrary
+ *    offsets. The channel is opened with the cursor at byte 0; the
+ *    assembler calls [SeekableByteChannel.position] before each write
+ *    so a chunk that arrives out of order lands at its declared offset.
+ *  - Implementations MAY pre-allocate the destination to `total_size`
+ *    bytes (e.g. by truncating to the final size up front) but the
+ *    assembler does not require it.
  *  - The assembler closes the channel exactly once: either on the
  *    `LAST_CHUNK` of a successful payload, or as part of cleanup when a
  *    later chunk of that payload causes a [PayloadProtocolException]. The
@@ -85,10 +94,12 @@ public interface FileDestinationFactory {
      *   `last_modified_timestamp_millis`. Implementations should use
      *   `file_name` and `parent_folder` for naming, and may use
      *   `total_size` to pre-allocate the destination.
-     * @return A [WritableByteChannel] that the assembler will [write][WritableByteChannel.write]
-     *   `total_size` bytes to before closing.
+     * @return A [SeekableByteChannel] that the assembler will
+     *   [write][SeekableByteChannel.write] `total_size` bytes to (across
+     *   one or more chunks, possibly delivered out of order) before
+     *   closing.
      */
-    public fun open(header: PayloadHeader): WritableByteChannel
+    public fun open(header: PayloadHeader): SeekableByteChannel
 
     /**
      * Publish the destination for [payloadId] now that the assembler has
@@ -166,18 +177,21 @@ public class TempFileDestinationFactory(
      */
     private val baseDirectory: Path? = null,
 ) : FileDestinationFactory {
-    override fun open(header: PayloadHeader): WritableByteChannel {
+    override fun open(header: PayloadHeader): SeekableByteChannel {
         val dir = baseDirectory ?: defaultDir()
         Files.createDirectories(dir)
         val safeName = sanitize(header.fileName.ifEmpty { "unnamed" })
         val target = dir.resolve("payload-${header.id}-$safeName")
         // CREATE_NEW would be ideal for safety, but tests can re-run with
         // colliding payload ids; TRUNCATE_EXISTING gives us idempotent
-        // open behavior. The assembler writes start at byte zero so this
-        // is correct.
+        // open behavior. We also enable READ so the channel is fully
+        // seekable (FileChannel implements SeekableByteChannel either
+        // way, but TRUNCATE_EXISTING + write-only on some JVMs reports
+        // a non-seekable position cursor; READ keeps the contract clean).
         return Files.newByteChannel(
             target,
             StandardOpenOption.CREATE,
+            StandardOpenOption.READ,
             StandardOpenOption.WRITE,
             StandardOpenOption.TRUNCATE_EXISTING,
         )

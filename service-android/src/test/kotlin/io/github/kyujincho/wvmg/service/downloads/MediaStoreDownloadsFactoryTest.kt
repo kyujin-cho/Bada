@@ -8,7 +8,9 @@ package io.github.kyujincho.wvmg.service.downloads
 import com.google.common.truth.Truth.assertThat
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import java.nio.ByteBuffer
+import java.nio.file.Path
 
 /**
  * Exercises [MediaStoreDownloadsFactory] against a [FakeDownloadsEnvironment].
@@ -27,9 +29,11 @@ class MediaStoreDownloadsFactoryTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `open returns a channel that writes bytes into the environment`() {
+    fun `open returns a channel that writes bytes into the environment`(
+        @TempDir spool: Path,
+    ) {
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
         val header = fileHeader(id = 100, name = "doc.pdf", totalSize = 4)
 
         val channel = factory.open(header)
@@ -47,9 +51,11 @@ class MediaStoreDownloadsFactoryTest {
     }
 
     @Test
-    fun `open sanitizes the peer-supplied filename`() {
+    fun `open sanitizes the peer-supplied filename`(
+        @TempDir spool: Path,
+    ) {
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
         val header = fileHeader(id = 1, name = "../../etc/passwd", totalSize = 0)
 
         factory.open(header).close()
@@ -63,9 +69,11 @@ class MediaStoreDownloadsFactoryTest {
     }
 
     @Test
-    fun `open with empty filename uses the fallback name`() {
+    fun `open with empty filename uses the fallback name`(
+        @TempDir spool: Path,
+    ) {
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
         val header = fileHeader(id = 99, name = "", totalSize = 0)
 
         factory.open(header).close()
@@ -80,13 +88,15 @@ class MediaStoreDownloadsFactoryTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `commit forwards the senders last_modified timestamp to the environment`() {
+    fun `commit forwards the senders last_modified timestamp to the environment`(
+        @TempDir spool: Path,
+    ) {
         // Issue #41: PayloadHeader.last_modified_timestamp_millis must
         // round-trip from the assembler's open() through the factory's
         // commit() down to the underlying environment so the
         // MediaStore row (or legacy file) carries the original mtime.
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
         val ts = 1_700_000_000_000L
         val header =
             PayloadHeader
@@ -107,12 +117,14 @@ class MediaStoreDownloadsFactoryTest {
     }
 
     @Test
-    fun `commit forwards zero when the sender omitted the timestamp`() {
+    fun `commit forwards zero when the sender omitted the timestamp`(
+        @TempDir spool: Path,
+    ) {
         // A peer that left last_modified_timestamp_millis at the proto
         // default (0) must NOT cause us to overwrite the platform's
         // default mtime — the environment receives 0L and ignores it.
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
         val header = fileHeader(id = 200L, name = "no-ts.bin", totalSize = 0)
 
         factory.open(header).close()
@@ -123,9 +135,11 @@ class MediaStoreDownloadsFactoryTest {
     }
 
     @Test
-    fun `commit returns true once and false on second call`() {
+    fun `commit returns true once and false on second call`(
+        @TempDir spool: Path,
+    ) {
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
         val header = fileHeader(id = 7, name = "first.bin", totalSize = 0)
 
         factory.open(header).close()
@@ -134,9 +148,11 @@ class MediaStoreDownloadsFactoryTest {
     }
 
     @Test
-    fun `abort deletes the destination and removes it from in-flight`() {
+    fun `abort deletes the destination and removes it from in-flight`(
+        @TempDir spool: Path,
+    ) {
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
         val header = fileHeader(id = 8, name = "to-cancel.bin", totalSize = 0)
 
         factory.open(header)
@@ -150,18 +166,22 @@ class MediaStoreDownloadsFactoryTest {
     }
 
     @Test
-    fun `abort on unknown payloadId is a no-op`() {
+    fun `abort on unknown payloadId is a no-op`(
+        @TempDir spool: Path,
+    ) {
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
 
         assertThat(factory.abort(payloadId = 999_999L)).isFalse()
         assertThat(env.slots).isEmpty()
     }
 
     @Test
-    fun `abortAll discards every in-flight destination`() {
+    fun `abortAll discards every in-flight destination`(
+        @TempDir spool: Path,
+    ) {
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
 
         factory.open(fileHeader(id = 1, name = "a.bin", totalSize = 0))
         factory.open(fileHeader(id = 2, name = "b.bin", totalSize = 0))
@@ -175,9 +195,11 @@ class MediaStoreDownloadsFactoryTest {
     }
 
     @Test
-    fun `commit after abort returns false because handle was already disposed`() {
+    fun `commit after abort returns false because handle was already disposed`(
+        @TempDir spool: Path,
+    ) {
         val env = FakeDownloadsEnvironment()
-        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
         val header = fileHeader(id = 42, name = "aborted-then-committed.bin", totalSize = 0)
 
         factory.open(header)
