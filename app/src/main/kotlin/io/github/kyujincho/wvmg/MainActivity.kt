@@ -8,8 +8,10 @@ package io.github.kyujincho.wvmg
 import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 import io.github.kyujincho.wvmg.onboarding.PermissionRequirements
 import io.github.kyujincho.wvmg.onboarding.PermissionsOnboardingActivity
+import io.github.kyujincho.wvmg.service.receiver.MdnsVisibilityOverrideHolder
 
 /**
  * Empty launcher activity for the WhenVivoMeetsGoogle app.
@@ -18,11 +20,23 @@ import io.github.kyujincho.wvmg.onboarding.PermissionsOnboardingActivity
  * status, and settings screens replace this implementation as the rest
  * of the phase rolls in.
  *
- * The one bit of real logic today is the permissions gate: if any of
- * the runtime permissions Phase 1 needs (#26) is missing on cold start,
- * we send the user to [PermissionsOnboardingActivity] before they see
- * any app UI. Onboarding does not block proceeding when only optional
- * permissions remain denied — see the activity for the policy.
+ * The one bit of real logic today is:
+ *
+ *  - Permissions gate: if any of the runtime permissions Phase 1 needs
+ *    (#26) is missing on cold start, we send the user to
+ *    [PermissionsOnboardingActivity] before they see any app UI.
+ *    Onboarding does not block proceeding when only optional permissions
+ *    remain denied — see the activity for the policy.
+ *  - Always-visible override (#34): a single switch surfaces
+ *    [MdnsVisibilityOverrideHolder.setAlwaysVisible] to the user. When
+ *    enabled, the receiver publishes mDNS unconditionally, bypassing
+ *    the BLE-pulse gate. Useful on devices where BLE scan is
+ *    unavailable (no permission, no LE hardware) or whenever the user
+ *    wants to stay discoverable.
+ *
+ * The override flag is process-wide and lives in memory only. Persisting
+ * the toggle across process death is a follow-up; the in-memory surface
+ * is the minimum #34 needs to ship the override path.
  */
 class MainActivity : AppCompatActivity() {
     /**
@@ -41,6 +55,14 @@ class MainActivity : AppCompatActivity() {
         savedInstanceState?.let {
             onboardingLaunched = it.getBoolean(STATE_ONBOARDING_LAUNCHED, false)
         }
+
+        val switch = findViewById<SwitchCompat>(R.id.main_always_visible_switch)
+        // Reflect the current process-wide value so the toggle is
+        // accurate after a configuration change or activity recreation.
+        switch.isChecked = MdnsVisibilityOverrideHolder.isActive
+        switch.setOnCheckedChangeListener { _, checked ->
+            MdnsVisibilityOverrideHolder.setAlwaysVisible(checked)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -50,6 +72,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Re-sync the switch to the holder on every onStart — the
+        // override is process-wide and could have been changed by
+        // another activity (or, in the future, a quick-settings tile)
+        // while we were paused.
+        findViewById<SwitchCompat>(R.id.main_always_visible_switch)?.let {
+            if (it.isChecked != MdnsVisibilityOverrideHolder.isActive) {
+                it.isChecked = MdnsVisibilityOverrideHolder.isActive
+            }
+        }
+
         // Route to onboarding at most once per activity instance. Once
         // #21 lands, the foreground service will re-check at start time
         // and surface a dismissible error instead of relaunching

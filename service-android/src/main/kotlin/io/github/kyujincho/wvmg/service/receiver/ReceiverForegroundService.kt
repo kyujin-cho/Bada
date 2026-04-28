@@ -113,6 +113,9 @@ public class ReceiverForegroundService : Service() {
     @Volatile
     private var bleScanner: BleQuickShareScanner? = null
 
+    @Volatile
+    private var mdnsGate: MdnsAdvertisementGate? = null
+
     override fun onCreate() {
         super.onCreate()
         ReceiverNotification.ensureChannel(this)
@@ -225,6 +228,11 @@ public class ReceiverForegroundService : Service() {
         serviceScope.launch {
             try {
                 newSession.start()
+                // Once start() returns successfully the TCP listener is
+                // bound and the multicast lock is held. With the
+                // gated-advertise factory in production, mDNS publish is
+                // not yet up — the gate launched below handles that.
+                startMdnsGate(newSession)
             } catch (
                 @Suppress("SwallowedException") t: Throwable,
             ) {
@@ -243,6 +251,40 @@ public class ReceiverForegroundService : Service() {
         // debug screen. The cadence is intentionally slow (every 10s)
         // so we don't spam logcat in the steady state.
         startDiscoveryDiagnosticsLogger()
+    }
+
+    /**
+     * Construct and launch the [MdnsAdvertisementGate] that drives
+     * [ReceiverSession.publishAdvertisement] / `unpublishAdvertisement`
+     * from BLE pulse activity (#34). Called after [ReceiverSession.start]
+     * returns, so the bound TCP port is already known.
+     *
+     * If [bleScanner] is `null` (BLE failed to start, e.g. permission
+     * denied), the gate observes a never-emitting source — the override
+     * holder remains the only signal that can drive a publish. Users
+     * can still toggle the always-visible override to run the receiver
+     * in mDNS-only mode.
+     */
+    private fun startMdnsGate(activeSession: ReceiverSession) {
+        // Bail out if the service has already been torn down between
+        // session.start() returning and this method running. Without
+        // the running check, a quick start/stop sequence could leak a
+        // gate whose collector keeps a reference to a stopped session.
+        if (mdnsGate != null) return
+        if (!activeSession.isRunning) return
+        val gate =
+            MdnsAdvertisementGate(
+                session = activeSession,
+                bleActivity =
+                    bleScanner?.activity
+                        ?: kotlinx.coroutines.flow.MutableStateFlow(
+                            io.github.kyujincho.wvmg.discovery.ble.ScanActivity.Idle,
+                        ),
+                alwaysVisibleOverride = MdnsVisibilityOverrideHolder.activeFlow,
+                qrSessionActive = QrSessionActiveHolder.activeFlow,
+            )
+        gate.start(serviceScope)
+        mdnsGate = gate
     }
 
     /**
@@ -353,6 +395,12 @@ public class ReceiverForegroundService : Service() {
         }
         unregisterConsentReceiverIfNeeded()
 
+        // Stop the gate before the session so its delayed unpublish
+        // coroutine can no longer fire after `session.stop()` has
+        // already torn the AdvertiseHandle down.
+        mdnsGate?.stop()
+        mdnsGate = null
+
         session?.stop()
         session = null
         ActiveDiscoveryHolder.clear()
@@ -455,6 +503,12 @@ public class ReceiverForegroundService : Service() {
                     multicastLock = AndroidMulticastLockController(context),
                     factoryProvider = { DownloadsWriterFactory.create(context) },
                     endpointInfo = identity,
+                    // Issue #34: defer mDNS publish to the
+                    // [MdnsAdvertisementGate] so we only advertise while
+                    // a sender BLE pulse is active (or the user has
+                    // forced visibility on, or a QR session is in
+                    // progress).
+                    advertiseGated = true,
                 )
             }
 
@@ -567,6 +621,74 @@ public object ActiveBleScannerHolder {
 
     internal fun clear() {
         ref = null
+    }
+}
+
+/**
+ * Sticky "always visible" override for the mDNS gate (#34).
+ *
+ * The user surfaces this through the launcher activity (`MainActivity`)
+ * — when toggled on, the receiver publishes mDNS unconditionally even
+ * if no BLE pulse is in flight. Useful on devices where BLE scan is
+ * unavailable (no `BLUETOOTH_SCAN` grant, no LE hardware) or whenever
+ * the user wants to be discoverable regardless of sender activity.
+ *
+ * The flag is process-wide and lives in memory only — it resets across
+ * process death. Persisting the toggle is a follow-up; the in-memory
+ * surface is the minimum #34 needs to ship the override path.
+ *
+ * The gate subscribes to [activeFlow]; UI surfaces (and tests) flip the
+ * value via [setAlwaysVisible].
+ */
+public object MdnsVisibilityOverrideHolder {
+    private val state: kotlinx.coroutines.flow.MutableStateFlow<Boolean> =
+        kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /**
+     * Hot [kotlinx.coroutines.flow.StateFlow] of the override state.
+     * `true` while the user has forced the receiver to be visible.
+     */
+    public val activeFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = state
+
+    /** Current snapshot value of [activeFlow]. */
+    public val isActive: Boolean
+        get() = state.value
+
+    /** Update the override. Safe to call from any thread. */
+    public fun setAlwaysVisible(active: Boolean) {
+        state.value = active
+    }
+}
+
+/**
+ * QR-code receive-flow bypass for the mDNS gate (#34 acceptance
+ * criterion: "QR-code path overrides this gating entirely — see
+ * #1.16").
+ *
+ * The receiver-side QR-code-driven flow (paired-key over a one-shot
+ * scan) is being implemented in a separate issue; the holder is
+ * exposed now so the gate logic stays correct once that flow lands.
+ * Today the holder is wired to a hot flow with no producers — the
+ * gate consults it but the value is always `false`.
+ */
+public object QrSessionActiveHolder {
+    private val state: kotlinx.coroutines.flow.MutableStateFlow<Boolean> =
+        kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /** Hot flow signalling whether a QR-code receive session is active. */
+    public val activeFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = state
+
+    /** Current snapshot value of [activeFlow]. */
+    public val isActive: Boolean
+        get() = state.value
+
+    /**
+     * Set the QR-session-active flag. The QR receive flow flips this on
+     * when a scan begins and off when the resulting transfer completes
+     * or is cancelled.
+     */
+    public fun setQrSessionActive(active: Boolean) {
+        state.value = active
     }
 }
 

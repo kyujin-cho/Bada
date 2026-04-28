@@ -94,6 +94,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @property secureRandomProvider Supplies a fresh [SecureRandom] per
  *   accepted connection (UKEY2 keypairs / SecureMessage IVs). Tests
  *   inject a deterministic stub.
+ * @property advertiseGated When `true`, [start] binds the TCP listener
+ *   and acquires the multicast lock but does **not** publish the mDNS
+ *   advertisement. The caller is then responsible for calling
+ *   [publishAdvertisement] / [unpublishAdvertisement] to drive the
+ *   advertise lifecycle externally. Used by [MdnsAdvertisementGate]
+ *   (#34) to bind publish to BLE pulse activity. Defaults to `false`
+ *   for backward-compatibility — `start()` publishes immediately as in
+ *   Phase 1.
  */
 public class ReceiverSession(
     private val tcpServerFactory: TcpServerFactory,
@@ -102,6 +110,7 @@ public class ReceiverSession(
     private val factoryProvider: () -> FileDestinationFactory,
     private val endpointInfo: EndpointInfo,
     private val secureRandomProvider: () -> SecureRandom = { SecureRandom() },
+    private val advertiseGated: Boolean = false,
 ) {
     private val supervisor: Job = SupervisorJob()
 
@@ -208,17 +217,24 @@ public class ReceiverSession(
             throw t
         }
 
-        try {
-            advertiseHandle = advertiser.advertise(endpointInfo, port)
-        } catch (t: Throwable) {
-            // mDNS publish failed. Roll back the listener and the lock.
-            runCatching { tcpServer.stop() }
-            server = null
-            runCatching { multicastLock.release() }
-            holdingLock = false
-            stopped.set(true)
-            scope.cancel()
-            throw t
+        if (!advertiseGated) {
+            // Phase 1 / default behaviour: publish the mDNS advertisement
+            // synchronously during start so peers see us as soon as the
+            // service is up. Issue #34 introduces [advertiseGated] = true
+            // for the BLE-pulse-driven flow, where publish is deferred
+            // until [publishAdvertisement] is called.
+            try {
+                advertiseHandle = advertiser.advertise(endpointInfo, port)
+            } catch (t: Throwable) {
+                // mDNS publish failed. Roll back the listener and the lock.
+                runCatching { tcpServer.stop() }
+                server = null
+                runCatching { multicastLock.release() }
+                holdingLock = false
+                stopped.set(true)
+                scope.cancel()
+                throw t
+            }
         }
 
         // Forward completions onto our SharedFlow. tryEmit is fine because
@@ -255,8 +271,15 @@ public class ReceiverSession(
     public fun stop() {
         if (!stopped.compareAndSet(false, true)) return
 
-        runCatching { advertiseHandle?.close() }
-        advertiseHandle = null
+        // Serialize advertise teardown with any racing publish/unpublish
+        // call: a [MdnsAdvertisementGate] coroutine may invoke
+        // [publishAdvertisement] concurrently with `Service.onDestroy`
+        // calling stop(), and we must not leave an AdvertiseHandle alive
+        // past stop().
+        synchronized(advertiseLock) {
+            runCatching { advertiseHandle?.close() }
+            advertiseHandle = null
+        }
 
         runCatching { server?.stopBlocking() }
         server = null
@@ -275,6 +298,55 @@ public class ReceiverSession(
      */
     public val isRunning: Boolean
         get() = started.get() && !stopped.get()
+
+    /**
+     * Whether an mDNS advertisement is currently published. Used by
+     * [MdnsAdvertisementGate] (#34) to decide whether a publish/unpublish
+     * call would be a no-op.
+     */
+    public val isAdvertising: Boolean
+        get() = advertiseHandle?.isActive == true
+
+    /**
+     * Publish the mDNS advertisement against the bound TCP port. Only
+     * meaningful when the session was constructed with
+     * `advertiseGated = true`. Idempotent: if an advertisement is
+     * already in flight this call is a no-op.
+     *
+     * Thread-safe: serialises with [unpublishAdvertisement] and [stop]
+     * via the same lock so a racing teardown cannot leak a published
+     * advertisement past stop.
+     *
+     * @throws IllegalStateException if the session has not been started
+     *   or has been stopped.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    public fun publishAdvertisement() {
+        synchronized(advertiseLock) {
+            check(started.get()) { "ReceiverSession has not been started" }
+            check(!stopped.get()) { "ReceiverSession has been stopped" }
+            if (advertiseHandle?.isActive == true) return
+            val tcpServer = server ?: error("TCP server is not bound")
+            advertiseHandle = advertiser.advertise(endpointInfo, tcpServer.boundPort)
+        }
+    }
+
+    /**
+     * Unpublish the mDNS advertisement if one is currently in flight.
+     * Idempotent: calling this when no advertisement is published is a
+     * no-op. Other resources (the TCP listener, the multicast lock) are
+     * unaffected — the receiver remains reachable for already-resolved
+     * peers and can be re-published via [publishAdvertisement].
+     */
+    public fun unpublishAdvertisement() {
+        synchronized(advertiseLock) {
+            val handle = advertiseHandle ?: return
+            runCatching { handle.close() }
+            advertiseHandle = null
+        }
+    }
+
+    private val advertiseLock: Any = Any()
 
     public companion object {
         /**
