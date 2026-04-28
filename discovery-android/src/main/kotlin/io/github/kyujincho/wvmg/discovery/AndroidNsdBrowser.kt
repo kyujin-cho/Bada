@@ -62,6 +62,13 @@ internal class AndroidNsdBrowser(
             @Suppress("DEPRECATION")
             nsdManager.resolveService(info, listener)
         },
+    /**
+     * How long to wait for a `resolveService` callback before emitting
+     * an [NsdBrowserEvent.Error] and unblocking the queue. Defaults to
+     * [RESOLVE_TIMEOUT_MILLIS]. Overridable by tests to shorten the
+     * real-wall-clock wait in integration tests without virtual time.
+     */
+    internal val resolveTimeoutMillis: Long = RESOLVE_TIMEOUT_MILLIS,
 ) : NsdBrowser {
     override fun discover(serviceType: String): Flow<NsdBrowserEvent> =
         callbackFlow {
@@ -119,26 +126,15 @@ internal class AndroidNsdBrowser(
                         val name = serviceInfo.serviceName ?: return
                         trySend(NsdBrowserEvent.Found(name))
 
-                        // Android 12+ ships a new MdnsDiscoveryManager
-                        // pipeline in the system NSD service (Conscrypt
-                        // module). Under that pipeline `onServiceFound`
-                        // delivers an already-resolved NsdServiceInfo
-                        // — port, host, and TXT records are populated
-                        // up front, and calling `resolveService` on an
-                        // already-resolved info silently no-ops on some
-                        // platform versions, leaving the resolve worker
-                        // waiting on a callback that never fires (then
-                        // timing out at RESOLVE_TIMEOUT_MILLIS and
-                        // emitting an Error rather than a Resolved).
-                        // The picker stays empty as a result.
-                        //
-                        // Detected via: a port > 0 in the onServiceFound
-                        // payload — the legacy pipeline always delivered
-                        // port=0 here and required an explicit resolve.
-                        // When the system has already done the resolve
-                        // for us, emit Resolved directly and skip the
-                        // round-trip.
-                        if (serviceInfo.port > 0) {
+                        // The post-resolve fast-path predicate is lifted
+                        // into a JVM-testable helper [shouldSkipResolve]
+                        // so a regression test can pin the contract
+                        // without instantiating the platform-typed
+                        // NsdServiceInfo (which is unavailable on a JVM
+                        // unit-test classpath — the AGP unit-test stub
+                        // jar throws ClassFormatError on allocation).
+                        // See [shouldSkipResolve] for the full why.
+                        if (shouldSkipResolve(serviceInfo.port)) {
                             trySend(mapResolved(serviceInfo))
                         } else {
                             // Legacy / pre-MdnsDiscoveryManager pipeline:
@@ -247,7 +243,7 @@ internal class AndroidNsdBrowser(
 
         awaitResolveSignalWithTimeout(
             name = name,
-            timeoutMillis = RESOLVE_TIMEOUT_MILLIS,
+            timeoutMillis = resolveTimeoutMillis,
             signal = signal,
             emit = emit,
         )
@@ -293,6 +289,40 @@ internal class AndroidNsdBrowser(
          * pop up within 5 s of advertise start" acceptance criterion.
          */
         internal const val RESOLVE_TIMEOUT_MILLIS: Long = 5_000L
+
+        /**
+         * Whether `onServiceFound` should emit `Resolved` directly,
+         * skipping the resolve queue + worker round-trip.
+         *
+         * The Android 12+ MdnsDiscoveryManager pipeline (Conscrypt
+         * mainline module) delivers fully-resolved [NsdServiceInfo] to
+         * `onServiceFound` — port, host, and TXT records are populated
+         * up front. Calling [NsdManager.resolveService] on an
+         * already-resolved info silently no-ops on some platform
+         * versions, leaving the resolve worker waiting on a callback
+         * that never fires (then timing out at
+         * [RESOLVE_TIMEOUT_MILLIS] and emitting an Error rather than a
+         * Resolved). The picker stays empty as a result.
+         *
+         * Detected via: a port > 0 in the `onServiceFound` payload —
+         * the legacy pre-MdnsDiscoveryManager pipeline always delivered
+         * port=0 here and required an explicit resolve. When the system
+         * has already done the resolve for us, this predicate returns
+         * `true` and `onServiceFound` emits Resolved directly.
+         *
+         * Lifted into the companion as a `@JvmStatic internal` helper
+         * so JVM unit tests can pin the contract without instantiating
+         * the platform-typed [NsdServiceInfo] (the AGP unit-test stub
+         * jar throws `ClassFormatError` on allocation, and Robolectric
+         * setup is non-trivial in this project — see issue #100). The
+         * regression guard is in [AndroidNsdBrowserTest].
+         *
+         * Found while running the on-device verification of #99 against
+         * a Vivo X300 Ultra + Galaxy S24 Ultra peer; see commit
+         * `f1bdcb5` for the full diagnosis.
+         */
+        @JvmStatic
+        internal fun shouldSkipResolve(port: Int): Boolean = port > 0
 
         /**
          * Wait for a `resolveService` callback signal up to
