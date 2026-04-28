@@ -109,8 +109,11 @@ import java.security.SecureRandom
  *   record into this concrete value.
  * @param port TCP port the receiver advertised in its endpoint record.
  * @param endpointId 4-char ASCII identifier the sender uses for itself
- *   in the opening `ConnectionRequest`. Default: `"NDLp"` (Quick
- *   Share's identifier shape — 4 ASCII characters).
+ *   in the opening `ConnectionRequest`. Default: a freshly generated
+ *   alphanumeric id via [generateEndpointId]. Quick Share peers (Samsung
+ *   One UI's GMS Nearby in particular) keep per-endpoint-id state for a
+ *   short window after a session tears down, and a fresh id per
+ *   connection avoids racing that teardown.
  * @param endpointInfo Serialized
  *   [io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo] bytes
  *   describing the sender. Default: empty (sender does not advertise a
@@ -131,7 +134,7 @@ import java.security.SecureRandom
 public class OutboundConnection(
     private val targetAddress: InetAddress,
     private val port: Int,
-    private val endpointId: String = DEFAULT_ENDPOINT_ID,
+    private val endpointId: String = generateEndpointId(),
     private val endpointInfo: ByteArray = ByteArray(0),
     private val qrCodeHandshakeData: ByteArray? = null,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
@@ -339,6 +342,15 @@ public class OutboundConnection(
         withContext(Dispatchers.IO) {
             val socket = Socket()
             socket.connect(InetSocketAddress(targetAddress, port), connectTimeoutMillis)
+            // TCP_NODELAY mirrors the receiver-side accept loop
+            // (`TcpReceiverServer` line ~414). Without it, Nagle batches
+            // our small UKEY2 frames (~50 B) and the unencrypted
+            // `ConnectionResponse{ACCEPT}` (~24 B) into a single segment,
+            // which the peer's framing parser handles fine but adds
+            // latency on the path that already needs to fit inside
+            // Samsung's UKEY2 server alarm. Best-effort: a misbehaving
+            // SocketImpl that rejects this option is non-fatal.
+            runCatching { socket.tcpNoDelay = true }
             socket
         }
 
@@ -410,12 +422,40 @@ public class OutboundConnection(
 
     public companion object {
         /**
-         * Default sender endpoint id ("NDLp" — Nearby Drop Lablup-port,
-         * but really just any 4-character ASCII string Quick Share
-         * peers tolerate). NearDrop uses "NCLp" / "FW**" with a similar
-         * intent.
+         * Generate a fresh 4-character sender endpoint id from the
+         * `[A-Za-z0-9]` alphabet stock Quick Share uses (see
+         * `google/nearby` `ClientProxy::GenerateEndpointId` and
+         * NearDrop's `OutboundNearbyConnection.swift`). A unique id per
+         * connection avoids colliding with stale per-endpoint state on
+         * the receiver: Samsung One UI's GMS Nearby keeps a
+         * `KeepAliveManager` loop keyed on endpoint id, and reusing the
+         * same id between attempts has been observed to race the
+         * teardown loop and produce intermittent silent FINs at the
+         * peer-ConnectionResponse step.
          */
-        public const val DEFAULT_ENDPOINT_ID: String = "NDLp"
+        @JvmStatic
+        public fun generateEndpointId(random: SecureRandom = SecureRandom()): String {
+            val out = CharArray(ENDPOINT_ID_LENGTH)
+            for (i in 0 until ENDPOINT_ID_LENGTH) {
+                out[i] = ENDPOINT_ID_ALPHABET[random.nextInt(ENDPOINT_ID_ALPHABET.length)]
+            }
+            return String(out)
+        }
+
+        /**
+         * Length of the sender endpoint id in bytes / characters. Stock
+         * Quick Share uses 4; NearDrop uses 4; we match.
+         */
+        private const val ENDPOINT_ID_LENGTH: Int = 4
+
+        /**
+         * Alphabet for [generateEndpointId]. Restricting to ASCII
+         * alphanumerics keeps the bytes deterministic across locales and
+         * lets every byte round-trip cleanly through any UTF-8/ASCII
+         * channel that downstream peers use to read this value.
+         */
+        private const val ENDPOINT_ID_ALPHABET: String =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
         /**
          * Default TCP connect timeout, in milliseconds. 5 seconds is
