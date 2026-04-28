@@ -455,6 +455,12 @@ public data class D2DUnwrapped(
 ) {
     // ByteArray equals/hashCode on a data class is reference-based; override
     // for content-based comparison so tests can `assertEquals` cleanly.
+    //
+    // `payload` is the *plaintext* inner `OfflineFrame` bytes that have
+    // already been HMAC-verified by [SecureMessageCodec.verifyAndDecrypt],
+    // not a MAC tag or key. Plain `contentEquals` is fine here. See
+    // `:core-protocol/README.md` for the project-wide rule on when
+    // constant-time compare is required.
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is D2DUnwrapped) return false

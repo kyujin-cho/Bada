@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.protocol.qr
 
 import io.github.kyujincho.wvmg.protocol.crypto.Hkdf
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 
 /**
  * Derives the two HKDF-SHA256 keys that the Quick Share QR-code path uses.
@@ -121,6 +122,19 @@ public object QrKeyDerivation {
  * is value-based on array contents so KAT tests can compare instances with
  * plain `assertEquals`.
  *
+ * **Constant-time comparison.** Both fields hold secret HKDF output —
+ * [advertisingToken] is the AES-GCM AAD that gates hidden-mode device-name
+ * decryption, and [nameEncryptionKey] is the AES-128 key itself. Using
+ * `ByteArray.contentEquals` here would short-circuit on the first differing
+ * byte and leak a per-byte timing oracle to any caller that can observe
+ * comparison latency. We use [MessageDigest.isEqual] instead, which performs
+ * a length check followed by an XOR-then-OR loop in time independent of the
+ * input contents (since OpenJDK 7u40+ / every Android API level we ship to).
+ * Yes, in practice `equals` here is invoked only by KAT tests, but the
+ * policy in `:core-protocol` is uniform: never use `contentEquals` on bytes
+ * derived from secrets, full stop. See `:core-protocol/README.md` for the
+ * project-wide rule.
+ *
  * @property advertisingToken 16-byte raw value advertised by the receiver in
  *   visible mode (TLV type=1) and used as AES-GCM AAD in hidden mode.
  * @property nameEncryptionKey 16-byte AES-128 key used to encrypt the device
@@ -142,8 +156,9 @@ public class DerivedQrKeys(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is DerivedQrKeys) return false
-        return advertisingToken.contentEquals(other.advertisingToken) &&
-            nameEncryptionKey.contentEquals(other.nameEncryptionKey)
+        // Constant-time compare on both fields: see class KDoc.
+        return MessageDigest.isEqual(advertisingToken, other.advertisingToken) &&
+            MessageDigest.isEqual(nameEncryptionKey, other.nameEncryptionKey)
     }
 
     override fun hashCode(): Int = 31 * advertisingToken.contentHashCode() + nameEncryptionKey.contentHashCode()
