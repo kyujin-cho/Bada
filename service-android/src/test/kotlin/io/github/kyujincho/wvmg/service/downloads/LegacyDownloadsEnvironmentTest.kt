@@ -171,4 +171,57 @@ class LegacyDownloadsEnvironmentTest {
         assertThat(placeholder.exists()).isTrue()
         assertThat(placeholder.readBytes()).isEqualTo(byteArrayOf(0xAA.toByte(), 0xBB.toByte()))
     }
+
+    // ------------------------------------------------------------------
+    // parent_folder hierarchy support (#39).
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `insertPending with relativeSubPath nests the placeholder under a subdirectory`(
+        @TempDir downloadsDir: Path,
+    ) {
+        val env = LegacyDownloadsEnvironment(downloadsDir.toFile())
+
+        env.insertPending("a.txt", mimeType = null, relativeSubPath = listOf("MyTrip", "2025"))
+
+        val nested = File(File(downloadsDir.toFile(), "MyTrip"), "2025")
+        assertThat(nested.exists()).isTrue()
+        assertThat(File(nested, "a.txt.part").exists()).isTrue()
+    }
+
+    @Test
+    fun `commit renames the nested placeholder within its subdirectory`(
+        @TempDir downloadsDir: Path,
+    ) {
+        val env = LegacyDownloadsEnvironment(downloadsDir.toFile())
+        val destination =
+            env.insertPending(
+                "doc.pdf",
+                mimeType = "application/pdf",
+                relativeSubPath = listOf("Project"),
+            )
+        env.openOutputStream(destination).use { it.write(byteArrayOf(0x01, 0x02)) }
+        env.commit(destination)
+
+        val finalFile = File(File(downloadsDir.toFile(), "Project"), "doc.pdf")
+        assertThat(finalFile.exists()).isTrue()
+        // The placeholder is gone after commit; no stray file left at
+        // the Downloads root either.
+        assertThat(File(File(downloadsDir.toFile(), "Project"), "doc.pdf.part").exists()).isFalse()
+        assertThat(File(downloadsDir.toFile(), "doc.pdf").exists()).isFalse()
+    }
+
+    @Test
+    fun `insertPending creates missing intermediate subdirectories`(
+        @TempDir downloadsDir: Path,
+    ) {
+        val env = LegacyDownloadsEnvironment(downloadsDir.toFile())
+        // None of the chain exists yet; insertPending should create
+        // each segment.
+        env.insertPending("z.bin", mimeType = null, relativeSubPath = listOf("A", "B", "C"))
+
+        val deep = File(File(File(downloadsDir.toFile(), "A"), "B"), "C")
+        assertThat(deep.isDirectory).isTrue()
+        assertThat(File(deep, "z.bin.part").exists()).isTrue()
+    }
 }

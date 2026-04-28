@@ -46,25 +46,40 @@ internal class MediaStoreDownloadsEnvironment(
     override fun insertPending(
         displayName: String,
         mimeType: String?,
+        relativeSubPath: List<String>,
     ): DownloadsEnvironment.Destination {
+        // Build the RELATIVE_PATH value by joining the Downloads root
+        // with the (already-sanitized) folder segments. MediaStore
+        // expects forward slashes regardless of host OS and creates
+        // missing intermediate directories automatically. A trailing
+        // slash is conventional but not required; we omit it to match
+        // the Android samples.
+        val relativePath =
+            if (relativeSubPath.isEmpty()) {
+                Environment.DIRECTORY_DOWNLOADS
+            } else {
+                Environment.DIRECTORY_DOWNLOADS + "/" + relativeSubPath.joinToString("/")
+            }
         val values =
             ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, displayName)
                 if (mimeType != null) {
                     put(MediaStore.Downloads.MIME_TYPE, mimeType)
                 }
-                // Place under the public Downloads/ directory. This
-                // controls where the file lives on disk; without
-                // RELATIVE_PATH, MediaStore picks an app-private path
-                // that the user can't see in the Files app.
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                // Place under the public Downloads/ directory (plus any
+                // sender-supplied subfolder). Without RELATIVE_PATH,
+                // MediaStore picks an app-private path that the user
+                // can't see in the Files app. With it, MediaStore creates
+                // the subdirectory tree on first insert into that path.
+                put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
 
         val uri =
             contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: throw IOException(
-                    "MediaStore.Downloads insert returned null for displayName='$displayName'",
+                    "MediaStore.Downloads insert returned null for displayName='$displayName' " +
+                        "relativePath='$relativePath'",
                 )
         return MediaStoreDestination(uri = uri, displayName = displayName)
     }

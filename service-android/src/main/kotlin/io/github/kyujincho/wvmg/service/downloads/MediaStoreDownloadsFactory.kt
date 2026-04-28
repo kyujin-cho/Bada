@@ -142,13 +142,21 @@ public class MediaStoreDownloadsFactory internal constructor(
      *   it into an `InboundResult.Failed`.
      */
     override fun open(header: PayloadHeader): SeekableByteChannel {
-        // The peer can advertise a `parent_folder` but Quick Share
-        // doesn't actually mean "create a subdirectory" by it -- it
-        // means "this file belongs to a logical folder share". We
-        // surface the file directly under Downloads regardless; the
-        // user can move it into a folder afterwards. NearDrop does
-        // the same.
-        val handle = writer.beginWrite(rawFileName = header.fileName, mimeType = null)
+        // `parent_folder` is the sender's announced folder hierarchy
+        // for a folder-share — slash-delimited segments such as
+        // "MyTrip/2025". Honour it by routing the file into a matching
+        // subdirectory under Downloads/. The DownloadsWriter sanitizes
+        // the raw value (separators, traversal markers, control chars)
+        // before passing it to the environment, so the on-disk
+        // hierarchy mirrors the sender's intent without exposing us to
+        // path injection. Empty parent_folder (the single-file send
+        // case) still writes directly under Downloads/.
+        val handle =
+            writer.beginWrite(
+                rawFileName = header.fileName,
+                mimeType = null,
+                parentFolder = header.parentFolder,
+            )
         // Allocate the spool file under the configured directory.
         // Using the payload id keeps the filename deterministic for
         // diagnostics and rules out collision with other in-flight

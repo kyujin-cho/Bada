@@ -128,6 +128,31 @@ class TransferMetadataTest {
     }
 
     @Test
+    fun `propagates parent_folder onto TransferItem File`() {
+        val frame =
+            IntroductionFrame
+                .newBuilder()
+                .addFileMetadata(
+                    Protocol.FileMetadata
+                        .newBuilder()
+                        .setName("a.txt")
+                        .setPayloadId(1L)
+                        .setSize(10L)
+                        .setMimeType("text/plain")
+                        .setParentFolder("MyTrip/2025")
+                        .build(),
+                ).build()
+
+        val md = TransferMetadata.fromIntroductionFrame(frame, pin = "1234")
+
+        val file = md.items.single() as TransferItem.File
+        // Mirroring is verbatim — the receiver-side sanitizer is the
+        // place where we collapse separators / traversal markers, NOT
+        // here. Tests downstream of the sanitizer cover that.
+        assertThat(file.parentFolder).isEqualTo("MyTrip/2025")
+    }
+
+    @Test
     fun `rejects pin of incorrect length`() {
         assertThrows<IllegalArgumentException> {
             TransferMetadata(items = emptyList(), pin = "12")

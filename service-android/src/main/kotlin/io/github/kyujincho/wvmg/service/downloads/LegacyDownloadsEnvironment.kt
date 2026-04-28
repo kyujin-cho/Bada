@@ -55,11 +55,33 @@ internal class LegacyDownloadsEnvironment(
     override fun insertPending(
         displayName: String,
         @Suppress("UNUSED_PARAMETER") mimeType: String?,
+        relativeSubPath: List<String>,
     ): DownloadsEnvironment.Destination {
+        // Resolve the per-payload target directory: Downloads/<...subPath>.
+        // The subPath segments are already sanitized by the writer (no
+        // traversal, no separators), but we still resolve them step by
+        // step so a misbehaving caller cannot escape downloadsDir even
+        // by smuggling a separator past the sanitizer.
+        val targetDir =
+            if (relativeSubPath.isEmpty()) {
+                downloadsDir
+            } else {
+                relativeSubPath.fold(downloadsDir) { acc, segment ->
+                    File(acc, segment)
+                }
+            }
+        // mkdirs() is idempotent and creates the entire chain. A failure
+        // to create surfaces as the same IOException shape we already
+        // produce for placeholder-creation failures below.
+        if (!targetDir.exists() && !targetDir.mkdirs()) {
+            throw IOException(
+                "Could not create legacy download subdirectory ${targetDir.absolutePath}",
+            )
+        }
         // The `.part` suffix is added at the very end of the filename,
         // AFTER any extension. On commit we strip exactly this suffix
         // to recover the visible filename.
-        val partFile = File(downloadsDir, "$displayName$PART_SUFFIX")
+        val partFile = File(targetDir, "$displayName$PART_SUFFIX")
         // Use Files.createFile so a colliding `.part` file (i.e. a
         // crashed previous transfer that we never cleaned up) raises
         // FileAlreadyExistsException. The DownloadsWriter retries on
@@ -77,7 +99,11 @@ internal class LegacyDownloadsEnvironment(
                 e,
             )
         }
-        return LegacyDestination(partFile = partFile, displayName = displayName)
+        return LegacyDestination(
+            partFile = partFile,
+            displayName = displayName,
+            targetDir = targetDir,
+        )
     }
 
     override fun openOutputStream(destination: DownloadsEnvironment.Destination): OutputStream {
@@ -91,14 +117,19 @@ internal class LegacyDownloadsEnvironment(
         destination: DownloadsEnvironment.Destination,
         lastModifiedTimestampMillis: Long,
     ) {
-        val (partFile, displayName) = destination.requireLegacyPair()
-        val finalFile = File(downloadsDir, displayName)
+        val legacy = destination.requireLegacyDestination()
+        // Final file lives next to the placeholder, not at the
+        // Downloads root: a folder share writes into a subdirectory and
+        // we must rename within that subdirectory so the user sees the
+        // file under the same hierarchy MediaStore would have placed
+        // it on API 29+.
+        val finalFile = File(legacy.targetDir, legacy.displayName)
         // renameTo is best-effort on legacy filesystems. If it fails
         // (cross-volume rename, unusual SD card layout), we copy and
         // then remove the placeholder.
-        if (!partFile.renameTo(finalFile)) {
-            partFile.copyTo(finalFile, overwrite = false)
-            partFile.delete()
+        if (!legacy.partFile.renameTo(finalFile)) {
+            legacy.partFile.copyTo(finalFile, overwrite = false)
+            legacy.partFile.delete()
         }
         // Apply the sender's mtime AFTER the rename — `File.setLastModified`
         // on the placeholder would be lost during `renameTo` on some
@@ -120,28 +151,26 @@ internal class LegacyDownloadsEnvironment(
 
     /**
      * Concrete destination handle for the legacy environment. Holds
-     * both the on-disk placeholder file and the user-visible filename
-     * we'll rename it to on [commit].
+     * the on-disk placeholder file, the user-visible filename, and
+     * the resolved subdirectory the file belongs in (so [commit] can
+     * rename within the same parent and folder receives end up with
+     * the right hierarchy).
      */
     private data class LegacyDestination(
         val partFile: File,
         override val displayName: String,
+        val targetDir: File,
     ) : DownloadsEnvironment.Destination {
         override val internalKey: Any get() = partFile
     }
 
-    private fun DownloadsEnvironment.Destination.requireLegacyPartFile(): File {
-        require(this is LegacyDestination) {
-            "LegacyDownloadsEnvironment received a destination it didn't issue: $this"
-        }
-        return partFile
-    }
+    private fun DownloadsEnvironment.Destination.requireLegacyPartFile(): File = requireLegacyDestination().partFile
 
-    private fun DownloadsEnvironment.Destination.requireLegacyPair(): Pair<File, String> {
+    private fun DownloadsEnvironment.Destination.requireLegacyDestination(): LegacyDestination {
         require(this is LegacyDestination) {
             "LegacyDownloadsEnvironment received a destination it didn't issue: $this"
         }
-        return partFile to displayName
+        return this
     }
 
     private companion object {

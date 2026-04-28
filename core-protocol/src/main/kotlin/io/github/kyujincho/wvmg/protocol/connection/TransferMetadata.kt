@@ -100,6 +100,7 @@ public data class TransferMetadata(
                         name = file.name,
                         size = file.size,
                         mimeType = file.mimeType,
+                        parentFolder = file.parentFolder,
                     )
                 }
             val texts =
@@ -159,12 +160,20 @@ public sealed interface TransferItem {
      * @property mimeType MIME type guess provided by the peer
      *   (`image/jpeg`). Defaults on the proto side to
      *   `application/octet-stream`.
+     * @property parentFolder Optional folder hierarchy the file belongs
+     *   to within a folder share. Slash-delimited, may contain mixed
+     *   separators, may carry traversal markers — i.e. peer-controlled
+     *   bytes. Empty string for single-file sends. The receiver
+     *   sanitizes this before turning it into a real subdirectory; UI
+     *   layers that surface it (consent prompt, transfer history) MUST
+     *   treat the value as untrusted display text.
      */
     public data class File(
         override val payloadId: Long,
         val name: String,
         override val size: Long,
         val mimeType: String,
+        val parentFolder: String = "",
     ) : TransferItem
 
     /**

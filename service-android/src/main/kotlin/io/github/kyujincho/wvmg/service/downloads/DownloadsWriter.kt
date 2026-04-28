@@ -74,8 +74,15 @@ internal class DownloadsWriter(
     fun beginWrite(
         rawFileName: String,
         mimeType: String?,
+        parentFolder: String = "",
     ): Handle {
         val sanitized = FilenameSanitizer.sanitize(rawFileName, fallbackName)
+        // The parent folder may carry separators, traversal markers,
+        // and empty segments — sanitize before handing to the
+        // environment. The result is a list of "real subdirectory
+        // name" segments (or empty when the peer announced no parent
+        // folder).
+        val subPath = FilenameSanitizer.sanitizeRelativePath(parentFolder)
 
         // Reservation loop: ask the environment for `sanitized`,
         // then `name (1).ext`, `name (2).ext`, ... until a unique
@@ -88,7 +95,7 @@ internal class DownloadsWriter(
         for (attempt in 0..maxCollisionAttempts) {
             val candidate = if (attempt == 0) sanitized else applyCollisionSuffix(sanitized, attempt)
             val destination =
-                runCatching { environment.insertPending(candidate, mimeType) }
+                runCatching { environment.insertPending(candidate, mimeType, subPath) }
                     .getOrElse { e ->
                         // Re-throw immediately for any non-collision IOException —
                         // an actual disk-full / permission error must not be

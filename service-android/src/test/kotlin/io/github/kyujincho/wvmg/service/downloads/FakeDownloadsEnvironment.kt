@@ -42,9 +42,21 @@ internal class FakeDownloadsEnvironment(
     override fun insertPending(
         displayName: String,
         mimeType: String?,
+        relativeSubPath: List<String>,
     ): DownloadsEnvironment.Destination {
-        if (displayName in preReservedNames || slots.containsKey(displayName)) {
-            throw FileAlreadyExistsException(displayName)
+        // Build the slot key as `<segments>/<displayName>` so tests
+        // can assert that folder receives land under the expected
+        // subdirectory. Single-file sends (empty subPath) keep the
+        // historical "key == displayName" shape so existing tests
+        // continue to read naturally.
+        val slotKey =
+            if (relativeSubPath.isEmpty()) {
+                displayName
+            } else {
+                relativeSubPath.joinToString(separator = "/") + "/" + displayName
+            }
+        if (slotKey in preReservedNames || slots.containsKey(slotKey)) {
+            throw FileAlreadyExistsException(slotKey)
         }
         val slot =
             FakeSlot(
@@ -54,14 +66,15 @@ internal class FakeDownloadsEnvironment(
                 pending = true,
                 committed = false,
                 discarded = false,
+                relativeSubPath = relativeSubPath,
             )
-        slots[displayName] = slot
-        return FakeDestination(displayName)
+        slots[slotKey] = slot
+        return FakeDestination(slotKey, displayName)
     }
 
     override fun openOutputStream(destination: DownloadsEnvironment.Destination): OutputStream {
         val slot =
-            slots[destination.displayName]
+            slots[destination.slotKey()]
                 ?: error("openOutputStream for unknown destination ${destination.displayName}")
         return slot.buffer
     }
@@ -70,7 +83,7 @@ internal class FakeDownloadsEnvironment(
         destination: DownloadsEnvironment.Destination,
         lastModifiedTimestampMillis: Long,
     ) {
-        val slot = slots[destination.displayName] ?: return
+        val slot = slots[destination.slotKey()] ?: return
         if (slot.discarded) return
         slot.pending = false
         slot.committed = true
@@ -81,10 +94,31 @@ internal class FakeDownloadsEnvironment(
     }
 
     override fun discard(destination: DownloadsEnvironment.Destination) {
-        val slot = slots[destination.displayName] ?: return
+        val slot = slots[destination.slotKey()] ?: return
         slot.discarded = true
         slot.pending = false
     }
+
+    /**
+     * Resolve the test-internal slot map key for a destination. The
+     * key is the slash-joined `subPath/displayName`, mirroring the
+     * shape `insertPending` produced. Tests use the fake's `slots`
+     * map directly, so the key shape is part of the contract.
+     */
+    private fun DownloadsEnvironment.Destination.slotKey(): String =
+        when (this) {
+            is FakeSlot -> slotKey
+            is FakeDestination -> slotKey
+            else -> displayName
+        }
+
+    private val FakeSlot.slotKey: String
+        get() =
+            if (relativeSubPath.isEmpty()) {
+                displayName
+            } else {
+                relativeSubPath.joinToString(separator = "/") + "/" + displayName
+            }
 
     /**
      * Snapshot of a fake destination's lifecycle state. Mutated in
@@ -105,13 +139,15 @@ internal class FakeDownloadsEnvironment(
          * `PayloadHeader.last_modified_timestamp_millis` through here.
          */
         var committedLastModifiedTimestampMillis: Long = 0L,
+        val relativeSubPath: List<String> = emptyList(),
     ) : DownloadsEnvironment.Destination {
         override val internalKey: Any get() = displayName
     }
 
     private data class FakeDestination(
+        val slotKey: String,
         override val displayName: String,
     ) : DownloadsEnvironment.Destination {
-        override val internalKey: Any get() = displayName
+        override val internalKey: Any get() = slotKey
     }
 }

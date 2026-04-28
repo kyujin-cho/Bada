@@ -93,6 +93,15 @@
     <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">%1$d text(s)</string>
 
     <!--
+      Folder-receive summary (#39). Surfaced when the introduction
+      contains a `parent_folder` shared by every announced file — i.e.
+      the peer is sending a folder rather than a flat list of files.
+      `%1$s` is the folder name, `%2$d` the file count, `%3$s` the
+      formatted total size.
+    -->
+    <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">Folder \"%1$s\" (%2$d file(s), %3$s)</string>
+
+    <!--
       Body line shown collapsed: "%summary% — PIN %pin%". The PIN is
       always the 4-digit confirmation code from TransferMetadata.
     -->

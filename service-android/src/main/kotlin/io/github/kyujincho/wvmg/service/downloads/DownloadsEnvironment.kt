@@ -59,6 +59,14 @@ internal interface DownloadsEnvironment {
      * @param mimeType Best-effort MIME type. Implementations MAY pass
      *   it to `MediaStore.MediaColumns.MIME_TYPE`. `null` lets the
      *   platform infer it from the filename extension.
+     * @param relativeSubPath Pre-sanitized list of subdirectory
+     *   segments under the Downloads root (e.g.
+     *   `["Trip Photos", "2025"]`). Empty means "write directly under
+     *   Downloads/". Implementations are free to interpret this either
+     *   as a `MediaStore.Downloads.RELATIVE_PATH` suffix or a nested
+     *   filesystem subdirectory; the writer guarantees every segment
+     *   is already filename-safe (no separators, no `..`, no control
+     *   chars).
      * @return Opaque [Destination] handle. Subsequent calls to
      *   [openOutputStream], [commit], or [discard] take this handle.
      * @throws java.io.IOException if reservation fails (e.g. the
@@ -68,6 +76,7 @@ internal interface DownloadsEnvironment {
     fun insertPending(
         displayName: String,
         mimeType: String?,
+        relativeSubPath: List<String> = emptyList(),
     ): Destination
 
     /**

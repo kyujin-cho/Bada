@@ -144,15 +144,27 @@ class ConsentTrampolineActivity : AppCompatActivity() {
                 getString(R.string.consent_unknown_sender)
             }
 
+        // Folder-share summary (#39): when every announced file shares
+        // the same root parent_folder we show a single folder summary
+        // instead of the per-file count. Fall through to the generic
+        // count summary otherwise.
+        val folderName = ConsentNotificationContent.sharedRootFolder(entry.items)
         subtitleView.text =
-            if (entry.itemCount <= 0) {
-                getString(R.string.consent_summary_no_items)
-            } else {
-                getString(
-                    R.string.consent_summary_n_items,
-                    entry.itemCount,
-                    ConsentNotificationContent.humanReadableSize(entry.totalSize),
-                )
+            when {
+                entry.itemCount <= 0 -> getString(R.string.consent_summary_no_items)
+                folderName != null ->
+                    getString(
+                        R.string.consent_summary_folder,
+                        folderName,
+                        entry.itemCount,
+                        ConsentNotificationContent.humanReadableSize(entry.totalSize),
+                    )
+                else ->
+                    getString(
+                        R.string.consent_summary_n_items,
+                        entry.itemCount,
+                        ConsentNotificationContent.humanReadableSize(entry.totalSize),
+                    )
             }
 
         pinView.text = entry.pin

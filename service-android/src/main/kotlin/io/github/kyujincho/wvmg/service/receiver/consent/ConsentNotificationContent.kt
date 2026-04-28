@@ -84,10 +84,25 @@ public data class ConsentNotificationContent(
                     resolver.formatted(R.string.consent_notification_title_unknown_sender)
                 }
 
+            val folderName = sharedRootFolder(entry.items)
             val itemSummary =
                 when {
                     entry.itemCount <= 0 ->
                         resolver.formatted(R.string.consent_notification_summary_no_items)
+                    folderName != null ->
+                        // Issue #39: every announced file shares a root
+                        // parent_folder, so the peer is sending a folder.
+                        // Folder summary trumps the kind-breakdown form
+                        // because Quick Share folder shares are
+                        // homogeneous (file-only) by construction —
+                        // showing "3 file(s)" without the folder name
+                        // would lose information.
+                        resolver.formatted(
+                            R.string.consent_notification_summary_folder,
+                            folderName,
+                            entry.itemCount,
+                            humanReadableSize(entry.totalSize),
+                        )
                     // Issue #40: when the introduction announces multiple
                     // payload kinds (e.g. files + URLs), break the summary
                     // into per-kind segments so the user sees "3 files +
@@ -199,6 +214,51 @@ public data class ConsentNotificationContent(
                 joined,
                 humanReadableSize(totalSize),
             )
+        }
+
+        /**
+         * Inspect the announced [items] and return the common root
+         * parent folder when every file shares one — i.e. when the
+         * peer is sending a folder rather than a flat collection of
+         * files.
+         *
+         * "Common root" means the FIRST segment of `parent_folder` is
+         * the same non-empty value across every file, and there are
+         * no text items mixed in (Quick Share folder shares are
+         * file-only). Returns `null` for any of:
+         *
+         *  - no files at all
+         *  - some files have an empty `parent_folder`
+         *  - files announce different roots (`A/sub` vs `B/sub`)
+         *  - a non-file (text) item is present
+         *
+         * The returned string is the raw peer-supplied root folder
+         * name. Callers MUST treat it as untrusted display text — the
+         * destination factory sanitizes the value before it ever
+         * reaches the filesystem.
+         */
+        @Suppress("ReturnCount")
+        public fun sharedRootFolder(items: List<TransferItem>): String? {
+            if (items.isEmpty()) return null
+            // Single-pass scan: collect each item's first parent_folder
+            // segment and require the set to converge to one non-empty
+            // value across all items. Any text item / empty parent
+            // immediately disqualifies the run.
+            var root: String? = null
+            for (item in items) {
+                if (item !is TransferItem.File) return null
+                val firstSegment =
+                    item.parentFolder
+                        .split('/', '\\')
+                        .firstOrNull()
+                        ?.takeIf { it.isNotEmpty() } ?: return null
+                if (root == null) {
+                    root = firstSegment
+                } else if (root != firstSegment) {
+                    return null
+                }
+            }
+            return root
         }
 
         /**

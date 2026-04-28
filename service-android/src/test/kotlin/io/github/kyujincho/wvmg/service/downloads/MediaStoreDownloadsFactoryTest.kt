@@ -212,18 +212,87 @@ class MediaStoreDownloadsFactoryTest {
     }
 
     // ------------------------------------------------------------------
+    // parent_folder routing (#39).
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `open routes payloads with parent_folder under a sanitized subdirectory`(
+        @TempDir spool: Path,
+    ) {
+        val env = FakeDownloadsEnvironment()
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
+        val header =
+            fileHeader(
+                id = 1,
+                name = "a.txt",
+                totalSize = 0,
+                parentFolder = "MyTrip/2025",
+            )
+
+        factory.open(header).close()
+
+        // The slot lives under the announced subdirectory, NOT at the
+        // Downloads root. Path-style key used by the fake mirrors how
+        // MediaStore stores RELATIVE_PATH on production devices.
+        assertThat(env.slots).containsKey("MyTrip/2025/a.txt")
+    }
+
+    @Test
+    fun `open with empty parent_folder writes directly under Downloads`(
+        @TempDir spool: Path,
+    ) {
+        val env = FakeDownloadsEnvironment()
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
+        val header = fileHeader(id = 1, name = "flat.bin", totalSize = 0, parentFolder = "")
+
+        factory.open(header).close()
+
+        // Empty parent_folder -> single-file send. Slot key matches
+        // the bare display name, no subdirectory.
+        assertThat(env.slots).containsKey("flat.bin")
+    }
+
+    @Test
+    fun `open sanitizes traversal markers in parent_folder`(
+        @TempDir spool: Path,
+    ) {
+        val env = FakeDownloadsEnvironment()
+        val factory = DownloadsWriterFactory.fromEnvironment(env, spool.toFile())
+        val header =
+            fileHeader(
+                id = 1,
+                name = "secret.txt",
+                totalSize = 0,
+                // Adversarial parent_folder: a traversal attempt that
+                // would escape Downloads/ if naively concatenated.
+                parentFolder = "../../etc",
+            )
+
+        factory.open(header).close()
+
+        // No slot under "../etc" or "etc" — the sanitizer drops the
+        // `..` segments outright. The file lands directly under
+        // Downloads/ with the rest of the path stripped.
+        for (key in env.slots.keys) {
+            assertThat(key).doesNotContain("..")
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Helpers.
     // ------------------------------------------------------------------
 
     /**
      * Build a minimal `PayloadHeader` for a FILE payload. Tests only
-     * need `id`, `file_name`, `total_size`, and `type`; the rest of
-     * the proto's fields are irrelevant to the factory.
+     * need `id`, `file_name`, `total_size`, `type`, and (now)
+     * `parent_folder`; the rest of the proto's fields are irrelevant
+     * to the factory.
      */
     private fun fileHeader(
         id: Long,
         name: String,
         totalSize: Long,
+        parentFolder: String = "",
     ): PayloadHeader =
         PayloadHeader
             .newBuilder()
@@ -231,5 +300,6 @@ class MediaStoreDownloadsFactoryTest {
             .setType(PayloadHeader.PayloadType.FILE)
             .setFileName(name)
             .setTotalSize(totalSize)
+            .setParentFolder(parentFolder)
             .build()
 }

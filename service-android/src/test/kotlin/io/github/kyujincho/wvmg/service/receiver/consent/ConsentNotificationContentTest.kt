@@ -226,6 +226,98 @@ class ConsentNotificationContentTest {
         assertThat(content.body).contains("4 item(s)")
     }
 
+    // ---------------------------------------------------------------
+    // Folder-share summary (#39).
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `body uses folder summary when every file shares a root parent_folder`() {
+        val items =
+            listOf(
+                TransferItem.File(
+                    payloadId = 1L,
+                    name = "a.txt",
+                    size = 100L,
+                    mimeType = "text/plain",
+                    parentFolder = "MyTrip",
+                ),
+                TransferItem.File(
+                    payloadId = 2L,
+                    name = "b.txt",
+                    size = 200L,
+                    mimeType = "text/plain",
+                    parentFolder = "MyTrip/sub",
+                ),
+            )
+        val content =
+            ConsentNotificationContent.from(
+                resolver = englishResolver(),
+                entry = sampleEntry(itemCount = items.size, totalSize = 300L, items = items),
+            )
+        assertThat(content.body).contains("Folder \"MyTrip\"")
+        assertThat(content.body).contains("2 file(s)")
+    }
+
+    @Test
+    fun `body falls back to kind breakdown when files have different roots`() {
+        val items =
+            listOf(
+                TransferItem.File(1L, "a.txt", 100L, "text/plain", parentFolder = "First"),
+                TransferItem.File(2L, "b.txt", 200L, "text/plain", parentFolder = "Second"),
+            )
+        val content =
+            ConsentNotificationContent.from(
+                resolver = englishResolver(),
+                entry = sampleEntry(itemCount = items.size, totalSize = 300L, items = items),
+            )
+        // Mixed roots -> not a folder share; with PR #40's kind
+        // breakdown precedence we render "2 file(s)" without a
+        // "Folder" prefix and without the legacy generic
+        // "item(s)" form.
+        assertThat(content.body).contains("2 file(s)")
+        assertThat(content.body).doesNotContain("Folder")
+    }
+
+    @Test
+    fun `body falls back to kind breakdown when at least one file has no parent_folder`() {
+        val items =
+            listOf(
+                TransferItem.File(1L, "a.txt", 100L, "text/plain", parentFolder = "MyTrip"),
+                TransferItem.File(2L, "b.txt", 200L, "text/plain", parentFolder = ""),
+            )
+        val content =
+            ConsentNotificationContent.from(
+                resolver = englishResolver(),
+                entry = sampleEntry(itemCount = items.size, totalSize = 300L, items = items),
+            )
+        assertThat(content.body).contains("2 file(s)")
+        assertThat(content.body).doesNotContain("Folder")
+    }
+
+    @Test
+    fun `sharedRootFolder returns null when text items are mixed in`() {
+        val items =
+            listOf(
+                TransferItem.File(1L, "a.txt", 100L, "text/plain", parentFolder = "MyTrip"),
+                TransferItem.Text(2L, "url", 30L, TransferItem.Text.Kind.URL),
+            )
+        // Folder shares are file-only by Quick Share's design — any
+        // text item present means we should fall back to the generic
+        // summary.
+        assertThat(ConsentNotificationContent.sharedRootFolder(items)).isNull()
+    }
+
+    @Test
+    fun `sharedRootFolder accepts mixed forward and backslash separators`() {
+        val items =
+            listOf(
+                TransferItem.File(1L, "a.txt", 100L, "text/plain", parentFolder = "MyTrip/photos"),
+                TransferItem.File(2L, "b.txt", 200L, "text/plain", parentFolder = "MyTrip\\videos"),
+            )
+        // Both separators split out the same root segment.
+        assertThat(ConsentNotificationContent.sharedRootFolder(items)).isEqualTo("MyTrip")
+    }
+
     @Test
     fun `humanReadableSize handles bytes through gigabytes`() {
         with(ConsentNotificationContent) {
@@ -263,6 +355,8 @@ class ConsentNotificationContentTest {
                     String.format(java.util.Locale.ROOT, "%d phone number(s)", args[0])
                 R.string.consent_notification_segment_texts ->
                     String.format(java.util.Locale.ROOT, "%d text(s)", args[0])
+                R.string.consent_notification_summary_folder ->
+                    String.format(java.util.Locale.ROOT, "Folder \"%s\" (%d file(s), %s)", args[0], args[1], args[2])
                 R.string.consent_notification_body ->
                     String.format(java.util.Locale.ROOT, "%s · PIN %s", args[0], args[1])
                 R.string.consent_notification_bigtext_pin_line ->

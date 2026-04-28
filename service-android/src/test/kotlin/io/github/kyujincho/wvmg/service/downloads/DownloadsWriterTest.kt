@@ -185,6 +185,7 @@ class DownloadsWriterTest {
                 override fun insertPending(
                     displayName: String,
                     mimeType: String?,
+                    relativeSubPath: List<String>,
                 ): DownloadsEnvironment.Destination = throw IOException("disk full")
 
                 override fun openOutputStream(destination: DownloadsEnvironment.Destination) = error("not reached")
