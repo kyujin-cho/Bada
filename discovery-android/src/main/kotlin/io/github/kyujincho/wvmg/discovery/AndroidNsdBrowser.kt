@@ -9,11 +9,13 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
 import android.util.Log
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -43,15 +45,38 @@ import java.util.concurrent.atomic.AtomicBoolean
  *     `resolveService` succeeds. This mirrors the JmDNS-era
  *     `serviceAdded` -> `serviceResolved` ordering [Discovery] already
  *     consumes.
+ *
+ * The three platform-call seams ([discoverCall], [stopCall],
+ * [resolveCall]) default to direct delegation onto [nsdManager] and are
+ * lifted into constructor parameters so JVM unit tests can drive the
+ * worker without a real `NsdManager`.
  */
 internal class AndroidNsdBrowser(
     private val nsdManager: NsdManager,
+    private val discoverCall: (String, Int, NsdManager.DiscoveryListener) -> Unit =
+        { type, protocol, listener -> nsdManager.discoverServices(type, protocol, listener) },
+    private val stopCall: (NsdManager.DiscoveryListener) -> Unit =
+        { listener -> nsdManager.stopServiceDiscovery(listener) },
+    private val resolveCall: (NsdServiceInfo, NsdManager.ResolveListener) -> Unit =
+        { info, listener ->
+            @Suppress("DEPRECATION")
+            nsdManager.resolveService(info, listener)
+        },
 ) : NsdBrowser {
     override fun discover(serviceType: String): Flow<NsdBrowserEvent> =
         callbackFlow {
             val supervisorJob = SupervisorJob()
             val workerScope = CoroutineScope(Dispatchers.IO + supervisorJob)
-            val resolveQueue = Channel<NsdServiceInfo>(Channel.UNLIMITED)
+            // Bounded queue: drop the oldest pending resolve under
+            // sustained name-churn rather than letting backlog grow
+            // unboundedly. Capacity 32 covers worst-case real-world
+            // peer counts (typical Quick Share sessions see <10 peers
+            // visible on the LAN at once).
+            val resolveQueue =
+                Channel<NsdServiceInfo>(
+                    capacity = RESOLVE_QUEUE_CAPACITY,
+                    onBufferOverflow = BufferOverflow.DROP_OLDEST,
+                )
             val started = AtomicBoolean(true)
 
             val resolveWorker: Job =
@@ -94,9 +119,9 @@ internal class AndroidNsdBrowser(
                         val name = serviceInfo.serviceName ?: return
                         trySend(NsdBrowserEvent.Found(name))
                         // Queue the resolve so we serialise pre-API-30
-                        // single-flight constraints. Channel is unlimited
-                        // — the worker is fast enough that backlog never
-                        // grows beyond the live peer count.
+                        // single-flight constraints. Bounded capacity
+                        // with DROP_OLDEST under sustained churn —
+                        // see RESOLVE_QUEUE_CAPACITY for sizing.
                         resolveQueue.trySend(serviceInfo)
                     }
 
@@ -106,8 +131,21 @@ internal class AndroidNsdBrowser(
                     }
                 }
 
+            // Single teardown path so any failure during start or any
+            // close path runs the same cleanup. Otherwise an exception
+            // from `discoverServices` would leak `workerScope`,
+            // `resolveQueue`, and `resolveWorker`.
+            val teardown = {
+                if (started.compareAndSet(true, false)) {
+                    runCatching { stopCall(listener) }
+                    resolveQueue.close()
+                    resolveWorker.cancel()
+                    workerScope.cancel()
+                }
+            }
+
             try {
-                nsdManager.discoverServices(
+                discoverCall(
                     serviceType,
                     NsdManager.PROTOCOL_DNS_SD,
                     listener,
@@ -121,18 +159,12 @@ internal class AndroidNsdBrowser(
                         message = "discoverServices threw: ${t.message}",
                     ),
                 )
+                teardown()
                 close(t)
                 return@callbackFlow
             }
 
-            awaitClose {
-                if (started.compareAndSet(true, false)) {
-                    runCatching { nsdManager.stopServiceDiscovery(listener) }
-                    resolveQueue.close()
-                    resolveWorker.cancel()
-                    workerScope.cancel()
-                }
-            }
+            awaitClose { teardown() }
         }.flowOn(Dispatchers.IO)
 
     /**
@@ -145,13 +177,12 @@ internal class AndroidNsdBrowser(
      * semantics we care about — and we still need the single-flight
      * queue to remain compatible with API 24-29.
      */
-    @Suppress("DEPRECATION")
     private suspend fun runResolve(
         info: NsdServiceInfo,
         emit: (NsdBrowserEvent) -> Any,
     ) {
         val name = info.serviceName ?: return
-        val signal = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val signal = CompletableDeferred<Unit>()
         val resolveListener =
             object : NsdManager.ResolveListener {
                 override fun onResolveFailed(
@@ -175,7 +206,7 @@ internal class AndroidNsdBrowser(
             }
 
         try {
-            nsdManager.resolveService(info, resolveListener)
+            resolveCall(info, resolveListener)
         } catch (
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
@@ -188,25 +219,12 @@ internal class AndroidNsdBrowser(
             return
         }
 
-        // Bound the wait. The whole point of migrating to NsdManager is
-        // to fix discovery on OEM Android skins (vivo / Funtouch /
-        // OriginOS, Xiaomi MIUI, OPPO ColorOS, …) where the system mDNS
-        // responder occasionally hangs or silently swallows callbacks
-        // under stress. Without a timeout, a single misbehaving resolve
-        // would block the single-flight worker and stall every later
-        // resolve in the discovery session — exactly the failure mode
-        // this PR is meant to remove. 5 s matches the spirit of stock
-        // Quick Share's "must pop up within 5 s of advertise start"
-        // acceptance criterion.
-        if (withTimeoutOrNull(RESOLVE_TIMEOUT_MILLIS) { signal.await() } == null) {
-            Log.w(TAG, "resolveService($name) timed out after ${RESOLVE_TIMEOUT_MILLIS}ms")
-            emit(
-                NsdBrowserEvent.Error(
-                    instanceName = name,
-                    message = "resolveService timed out after ${RESOLVE_TIMEOUT_MILLIS}ms",
-                ),
-            )
-        }
+        awaitResolveSignalWithTimeout(
+            name = name,
+            timeoutMillis = RESOLVE_TIMEOUT_MILLIS,
+            signal = signal,
+            emit = emit,
+        )
     }
 
     private fun mapResolved(serviceInfo: NsdServiceInfo): NsdBrowserEvent.Resolved {
@@ -231,7 +249,7 @@ internal class AndroidNsdBrowser(
         )
     }
 
-    private companion object {
+    internal companion object {
         private const val TAG = Discovery.TAG
 
         /**
@@ -240,7 +258,59 @@ internal class AndroidNsdBrowser(
          * single-flight queue. Longer than the typical sub-second mDNS
          * round-trip but still bounded so a single hung resolve cannot
          * starve every follow-on resolve in the same browse session.
+         *
+         * The whole point of migrating to NsdManager is to fix
+         * discovery on OEM Android skins (vivo / Funtouch / OriginOS,
+         * Xiaomi MIUI, OPPO ColorOS, …) where the system mDNS responder
+         * occasionally hangs or silently swallows callbacks under
+         * stress. 5 s matches the spirit of stock Quick Share's "must
+         * pop up within 5 s of advertise start" acceptance criterion.
          */
-        private const val RESOLVE_TIMEOUT_MILLIS: Long = 5_000L
+        internal const val RESOLVE_TIMEOUT_MILLIS: Long = 5_000L
+
+        /**
+         * Wait for a `resolveService` callback signal up to
+         * [timeoutMillis], emitting a timeout-marked
+         * [NsdBrowserEvent.Error] and returning `false` if the wait
+         * elapses without completion. Returns `true` if [signal]
+         * completed within the deadline (in which case the listener
+         * already emitted [NsdBrowserEvent.Resolved] or
+         * [NsdBrowserEvent.Error] for the resolve outcome itself).
+         *
+         * Lifted into the companion as a `@JvmStatic internal` helper
+         * so JVM unit tests can drive the timeout / signal-completion
+         * path without instantiating the platform `NsdManager` /
+         * `NsdServiceInfo` (the AGP unit-test stub jar throws
+         * `ClassFormatError` when the test merely allocates a
+         * platform NSD type).
+         */
+        @JvmStatic
+        internal suspend fun awaitResolveSignalWithTimeout(
+            name: String,
+            timeoutMillis: Long,
+            signal: CompletableDeferred<Unit>,
+            emit: (NsdBrowserEvent) -> Any,
+        ): Boolean {
+            val completed = withTimeoutOrNull(timeoutMillis) { signal.await() } != null
+            if (!completed) {
+                Log.w(TAG, "resolveService($name) timed out after ${timeoutMillis}ms")
+                emit(
+                    NsdBrowserEvent.Error(
+                        instanceName = name,
+                        message = "resolveService timed out after ${timeoutMillis}ms",
+                    ),
+                )
+            }
+            return completed
+        }
+
+        /**
+         * Bound the resolve queue so name-churn under stress (e.g.
+         * dozens of peers flickering on/off) cannot grow it without
+         * limit. With [BufferOverflow.DROP_OLDEST], the freshest peer
+         * names always win; that matches the user-facing intent of a
+         * picker UI.
+         */
+        private const val RESOLVE_QUEUE_CAPACITY: Int = 32
     }
 }

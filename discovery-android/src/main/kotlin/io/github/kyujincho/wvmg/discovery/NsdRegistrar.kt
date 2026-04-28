@@ -19,11 +19,14 @@ import java.net.InetAddress
  *     without spinning up a Robolectric harness. A fake [NsdRegistrar]
  *     lets unit tests drive [Discovery.advertise] end-to-end.
  *  2. **API-level isolation.** Binary TXT-record support flips form
- *     between API < 33 (UTF-8-only via `setAttribute(String, String)`,
- *     wrapped via Latin-1 round-trip) and API >= 33 (`setAttribute(
- *     String, ByteArray)`). The branch lives entirely inside
- *     [AndroidNsdRegistrar]; the rest of the discovery code never has to
- *     think about it.
+ *     between API 33+ (public `setAttribute(String, ByteArray)`) and
+ *     API 24-32 (the same `setAttribute(String, byte[])` method exists
+ *     but is annotated `@hide @UnsupportedAppUsage`, so it is invoked
+ *     reflectively). The public String overload is **never** used —
+ *     it UTF-8-re-encodes its value internally, which would corrupt
+ *     any attribute byte >= 0x80. The branch lives entirely inside
+ *     [AndroidNsdRegistrar]; the rest of the discovery code never has
+ *     to think about it.
  *
  * Implementations are expected to be thread-safe.
  */

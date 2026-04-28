@@ -12,6 +12,7 @@ import android.util.Log
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.IOException
+import java.lang.reflect.Method
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -24,16 +25,25 @@ import kotlin.coroutines.resumeWithException
  *
  *  1. **Binary TXT records.** Quick Share's `n=` TXT key carries a
  *     packed binary [io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo].
- *     `NsdServiceInfo.setAttribute(String, ByteArray)` exists only since
- *     API 33 (`Build.VERSION_CODES.TIRAMISU`); on earlier versions we
- *     fall back to `setAttribute(String, String)` and wrap the bytes in
- *     a Latin-1 / ISO-8859-1 string. ISO-8859-1 maps every byte
- *     0x00..0xFF to a single 1-to-1 codepoint, so the round-trip
- *     `bytes -> String(..., ISO_8859_1) -> getBytes(ISO_8859_1)` is
- *     bit-exact and the on-the-wire DNS-SD TXT record is identical to
- *     the API 33+ path. NearDrop, stock Quick Share, and Windows Quick
- *     Share all parse the TXT byte stream directly, so this is the
- *     critical interop seam.
+ *     The binary-aware overload `setAttribute(String, ByteArray)` is the
+ *     only path that preserves bytes verbatim; the public String-flavoured
+ *     overload calls `value.getBytes("UTF-8")` internally, which would
+ *     re-encode any byte >= 0x80 into two wire bytes and corrupt the
+ *     payload.
+ *
+ *     `setAttribute(String, ByteArray)` became public API in
+ *     `Build.VERSION_CODES.TIRAMISU` (API 33). On API 24-32 the same
+ *     method exists in the platform with the same signature but is
+ *     marked `@hide @UnsupportedAppUsage` (no `maxTargetSdk`), placing it
+ *     on the unconditional greylist and therefore reflectively
+ *     accessible from any target SDK. We reflect into it on those API
+ *     levels rather than fall back to the lossy String overload.
+ *
+ *     The reflection target's signature was verified against AOSP
+ *     `android/net/nsd/NsdServiceInfo.java` for API 35 and 36 — the
+ *     method has existed unchanged since API 16, so the lookup is
+ *     stable across every supported API level (24..32).
+ *
  *  2. **Auto-suffixed instance names.** When Android observes a name
  *     collision on the LAN it appends ` (1)`, ` (2)`, etc. The
  *     registration callback's `onServiceRegistered(NsdServiceInfo)`
@@ -209,19 +219,49 @@ internal class AndroidNsdRegistrar(
         private const val TAG = Discovery.TAG
 
         /**
-         * Apply [attributes] to [serviceInfo] using the binary-aware
-         * setter on API 33+ and the Latin-1 string fallback on
-         * older versions.
+         * Cached reflective handle on `NsdServiceInfo.setAttribute(String, byte[])`.
          *
-         * Latin-1 is chosen because every byte 0x00..0xFF round-trips
-         * through `String(bytes, ISO_8859_1).toByteArray(ISO_8859_1)`
-         * exactly. The platform's String-flavoured setter emits the
-         * resulting String to the wire as raw bytes (it does not
-         * UTF-8-re-encode the value), so the on-the-wire TXT record
-         * is bit-identical to what the byte-array setter would produce.
+         * Resolved lazily so the cost of the JNI/Class lookup is paid
+         * once per process. The method has existed unchanged since
+         * API 16 (verified against AOSP `NsdServiceInfo.java` for
+         * API 35 and 36) and is marked `@hide @UnsupportedAppUsage`
+         * without a `maxTargetSdk`, so it is on the unconditional
+         * greylist and reflectively accessible from any target SDK.
+         */
+        private val reflectiveSetAttribute: Method by lazy {
+            try {
+                NsdServiceInfo::class.java
+                    .getDeclaredMethod(
+                        "setAttribute",
+                        String::class.java,
+                        ByteArray::class.java,
+                    ).apply { isAccessible = true }
+            } catch (e: NoSuchMethodException) {
+                // Defensive — should never fire on supported API levels.
+                // We deliberately raise rather than silently fall back to
+                // the lossy String overload, which would corrupt any
+                // attribute byte >= 0x80 by re-encoding it as UTF-8.
+                throw IllegalStateException(
+                    "NsdServiceInfo.setAttribute(String, byte[]) not found via reflection; " +
+                        "platform contract broken.",
+                    e,
+                )
+            }
+        }
+
+        /**
+         * Apply [attributes] to [serviceInfo].
          *
-         * The [setBytes] / [setString] callbacks let unit tests drive
-         * both branches without instantiating the platform
+         * On API 33+ this calls the public byte[] overload of
+         * `NsdServiceInfo.setAttribute` directly. On API 24-32 the same
+         * underlying method is reflectively invoked because the public
+         * String overload UTF-8-re-encodes its value (see
+         * AOSP `NsdServiceInfo.setAttribute(String, String)` which calls
+         * `value.getBytes("UTF-8")`), which would corrupt any
+         * attribute byte >= 0x80.
+         *
+         * The [setBytes] callback exists as a test seam so unit tests
+         * can drive the lambda without instantiating the platform
          * [NsdServiceInfo] class — the unit-test JAR's stub for that
          * class throws `ClassFormatError` even when the test never
          * calls a real setter.
@@ -233,32 +273,50 @@ internal class AndroidNsdRegistrar(
         ): Unit =
             applyAttributes(
                 attributes = attributes,
-                sdkInt = Build.VERSION.SDK_INT,
-                setBytes = { key, value -> serviceInfo.setAttribute(key, value) },
-                setString = { key, value -> serviceInfo.setAttribute(key, value) },
+                setBytes = { key, value -> setBinaryAttribute(serviceInfo, key, value) },
             )
 
         /**
-         * Test-friendly form of [applyAttributes]. The two setter
-         * lambdas are independent so unit tests can pin which branch
-         * fired.
+         * Test-friendly form of [applyAttributes]. The single setter
+         * lambda always receives the raw [ByteArray] payload — there is
+         * no second branch on API level inside this helper because both
+         * API levels resolve to the same byte[]-based platform method
+         * (one publicly, one reflectively).
          */
         @JvmStatic
         internal fun applyAttributes(
             attributes: Map<String, ByteArray>,
-            sdkInt: Int,
             setBytes: (String, ByteArray) -> Unit,
-            setString: (String, String) -> Unit,
         ) {
             for ((key, value) in attributes) {
-                if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
-                    setBytes(key, value)
-                } else {
-                    // ISO-8859-1 (Latin-1) preserves every byte verbatim.
-                    // The platform's String setter writes the codepoints
-                    // back out as raw bytes, so the wire format matches
-                    // the API 33+ binary-setter path byte-for-byte.
-                    setString(key, String(value, Charsets.ISO_8859_1))
+                setBytes(key, value)
+            }
+        }
+
+        /**
+         * Production binary-attribute setter. Picks the public byte[]
+         * overload on API 33+ and falls back to a reflective invoke of
+         * the same hidden method on API 24-32. Never delegates to the
+         * String overload — that path is lossy for any byte >= 0x80.
+         */
+        private fun setBinaryAttribute(
+            info: NsdServiceInfo,
+            key: String,
+            value: ByteArray,
+        ) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                info.setAttribute(key, value)
+            } else {
+                try {
+                    reflectiveSetAttribute.invoke(info, key, value)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    throw IllegalStateException(
+                        "NsdServiceInfo.setAttribute(String, byte[]) reflective invoke failed " +
+                            "for key=$key (sdkInt=${Build.VERSION.SDK_INT})",
+                        t,
+                    )
                 }
             }
         }

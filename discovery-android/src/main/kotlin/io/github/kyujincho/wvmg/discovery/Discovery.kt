@@ -238,7 +238,26 @@ public class Discovery internal constructor(
      * [endpointInfo] but does **not** drop the discovery, since callers
      * may still want the address tuple for diagnostic display.
      */
+    @Suppress("ReturnCount") // Three independent defensive guards plus the
+    // happy path are clearer as early returns than nested when/if branches.
     internal fun toDiscoveredService(event: NsdBrowserEvent.Resolved): DiscoveredService? {
+        // Defensive validation: a misbehaving mDNS responder (we have
+        // seen this on a couple of OEM skins) can occasionally surface
+        // a "resolved" event with port=0 or a blank instance name,
+        // both of which would crash downstream callers that assume a
+        // dialable peer. Drop those rather than emit a degenerate
+        // DiscoveredService.
+        if (event.instanceName.isBlank()) {
+            Log.w(TAG, "browse: dropping resolved event with blank instanceName")
+            return null
+        }
+        if (event.port !in 1..MAX_PORT) {
+            Log.w(
+                TAG,
+                "browse: dropping resolved event ${event.instanceName} with invalid port=${event.port}",
+            )
+            return null
+        }
         val addresses = event.addresses
         if (addresses.isNotEmpty() && addresses.all { it.isLoopbackAddress }) {
             return null
