@@ -140,6 +140,66 @@ class AndroidNsdBrowserTest {
         assertThat(AndroidNsdBrowser.RESOLVE_TIMEOUT_MILLIS).isEqualTo(5_000L)
     }
 
+    // -------------------------------------------------------------------
+    // f1bdcb5 regression guards: AndroidNsdBrowser.shouldSkipResolve
+    // -------------------------------------------------------------------
+    //
+    // The shouldSkipResolve(port) predicate decides whether
+    // `onServiceFound` emits `Resolved` directly (skipping the
+    // single-flight queue + resolveService round-trip) based on whether
+    // the system delivered a fully-resolved NsdServiceInfo. The Android
+    // 12+ MdnsDiscoveryManager pipeline always delivers port > 0 here,
+    // and on-device testing on a Vivo X300 Ultra + Galaxy S24 Ultra
+    // showed that calling resolveService on an already-resolved info
+    // silently no-ops, leaving the resolve worker hung at the 5 s
+    // timeout and the picker empty.
+    //
+    // Issue #100 originally proposed Robolectric integration coverage
+    // for `AndroidNsdBrowser.runResolve`. Robolectric+AGP+Jupiter
+    // integration in this project is non-trivial: Kotlin compiles
+    // captured-variable lambdas with synthetic methods on the outer
+    // class whose method descriptors reference platform-typed lambda
+    // parameters (NsdManager.DiscoveryListener), which then resolve to
+    // the AGP unit-test stub jar's NsdServiceInfo and trigger
+    // ClassFormatError during JUnit Platform discovery — before
+    // Robolectric's own classloader has a chance to substitute. The
+    // tests below are the JVM-friendly substitute: they pin the
+    // predicate's contract precisely. A regression that breaks the
+    // f1bdcb5 fix (e.g. switching `> 0` to `>= 0`, or removing the
+    // shortcut altogether) fails these tests immediately.
+
+    @Test
+    fun `shouldSkipResolve returns true for a positive port (modern MdnsDiscoveryManager pipeline)`() {
+        // Real-world ports observed: 32861 on the Vivo, 53601 on
+        // Samsung's stock Quick Share. Any positive port should be
+        // treated as "already resolved by the system" — emit Resolved
+        // directly, skip resolveService.
+        assertThat(AndroidNsdBrowser.shouldSkipResolve(32_861)).isTrue()
+        assertThat(AndroidNsdBrowser.shouldSkipResolve(53_601)).isTrue()
+        assertThat(AndroidNsdBrowser.shouldSkipResolve(1)).isTrue()
+        assertThat(AndroidNsdBrowser.shouldSkipResolve(65_535)).isTrue()
+    }
+
+    @Test
+    fun `shouldSkipResolve returns false for port 0 (legacy pre-API-30 pipeline)`() {
+        // The legacy pre-MdnsDiscoveryManager pipeline always delivered
+        // port=0 to onServiceFound and required an explicit
+        // resolveService call. The predicate must return false for
+        // port=0 so that path is preserved on older Android.
+        assertThat(AndroidNsdBrowser.shouldSkipResolve(0)).isFalse()
+    }
+
+    @Test
+    fun `shouldSkipResolve returns false for negative port (defensive)`() {
+        // NsdServiceInfo.getPort() returns int and the system mDNS
+        // responder should never produce a negative port, but if it
+        // ever did (corrupted record, OEM bug), we must not treat that
+        // as "already resolved" — the resolve queue path will validate
+        // the port at the next layer.
+        assertThat(AndroidNsdBrowser.shouldSkipResolve(-1)).isFalse()
+        assertThat(AndroidNsdBrowser.shouldSkipResolve(Int.MIN_VALUE)).isFalse()
+    }
+
     @Test
     fun `bounded resolve queue with DROP_OLDEST keeps newest entries under sustained load`() =
         runTest {
