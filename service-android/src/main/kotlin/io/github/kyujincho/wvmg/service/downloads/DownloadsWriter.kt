@@ -189,12 +189,18 @@ internal class DownloadsWriter(
          * (especially `MediaStore` on API 29+) cannot mark a row
          * non-pending while a `ContentResolver` output stream is
          * still open against it.
+         *
+         * @param lastModifiedTimestampMillis Sender-provided modification
+         *   time from `PayloadHeader.last_modified_timestamp_millis`. Pass
+         *   `0L` (the default) when no timestamp was carried; the
+         *   environment leaves the platform default in that case. See
+         *   issue #41.
          */
-        fun commit() {
+        fun commit(lastModifiedTimestampMillis: Long = 0L) {
             if (disposed) return
             disposed = true
             runCatching { outputStream.close() }
-            environment.commit(destination)
+            environment.commit(destination, lastModifiedTimestampMillis)
         }
 
         /**

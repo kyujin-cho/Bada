@@ -55,6 +55,56 @@ class UriFileSourceFactoryTest {
     }
 
     @Test
+    fun `carries last modified seconds converted to millis on the wire`() {
+        // Issue #41: MediaColumns.DATE_MODIFIED is documented as Unix
+        // seconds. The proto wire format for
+        // PayloadHeader.last_modified_timestamp_millis is millis. The
+        // factory must convert at the boundary so the receiver sees the
+        // sender's actual mtime (not 1000x off, not zero).
+        val factory = factoryWithFixedId(2024)
+
+        val source =
+            factory.buildFileSource(
+                metadata =
+                    UriMetadata(
+                        displayName = "dated.bin",
+                        size = 4,
+                        mimeType = "application/octet-stream",
+                        lastModifiedSeconds = 1_700_000_000L,
+                    ),
+                fallbackPathSegment = null,
+                payloadId = 2024,
+                open = { newChannel(sampleBytes) },
+            )
+
+        assertEquals(1_700_000_000_000L, source.lastModifiedTimestampMillis)
+    }
+
+    @Test
+    fun `zero last modified seconds produces zero millis on the wire`() {
+        // Provider returned no DATE_MODIFIED column, surfaced as 0L.
+        // The factory must keep that as 0L on the wire so the receiver
+        // does not rewrite the file's mtime to the Unix epoch.
+        val factory = factoryWithFixedId(2025)
+
+        val source =
+            factory.buildFileSource(
+                metadata =
+                    UriMetadata(
+                        displayName = "undated.bin",
+                        size = 0,
+                        mimeType = null,
+                        lastModifiedSeconds = 0L,
+                    ),
+                fallbackPathSegment = null,
+                payloadId = 2025,
+                open = { newChannel(sampleBytes) },
+            )
+
+        assertEquals(0L, source.lastModifiedTimestampMillis)
+    }
+
+    @Test
     fun `falls back to last path segment when display name missing`() {
         val factory = factoryWithFixedId(7)
 

@@ -65,10 +65,23 @@ public class MediaStoreDownloadsFactory internal constructor(
     private val writer: DownloadsWriter,
 ) : FileDestinationFactory {
     /**
-     * Map of payload id -> open destination handle. A payload that is
+     * Per-payload tracking entry. Bundles the [DownloadsWriter.Handle]
+     * with the sender-supplied `last_modified_timestamp_millis` captured
+     * at [open] time so that [commit] can apply it to the destination
+     * (issue #41). A separate field — rather than re-reading from a
+     * cached `PayloadHeader` — avoids retaining the protobuf object
+     * any longer than the assembler does.
+     */
+    private class InFlightEntry(
+        val handle: DownloadsWriter.Handle,
+        val lastModifiedTimestampMillis: Long,
+    )
+
+    /**
+     * Map of payload id -> tracking entry. A payload that is
      * mid-transfer has an entry; on commit/abort the entry is removed.
      */
-    private val inFlight: MutableMap<Long, DownloadsWriter.Handle> = ConcurrentHashMap()
+    private val inFlight: MutableMap<Long, InFlightEntry> = ConcurrentHashMap()
 
     /**
      * Open a destination channel for an inbound FILE payload. Called
@@ -94,8 +107,15 @@ public class MediaStoreDownloadsFactory internal constructor(
         val handle = writer.beginWrite(rawFileName = header.fileName, mimeType = null)
         // Track by payload id so the orchestrator can later commit
         // or abort using only the id (it doesn't keep a reference to
-        // the channel itself).
-        inFlight[header.id] = handle
+        // the channel itself). We also stash the sender's last-modified
+        // timestamp here (issue #41) so commit() can route it through
+        // to the environment without the orchestrator having to
+        // re-thread the header.
+        inFlight[header.id] =
+            InFlightEntry(
+                handle = handle,
+                lastModifiedTimestampMillis = header.lastModifiedTimestampMillis,
+            )
         // OutputStream -> WritableByteChannel adapter from java.nio.
         // Buffers internally; safe for the assembler's per-chunk
         // ByteBuffer writes.
@@ -115,8 +135,8 @@ public class MediaStoreDownloadsFactory internal constructor(
      *   (already committed, already aborted, or never opened).
      */
     override fun commit(payloadId: Long): Boolean {
-        val handle = inFlight.remove(payloadId) ?: return false
-        handle.commit()
+        val entry = inFlight.remove(payloadId) ?: return false
+        entry.handle.commit(lastModifiedTimestampMillis = entry.lastModifiedTimestampMillis)
         return true
     }
 
@@ -134,8 +154,8 @@ public class MediaStoreDownloadsFactory internal constructor(
      *   has now been discarded; `false` if no such destination exists.
      */
     override fun abort(payloadId: Long): Boolean {
-        val handle = inFlight.remove(payloadId) ?: return false
-        handle.discard()
+        val entry = inFlight.remove(payloadId) ?: return false
+        entry.handle.discard()
         return true
     }
 

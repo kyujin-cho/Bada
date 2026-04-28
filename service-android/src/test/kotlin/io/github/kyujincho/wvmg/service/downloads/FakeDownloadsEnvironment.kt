@@ -66,11 +66,18 @@ internal class FakeDownloadsEnvironment(
         return slot.buffer
     }
 
-    override fun commit(destination: DownloadsEnvironment.Destination) {
+    override fun commit(
+        destination: DownloadsEnvironment.Destination,
+        lastModifiedTimestampMillis: Long,
+    ) {
         val slot = slots[destination.displayName] ?: return
         if (slot.discarded) return
         slot.pending = false
         slot.committed = true
+        // Record the timestamp the writer asked for so #41's tests can
+        // assert that the per-payload value was preserved end-to-end
+        // through the factory layer.
+        slot.committedLastModifiedTimestampMillis = lastModifiedTimestampMillis
     }
 
     override fun discard(destination: DownloadsEnvironment.Destination) {
@@ -91,6 +98,13 @@ internal class FakeDownloadsEnvironment(
         var pending: Boolean,
         var committed: Boolean,
         var discarded: Boolean,
+        /**
+         * Whatever value [commit] was last invoked with for this slot.
+         * `0L` until commit fires; tests for #41 assert that the
+         * factory routes the sender's
+         * `PayloadHeader.last_modified_timestamp_millis` through here.
+         */
+        var committedLastModifiedTimestampMillis: Long = 0L,
     ) : DownloadsEnvironment.Destination {
         override val internalKey: Any get() = displayName
     }

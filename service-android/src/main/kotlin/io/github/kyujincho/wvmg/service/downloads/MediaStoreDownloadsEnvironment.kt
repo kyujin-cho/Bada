@@ -79,11 +79,24 @@ internal class MediaStoreDownloadsEnvironment(
             ?: throw IOException("ContentResolver.openOutputStream returned null for $uri")
     }
 
-    override fun commit(destination: DownloadsEnvironment.Destination) {
+    override fun commit(
+        destination: DownloadsEnvironment.Destination,
+        lastModifiedTimestampMillis: Long,
+    ) {
         val uri = destination.requireMediaStoreUri()
         val values =
             ContentValues().apply {
                 put(MediaStore.Downloads.IS_PENDING, 0)
+                // MediaStore.MediaColumns.DATE_MODIFIED is documented as
+                // "seconds since epoch" — divide the wire-format millis
+                // before writing. We only set the column when the
+                // sender actually carried a timestamp; passing `0` (the
+                // proto default) here would silently rewrite valid
+                // rows to the Unix epoch, which is worse than leaving
+                // the platform's "now" default.
+                if (lastModifiedTimestampMillis > 0L) {
+                    put(MediaStore.MediaColumns.DATE_MODIFIED, lastModifiedTimestampMillis / SECOND_IN_MILLIS)
+                }
             }
         // Best-effort: a failure here means the file is on disk but
         // remains marked pending. The orchestrator surfaces the error
@@ -118,5 +131,10 @@ internal class MediaStoreDownloadsEnvironment(
             "MediaStoreDownloadsEnvironment received a destination it didn't issue: $this"
         }
         return uri
+    }
+
+    private companion object {
+        /** Conversion factor between the wire's millis precision and `DATE_MODIFIED`'s seconds precision. */
+        const val SECOND_IN_MILLIS: Long = 1000L
     }
 }

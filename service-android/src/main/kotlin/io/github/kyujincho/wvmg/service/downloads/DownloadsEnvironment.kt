@@ -85,8 +85,20 @@ internal interface DownloadsEnvironment {
     /**
      * Make the destination visible to the user. Idempotent — a
      * second call is a no-op.
+     *
+     * @param lastModifiedTimestampMillis When non-zero, request that the
+     *   environment record this value as the destination's modification
+     *   time (seconds-precision on `MediaStore`, millis on the legacy
+     *   filesystem). `0L` means "leave the platform default", which is
+     *   the right behavior when the sender never carried a timestamp
+     *   (e.g. NearDrop pre-grishka/NearDrop#195, or any peer that left
+     *   `PayloadHeader.last_modified_timestamp_millis = 0`). See
+     *   issue #41 for the wire-side analysis.
      */
-    fun commit(destination: Destination)
+    fun commit(
+        destination: Destination,
+        lastModifiedTimestampMillis: Long = 0L,
+    )
 
     /**
      * Delete the destination's underlying storage. Used on cancel or

@@ -8,6 +8,7 @@ package io.github.kyujincho.wvmg.send
 import android.content.ContentResolver
 import android.database.Cursor
 import android.net.Uri
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import io.github.kyujincho.wvmg.protocol.connection.FileSource
 import java.nio.channels.Channels
@@ -130,7 +131,18 @@ public class UriFileSourceFactory internal constructor(
             name = name,
             size = size,
             mimeType = mimeType,
-            lastModifiedTimestampMillis = 0L,
+            // MediaStore.MediaColumns.DATE_MODIFIED is "seconds since
+            // epoch"; the proto field is millis. Convert here so the
+            // wire carries the same precision the receiver expects.
+            // 0 / negative is the documented "unknown" value — pass
+            // through unchanged so the receiver leaves the platform
+            // default rather than rewriting to the Unix epoch.
+            lastModifiedTimestampMillis =
+                if (metadata.lastModifiedSeconds > 0L) {
+                    metadata.lastModifiedSeconds * SECOND_IN_MILLIS
+                } else {
+                    0L
+                },
             payloadId = payloadId,
             open = open,
         )
@@ -139,6 +151,9 @@ public class UriFileSourceFactory internal constructor(
     public companion object {
         /** Fallback display name when neither MediaStore nor the URI carries one. */
         public const val DEFAULT_NAME: String = "shared-file"
+
+        /** Conversion factor between `DATE_MODIFIED` (seconds) and the wire's millis. */
+        internal const val SECOND_IN_MILLIS: Long = 1000L
 
         /**
          * Generates a positive 63-bit payload id. The Quick Share
@@ -174,6 +189,15 @@ public data class UriMetadata(
     val size: Long,
     /** `ContentResolver.getType(uri)`. `null` when no mapping is known. */
     val mimeType: String?,
+    /**
+     * `MediaStore.MediaColumns.DATE_MODIFIED`. Documented as **seconds**
+     * since epoch (the proto wire format is millis — the conversion
+     * happens in [UriFileSourceFactory.buildFileSource]). `0L` when the
+     * column is missing or null; many providers (e.g. NFC share, in-app
+     * stream URIs) do not expose a modification time and that's a
+     * documented "unknown" value, not an error. See issue #41.
+     */
+    val lastModifiedSeconds: Long = 0L,
 )
 
 /**
@@ -208,33 +232,48 @@ internal class ContentResolverMetadataReader(
     private val contentResolver: ContentResolver,
 ) : UriMetadataReader {
     override fun read(uri: Uri): UriMetadata {
-        val (displayName, size) = readOpenableColumns(uri)
+        val cursorMetadata = readCursorColumns(uri)
         val mime = contentResolver.getType(uri)
-        return UriMetadata(displayName = displayName, size = size, mimeType = mime)
+        return UriMetadata(
+            displayName = cursorMetadata.displayName,
+            size = cursorMetadata.size,
+            mimeType = mime,
+            lastModifiedSeconds = cursorMetadata.lastModifiedSeconds,
+        )
     }
 
     /**
-     * Issues a `query()` against the `OpenableColumns` projection and
-     * extracts the display name + size with documented fallbacks
-     * (`null` / `-1`) for missing or null cells. Lifted out of [read]
-     * so the cursor-walk depth stays well under detekt's [NestedBlockDepth]
-     * threshold.
+     * Issues a `query()` against [PROJECTION] and extracts the display
+     * name, size, and last-modified timestamp with documented fallbacks
+     * (`null` / `-1` / `0`) for missing or null cells. Lifted out of
+     * [read] so the cursor-walk depth stays well under detekt's
+     * `NestedBlockDepth` threshold.
+     *
+     * `MediaStore.MediaColumns.DATE_MODIFIED` is queried alongside the
+     * `OpenableColumns` so a single cursor walk captures everything
+     * needed to populate [UriMetadata]. Providers that do not expose
+     * `DATE_MODIFIED` simply return a missing column, which we map to
+     * `0L` (the documented "unknown" sentinel — `FileSource` then
+     * forwards `0L` onto the wire and the receiver leaves the
+     * platform's default modification time).
      */
-    private fun readOpenableColumns(uri: Uri): Pair<String?, Long> {
+    private fun readCursorColumns(uri: Uri): CursorMetadata {
         var displayName: String? = null
         var size: Long = -1L
+        var lastModifiedSeconds: Long = 0L
         // ContentResolver.query: (uri, projection, selection, selectionArgs, sortOrder).
-        // Selection / args / order are unused — we only need both
-        // OpenableColumns rows for the single referenced URI.
+        // Selection / args / order are unused — we only need the
+        // projection columns for the single referenced URI.
         contentResolver
             .query(uri, PROJECTION, null, null, null)
             ?.use { cursor: Cursor ->
                 if (cursor.moveToFirst()) {
                     displayName = readDisplayName(cursor)
                     size = readSize(cursor)
+                    lastModifiedSeconds = readLastModifiedSeconds(cursor)
                 }
             }
-        return displayName to size
+        return CursorMetadata(displayName, size, lastModifiedSeconds)
     }
 
     private fun readDisplayName(cursor: Cursor): String? {
@@ -250,8 +289,33 @@ internal class ContentResolverMetadataReader(
         return cursor.getLong(index)
     }
 
+    private fun readLastModifiedSeconds(cursor: Cursor): Long {
+        val index = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+        if (index < 0 || cursor.isNull(index)) return 0L
+        // MediaStore documents DATE_MODIFIED as Unix-time seconds. We
+        // surface negative or zero values as 0L so the upstream caller
+        // can route them through the "unknown timestamp" path.
+        return cursor.getLong(index).coerceAtLeast(0L)
+    }
+
+    /**
+     * Internal value carrier for the three cursor-derived columns. A
+     * `Triple` would compile but reading `.third` for a long-since-epoch
+     * timestamp is unfriendly to call sites.
+     */
+    private data class CursorMetadata(
+        val displayName: String?,
+        val size: Long,
+        val lastModifiedSeconds: Long,
+    )
+
     private companion object {
-        val PROJECTION = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
+        val PROJECTION =
+            arrayOf(
+                OpenableColumns.DISPLAY_NAME,
+                OpenableColumns.SIZE,
+                MediaStore.MediaColumns.DATE_MODIFIED,
+            )
     }
 }
 

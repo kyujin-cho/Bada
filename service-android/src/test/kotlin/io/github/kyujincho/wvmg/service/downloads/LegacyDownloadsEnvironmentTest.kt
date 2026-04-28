@@ -60,6 +60,50 @@ class LegacyDownloadsEnvironmentTest {
     }
 
     @Test
+    fun `commit applies the senders last_modified timestamp to the visible file`(
+        @TempDir downloadsDir: Path,
+    ) {
+        // Issue #41: when the sender carries
+        // PayloadHeader.last_modified_timestamp_millis, commit must
+        // route it to the on-disk file so the user sees the original
+        // mtime (matching stock Quick Share behavior — and fixing
+        // grishka/NearDrop#195's complaint at the receiver level).
+        val env = LegacyDownloadsEnvironment(downloadsDir.toFile())
+        val ts = 1_700_000_000_000L
+
+        val destination = env.insertPending("dated.txt", mimeType = "text/plain")
+        env.openOutputStream(destination).use { it.write(byteArrayOf(0x01)) }
+        env.commit(destination, lastModifiedTimestampMillis = ts)
+
+        val finalFile = File(downloadsDir.toFile(), "dated.txt")
+        assertThat(finalFile.exists()).isTrue()
+        // POSIX filesystems and most JDK implementations support
+        // millisecond precision on setLastModified; accept exact match.
+        assertThat(finalFile.lastModified()).isEqualTo(ts)
+    }
+
+    @Test
+    fun `commit with zero timestamp leaves the platform default mtime`(
+        @TempDir downloadsDir: Path,
+    ) {
+        // A 0L timestamp means the sender did not advertise an mtime;
+        // the receiver must NOT overwrite the file's own creation time
+        // with the Unix epoch. Equivalent invariant to the MediaStore
+        // env's `if (lastModifiedTimestampMillis > 0L)` guard.
+        val env = LegacyDownloadsEnvironment(downloadsDir.toFile())
+        val before = System.currentTimeMillis()
+
+        val destination = env.insertPending("no-ts.txt", mimeType = "text/plain")
+        env.openOutputStream(destination).use { it.write(byteArrayOf(0x02)) }
+        env.commit(destination, lastModifiedTimestampMillis = 0L)
+
+        val finalFile = File(downloadsDir.toFile(), "no-ts.txt")
+        // mtime must remain in the recent past, not be rewritten to
+        // the Unix epoch (which would be ~55 years ago).
+        assertThat(finalFile.lastModified()).isAtLeast(before - 5_000L)
+    }
+
+    @Test
     fun `discard deletes the placeholder and never produces a visible file`(
         @TempDir downloadsDir: Path,
     ) {

@@ -80,6 +80,49 @@ class MediaStoreDownloadsFactoryTest {
     // ------------------------------------------------------------------
 
     @Test
+    fun `commit forwards the senders last_modified timestamp to the environment`() {
+        // Issue #41: PayloadHeader.last_modified_timestamp_millis must
+        // round-trip from the assembler's open() through the factory's
+        // commit() down to the underlying environment so the
+        // MediaStore row (or legacy file) carries the original mtime.
+        val env = FakeDownloadsEnvironment()
+        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val ts = 1_700_000_000_000L
+        val header =
+            PayloadHeader
+                .newBuilder()
+                .setId(123L)
+                .setType(PayloadHeader.PayloadType.FILE)
+                .setFileName("dated.bin")
+                .setTotalSize(0)
+                .setLastModifiedTimestampMillis(ts)
+                .build()
+
+        factory.open(header).close()
+        assertThat(factory.commit(header.id)).isTrue()
+
+        val slot = env.slots["dated.bin"]!!
+        assertThat(slot.committed).isTrue()
+        assertThat(slot.committedLastModifiedTimestampMillis).isEqualTo(ts)
+    }
+
+    @Test
+    fun `commit forwards zero when the sender omitted the timestamp`() {
+        // A peer that left last_modified_timestamp_millis at the proto
+        // default (0) must NOT cause us to overwrite the platform's
+        // default mtime — the environment receives 0L and ignores it.
+        val env = FakeDownloadsEnvironment()
+        val factory = DownloadsWriterFactory.fromEnvironment(env)
+        val header = fileHeader(id = 200L, name = "no-ts.bin", totalSize = 0)
+
+        factory.open(header).close()
+        assertThat(factory.commit(header.id)).isTrue()
+
+        val slot = env.slots["no-ts.bin"]!!
+        assertThat(slot.committedLastModifiedTimestampMillis).isEqualTo(0L)
+    }
+
+    @Test
     fun `commit returns true once and false on second call`() {
         val env = FakeDownloadsEnvironment()
         val factory = DownloadsWriterFactory.fromEnvironment(env)

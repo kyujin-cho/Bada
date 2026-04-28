@@ -189,7 +189,10 @@ class DownloadsWriterTest {
 
                 override fun openOutputStream(destination: DownloadsEnvironment.Destination) = error("not reached")
 
-                override fun commit(destination: DownloadsEnvironment.Destination) = error("not reached")
+                override fun commit(
+                    destination: DownloadsEnvironment.Destination,
+                    lastModifiedTimestampMillis: Long,
+                ) = error("not reached")
 
                 override fun discard(destination: DownloadsEnvironment.Destination) = error("not reached")
             }

@@ -87,7 +87,10 @@ internal class LegacyDownloadsEnvironment(
         return FileOutputStream(partFile, false)
     }
 
-    override fun commit(destination: DownloadsEnvironment.Destination) {
+    override fun commit(
+        destination: DownloadsEnvironment.Destination,
+        lastModifiedTimestampMillis: Long,
+    ) {
         val (partFile, displayName) = destination.requireLegacyPair()
         val finalFile = File(downloadsDir, displayName)
         // renameTo is best-effort on legacy filesystems. If it fails
@@ -96,6 +99,15 @@ internal class LegacyDownloadsEnvironment(
         if (!partFile.renameTo(finalFile)) {
             partFile.copyTo(finalFile, overwrite = false)
             partFile.delete()
+        }
+        // Apply the sender's mtime AFTER the rename — `File.setLastModified`
+        // on the placeholder would be lost during `renameTo` on some
+        // filesystems. Best-effort: a failure (e.g. read-only mount,
+        // exotic FS that does not support setMTime) is silently ignored
+        // because the bytes are already safely on disk; users can
+        // observe the modify time via the OS regardless.
+        if (lastModifiedTimestampMillis > 0L) {
+            runCatching { finalFile.setLastModified(lastModifiedTimestampMillis) }
         }
     }
 
