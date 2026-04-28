@@ -19,12 +19,13 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Fr
  * Two frames live here:
  *
  *  - [connectionResponse] -- the **unencrypted** post-UKEY2 handshake
- *    handshake frame the receiver sends before the SecureChannel turns
- *    on. NearDrop's `InboundNearbyConnection.swift` calls this
- *    `processConnectionResponseFrame()`; we build the equivalent here
- *    with `response = ACCEPT` and `os_info = LINUX` (the most-honest
- *    answer for a JVM port -- it's not Apple, not stock Android, and
- *    Quick Share peers tolerate any value).
+ *    frame the receiver sends before the SecureChannel turns on.
+ *    NearDrop's `InboundNearbyConnection.swift` calls this
+ *    `processConnectionResponseFrame()`; we build the equivalent here.
+ *    Must emit the same five-field shape as
+ *    [OutboundFrames.connectionResponse] — the validating peer does not
+ *    know which role we are in, and One UI 8.0.5 validates the presence
+ *    of each field unconditionally.
  *  - [disconnection] -- the post-transfer teardown frame. Sent
  *    (encrypted) right before the orchestrator closes the socket on a
  *    successful completion or rejection.
@@ -32,35 +33,53 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Fr
  * Both helpers are pure functions; no state is held.
  */
 internal object OfflineFrames {
+    /** Legacy `status` field value for "STATUS_OK". 0 in the proto enum. */
+    private const val STATUS_OK: Int = 0
+
+    /**
+     * Version we advertise for the "safe to disconnect" handshake.
+     * See [OutboundFrames.SAFE_TO_DISCONNECT_VERSION] for the full rationale.
+     */
+    private const val SAFE_TO_DISCONNECT_VERSION: Int = 1
+
+    /**
+     * Bitmask value that declares "no medium supports multiplexing".
+     * See [OutboundFrames.MULTIPLEX_SOCKET_BITMASK_NONE] for the full
+     * rationale (Samsung One UI 8.0.5 silent-FIN guard).
+     */
+    private const val MULTIPLEX_SOCKET_BITMASK_NONE: Int = 0
+
     /**
      * Build an unencrypted `OfflineFrame{V1, CONNECTION_RESPONSE,
-     * response=ACCEPT, os_info=LINUX}`.
+     * response=ACCEPT, os_info=ANDROID}`.
      *
-     * The `response` field uses the modern enum
-     * (`ResponseStatus.ACCEPT`); the legacy integer `status` field is
-     * left at its proto default of `0` (`STATUS_OK`). Stock Android
-     * Quick Share fills both for older receivers, but NearDrop only
-     * sets the enum and that has worked in the field, so we follow
-     * NearDrop.
-     *
-     * `os_info.type = LINUX` is a small white lie that matches the
-     * spirit of NearDrop's `APPLE` choice -- we are not running on
-     * Apple, but we are also not running on stock Android (that would
-     * misrepresent the device class to the peer). LINUX is the most
-     * literal answer: the JVM/Android port runs on a Linux kernel.
-     * Peers do not branch on this for protocol behavior.
+     * Matches [OutboundFrames.connectionResponse] field-for-field.
+     * Both the sender and receiver paths must emit the same five-field
+     * shape because the validating peer (e.g. Samsung One UI 8.0.5)
+     * does not know which role we are playing and validates every field
+     * unconditionally. The five required fields are:
+     *   1. `status = 0` (STATUS_OK — legacy int field).
+     *   2. `response = ACCEPT` (modern enum field).
+     *   3. `os_info.type = ANDROID` — LINUX causes Samsung silent FINs.
+     *   4. `multiplex_socket_bitmask = 0` — absence triggers One UI 8.0.5
+     *      silent FIN; 0 = "no medium supports multiplex".
+     *   5. `safe_to_disconnect_version = 1` — required by One UI 7+.
      */
     fun connectionResponse(): OfflineFrame {
+        @Suppress("DEPRECATION")
         val response =
             ConnectionResponseFrame
                 .newBuilder()
+                .setStatus(STATUS_OK)
                 .setResponse(ConnectionResponseFrame.ResponseStatus.ACCEPT)
                 .setOsInfo(
                     OsInfo
                         .newBuilder()
-                        .setType(OsInfo.OsType.LINUX)
+                        .setType(OsInfo.OsType.ANDROID)
                         .build(),
-                ).build()
+                ).setMultiplexSocketBitmask(MULTIPLEX_SOCKET_BITMASK_NONE)
+                .setSafeToDisconnectVersion(SAFE_TO_DISCONNECT_VERSION)
+                .build()
         return OfflineFrame
             .newBuilder()
             .setVersion(OfflineFrame.Version.V1)

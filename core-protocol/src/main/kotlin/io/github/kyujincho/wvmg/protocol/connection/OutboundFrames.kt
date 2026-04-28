@@ -101,30 +101,47 @@ internal object OutboundFrames {
     private const val SAFE_TO_DISCONNECT_VERSION: Int = 1
 
     /**
-     * Build an unencrypted `OfflineFrame{V1, CONNECTION_RESPONSE,
-     * response=ACCEPT, os_info=LINUX}`.
+     * Bitmask value that declares "no medium supports multiplexing".
      *
-     * Same shape as [OfflineFrames.connectionResponse]: `response =
-     * ACCEPT`, the legacy `status` field left at its proto default,
-     * `os_info.type = LINUX`. Stock Quick Share peers accept any
-     * `os_info.type` here; LINUX is the most literal answer for a
-     * JVM/Android host.
+     * Stock Google Nearby Connections (`google/nearby`,
+     * `ForConnectionResponse`) unconditionally sets this field on every
+     * `ConnectionResponseFrame`, even when no medium supports multiplex.
+     * The proto comment defines `0x00` as "not [supported]" per medium.
+     * Samsung One UI 8.0.5 (Android 16) appears to check
+     * `has_multiplex_socket_bitmask()` and silently FINs ~104 ms after
+     * our `ConnectionResponse{ACCEPT}` when the field is absent. Setting
+     * it to 0 is the correct way to declare "we do not multiplex on any
+     * medium" — which matches our single Wi-Fi LAN socket implementation.
+     *
+     * See also [OfflineFrames.connectionResponse] — both paths must emit
+     * the same five-field shape because the validating peer does not know
+     * which role we are playing.
+     */
+    private const val MULTIPLEX_SOCKET_BITMASK_NONE: Int = 0
+
+    /**
+     * Build an unencrypted `OfflineFrame{V1, CONNECTION_RESPONSE,
+     * response=ACCEPT, os_info=ANDROID}`.
+     *
+     * Same shape as [OfflineFrames.connectionResponse]. Both paths must
+     * emit the same five-field shape because the validating peer does not
+     * know which role we are playing.
+     *
+     * The five Samsung One UI 8-required fields, in the order used by
+     * google/nearby's `ForConnectionResponse`:
+     *   1. `status = 0` (STATUS_OK — legacy int field; older receivers
+     *      inspect it for backwards compat).
+     *   2. `response = ACCEPT` (modern enum field).
+     *   3. `os_info.type = ANDROID` — LINUX = 100 is reserved for the
+     *      g3 test environment; Samsung One UI silently FINs on LINUX.
+     *   4. `multiplex_socket_bitmask = 0` — Samsung One UI 8.0.5+
+     *      silently FINs without it; stock Google Nearby Connections
+     *      always sets it. 0 = "no medium supports multiplex", which
+     *      matches our single-Wi-Fi-LAN-socket implementation.
+     *   5. `safe_to_disconnect_version = 1` — Samsung One UI 7+ refuses
+     *      to advance past the unencrypted handshake when absent.
      */
     fun connectionResponse(): OfflineFrame {
-        // Full ConnectionResponse shape — verified to make Samsung
-        // Galaxy S26 Ultra display the receive-consent dialog during
-        // manual interop testing:
-        //   * status = STATUS_OK (legacy int field, value 0; some
-        //     receivers still inspect it for backwards compat).
-        //   * response = ACCEPT (modern enum field).
-        //   * os_info.type = ANDROID — LINUX = 100 is reserved for the
-        //     g3 test environment and certain Samsung Quick Share
-        //     forks silently FIN when they see it.
-        //   * safe_to_disconnect_version = 1 — Samsung's One UI Quick
-        //     Share refuses to advance past the unencrypted handshake
-        //     when this field is missing, presumably because absence
-        //     means "peer does not support safe disconnect" and the
-        //     consent dialog never opens.
         @Suppress("DEPRECATION")
         val response =
             ConnectionResponseFrame
@@ -136,7 +153,8 @@ internal object OutboundFrames {
                         .newBuilder()
                         .setType(OsInfo.OsType.ANDROID)
                         .build(),
-                ).setSafeToDisconnectVersion(SAFE_TO_DISCONNECT_VERSION)
+                ).setMultiplexSocketBitmask(MULTIPLEX_SOCKET_BITMASK_NONE)
+                .setSafeToDisconnectVersion(SAFE_TO_DISCONNECT_VERSION)
                 .build()
         return OfflineFrame
             .newBuilder()
