@@ -12,6 +12,7 @@ import android.util.Log
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.IOException
+import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
@@ -309,13 +310,14 @@ internal class AndroidNsdRegistrar(
             } else {
                 try {
                     reflectiveSetAttribute.invoke(info, key, value)
-                } catch (
-                    @Suppress("TooGenericExceptionCaught") t: Throwable,
-                ) {
+                } catch (e: InvocationTargetException) {
+                    // Unwrap: the platform method threw; surface its own
+                    // message rather than wrapping it twice.
                     throw IllegalStateException(
                         "NsdServiceInfo.setAttribute(String, byte[]) reflective invoke failed " +
-                            "for key=$key (sdkInt=${Build.VERSION.SDK_INT})",
-                        t,
+                            "for key=$key (sdkInt=${Build.VERSION.SDK_INT}): " +
+                            "${e.targetException?.message ?: e.message}",
+                        e.targetException ?: e,
                     )
                 }
             }

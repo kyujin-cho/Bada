@@ -104,6 +104,55 @@ class DiscoveredServiceMappingTest {
         assertThat(result).isNull()
     }
 
+    @Test
+    fun `blank instance name is dropped — defensive guard against misbehaving mDNS responders`() {
+        // A handful of OEM mDNS responder implementations have been observed
+        // surfacing a "resolved" callback with an empty or blank service name.
+        // Discovery.toDiscoveredService guards against this by returning null
+        // before any downstream caller can interpret the blank name as a real
+        // peer identity.
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "   ", // whitespace-only, isBlank() == true
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 54_326,
+                attributes = emptyMap(),
+            )
+        val result = newDiscovery().toDiscoveredService(event)
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `port zero is dropped — defensive guard against misbehaving mDNS responders`() {
+        // Port 0 is not a dialable TCP port. An NsdBrowserEvent.Resolved event
+        // that carries port=0 indicates a partially-resolved record from a
+        // misbehaving system responder. Guard: Discovery.toDiscoveredService
+        // must return null rather than emit a DiscoveredService with an
+        // undialable port.
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 0,
+                attributes = emptyMap(),
+            )
+        val result = newDiscovery().toDiscoveredService(event)
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `port above MAX_PORT is dropped`() {
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = Discovery.MAX_PORT + 1,
+                attributes = emptyMap(),
+            )
+        val result = newDiscovery().toDiscoveredService(event)
+        assertThat(result).isNull()
+    }
+
     private fun newDiscovery(): Discovery =
         Discovery.forTesting(
             registrar =

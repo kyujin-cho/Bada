@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.discovery
 
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -42,6 +43,7 @@ import org.junit.jupiter.api.Test
  *    that drops the timeout to a useless value, or removes it entirely,
  *    fails this suite immediately.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class AndroidNsdBrowserTest {
     @Test
     fun `awaitResolveSignalWithTimeout returns false and emits timeout Error when signal never completes`() =

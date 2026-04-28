@@ -324,6 +324,74 @@ update regresses the BLE wake-up path.
 
 ---
 
+## NsdManager migration (PR #99 / issue #98) — vivo / Funtouch / OriginOS notes
+
+### What changed
+
+Prior to PR #99 the mDNS publish and browse path ran through the JmDNS
+library in-process. The receiver held a `WifiManager.MulticastLock` for
+the lifetime of the receiver service so the Wi-Fi chip would not drop
+inbound multicast while the screen was off.
+
+PR #99 ([issue #98](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/98))
+replaced JmDNS with Android's `NsdManager`, which delegates publish and
+browse to the system mDNS responder process. The system responder has
+the multicast filter exemption baked in; the in-app `MulticastLock` is
+therefore no longer needed and has been removed.
+
+**What this means for vivo Funtouch OS / OriginOS testers:** the
+previous JmDNS-based implementation silently failed to receive any inbound
+mDNS multicast on vivo devices regardless of `MulticastLock` state — the
+radio layer on those OEM skins drops inbound IPv4 multicast for
+non-system apps at a level below the lock mechanism. The `NsdManager`
+path bypasses this restriction because the system responder has kernel
+CAP\_NET\_RAW privileges that third-party processes cannot obtain. The
+peer picker should now populate within 5 s of the BLE pulse landing on
+vivo hardware.
+
+### How to verify the migration on a vivo device
+
+1. Install the build from PR #99 and open the share flow on the vivo
+   sender.
+2. Verify no in-process multicast lock is held by the app:
+   ```bash
+   adb shell dumpsys wifi | grep -A 10 "Multicast Locks held"
+   ```
+   The section should either be absent or show zero locks held by
+   `io.github.kyujincho.wvmg.debug`. If a lock entry still appears,
+   the migration is incomplete.
+3. Confirm the WVMG peer picker populates within 5 s of a Pixel or
+   Samsung Quick Share sender issuing a BLE pulse (cells 1 and 2 of
+   the test matrix above). On pre-#99 builds this would reliably fail
+   on vivo; on post-#99 builds it should succeed.
+4. Check logcat for the NsdManager discovery start line:
+   ```bash
+   adb logcat -s WvmgDiscovery
+   ```
+   You should see `NsdBrowser: discovery started for _FC9F5ED42C8A._tcp`
+   followed by `browse: serviceResolved name=<instanceName>` for each
+   visible Quick Share peer. If you see only `serviceFound` lines but
+   no `serviceResolved`, the system responder is queuing resolves but
+   timing out — note the OEM build fingerprint and file a follow-up.
+
+### Historical context: mDNS persistence limitation
+
+Earlier versions of this runbook carried a "mDNS persistence limitation"
+warning documenting that JmDNS browse sessions would silently stop
+receiving updates after the screen turned off on some OEM skins. That
+limitation was a consequence of the in-process multicast lock being
+ignored by the radio firmware.
+
+After the NsdManager migration the system mDNS responder is responsible
+for maintaining browse sessions; the app no longer has to hold any lock.
+The limitation is **expected to be lifted** on all supported Android
+versions (API 24+). If you observe the peer picker emptying itself or
+stopping to update while the screen is on, it is now a system-responder
+or NsdManager bug rather than a WVMG-specific issue — capture
+`adb shell dumpsys nsd` output and attach it to any follow-up issue.
+
+---
+
 ## Common Quick Share BLE quirks
 
 These are real-world properties of stock Quick Share's BLE side that
