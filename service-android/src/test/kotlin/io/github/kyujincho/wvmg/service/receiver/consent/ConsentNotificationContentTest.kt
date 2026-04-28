@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.service.receiver.consent
 
 import com.google.common.truth.Truth.assertThat
 import io.github.kyujincho.wvmg.protocol.connection.InboundConnection
+import io.github.kyujincho.wvmg.protocol.connection.TransferItem
 import io.github.kyujincho.wvmg.service.R
 import org.junit.jupiter.api.Test
 import java.net.Socket
@@ -116,6 +117,115 @@ class ConsentNotificationContentTest {
         assertThat(content.rejectLabel).isEqualTo("Reject")
     }
 
+    /**
+     * Issue #40: when the registry entry carries an explicit items
+     * list, the consent summary breaks the count down by kind
+     * ("3 files + 1 URL") rather than showing an opaque "4 item(s)".
+     * Without this, the user cannot tell from the notification alone
+     * that the peer is sending a clipboard URL alongside a file.
+     */
+    @Test
+    fun `body breaks down mixed file and url introduction by kind`() {
+        val items: List<TransferItem> =
+            listOf(
+                TransferItem.File(
+                    payloadId = 1L,
+                    name = "a.bin",
+                    size = 1000L,
+                    mimeType = "application/octet-stream",
+                ),
+                TransferItem.File(
+                    payloadId = 2L,
+                    name = "b.bin",
+                    size = 2000L,
+                    mimeType = "application/octet-stream",
+                ),
+                TransferItem.File(
+                    payloadId = 3L,
+                    name = "c.bin",
+                    size = 3000L,
+                    mimeType = "application/octet-stream",
+                ),
+                TransferItem.Text(
+                    payloadId = 4L,
+                    title = "page",
+                    size = 40L,
+                    kind = TransferItem.Text.Kind.URL,
+                ),
+            )
+        val content =
+            ConsentNotificationContent.from(
+                resolver = englishResolver(),
+                entry =
+                    sampleEntry(
+                        itemCount = items.size,
+                        totalSize = items.sumOf { it.size },
+                        items = items,
+                    ),
+            )
+        assertThat(content.body).contains("3 file(s)")
+        assertThat(content.body).contains("1 URL(s)")
+        assertThat(content.body).contains("+")
+    }
+
+    /**
+     * Edge case: introductions that carry only one payload kind still
+     * render through the per-kind path so the resulting summary
+     * mentions the kind explicitly ("1 file") instead of the generic
+     * "1 item".
+     */
+    @Test
+    fun `body uses kind-specific segment when only texts present`() {
+        val items: List<TransferItem> =
+            listOf(
+                TransferItem.Text(
+                    payloadId = 1L,
+                    title = "page",
+                    size = 40L,
+                    kind = TransferItem.Text.Kind.URL,
+                ),
+                TransferItem.Text(
+                    payloadId = 2L,
+                    title = "memo",
+                    size = 10L,
+                    kind = TransferItem.Text.Kind.PLAIN,
+                ),
+            )
+        val content =
+            ConsentNotificationContent.from(
+                resolver = englishResolver(),
+                entry =
+                    sampleEntry(
+                        itemCount = items.size,
+                        totalSize = items.sumOf { it.size },
+                        items = items,
+                    ),
+            )
+        assertThat(content.body).contains("1 URL(s)")
+        assertThat(content.body).contains("1 text(s)")
+        assertThat(content.body).doesNotContain("item(s)")
+    }
+
+    /**
+     * The legacy code path — an Entry without an items list — must
+     * still render via the generic "N item(s)" form so older callers
+     * keep working without churn.
+     */
+    @Test
+    fun `body falls back to N items when items list is empty`() {
+        val content =
+            ConsentNotificationContent.from(
+                resolver = englishResolver(),
+                entry =
+                    sampleEntry(
+                        itemCount = 4,
+                        totalSize = 1024L,
+                        items = emptyList(),
+                    ),
+            )
+        assertThat(content.body).contains("4 item(s)")
+    }
+
     @Test
     fun `humanReadableSize handles bytes through gigabytes`() {
         with(ConsentNotificationContent) {
@@ -130,6 +240,7 @@ class ConsentNotificationContentTest {
         }
     }
 
+    @Suppress("CyclomaticComplexMethod") // One branch per resource id is the simplest, most readable shape.
     private fun englishResolver(): TextResolver =
         TextResolver { resourceId, args ->
             when (resourceId) {
@@ -140,6 +251,18 @@ class ConsentNotificationContentTest {
                 R.string.consent_notification_summary_n_items ->
                     String.format(java.util.Locale.ROOT, "%d item(s) (%s)", args[0], args[1])
                 R.string.consent_notification_summary_no_items -> "no items"
+                R.string.consent_notification_summary_kinds_with_size ->
+                    String.format(java.util.Locale.ROOT, "%s (%s)", args[0], args[1])
+                R.string.consent_notification_segment_files ->
+                    String.format(java.util.Locale.ROOT, "%d file(s)", args[0])
+                R.string.consent_notification_segment_urls ->
+                    String.format(java.util.Locale.ROOT, "%d URL(s)", args[0])
+                R.string.consent_notification_segment_addresses ->
+                    String.format(java.util.Locale.ROOT, "%d address(es)", args[0])
+                R.string.consent_notification_segment_phone_numbers ->
+                    String.format(java.util.Locale.ROOT, "%d phone number(s)", args[0])
+                R.string.consent_notification_segment_texts ->
+                    String.format(java.util.Locale.ROOT, "%d text(s)", args[0])
                 R.string.consent_notification_body ->
                     String.format(java.util.Locale.ROOT, "%s · PIN %s", args[0], args[1])
                 R.string.consent_notification_bigtext_pin_line ->
@@ -155,6 +278,7 @@ class ConsentNotificationContentTest {
         pin: String = "1234",
         itemCount: Int = 1,
         totalSize: Long = 1024L,
+        items: List<TransferItem> = emptyList(),
     ): ConsentRegistry.Entry =
         ConsentRegistry.Entry(
             connection = InboundConnection(socket = Socket()),
@@ -162,5 +286,6 @@ class ConsentNotificationContentTest {
             pin = pin,
             itemCount = itemCount,
             totalSize = totalSize,
+            items = items,
         )
 }

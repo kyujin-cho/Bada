@@ -77,6 +77,22 @@
     <string name="consent_notification_summary_no_items">no items</string>
 
     <!--
+      Mixed-introduction summary (#40). When an introduction announces
+      payloads of more than one kind (file + URL + address + ...), the
+      consent notification renders a per-kind breakdown like "3 files +
+      1 URL (12.4 MB)" instead of the opaque "4 item(s) (12.4 MB)".
+      Each segment is built from one of the kind-specific strings below
+      and joined with " + "; the size suffix is appended via
+      consent_notification_summary_kinds_with_size.
+    -->
+    <string name="consent_notification_summary_kinds_with_size">%1$s (%2$s)</string>
+    <string name="consent_notification_segment_files" tools:ignore="PluralsCandidate">%1$d file(s)</string>
+    <string name="consent_notification_segment_urls" tools:ignore="PluralsCandidate">%1$d URL(s)</string>
+    <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">%1$d address(es)</string>
+    <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">%1$d phone number(s)</string>
+    <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">%1$d text(s)</string>
+
+    <!--
       Body line shown collapsed: "%summary% — PIN %pin%". The PIN is
       always the 4-digit confirmation code from TransferMetadata.
     -->

@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.service.receiver.consent
 
 import android.content.res.Resources
+import io.github.kyujincho.wvmg.protocol.connection.TransferItem
 import io.github.kyujincho.wvmg.service.R
 
 /**
@@ -84,14 +85,25 @@ public data class ConsentNotificationContent(
                 }
 
             val itemSummary =
-                if (entry.itemCount <= 0) {
-                    resolver.formatted(R.string.consent_notification_summary_no_items)
-                } else {
-                    resolver.formatted(
-                        R.string.consent_notification_summary_n_items,
-                        entry.itemCount,
-                        humanReadableSize(entry.totalSize),
-                    )
+                when {
+                    entry.itemCount <= 0 ->
+                        resolver.formatted(R.string.consent_notification_summary_no_items)
+                    // Issue #40: when the introduction announces multiple
+                    // payload kinds (e.g. files + URLs), break the summary
+                    // into per-kind segments so the user sees "3 files +
+                    // 1 URL" instead of an opaque "4 items". Falls back
+                    // to the count-only form when the registry entry was
+                    // created without an items list (older callers, or a
+                    // foreground-service resurrection that lost the
+                    // detail).
+                    entry.items.isNotEmpty() ->
+                        kindBreakdownSummary(resolver, entry.items, entry.totalSize)
+                    else ->
+                        resolver.formatted(
+                            R.string.consent_notification_summary_n_items,
+                            entry.itemCount,
+                            humanReadableSize(entry.totalSize),
+                        )
                 }
 
             val body =
@@ -121,6 +133,71 @@ public data class ConsentNotificationContent(
                 bigText = bigText,
                 acceptLabel = resolver.formatted(R.string.consent_notification_action_accept),
                 rejectLabel = resolver.formatted(R.string.consent_notification_action_reject),
+            )
+        }
+
+        /**
+         * Build a "kinds + size" summary like
+         * "3 files + 1 URL (12.4 MB)" from a [TransferItem] list.
+         *
+         * Group ordering is fixed (files → URLs → addresses → phone
+         * numbers → plain text) so callers can rely on stable, readable
+         * output regardless of the announcement order. Empty groups are
+         * dropped. The total size suffix uses [humanReadableSize].
+         *
+         * Public + JVM-pure so the unit tests can assert on the exact
+         * formatted output without spinning up Robolectric.
+         */
+        public fun kindBreakdownSummary(
+            resolver: TextResolver,
+            items: List<TransferItem>,
+            totalSize: Long,
+        ): String {
+            val files = items.count { it is TransferItem.File }
+            val urls = items.count { it is TransferItem.Text && it.kind == TransferItem.Text.Kind.URL }
+            val addresses =
+                items.count { it is TransferItem.Text && it.kind == TransferItem.Text.Kind.ADDRESS }
+            val phones =
+                items.count { it is TransferItem.Text && it.kind == TransferItem.Text.Kind.PHONE_NUMBER }
+            val texts =
+                items.count { it is TransferItem.Text && it.kind == TransferItem.Text.Kind.PLAIN }
+
+            val segments = mutableListOf<String>()
+            if (files > 0) {
+                segments += resolver.formatted(R.string.consent_notification_segment_files, files)
+            }
+            if (urls > 0) {
+                segments += resolver.formatted(R.string.consent_notification_segment_urls, urls)
+            }
+            if (addresses > 0) {
+                segments +=
+                    resolver.formatted(R.string.consent_notification_segment_addresses, addresses)
+            }
+            if (phones > 0) {
+                segments +=
+                    resolver.formatted(R.string.consent_notification_segment_phone_numbers, phones)
+            }
+            if (texts > 0) {
+                segments += resolver.formatted(R.string.consent_notification_segment_texts, texts)
+            }
+
+            // Defensive fallback: an items list whose entries do not
+            // match any known kind (future proto additions) collapses
+            // back to the generic "N item(s)" form so the summary is
+            // never empty.
+            if (segments.isEmpty()) {
+                return resolver.formatted(
+                    R.string.consent_notification_summary_n_items,
+                    items.size,
+                    humanReadableSize(totalSize),
+                )
+            }
+
+            val joined = segments.joinToString(separator = " + ")
+            return resolver.formatted(
+                R.string.consent_notification_summary_kinds_with_size,
+                joined,
+                humanReadableSize(totalSize),
             )
         }
 

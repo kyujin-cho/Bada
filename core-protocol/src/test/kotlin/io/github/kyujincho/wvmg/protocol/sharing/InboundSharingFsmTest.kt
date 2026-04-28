@@ -246,6 +246,62 @@ class InboundSharingFsmTest {
     }
 
     /**
+     * Regression guard for issue #40: an introduction that mixes
+     * `file_metadata` with multiple `text_metadata` entries MUST be
+     * surfaced verbatim to the orchestrator (which, in turn, drives
+     * the consent UI). NearDrop rejects the mixed shape; we accept it
+     * because the Quick Share wire protocol does not impose
+     * homogeneity.
+     */
+    @Test
+    fun `mixed introduction with files and multiple texts is accepted verbatim`() {
+        val fsm = newFsm()
+        fsm.start()
+        fsm.onEvent(SharingFsmEvent.FrameReceived(SharingFrames.pairedKeyEncryption()))
+        fsm.onEvent(SharingFsmEvent.FrameReceived(SharingFrames.pairedKeyResult()))
+
+        val intro =
+            IntroductionFrame
+                .newBuilder()
+                .addFileMetadata(
+                    com.google.android.gms.nearby.sharing.Protocol.FileMetadata
+                        .newBuilder()
+                        .setName("photo.jpg")
+                        .setPayloadId(101L)
+                        .setSize(2048L)
+                        .build(),
+                ).addTextMetadata(
+                    com.google.android.gms.nearby.sharing.Protocol.TextMetadata
+                        .newBuilder()
+                        .setTextTitle("link")
+                        .setPayloadId(201L)
+                        .setSize(40L)
+                        .setType(com.google.android.gms.nearby.sharing.Protocol.TextMetadata.Type.URL)
+                        .build(),
+                ).addTextMetadata(
+                    com.google.android.gms.nearby.sharing.Protocol.TextMetadata
+                        .newBuilder()
+                        .setTextTitle("memo")
+                        .setPayloadId(202L)
+                        .setSize(20L)
+                        .setType(com.google.android.gms.nearby.sharing.Protocol.TextMetadata.Type.TEXT)
+                        .build(),
+                ).build()
+
+        val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(SharingFrames.introduction(intro)))
+
+        assertThat(effects).hasSize(1)
+        val notify = effects[0] as SharingFsmEffect.IntroductionReceived
+        // Verbatim: the FSM does not strip / reorder / reject any of
+        // the announced metadata, so the orchestrator and consent UI
+        // see exactly what the peer sent.
+        assertThat(notify.introduction).isEqualTo(intro)
+        assertThat(notify.introduction.fileMetadataCount).isEqualTo(1)
+        assertThat(notify.introduction.textMetadataCount).isEqualTo(2)
+        assertThat(fsm.state).isEqualTo(InboundSharingState.WaitingForUserConsent)
+    }
+
+    /**
      * Drives the FSM through PKE / PKR / INTRODUCTION so the test body
      * starts in [InboundSharingState.WaitingForUserConsent].
      */

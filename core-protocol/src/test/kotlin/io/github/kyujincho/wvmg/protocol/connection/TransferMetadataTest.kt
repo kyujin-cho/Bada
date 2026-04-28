@@ -136,4 +136,76 @@ class TransferMetadataTest {
             TransferMetadata(items = emptyList(), pin = "12345")
         }
     }
+
+    /**
+     * Regression guard for issue #40: a single introduction may carry
+     * multiple texts of different `Type`s alongside multiple files.
+     * NearDrop rejects this shape; we accept it. The mapping must
+     * preserve every item, distinguish each text's `Kind`, and roll
+     * the per-item sizes into [TransferMetadata.totalSize].
+     */
+    @Test
+    fun `multiple texts of mixed kinds combined with multiple files all map`() {
+        val frame =
+            IntroductionFrame
+                .newBuilder()
+                .addFileMetadata(
+                    Protocol.FileMetadata
+                        .newBuilder()
+                        .setName("photo.jpg")
+                        .setPayloadId(101L)
+                        .setSize(50_000L)
+                        .setMimeType("image/jpeg")
+                        .build(),
+                ).addFileMetadata(
+                    Protocol.FileMetadata
+                        .newBuilder()
+                        .setName("notes.pdf")
+                        .setPayloadId(102L)
+                        .setSize(10_000L)
+                        .setMimeType("application/pdf")
+                        .build(),
+                ).addTextMetadata(
+                    Protocol.TextMetadata
+                        .newBuilder()
+                        .setTextTitle("page")
+                        .setPayloadId(201L)
+                        .setSize(40L)
+                        .setType(Protocol.TextMetadata.Type.URL)
+                        .build(),
+                ).addTextMetadata(
+                    Protocol.TextMetadata
+                        .newBuilder()
+                        .setTextTitle("address")
+                        .setPayloadId(202L)
+                        .setSize(60L)
+                        .setType(Protocol.TextMetadata.Type.ADDRESS)
+                        .build(),
+                ).addTextMetadata(
+                    Protocol.TextMetadata
+                        .newBuilder()
+                        .setTextTitle("memo")
+                        .setPayloadId(203L)
+                        .setSize(20L)
+                        .setType(Protocol.TextMetadata.Type.TEXT)
+                        .build(),
+                ).build()
+
+        val md = TransferMetadata.fromIntroductionFrame(frame, pin = "0001")
+
+        assertThat(md.items).hasSize(5)
+        // Files keep their order, then texts in their announcement order.
+        val files = md.items.filterIsInstance<TransferItem.File>()
+        val texts = md.items.filterIsInstance<TransferItem.Text>()
+        assertThat(files.map { it.payloadId }).containsExactly(101L, 102L).inOrder()
+        assertThat(texts.map { it.payloadId }).containsExactly(201L, 202L, 203L).inOrder()
+        assertThat(texts.map { it.kind })
+            .containsExactly(
+                TransferItem.Text.Kind.URL,
+                TransferItem.Text.Kind.ADDRESS,
+                TransferItem.Text.Kind.PLAIN,
+            ).inOrder()
+        // totalSize sums every announced item, regardless of kind.
+        assertThat(md.totalSize).isEqualTo(50_000L + 10_000L + 40L + 60L + 20L)
+    }
 }

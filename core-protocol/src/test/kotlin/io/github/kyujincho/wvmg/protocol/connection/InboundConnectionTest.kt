@@ -539,6 +539,198 @@ class InboundConnectionTest {
         }
 
     // -------------------------------------------------------------
+    // Mixed-introduction acceptance (issue #40)
+    // -------------------------------------------------------------
+
+    /**
+     * Regression guard for issue #40: an introduction that mixes
+     * `file_metadata` and multiple `text_metadata` entries (PLAIN +
+     * URL) MUST be accepted end-to-end.
+     *
+     * NearDrop's reference implementation rejects anything that is not
+     * a single file or a single text; the Quick Share wire protocol
+     * itself does not impose that restriction, and stock senders
+     * routinely pack a clipboard URL alongside a file. Pinning this
+     * behavior in a loopback test prevents a future refactor from
+     * silently re-introducing NearDrop's homogeneity check.
+     */
+    @Test
+    @Suppress("LongMethod") // End-to-end loopback inherently sets up sender + receiver fixtures inline.
+    fun `mixed introduction with file plus multiple text payloads completes`() =
+        runTest(timeout = kotlin.time.Duration.parse("30s")) {
+            val (clientSocket, serverSocket) = connectedSocketPair()
+            val factory = InMemoryFactory()
+            val rand = SecureRandom("inbound-mixed".toByteArray())
+            val inbound = InboundConnection(serverSocket, secureRandom = rand)
+
+            val fileBytes = ByteArray(2048) { (it and 0xFF).toByte() }
+            val filePayloadId = 0xCAFEL
+            val urlBytes = "https://example.test/note".toByteArray()
+            val urlPayloadId = 0xBEEFL
+            val plainBytes = "clipboard contents".toByteArray()
+            val plainPayloadId = 0xFACEL
+
+            val introduction =
+                IntroductionFrame
+                    .newBuilder()
+                    .addFileMetadata(
+                        Protocol.FileMetadata
+                            .newBuilder()
+                            .setName("attachment.bin")
+                            .setPayloadId(filePayloadId)
+                            .setSize(fileBytes.size.toLong())
+                            .setMimeType("application/octet-stream")
+                            .build(),
+                    ).addTextMetadata(
+                        Protocol.TextMetadata
+                            .newBuilder()
+                            .setTextTitle("link")
+                            .setPayloadId(urlPayloadId)
+                            .setSize(urlBytes.size.toLong())
+                            .setType(Protocol.TextMetadata.Type.URL)
+                            .build(),
+                    ).addTextMetadata(
+                        Protocol.TextMetadata
+                            .newBuilder()
+                            .setTextTitle("clip")
+                            .setPayloadId(plainPayloadId)
+                            .setSize(plainBytes.size.toLong())
+                            .setType(Protocol.TextMetadata.Type.TEXT)
+                            .build(),
+                    ).build()
+
+            coroutineScope {
+                val receiverJob = async { inbound.run(factory) }
+
+                launch {
+                    val state =
+                        inbound.state.first {
+                            it is InboundConnectionState.WaitingForUserConsent
+                        } as InboundConnectionState.WaitingForUserConsent
+                    // The consent metadata MUST surface every announced
+                    // attachment (one file + two texts) so the consent
+                    // UI can render an honest summary.
+                    assertThat(state.metadata.items).hasSize(3)
+                    val texts = state.metadata.items.filterIsInstance<TransferItem.Text>()
+                    assertThat(texts.map { it.kind })
+                        .containsExactly(
+                            TransferItem.Text.Kind.URL,
+                            TransferItem.Text.Kind.PLAIN,
+                        )
+                    inbound.submitUserConsent(accepted = true)
+                }
+
+                runSyntheticSender(
+                    socket = clientSocket,
+                    introduction = introduction,
+                    files = mapOf(filePayloadId to fileBytes),
+                    texts =
+                        mapOf(
+                            urlPayloadId to urlBytes,
+                            plainPayloadId to plainBytes,
+                        ),
+                    secureRandom = SecureRandom("sender-mixed".toByteArray()),
+                )
+
+                val result = receiverJob.await()
+                assertThat(result).isInstanceOf(InboundResult.Completed::class.java)
+                val items = (result as InboundResult.Completed).items
+
+                // Every announced item arrived, exactly once each.
+                assertThat(items).hasSize(3)
+                val byId = items.associateBy { it.payloadId }
+                val file = byId[filePayloadId] as ReceivedItem.File
+                assertThat(file.bytesWritten).isEqualTo(fileBytes.size.toLong())
+                val url = byId[urlPayloadId] as ReceivedItem.Text
+                assertThat(url.data).isEqualTo(urlBytes)
+                val plain = byId[plainPayloadId] as ReceivedItem.Text
+                assertThat(plain.data).isEqualTo(plainBytes)
+            }
+
+            // File bytes round-tripped through the in-memory factory.
+            val received = factory.output[filePayloadId]?.toByteArray()
+            assertThat(received).isEqualTo(fileBytes)
+            // Only FILE payloads are committed; the two text payloads
+            // are buffered in heap and never touch the destination
+            // factory.
+            assertThat(factory.committed).containsExactly(filePayloadId)
+        }
+
+    /**
+     * Regression guard for issue #40: an introduction with multiple
+     * `text_metadata` entries and zero files (e.g. clipboard text +
+     * a URL) is also accepted end-to-end. The text-only path is the
+     * common case for "Send to nearby" from a browser address bar
+     * paired with the page title.
+     */
+    @Test
+    fun `multiple text payloads without any files complete`() =
+        runTest(timeout = kotlin.time.Duration.parse("30s")) {
+            val (clientSocket, serverSocket) = connectedSocketPair()
+            val factory = InMemoryFactory()
+            val rand = SecureRandom("inbound-multitext".toByteArray())
+            val inbound = InboundConnection(serverSocket, secureRandom = rand)
+
+            val urlBytes = "https://example.test/page".toByteArray()
+            val urlPayloadId = 11L
+            val phoneBytes = "+15551234567".toByteArray()
+            val phonePayloadId = 12L
+
+            val introduction =
+                IntroductionFrame
+                    .newBuilder()
+                    .addTextMetadata(
+                        Protocol.TextMetadata
+                            .newBuilder()
+                            .setTextTitle("page")
+                            .setPayloadId(urlPayloadId)
+                            .setSize(urlBytes.size.toLong())
+                            .setType(Protocol.TextMetadata.Type.URL)
+                            .build(),
+                    ).addTextMetadata(
+                        Protocol.TextMetadata
+                            .newBuilder()
+                            .setTextTitle("contact")
+                            .setPayloadId(phonePayloadId)
+                            .setSize(phoneBytes.size.toLong())
+                            .setType(Protocol.TextMetadata.Type.PHONE_NUMBER)
+                            .build(),
+                    ).build()
+
+            coroutineScope {
+                val receiverJob = async { inbound.run(factory) }
+
+                launch {
+                    inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                    inbound.submitUserConsent(accepted = true)
+                }
+
+                runSyntheticSender(
+                    socket = clientSocket,
+                    introduction = introduction,
+                    files = emptyMap(),
+                    texts =
+                        mapOf(
+                            urlPayloadId to urlBytes,
+                            phonePayloadId to phoneBytes,
+                        ),
+                    secureRandom = SecureRandom("sender-multitext".toByteArray()),
+                )
+
+                val result = receiverJob.await()
+                assertThat(result).isInstanceOf(InboundResult.Completed::class.java)
+                val items = (result as InboundResult.Completed).items
+                assertThat(items).hasSize(2)
+                val byId = items.associateBy { it.payloadId }
+                assertThat((byId[urlPayloadId] as ReceivedItem.Text).data).isEqualTo(urlBytes)
+                assertThat((byId[phonePayloadId] as ReceivedItem.Text).data).isEqualTo(phoneBytes)
+            }
+
+            // No files announced, so commit/abort never fire on the factory.
+            assertThat(factory.committed).isEmpty()
+        }
+
+    // -------------------------------------------------------------
     // Synthetic sender harness
     // -------------------------------------------------------------
 
