@@ -60,14 +60,59 @@ class Ukey2KeyEncodingTest {
     }
 
     @Test
-    fun `serialize emits exactly 32 bytes for both X and Y coordinates`() {
+    fun `serialize emits 32 or 33 bytes for each P-256 coordinate`() {
+        // Output is 32 bytes when the field-element top bit is 0 (the
+        // common case) and 33 bytes (leading 0x00 sign byte + 32-byte
+        // magnitude) when the top bit is 1. The 33-byte form is what
+        // `BigInteger.toByteArray()` returns natively for a positive
+        // value with the top bit set; we keep the sign byte rather than
+        // stripping it, because Samsung One UI 8.0.5's GMS Nearby
+        // parses these bytes via `new BigInteger(byte[])` (signed
+        // two's complement) and rejects MSB=1 32-byte input as a
+        // negative integer. The variable encoding is unambiguous to any
+        // proto-aware receiver since the field is `bytes`.
         val pub = generateKeyPair().public as ECPublicKey
         val bytes = Ukey2KeyEncoding.serialize(pub)
 
         val parsed = GenericPublicKey.parseFrom(bytes)
         assertThat(parsed.type).isEqualTo(PublicKeyType.EC_P256)
-        assertThat(parsed.ecP256PublicKey.x.size()).isEqualTo(Ukey2.P256_COORDINATE_SIZE)
-        assertThat(parsed.ecP256PublicKey.y.size()).isEqualTo(Ukey2.P256_COORDINATE_SIZE)
+        val xSize = parsed.ecP256PublicKey.x.size()
+        val ySize = parsed.ecP256PublicKey.y.size()
+        assertThat(xSize).isAnyOf(Ukey2.P256_COORDINATE_SIZE, Ukey2.P256_COORDINATE_SIZE + 1)
+        assertThat(ySize).isAnyOf(Ukey2.P256_COORDINATE_SIZE, Ukey2.P256_COORDINATE_SIZE + 1)
+        // When the encoding is 33 bytes the leading byte must be the
+        // canonical 0x00 sign byte — not arbitrary leading data — so
+        // signed parsers see a non-negative value.
+        if (xSize == Ukey2.P256_COORDINATE_SIZE + 1) {
+            assertThat(parsed.ecP256PublicKey.x.byteAt(0)).isEqualTo(0.toByte())
+        }
+        if (ySize == Ukey2.P256_COORDINATE_SIZE + 1) {
+            assertThat(parsed.ecP256PublicKey.y.byteAt(0)).isEqualTo(0.toByte())
+        }
+    }
+
+    @Test
+    fun `serialize never produces an MSB-1 32-byte coordinate (Samsung BC parser regression guard)`() {
+        // Burn through enough random keypairs that we hit the ~50%
+        // probability of a top-bit-set coordinate. For every keypair,
+        // assert: a 32-byte output has top bit = 0; a 33-byte output
+        // has leading byte = 0x00. There is no other valid combination.
+        repeat(64) {
+            val pub = generateKeyPair().public as ECPublicKey
+            val bytes = Ukey2KeyEncoding.serialize(pub)
+            val parsed = GenericPublicKey.parseFrom(bytes)
+
+            for (coord in listOf(parsed.ecP256PublicKey.x, parsed.ecP256PublicKey.y)) {
+                val raw = coord.toByteArray()
+                if (raw.size == Ukey2.P256_COORDINATE_SIZE) {
+                    val topBit = (raw[0].toInt() and 0x80) != 0
+                    assertThat(topBit).isFalse()
+                } else {
+                    assertThat(raw.size).isEqualTo(Ukey2.P256_COORDINATE_SIZE + 1)
+                    assertThat(raw[0]).isEqualTo(0.toByte())
+                }
+            }
+        }
     }
 
     @Test
@@ -77,9 +122,12 @@ class Ukey2KeyEncodingTest {
         // `BigInteger.toByteArray()` form for values whose top bit is
         // set). The parser must drop the sign byte and recover the real
         // 32-byte coordinate.
-        val pub = generateKeyPair().public as ECPublicKey
-        val canonical = Ukey2KeyEncoding.serialize(pub)
-        val canonicalProto = GenericPublicKey.parseFrom(canonical)
+        //
+        // Since the canonical serializer now itself emits 33-byte
+        // coordinates whenever the top bit is set, find a keypair whose
+        // canonical X happens to be 32 bytes (top bit 0) so the
+        // synthetic 33-byte form we manufacture below is unambiguous.
+        val (pub, canonicalProto) = keyWithCanonicalXSize(Ukey2.P256_COORDINATE_SIZE)
 
         val originalX = canonicalProto.ecP256PublicKey.x.toByteArray()
         val padded = ByteArray(originalX.size + 1)
@@ -112,9 +160,11 @@ class Ukey2KeyEncodingTest {
         // assert that the parser at least DOES the padding (we observe
         // the rejection path that a length-32 vs. length-31 input takes
         // the same code path through normalizeCoordinate).
-        val pub = generateKeyPair().public as ECPublicKey
-        val canonical = Ukey2KeyEncoding.serialize(pub)
-        val canonicalProto = GenericPublicKey.parseFrom(canonical)
+        //
+        // Pin the canonical X to 32 bytes so the truncation arithmetic
+        // below produces a deterministic 31-byte input regardless of
+        // whether the random keypair's top bit is 0 or 1.
+        val (_, canonicalProto) = keyWithCanonicalXSize(Ukey2.P256_COORDINATE_SIZE)
 
         // Synthesize a coordinate whose top byte is 0x00 by zeroing the
         // most significant byte of X. The resulting point is overwhelmingly
@@ -246,6 +296,32 @@ class Ukey2KeyEncodingTest {
         val gen = KeyPairGenerator.getInstance("EC")
         gen.initialize(ECGenParameterSpec("secp256r1"))
         return gen.generateKeyPair()
+    }
+
+    /**
+     * Returns a freshly generated keypair whose canonical X coordinate
+     * encodes to exactly [targetSize] bytes after passing through
+     * [Ukey2KeyEncoding.serialize]. Used by tests that need a
+     * deterministic encoding length to manipulate.
+     *
+     * Probability per draw is ~50% (top bit of the X field element is
+     * uniformly random), so this loop terminates quickly. Caps at
+     * [maxAttempts] to avoid an infinite spin in the (astronomically
+     * unlikely) event of a stuck KeyPairGenerator.
+     */
+    private fun keyWithCanonicalXSize(
+        targetSize: Int,
+        maxAttempts: Int = 64,
+    ): Pair<ECPublicKey, GenericPublicKey> {
+        repeat(maxAttempts) {
+            val pub = generateKeyPairFresh().public as ECPublicKey
+            val canonical = Ukey2KeyEncoding.serialize(pub)
+            val canonicalProto = GenericPublicKey.parseFrom(canonical)
+            if (canonicalProto.ecP256PublicKey.x.size() == targetSize) {
+                return pub to canonicalProto
+            }
+        }
+        error("Could not produce a keypair whose canonical X is $targetSize bytes after $maxAttempts attempts")
     }
 
     companion object {
