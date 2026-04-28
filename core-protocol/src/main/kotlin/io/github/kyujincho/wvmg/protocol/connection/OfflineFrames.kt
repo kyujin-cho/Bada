@@ -71,7 +71,7 @@ internal object OfflineFrames {
      *   4. `multiplex_socket_bitmask = 0` — absence triggers One UI 8.0.5
      *      silent FIN; 0 = "no medium supports multiplex".
      *   5. `safe_to_disconnect_version = 1` — required by One UI 7+.
-     *   6. `keep_alive_timeout_millis = 30_000` — proto field 9, required
+     *   6. `keep_alive_timeout_millis = 600_000` — proto field 9, required
      *      by One UI 8.0.5 (verified on-device); see
      *      [OutboundFrames.connectionResponse] for the full rationale.
      */
@@ -118,23 +118,20 @@ internal object OfflineFrames {
      * closing our socket. The orchestrator's drain loop in
      * `runReceiveLoop` is the matching wait.
      *
-     * @param requestSafeToDisconnect Set the request flag (sender
-     *   side). True for the happy-path teardown after streaming files
-     *   and for cancel/reject cases — receiver still benefits from
-     *   draining buffered bytes before tearing down.
-     * @param ackSafeToDisconnect Set the ack flag (receiver side).
-     *   The receiver path uses this when answering a peer's
-     *   `request_safe_to_disconnect=true`.
+     * @param requestSafeToDisconnect Set the request flag. True for
+     *   the happy-path teardown after streaming files and for
+     *   cancel/reject cases — receiver still benefits from draining
+     *   buffered bytes before tearing down. The ack-side flag is not
+     *   yet wired up; receiver-side `InboundConnectionDriver` still
+     *   sends the empty default and the contract is not enforced
+     *   when stock Quick Share is the *sender*. Add an
+     *   `ackSafeToDisconnect` parameter when that gap is closed.
      */
-    fun disconnection(
-        requestSafeToDisconnect: Boolean = false,
-        ackSafeToDisconnect: Boolean = false,
-    ): OfflineFrame {
+    fun disconnection(requestSafeToDisconnect: Boolean = false): OfflineFrame {
         val disconnection =
             DisconnectionFrame
                 .newBuilder()
                 .setRequestSafeToDisconnect(requestSafeToDisconnect)
-                .setAckSafeToDisconnect(ackSafeToDisconnect)
                 .build()
         return OfflineFrame
             .newBuilder()

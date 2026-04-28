@@ -5,7 +5,6 @@
  */
 package io.github.kyujincho.wvmg.protocol.connection
 
-import com.google.android.gms.nearby.sharing.Protocol
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import com.google.protobuf.ByteString
@@ -16,7 +15,6 @@ import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
 import io.github.kyujincho.wvmg.protocol.payload.PayloadTransferEncoder
-import io.github.kyujincho.wvmg.protocol.sharing.IntroductionFrame
 import io.github.kyujincho.wvmg.protocol.sharing.OutboundSharingFsm
 import io.github.kyujincho.wvmg.protocol.sharing.OutboundSharingState
 import io.github.kyujincho.wvmg.protocol.sharing.PairedKeyEncryptionFrame
@@ -162,7 +160,7 @@ internal class OutboundConnectionDriver(
         val channel = SecureChannel(transport, sessionKeys, secureRandom).also { secureChannel = it }
 
         // Step 7: build the OutboundSharingFsm with our IntroductionFrame.
-        val introduction = buildIntroductionFrame()
+        val introduction = buildIntroductionFrame(files)
         val negotiationFsm =
             OutboundSharingFsm(introduction = introduction, secureRandom = secureRandom)
                 .also { fsm = it }
@@ -199,67 +197,6 @@ internal class OutboundConnectionDriver(
         runCatching { framedConnection?.close() }
         runCatching { socket.close() }
     }
-
-    /**
-     * Construct the outgoing [IntroductionFrame] from the supplied
-     * [files] list. We only populate `file_metadata` here — Quick
-     * Share also supports text / Wi-Fi / app metadata, but this issue
-     * scopes us to file transfers only (the Android share-intent
-     * layer is the consumer that decides what to ship; if it ever
-     * wants to send text, the public API can be extended).
-     */
-    private fun buildIntroductionFrame(): IntroductionFrame {
-        val builder = IntroductionFrame.newBuilder()
-        for (f in files) {
-            builder.addFileMetadata(
-                Protocol.FileMetadata
-                    .newBuilder()
-                    .setName(f.name)
-                    .setPayloadId(f.payloadId)
-                    .setSize(f.size)
-                    .setMimeType(f.mimeType)
-                    .setType(mimeTypeToFileType(f.mimeType))
-                    // `id` is the attachment uuid (proto field 6). Stock
-                    // Quick Share keys its receive-side bookkeeping by
-                    // this value: when a FILE payload arrives, the
-                    // sharing layer reconciles the payload's
-                    // payload_id back to a FileMetadata via the
-                    // attachment id. Leaving it at the proto default
-                    // (0) makes Samsung's receiver discard the payload
-                    // — the file never lands on disk and the UI shows
-                    // "couldn't receive file" with no further log
-                    // beyond a generic NULL_MESSAGE at the medium
-                    // layer. We reuse the payload_id (it is already a
-                    // non-zero unique int64), which is the simplest way
-                    // to satisfy "unique across all attachments" while
-                    // keeping the metadata→payload mapping bijective.
-                    .setId(f.payloadId)
-                    .build(),
-            )
-        }
-        // Stock Quick Share annotates Introductions with the
-        // sharing-use-case enum so the receiver picker / UI knows the
-        // transfer is a regular Quick Share send (vs. Remote Copy /
-        // unknown). Without it, Samsung's receiver may treat the
-        // Introduction as malformed or fall through to a default path
-        // that does not register the attachment.
-        builder.setUseCase(Protocol.IntroductionFrame.SharingUseCase.NEARBY_SHARE)
-        return builder.build()
-    }
-
-    /**
-     * Map the user-provided MIME type onto the proto's `Type` enum.
-     * Quick Share's receiver UI uses this to choose an icon and for
-     * autoplay heuristics; getting it slightly wrong is harmless.
-     */
-    private fun mimeTypeToFileType(mimeType: String): Protocol.FileMetadata.Type =
-        when {
-            mimeType.startsWith("image/") -> Protocol.FileMetadata.Type.IMAGE
-            mimeType.startsWith("video/") -> Protocol.FileMetadata.Type.VIDEO
-            mimeType.startsWith("audio/") -> Protocol.FileMetadata.Type.AUDIO
-            mimeType == "application/vnd.android.package-archive" -> Protocol.FileMetadata.Type.ANDROID_APP
-            else -> Protocol.FileMetadata.Type.UNKNOWN
-        }
 
     /**
      * If [qrCodeHandshakeData] is non-null and the FSM's first effect
@@ -318,8 +255,11 @@ internal class OutboundConnectionDriver(
     }
 
     /**
-     * Main receive loop. Spawns an inbound pump coroutine, then
-     * interleaves wire-frame and external-event delivery via [select].
+     * Main receive loop. Spawns an inbound pump coroutine, interleaves
+     * wire-frame and external-event delivery via [select], and runs
+     * the safe-disconnect drain (for terminals where we sent the
+     * `request_safe_to_disconnect=true` Disconnection ourselves)
+     * before letting the `finally` block close the socket.
      */
     private suspend fun runReceiveLoop(
         channel: SecureChannel,
@@ -334,22 +274,29 @@ internal class OutboundConnectionDriver(
                 val result = dispatchLoop(channel, fsm, wireChannel)
                 // Safe-disconnect drain: we advertised
                 // safe_to_disconnect_version=1 in our ConnectionResponseFrame,
-                // and our terminal Disconnection has request_safe_to_disconnect=
-                // true. Samsung One UI 7+ enforces that contract: an abrupt FIN
-                // before its read pipeline drains marks every in-flight
-                // PAYLOAD_TRANSFER as failed and surfaces "couldn't receive
-                // file". Wait briefly for the peer's
-                // ack_safe_to_disconnect=true (or its own FIN) before letting
-                // the finally block close our socket. We drain on every
-                // terminal — Samsung's behaviour applies to cancels and
-                // rejects too, since both go out as the same DISCONNECTION
-                // shape on the wire.
-                withTimeoutOrNull(SAFE_DISCONNECT_ACK_TIMEOUT_MS) {
-                    drainSafeDisconnectAck(wireChannel)
-                } ?: logger(
-                    "fsm: safe-disconnect drain timed out after " +
-                        "${SAFE_DISCONNECT_ACK_TIMEOUT_MS}ms",
-                )
+                // so any DISCONNECTION we ourselves emit goes out with
+                // request_safe_to_disconnect=true and Samsung One UI 7+
+                // enforces that contract — an abrupt FIN before its read
+                // pipeline drains marks every in-flight PAYLOAD_TRANSFER as
+                // failed and surfaces "couldn't receive file". Wait briefly
+                // for the peer's ack_safe_to_disconnect=true (or its own
+                // FIN) before closing.
+                //
+                // Only drain on terminals where WE sent the request:
+                //   - Completed: terminal Disconnection from streamFilesAndComplete
+                //   - Rejected: applyEffects emitted Disconnection
+                //   - Cancelled(LOCAL): user cancel emitted Disconnection
+                // On Cancelled(PEER) and Failed paths we never sent the
+                // request, so the peer has no reason to ack and the drain
+                // would just block for the full timeout window.
+                if (shouldDrainForSafeDisconnect(result)) {
+                    withTimeoutOrNull(SAFE_DISCONNECT_ACK_TIMEOUT_MS) {
+                        drainSafeDisconnectAck(wireChannel)
+                    } ?: logger(
+                        "fsm: safe-disconnect drain timed out after " +
+                            "${SAFE_DISCONNECT_ACK_TIMEOUT_MS}ms",
+                    )
+                }
                 result
             } finally {
                 // Close the socket BEFORE cancelAndJoin: the pump is parked
@@ -365,6 +312,21 @@ internal class OutboundConnectionDriver(
                 runCatching { socket.close() }
                 pumpJob.cancelAndJoin()
             }
+        }
+
+    /**
+     * True when [result] is a terminal we ourselves drove a
+     * `request_safe_to_disconnect=true` Disconnection for; only then
+     * is it worth waiting for the peer's ack. Cancelled-by-peer and
+     * Failed paths never sent that request, so the peer has nothing
+     * to ack and the drain would only block for the full timeout.
+     */
+    private fun shouldDrainForSafeDisconnect(result: OutboundResult): Boolean =
+        when (result) {
+            OutboundResult.Completed -> true
+            is OutboundResult.Rejected -> true
+            is OutboundResult.Cancelled -> result.cause == CancelCause.LOCAL
+            is OutboundResult.Failed -> false
         }
 
     /**
