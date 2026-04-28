@@ -29,11 +29,13 @@ import java.util.concurrent.atomic.AtomicInteger
  *    pure-JVM), bound on the loopback interface;
  *  - a fake [DiscoveryAdvertiser] that records every advertise call and
  *    yields a closable handle the test can interrogate;
- *  - a counting [MulticastLockController] that exposes the running
- *    acquire/release tally;
  *  - a per-test [TempFileDestinationFactory] supplier so the production
  *    `MediaStoreDownloadsFactory` (which needs a real `ContentResolver`)
  *    is not needed.
+ *
+ * Phase 1 of this test also exercised a counting `MulticastLockController`;
+ * after the #98 NsdManager migration the receiver no longer holds a
+ * multicast lock at all so those assertions were removed.
  *
  * End-to-end pairing with `InboundConnection` over real sockets is
  * deferred to #28; this file deliberately stops at the lifecycle
@@ -42,13 +44,11 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class ReceiverSessionTest {
     @Test
-    fun `start binds tcp listener and acquires multicast lock`() =
+    fun `start binds tcp listener`() =
         runBlocking {
-            val locks = CountingLockController()
             val advertiser = RecordingAdvertiser()
             val session =
                 makeSession(
-                    locks = locks,
                     advertiser = advertiser,
                 )
 
@@ -56,8 +56,6 @@ class ReceiverSessionTest {
 
             assertThat(port).isGreaterThan(0)
             assertThat(session.boundPort).isEqualTo(port)
-            assertThat(locks.acquireCount).isEqualTo(1)
-            assertThat(locks.releaseCount).isEqualTo(0)
             assertThat(advertiser.calls).hasSize(1)
             assertThat(advertiser.calls[0].port).isEqualTo(port)
 
@@ -87,49 +85,43 @@ class ReceiverSessionTest {
         }
 
     @Test
-    fun `stop releases the lock and closes the advertise handle`() =
+    fun `stop closes the advertise handle`() =
         runBlocking {
-            val locks = CountingLockController()
             val advertiser = RecordingAdvertiser()
             val session =
                 makeSession(
-                    locks = locks,
                     advertiser = advertiser,
                 )
 
             session.start()
             session.stop()
 
-            assertThat(locks.releaseCount).isEqualTo(1)
             assertThat(advertiser.calls.map { it.handle.isActive }).containsExactly(false)
         }
 
     @Test
     fun `stop is idempotent and tolerates being called before start`() {
-        val locks = CountingLockController()
         val advertiser = RecordingAdvertiser()
-        val session = makeSession(locks = locks, advertiser = advertiser)
+        val session = makeSession(advertiser = advertiser)
 
         // Pre-start stop is a no-op.
         session.stop()
-        assertThat(locks.acquireCount).isEqualTo(0)
-        assertThat(locks.releaseCount).isEqualTo(0)
+        assertThat(advertiser.calls).isEmpty()
 
         runBlocking { assertThrows<IllegalStateException> { session.start() } }
     }
 
     @Test
-    fun `double stop only releases once`() =
+    fun `double stop is a no-op on the second call`() =
         runBlocking {
-            val locks = CountingLockController()
-            val session = makeSession(locks = locks)
+            val advertiser = RecordingAdvertiser()
+            val session = makeSession(advertiser = advertiser)
 
             session.start()
             session.stop()
             session.stop()
 
-            assertThat(locks.acquireCount).isEqualTo(1)
-            assertThat(locks.releaseCount).isEqualTo(1)
+            assertThat(advertiser.calls.map { it.handle.isActive }).containsExactly(false)
         }
 
     @Test
@@ -148,16 +140,14 @@ class ReceiverSessionTest {
     }
 
     @Test
-    fun `failure during advertise rolls back tcp listener and lock`() =
+    fun `failure during advertise rolls back tcp listener`() =
         runBlocking {
-            val locks = CountingLockController()
             val failing =
                 DiscoveryAdvertiser { _, _ ->
                     throw java.io.IOException("boom: simulated mDNS failure")
                 }
             val session =
                 makeSession(
-                    locks = locks,
                     advertiser = failing,
                 )
 
@@ -167,8 +157,6 @@ class ReceiverSessionTest {
                 }
             assertThat(thrown).hasMessageThat().contains("simulated mDNS failure")
 
-            // Lock counter must be balanced.
-            assertThat(locks.releaseCount).isEqualTo(locks.acquireCount)
             // boundPort must throw — the listener was rolled back.
             assertThrows<IllegalStateException> { session.boundPort }
             // After a failed start the session is terminal: stop is a no-op,
@@ -178,44 +166,28 @@ class ReceiverSessionTest {
         }
 
     @Test
-    fun `failure during lock acquire does not start tcp or advertise`() {
+    fun `failure during tcp factory does not invoke the advertiser`() {
         val advertiser = RecordingAdvertiser()
-        val tcpFactoryCalls = AtomicInteger(0)
-        val countingTcpFactory =
+        val failingTcpFactory =
             object : TcpServerFactory {
                 override fun create(
                     scope: CoroutineScope,
                     factoryProvider: () -> FileDestinationFactory,
                     secureRandomProvider: () -> SecureRandom,
-                ): TcpReceiverServer {
-                    tcpFactoryCalls.incrementAndGet()
-                    return TcpReceiverServer(
-                        parentScope = scope,
-                        factoryProvider = factoryProvider,
-                        secureRandomProvider = secureRandomProvider,
-                        bindAddress = InetAddress.getLoopbackAddress(),
-                    )
-                }
-            }
-        val locks =
-            object : MulticastLockController {
-                override fun acquire(): Unit = throw SecurityException("missing CHANGE_WIFI_MULTICAST_STATE")
-
-                override fun release() = error("release should not be called")
+                ): TcpReceiverServer = throw java.io.IOException("simulated tcp factory failure")
             }
         val session =
             ReceiverSession(
-                tcpServerFactory = countingTcpFactory,
+                tcpServerFactory = failingTcpFactory,
                 advertiser = advertiser,
-                multicastLock = locks,
                 factoryProvider = { TempFileDestinationFactory() },
                 endpointInfo = sampleEndpointInfo(),
             )
 
-        assertThrows<SecurityException> { runBlocking { session.start() } }
+        assertThrows<java.io.IOException> { runBlocking { session.start() } }
 
-        // Neither downstream side-effect should have happened.
-        assertThat(tcpFactoryCalls.get()).isEqualTo(0)
+        // The advertiser must not have been consulted — listener bind
+        // failed before that point.
         assertThat(advertiser.calls).isEmpty()
     }
 
@@ -360,7 +332,6 @@ class ReceiverSessionTest {
     // --------------------------------------------------------------
 
     private fun makeSession(
-        locks: MulticastLockController = CountingLockController(),
         advertiser: DiscoveryAdvertiser = RecordingAdvertiser(),
         endpointInfo: EndpointInfo = sampleEndpointInfo(),
         factoryProvider: () -> FileDestinationFactory = { TempFileDestinationFactory() },
@@ -382,7 +353,6 @@ class ReceiverSessionTest {
                         )
                 },
             advertiser = advertiser,
-            multicastLock = locks,
             factoryProvider = factoryProvider,
             endpointInfo = endpointInfo,
             advertiseGated = advertiseGated,
@@ -398,26 +368,6 @@ class ReceiverSessionTest {
             deviceName = name,
             tlvRecords = emptyList(),
         )
-
-    /**
-     * In-memory [MulticastLockController] that tracks acquire/release
-     * counts so tests can assert resource balance without a real
-     * `WifiManager`.
-     */
-    private class CountingLockController : MulticastLockController {
-        var acquireCount: Int = 0
-            private set
-        var releaseCount: Int = 0
-            private set
-
-        override fun acquire() {
-            acquireCount++
-        }
-
-        override fun release() {
-            releaseCount++
-        }
-    }
 
     /**
      * Recording [DiscoveryAdvertiser] that captures every advertise call

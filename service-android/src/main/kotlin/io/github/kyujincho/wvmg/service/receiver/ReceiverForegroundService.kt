@@ -12,7 +12,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -261,8 +260,8 @@ public class ReceiverForegroundService : Service() {
 
     override fun onDestroy() {
         // Tear the receiver down before the scope is cancelled so the
-        // JmDNS goodbye packet and TCP listener close get a chance to
-        // run on the IO dispatcher.
+        // NSD unregister and TCP listener close get a chance to run on
+        // the IO dispatcher.
         stopReceiverAndExit()
         super.onDestroy()
     }
@@ -585,7 +584,6 @@ public class ReceiverForegroundService : Service() {
                         DiscoveryAdvertiser { endpointInfo, port ->
                             discovery.advertise(endpointInfo, port)
                         },
-                    multicastLock = AndroidMulticastLockController(context),
                     factoryProvider = { DownloadsWriterFactory.create(context) },
                     endpointInfo = identity,
                     // Issue #34: defer mDNS publish to the
@@ -814,40 +812,6 @@ internal object ActiveDiscoveryHolder {
  */
 internal object EndpointIdentityHolder {
     val snapshot: AtomicReference<EndpointInfo?> = AtomicReference(null)
-}
-
-/**
- * Production [MulticastLockController] that holds a single Wi-Fi
- * multicast lock for the duration of the service. We tag the lock with a
- * service-specific name so it shows up correctly in `dumpsys wifi` for
- * diagnostics.
- */
-internal class AndroidMulticastLockController(
-    context: Context,
-    tag: String = DEFAULT_TAG,
-) : MulticastLockController {
-    private val wifi: WifiManager =
-        context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-    private val lock: WifiManager.MulticastLock =
-        wifi.createMulticastLock(tag).apply {
-            // The receiver service holds one lock for its entire
-            // lifetime; we don't need the WifiManager's reference
-            // counting on top of our own boolean tracking in
-            // ReceiverSession.
-            setReferenceCounted(false)
-        }
-
-    override fun acquire() {
-        if (!lock.isHeld) lock.acquire()
-    }
-
-    override fun release() {
-        if (lock.isHeld) lock.release()
-    }
-
-    private companion object {
-        const val DEFAULT_TAG = "wvmg-receiver-foreground"
-    }
 }
 
 /**

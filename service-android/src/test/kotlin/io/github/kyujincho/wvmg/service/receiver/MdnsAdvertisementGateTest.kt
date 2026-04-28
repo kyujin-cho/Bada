@@ -391,12 +391,6 @@ class MdnsAdvertisementGateTest {
                             )
                     },
                 advertiser = advertiser,
-                multicastLock =
-                    object : MulticastLockController {
-                        override fun acquire() = Unit
-
-                        override fun release() = Unit
-                    },
                 factoryProvider = { TempFileDestinationFactory() },
                 endpointInfo = sampleEndpointInfo(),
                 advertiseGated = true,
