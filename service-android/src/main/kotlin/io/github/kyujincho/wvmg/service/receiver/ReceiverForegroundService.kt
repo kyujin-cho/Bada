@@ -3,6 +3,8 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("MissingPermission")
+
 package io.github.kyujincho.wvmg.service.receiver
 
 import android.app.Service
@@ -25,6 +27,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareAdvertiser
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareScanner
+import io.github.kyujincho.wvmg.discovery.bootstrap.BluetoothClassicBootstrapServer
+import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.downloads.DownloadsWriterFactory
@@ -432,11 +436,11 @@ public class ReceiverForegroundService : Service() {
      * receiver's stable [EndpointInfo] and a process-stable 4-byte
      * endpoint_id slug.
      *
-     * The endpoint_id we feed into BLE is intentionally **independent**
-     * of the per-publish mDNS instance name slug — that one is rotated
-     * on every `Discovery.advertise` call. For #121 we only need a
-     * valid 4-byte ASCII slug; future work can align the two so a
-     * single peer's BLE pulse and mDNS service-info report the same id.
+     * The endpoint_id we feed into BLE is the same process-stable slug
+     * that production `Discovery` uses for the mDNS instance name.
+     * Stock Nearby Connections discovery dedupes cross-medium sightings
+     * by this id, so the receiver must not advertise one id over BLE
+     * and another via mDNS.
      *
      * Returns [BleVisibilityBroadcaster.Noop] if [bleAdvertiser] is
      * `null` (the service is between start/stop, or no advertiser was
@@ -452,12 +456,12 @@ public class ReceiverForegroundService : Service() {
             EndpointIdentityHolder.snapshot.get() ?: return BleVisibilityBroadcaster.Noop
         val endpointId = BleEndpointIdHolder.bytes
         return object : BleVisibilityBroadcaster {
-            override fun start() {
+            override fun start(): Boolean {
                 // BleQuickShareAdvertiser.start re-uses the existing
                 // platform registration when the identity is unchanged,
                 // so re-issuing start() while already advertising is
                 // effectively a no-op.
-                advertiser.start(endpointInfo, endpointId)
+                return advertiser.start(endpointInfo, endpointId)
             }
 
             override fun stop() {
@@ -802,7 +806,11 @@ public class ReceiverForegroundService : Service() {
                 // Keep one Discovery per session so the periodic
                 // diagnostic snapshot in [startReceiverSession] reflects
                 // the same instance the advertise lambda is using.
-                val discovery = Discovery(context)
+                val discovery =
+                    Discovery(
+                        context = context,
+                        instanceEndpointIdProvider = { BleEndpointIdHolder.bytes.copyOf() },
+                    )
                 ActiveDiscoveryHolder.set(discovery)
                 ReceiverSession(
                     tcpServerFactory = TcpServerFactory.default(),
@@ -812,6 +820,14 @@ public class ReceiverForegroundService : Service() {
                         },
                     factoryProvider = { DownloadsWriterFactory.create(context) },
                     endpointInfo = identity,
+                    mediumRegistry = MediumRegistries.defaultForContext(context.applicationContext),
+                    initialControlServers =
+                        listOf(
+                            BluetoothClassicBootstrapServer(
+                                context = context.applicationContext,
+                                endpointIdProvider = { BleEndpointIdHolder.bytes.copyOf() },
+                            ),
+                        ),
                     // Issue #34: defer mDNS publish to the
                     // [MdnsAdvertisementGate] so we only advertise while
                     // a sender BLE pulse is active (or the user has
@@ -1095,11 +1111,9 @@ internal object ActiveDiscoveryHolder {
  * every restart would make the same physical device look like a fresh
  * peer to neighbors.
  *
- * The mDNS instance name is currently regenerated on every
- * `Discovery.advertise` call and therefore drifts independently — that
- * is a known follow-up. For #121 the only acceptance criterion is "BLE
- * pulses carry a valid 4-byte ASCII endpoint_id," which this holder
- * satisfies on its own.
+ * Production `Discovery` is configured to reuse this slug inside every
+ * mDNS instance name, so BLE fast advertisements and mDNS service
+ * records identify the same endpoint.
  */
 internal object BleEndpointIdHolder {
     /**

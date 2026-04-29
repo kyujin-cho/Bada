@@ -56,6 +56,21 @@ public object InstanceName {
     }
 
     /**
+     * Generates a service-instance name using a caller-supplied
+     * endpoint_id slice. This is used when another discovery channel
+     * (BLE fast advertisement, QR bootstrap, etc.) has already chosen
+     * the 4-byte endpoint id and mDNS must publish the same id so stock
+     * peers can correlate both sightings to one endpoint.
+     */
+    public fun generate(
+        endpointId: ByteArray,
+        random: SecureRandom = SecureRandom(),
+    ): String {
+        val raw = generateRawBytes(endpointId, random)
+        return Base64Url.encode(raw)
+    }
+
+    /**
      * Returns the raw 10-byte buffer that gets URL-safe-base64-encoded into
      * the on-the-wire service-instance name. Exposed (instead of being
      * inlined inside [generate]) so unit tests can assert byte-for-byte on
@@ -78,6 +93,22 @@ public object InstanceName {
         // Last two bytes are the reserved zero pad. ByteArray is already
         // zero-filled by the JVM, so no explicit assignment is needed —
         // documenting the intent here keeps the layout obvious to readers.
+        return out
+    }
+
+    /**
+     * Returns the raw service-instance bytes with [endpointId] copied
+     * into bytes 1..4 instead of drawing a fresh random slug.
+     */
+    public fun generateRawBytes(
+        endpointId: ByteArray,
+        random: SecureRandom = SecureRandom(),
+    ): ByteArray {
+        require(endpointId.size == ENDPOINT_ID_LEN) {
+            "endpointId must be exactly $ENDPOINT_ID_LEN bytes, got ${endpointId.size}"
+        }
+        val out = generateRawBytes(random)
+        endpointId.copyInto(out, destinationOffset = 1)
         return out
     }
 

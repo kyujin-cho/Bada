@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.protocol.medium
 
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
@@ -17,8 +18,19 @@ class MediumRegistryTest {
     private class FakeProvider(
         override val medium: Medium,
         var supported: Boolean = true,
+        var preparedCredentials: UpgradePathCredentials? = null,
     ) : MediumProvider {
+        var prepareCalls: Int = 0
+            private set
+        var prepareFailure: RuntimeException? = null
+
         override fun isSupported(): Boolean = supported
+
+        override suspend fun prepareUpgrade(): UpgradePathCredentials? {
+            prepareCalls++
+            prepareFailure?.let { throw it }
+            return preparedCredentials
+        }
     }
 
     @Test
@@ -149,4 +161,81 @@ class MediumRegistryTest {
         assertThat(registry.isEmpty()).isTrue()
         assertThat(registry.selectBestUpgrade(setOf(Medium.WIFI_LAN))).isNull()
     }
+
+    @Test
+    fun `prepareBestUpgrade returns first medium whose prepare succeeds`() =
+        runTest {
+            val direct =
+                FakeProvider(
+                    medium = Medium.WIFI_DIRECT,
+                    preparedCredentials =
+                        UpgradePathCredentials.WifiDirect(
+                            ipAddress = byteArrayOf(192.toByte(), 168.toByte(), 49, 1),
+                            port = 8443,
+                            ssid = "DIRECT-aa-test",
+                            passphrase = "secret",
+                        ),
+                )
+            val lan = FakeProvider(Medium.WIFI_LAN)
+            val registry =
+                MediumRegistry(
+                    providers = listOf(lan, direct),
+                    ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN)),
+                )
+
+            val prepared =
+                registry.prepareBestUpgrade(
+                    peerSupported = setOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN),
+                )
+
+            assertThat(prepared).isInstanceOf(PreparedUpgradeSelection.Upgrade::class.java)
+            val upgrade = prepared as PreparedUpgradeSelection.Upgrade
+            assertThat(upgrade.medium).isEqualTo(Medium.WIFI_DIRECT)
+            assertThat(direct.prepareCalls).isEqualTo(1)
+        }
+
+    @Test
+    fun `prepareBestUpgrade falls back to Wi-Fi LAN when Wi-Fi Direct setup fails`() =
+        runTest {
+            val direct = FakeProvider(medium = Medium.WIFI_DIRECT, preparedCredentials = null)
+            val lan = FakeProvider(Medium.WIFI_LAN)
+            val registry =
+                MediumRegistry(
+                    providers = listOf(lan, direct),
+                    ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN)),
+                )
+
+            val prepared =
+                registry.prepareBestUpgrade(
+                    peerSupported = setOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN),
+                )
+
+            assertThat(prepared).isEqualTo(PreparedUpgradeSelection.StayOnCurrentMedium)
+            assertThat(direct.prepareCalls).isEqualTo(1)
+            assertThat(lan.prepareCalls).isEqualTo(0)
+        }
+
+    @Test
+    fun `prepareBestUpgrade falls back when a higher-priority provider throws`() =
+        runTest {
+            val direct =
+                FakeProvider(medium = Medium.WIFI_DIRECT).apply {
+                    prepareFailure = IllegalStateException("simulated bring-up crash")
+                }
+            val lan = FakeProvider(Medium.WIFI_LAN)
+            val registry =
+                MediumRegistry(
+                    providers = listOf(lan, direct),
+                    ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN)),
+                )
+
+            val prepared =
+                registry.prepareBestUpgrade(
+                    peerSupported = setOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN),
+                )
+
+            assertThat(prepared).isEqualTo(PreparedUpgradeSelection.StayOnCurrentMedium)
+            assertThat(direct.prepareCalls).isEqualTo(1)
+            assertThat(lan.prepareCalls).isEqualTo(0)
+        }
 }

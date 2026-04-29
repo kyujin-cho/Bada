@@ -183,15 +183,14 @@ class AndroidManifestPermissionsTest {
         // permission off the forbidden list and added a dedicated
         // declaration test below.
         //
-        // ACCESS_COARSE_LOCATION remains forbidden — we never want
-        // the coarse-location permission, only the fine-grained one
-        // when the hotspot path strictly requires it.
+        // ACCESS_COARSE_LOCATION is no longer forbidden: Android 12+
+        // lint enforces declaring COARSE whenever FINE is declared, and
+        // the hotspot path needs FINE on API 26+.
         val mediaForbidden =
             listOf(
                 "android.permission.READ_MEDIA_IMAGES",
                 "android.permission.READ_MEDIA_VIDEO",
                 "android.permission.READ_MEDIA_AUDIO",
-                "android.permission.ACCESS_COARSE_LOCATION",
             )
         for (permission in mediaForbidden) {
             assertFalse(
@@ -207,11 +206,17 @@ class AndroidManifestPermissionsTest {
         // medium, #50) needs CHANGE_WIFI_STATE to call
         // WifiManager.startLocalOnlyHotspot and ACCESS_FINE_LOCATION
         // for the platform to surface SSID + passphrase via the
-        // reservation callback on API 26+. Both must be declared in
-        // the umbrella manifest.
+        // reservation callback on API 26+. Android 12+ lint requires
+        // ACCESS_COARSE_LOCATION whenever ACCESS_FINE_LOCATION is
+        // declared, so all three must be present in the umbrella
+        // manifest.
         assertTrue(
             "CHANGE_WIFI_STATE must be declared for Wi-Fi local-only hotspot (#50)",
             manifest.contains("android.permission.CHANGE_WIFI_STATE"),
+        )
+        assertTrue(
+            "ACCESS_COARSE_LOCATION must be declared alongside ACCESS_FINE_LOCATION",
+            manifest.contains("android.permission.ACCESS_COARSE_LOCATION"),
         )
         assertTrue(
             "ACCESS_FINE_LOCATION must be declared for Wi-Fi local-only hotspot (#50)",

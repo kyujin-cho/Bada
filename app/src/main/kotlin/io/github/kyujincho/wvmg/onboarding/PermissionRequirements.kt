@@ -26,8 +26,9 @@ import io.github.kyujincho.wvmg.R
  *
  * Runtime permissions are gated by API level:
  *   * `NEARBY_WIFI_DEVICES` and `POST_NOTIFICATIONS` only exist on API 33+.
- *   * `BLUETOOTH_ADVERTISE` and `BLUETOOTH_SCAN` only exist on API 31+ — on
- *     API ≤ 30 the legacy install-time `BLUETOOTH` / `BLUETOOTH_ADMIN`
+ *   * `BLUETOOTH_ADVERTISE`, `BLUETOOTH_SCAN`, and `BLUETOOTH_CONNECT` only
+ *     exist on API 31+ — on API ≤ 30 the legacy install-time
+ *     `BLUETOOTH` / `BLUETOOTH_ADMIN`
  *     permissions cover the same capabilities, so we skip the runtime
  *     prompt entirely on those devices.
  *
@@ -96,6 +97,14 @@ internal object PermissionRequirements {
                 permission = Manifest.permission.BLUETOOTH_SCAN,
                 titleRes = R.string.permission_bluetooth_scan_title,
                 rationaleRes = R.string.permission_bluetooth_scan_rationale,
+                grantedRes = R.string.permission_status_granted,
+                deniedRes = R.string.permission_status_optional_denied_ble,
+                optional = true,
+            ),
+            Requirement(
+                permission = Manifest.permission.BLUETOOTH_CONNECT,
+                titleRes = R.string.permission_bluetooth_connect_title,
+                rationaleRes = R.string.permission_bluetooth_connect_rationale,
                 grantedRes = R.string.permission_status_granted,
                 deniedRes = R.string.permission_status_optional_denied_ble,
                 optional = true,

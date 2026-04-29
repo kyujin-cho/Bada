@@ -14,6 +14,8 @@ import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumProvider
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
@@ -160,12 +162,27 @@ public class WifiDirectMediumProvider internal constructor(
         return transport
     }
 
+    override suspend fun acceptUpgrade(): UpgradedTransport? =
+        withContext(Dispatchers.IO) {
+            consumePendingServerTransport()
+        }
+
+    override fun cancelPendingUpgrade() {
+        cancelPending()
+    }
+
     /**
      * **Internal — for the orchestrator wired in #54.** Hands back the
      * server-side `ServerSocket` allocated in [prepareUpgrade] and
      * clears the slot. Returns `null` when no upgrade is pending.
      */
-    public fun consumePendingServerSocket(): Socket? {
+    public fun consumePendingServerSocket(): Socket? = consumePendingServerTransport()?.socket
+
+    /**
+     * **Internal — for the orchestrator wired in #54.** Hands back the
+     * connected server-side transport allocated in [prepareUpgrade].
+     */
+    public fun consumePendingServerTransport(): WifiDirectTransport? {
         val pending = pendingServer.getAndSet(null) ?: return null
         // Block-accept on the receiver-side socket. The peer is about
         // to call connect on this exact port. We hand teardown back as
@@ -174,7 +191,14 @@ public class WifiDirectMediumProvider internal constructor(
         // needs, so close the listening socket once accept returns to
         // free the port.
         return try {
-            pending.serverSocket.use { listener -> listener.accept() }
+            pending.serverSocket
+                .use { listener -> listener.accept() }
+                .let { socket ->
+                    WifiDirectTransport(
+                        socket = socket,
+                        teardown = pending.handle.teardown,
+                    )
+                }
         } catch (e: IOException) {
             Log.w(TAG, "Wi-Fi Direct ServerSocket.accept threw", e)
             pending.handle.teardown.runCatching { close() }

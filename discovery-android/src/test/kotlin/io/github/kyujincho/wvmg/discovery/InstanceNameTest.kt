@@ -70,6 +70,22 @@ class InstanceNameTest {
     }
 
     @Test
+    fun `generate can pin endpoint ID bytes`() {
+        val endpointId = "WvMg".toByteArray(Charsets.US_ASCII)
+        val encoded = InstanceName.generate(endpointId, DeterministicSecureRandom(seed = 1L))
+        val decoded = InstanceName.decodeRawBytes(encoded)
+
+        assertThat(decoded).isNotNull()
+        assertThat(InstanceName.extractEndpointId(decoded!!)!!).isEqualTo(endpointId)
+        assertThat(decoded[0]).isEqualTo(0x23.toByte())
+        assertThat(decoded[5]).isEqualTo(0xFC.toByte())
+        assertThat(decoded[6]).isEqualTo(0x9F.toByte())
+        assertThat(decoded[7]).isEqualTo(0x5E.toByte())
+        assertThat(decoded[8]).isEqualTo(0.toByte())
+        assertThat(decoded[9]).isEqualTo(0.toByte())
+    }
+
+    @Test
     fun `decodeRawBytes round-trips a freshly generated name`() {
         val encoded = InstanceName.generate(DeterministicSecureRandom(seed = 1234L))
         val decoded = InstanceName.decodeRawBytes(encoded)

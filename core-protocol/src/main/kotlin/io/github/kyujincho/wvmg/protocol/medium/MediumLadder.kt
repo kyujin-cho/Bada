@@ -12,12 +12,11 @@ package io.github.kyujincho.wvmg.protocol.medium
  *
  * The order encodes the project's bandwidth-vs-availability heuristic:
  *
- *  1. **Wi-Fi LAN** — fastest path that exists today; default.
- *  2. **Wi-Fi Hotspot** — same bandwidth ceiling as LAN, but requires
+ *  1. **Wi-Fi Aware** — direct NAN data path when both chipsets support it.
+ *  2. **Wi-Fi Direct** — peer-to-peer Wi-Fi, no router in the middle.
+ *  3. **Wi-Fi Hotspot** — same bandwidth ceiling as LAN, but requires
  *     standing up a soft-AP (slow on cold start).
- *  3. **Wi-Fi Direct** — peer-to-peer Wi-Fi, no router in the middle.
- *  4. **Wi-Fi Aware** — newer, but coverage is patchy on shipping
- *     devices (API 26+ and only on a subset of chips).
+ *  4. **Wi-Fi LAN** — the already-open discovery transport.
  *  5. **WebRTC** — internet-relayed; only relevant when both peers
  *     have connectivity but no shared LAN.
  *  6. **BLE L2CAP** — meaningful throughput on the LE radio (≈ 1 Mbps
@@ -63,10 +62,10 @@ public class MediumLadder(
         public val Default: MediumLadder =
             MediumLadder(
                 listOf(
-                    Medium.WIFI_LAN,
-                    Medium.WIFI_HOTSPOT,
-                    Medium.WIFI_DIRECT,
                     Medium.WIFI_AWARE,
+                    Medium.WIFI_DIRECT,
+                    Medium.WIFI_HOTSPOT,
+                    Medium.WIFI_LAN,
                     Medium.WEB_RTC,
                     Medium.BLE_L2CAP,
                     Medium.BLUETOOTH,

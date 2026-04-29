@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
-import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Path
 
 /**
@@ -130,16 +129,15 @@ class LegacyDownloadsEnvironmentTest {
     }
 
     @Test
-    fun `insertPending throws FileAlreadyExistsException on collision`(
+    fun `insertPending throws download collision exception on collision`(
         @TempDir downloadsDir: Path,
     ) {
         val env = LegacyDownloadsEnvironment(downloadsDir.toFile())
         env.insertPending("dup.bin", mimeType = null)
 
-        // The DownloadsWriter listens for this specific exception type
-        // to drive its collision-suffix retry loop, so the legacy env
-        // MUST surface it unmodified.
-        assertThrows<FileAlreadyExistsException> {
+        // The DownloadsWriter listens for this specific exception type to
+        // drive its collision-suffix retry loop.
+        assertThrows<DownloadFileAlreadyExistsException> {
             env.insertPending("dup.bin", mimeType = null)
         }
     }

@@ -5,6 +5,12 @@
  */
 package io.github.kyujincho.wvmg.protocol.medium
 
+import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
+import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.Socket
+
 /**
  * Pluggable per-medium adapter. One implementation per Quick Share
  * transport (Wi-Fi LAN, Wi-Fi Direct, Wi-Fi Hotspot, Bluetooth RFCOMM,
@@ -114,6 +120,24 @@ public interface MediumProvider {
      *   theoretically route mismatched values during a fallback.
      */
     public suspend fun adoptUpgrade(credentials: UpgradePathCredentials): UpgradedTransport? = null
+
+    /**
+     * **Server role.** Accept the peer's connection on the medium that
+     * [prepareUpgrade] just stood up and return the connected transport.
+     *
+     * Implementations that need a blocking accept must dispatch it onto
+     * their own IO context or document that callers should invoke this
+     * from an IO dispatcher. Returning `null` aborts the upgrade while
+     * keeping the original transport alive.
+     */
+    public suspend fun acceptUpgrade(): UpgradedTransport? = null
+
+    /**
+     * Best-effort cleanup for any pending medium resources allocated by
+     * [prepareUpgrade] or [adoptUpgrade]. Called when the orchestrator
+     * falls back to the previous transport or the connection terminates.
+     */
+    public fun cancelPendingUpgrade() {}
 }
 
 /**
@@ -133,10 +157,7 @@ public interface MediumProvider {
  * wraps a [Medium] — convenient for the unit tests in this module
  * and as a placeholder while the per-medium adapters land.
  */
-public interface UpgradedTransport {
-    /** Which medium this transport was opened over. */
-    public val medium: Medium
-
+public interface UpgradedTransport : ConnectedTransport {
     /**
      * Stub transport carrying nothing more than the medium type.
      *
@@ -147,5 +168,42 @@ public interface UpgradedTransport {
      */
     public data class Generic(
         override val medium: Medium,
-    ) : UpgradedTransport
+    ) : UpgradedTransport {
+        override val inputStream: InputStream
+            get() = error("Generic upgraded transport has no input stream")
+
+        override val outputStream: OutputStream
+            get() = error("Generic upgraded transport has no output stream")
+
+        override fun close() {}
+    }
+
+    /**
+     * JVM socket-backed transport, useful for Wi-Fi-based providers and
+     * loopback tests. Android-specific providers may expose their own
+     * subtype when they need additional teardown state, as long as they
+     * implement [inputStream], [outputStream], and [close].
+     */
+    public class SocketBacked(
+        override val medium: Medium,
+        public val socket: Socket,
+        private val onClose: () -> Unit = {},
+    ) : UpgradedTransport {
+        override val inputStream: InputStream
+            get() = socket.getInputStream()
+
+        override val outputStream: OutputStream
+            get() = socket.getOutputStream()
+
+        override fun close() {
+            runCatching { socket.close() }
+            runCatching { onClose() }
+        }
+    }
 }
+
+/**
+ * Wrap an upgraded transport in the standard Quick Share length-prefixed
+ * framing layer.
+ */
+public fun UpgradedTransport.asFramedConnection(): FramedConnection = FramedConnection(this)

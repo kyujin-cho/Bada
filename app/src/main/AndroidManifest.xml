@@ -126,6 +126,7 @@
          API 33+ devices, so the location grant is requested at
          onboarding only when the platform requires it. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <!-- Satisfies the Android 14+ FGS-type gate for `connectedDevice`.

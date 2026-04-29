@@ -55,10 +55,21 @@ import java.net.Socket
  * that simply forwards to the underlying socket.
  */
 public class FramedConnection(
-    private val socket: Socket,
+    private val input: InputStream,
+    private val output: OutputStream,
+    private val closeAction: () -> Unit,
 ) : AutoCloseable {
-    private val input: InputStream = socket.getInputStream()
-    private val output: OutputStream = socket.getOutputStream()
+    public constructor(transport: ConnectedTransport) : this(
+        input = transport.inputStream,
+        output = transport.outputStream,
+        closeAction = { transport.close() },
+    )
+
+    public constructor(socket: Socket) : this(
+        input = socket.getInputStream(),
+        output = socket.getOutputStream(),
+        closeAction = { socket.close() },
+    )
 
     // Separate locks for read vs. write so the two halves of a duplex
     // connection do not contend with each other. Within each direction we
@@ -149,7 +160,7 @@ public class FramedConnection(
      * no-ops.
      */
     override fun close() {
-        socket.close()
+        closeAction()
     }
 
     /**

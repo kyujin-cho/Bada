@@ -12,6 +12,7 @@ import io.github.kyujincho.wvmg.protocol.crypto.D2DKeyDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.D2DRole
 import io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
+import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
@@ -187,16 +188,22 @@ internal class OutboundConnectionDriver(
         // Step 6: SecureChannel takes over.
         val channel = SecureChannel(transport, sessionKeys, secureRandom).also { secureChannel = it }
 
-        // Step 7: build the OutboundSharingFsm with our IntroductionFrame.
+        // Step 7: if the receiver offers a higher-bandwidth medium,
+        // adopt it before the Nearby Share payload negotiation begins.
+        // Peers that stay on Wi-Fi LAN send the first sharing payload;
+        // buffer that frame so the existing receive loop sees it.
+        val (activeChannel, initialWireFrame) = negotiateBandwidthUpgrade(channel)
+
+        // Step 8: build the OutboundSharingFsm with our IntroductionFrame.
         val introduction = buildIntroductionFrame(files)
         val negotiationFsm =
             OutboundSharingFsm(introduction = introduction, secureRandom = secureRandom)
                 .also { fsm = it }
 
-        // Step 8: drive the FSM's initial PKE frame onto the wire,
+        // Step 9: drive the FSM's initial PKE frame onto the wire,
         // optionally attaching qr_code_handshake_data.
         logger("step 8: sending initial PKE frame")
-        applyEffects(channel, rewriteForQrIfNeeded(negotiationFsm.start()))
+        applyEffects(activeChannel, rewriteForQrIfNeeded(negotiationFsm.start()))
 
         // Mark the handshake as complete so a racing UI-side cancel()
         // takes the cooperative FSM path (CANCEL + DISCONNECTION on the
@@ -212,7 +219,31 @@ internal class OutboundConnectionDriver(
         // cancel() in that race would crash the peer with Broken pipe.
         onHandshakeComplete()
 
-        return runReceiveLoop(channel, negotiationFsm)
+        return runReceiveLoop(activeChannel, negotiationFsm, initialWireFrame)
+    }
+
+    private suspend fun negotiateBandwidthUpgrade(channel: SecureChannel): Pair<SecureChannel, OfflineFrame?> {
+        var initialWireFrame: OfflineFrame? = null
+        val activeChannel =
+            when (val probe = BandwidthUpgradeOrchestrator.receiveOfferProbe(channel)) {
+                UpgradeOfferProbe.None -> channel
+                is UpgradeOfferProbe.Other -> {
+                    initialWireFrame = probe.frame
+                    channel
+                }
+                is UpgradeOfferProbe.Offer ->
+                    BandwidthUpgradeOrchestrator
+                        .runClientUpgradeFromOffer(
+                            oldChannel = channel,
+                            currentMedium = Medium.WIFI_LAN,
+                            offer = probe.frame,
+                            mediumRegistry = mediumRegistry,
+                            endpointId = endpointId,
+                            logger = logger,
+                        ).channel
+                        .also { secureChannel = it }
+            }
+        return activeChannel to initialWireFrame
     }
 
     /**
@@ -292,6 +323,7 @@ internal class OutboundConnectionDriver(
     private suspend fun runReceiveLoop(
         channel: SecureChannel,
         fsm: OutboundSharingFsm,
+        initialWireFrame: OfflineFrame? = null,
     ): OutboundResult =
         coroutineScope {
             // RENDEZVOUS capacity — same back-pressure rationale as
@@ -313,7 +345,7 @@ internal class OutboundConnectionDriver(
             // queued KEEP_ALIVE rather than interleaving inside it.
             val keepAliveJob: Job = launch { runKeepAliveTicker(channel) }
             try {
-                val result = dispatchLoop(channel, fsm, wireChannel)
+                val result = dispatchLoop(channel, fsm, wireChannel, initialWireFrame)
                 // Safe-disconnect drain: we advertised
                 // safe_to_disconnect_version=1 in our ConnectionResponseFrame,
                 // so any DISCONNECTION we ourselves emit goes out with
@@ -351,17 +383,16 @@ internal class OutboundConnectionDriver(
                 // CancellationException out of the SecureChannel write
                 // and exits cleanly.
                 keepAliveJob.cancelAndJoin()
-                // Close the socket BEFORE cancelAndJoin'ing the pump:
+                // Close the active channel BEFORE cancelAndJoin'ing the pump:
                 // the pump is parked in SecureChannel.receiveOfflineFrame()'s
-                // blocking Socket read under withContext(Dispatchers.IO),
-                // which does NOT honour coroutine cancellation while
-                // parked in a syscall. Closing the socket throws
-                // SocketException out of the read (the pump catches it
-                // as a Throwable and exits), so cancelAndJoin can
-                // complete. TCP guarantees any bytes already in the
-                // send buffer (CANCEL / Disconnection) are transmitted
-                // before the FIN, so the peer still reads our final
-                // frames before observing EOF.
+                // blocking read under withContext(Dispatchers.IO), which
+                // does NOT honour coroutine cancellation while parked in
+                // a syscall. Closing the channel breaks that read even
+                // after a bandwidth upgrade swaps the wire from the
+                // original TCP socket to a provider-owned transport.
+                // Close the original socket as well because the upgraded
+                // channel no longer owns it.
+                runCatching { channel.close() }
                 runCatching { socket.close() }
                 pumpJob.cancelAndJoin()
             }
@@ -480,7 +511,9 @@ internal class OutboundConnectionDriver(
         channel: SecureChannel,
         fsm: OutboundSharingFsm,
         wireChannel: Channel<OutboundWireMessage>,
+        initialWireFrame: OfflineFrame? = null,
     ): OutboundResult {
+        var bufferedFrame = initialWireFrame
         while (true) {
             // Terminal state? Resolve and return.
             if (fsm.state == OutboundSharingState.Disconnected) {
@@ -488,16 +521,21 @@ internal class OutboundConnectionDriver(
             }
 
             val event: OutboundDriverEvent =
-                select {
-                    externalEvents.onReceive { ev -> OutboundDriverEvent.External(ev) }
-                    wireChannel.onReceive { msg ->
-                        when (msg) {
-                            is OutboundWireMessage.Frame -> OutboundDriverEvent.Wire(msg.frame)
-                            OutboundWireMessage.Closed -> OutboundDriverEvent.PeerClosed
-                            is OutboundWireMessage.Error -> OutboundDriverEvent.PumpError(msg.cause)
+                bufferedFrame
+                    ?.let { frame ->
+                        bufferedFrame = null
+                        OutboundDriverEvent.Wire(frame)
+                    }
+                    ?: select {
+                        externalEvents.onReceive { ev -> OutboundDriverEvent.External(ev) }
+                        wireChannel.onReceive { msg ->
+                            when (msg) {
+                                is OutboundWireMessage.Frame -> OutboundDriverEvent.Wire(msg.frame)
+                                OutboundWireMessage.Closed -> OutboundDriverEvent.PeerClosed
+                                is OutboundWireMessage.Error -> OutboundDriverEvent.PumpError(msg.cause)
+                            }
                         }
                     }
-                }
 
             logger("fsm: dispatch event=${describeDriverEvent(event)} fsmState=${fsm.state::class.simpleName}")
 

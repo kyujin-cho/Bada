@@ -3,6 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("MissingPermission", "NewApi")
 @file:Suppress(
     "MagicNumber", // 0xFF in the MAC formatter is a well-known byte mask.
     "ReturnCount", // Validation pipelines read cleanest with early `null` returns.
@@ -18,6 +19,11 @@ import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumProvider
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * [MediumProvider] for the BLE L2CAP CoC (Connection-Oriented Channel)
@@ -65,6 +71,8 @@ public class BleL2capMediumProvider(
 ) {
     public constructor(context: Context) : this(DefaultBluetoothL2capIo(context))
 
+    private val pendingListener: AtomicReference<BluetoothL2capIo.Listener?> = AtomicReference(null)
+
     /**
      * Wrapped [MediumProvider] surface. The interface is exposed via
      * [asProvider] rather than direct inheritance so callers see the
@@ -99,7 +107,9 @@ public class BleL2capMediumProvider(
                 val mac = io.localMacBytes() ?: return null
                 val listener = listenOnQ() ?: return null
                 return try {
-                    UpgradePathCredentials.BleL2cap(macAddress = mac, psm = listener.psm)
+                    val credentials = UpgradePathCredentials.BleL2cap(macAddress = mac, psm = listener.psm)
+                    pendingListener.getAndSet(listener)?.close()
+                    credentials
                 } catch (
                     // BleL2cap's init validates MAC length and PSM
                     // range — if the platform handed us something out
@@ -121,6 +131,24 @@ public class BleL2capMediumProvider(
                 val macString = formatMacAddress(credentials.macAddress)
                 val channel = connectOnQ(macString, credentials.psm) ?: return null
                 return BleL2capUpgradedTransport(channel)
+            }
+
+            override suspend fun acceptUpgrade(): UpgradedTransport? =
+                withContext(Dispatchers.IO) {
+                    val listener = pendingListener.getAndSet(null) ?: return@withContext null
+                    try {
+                        BleL2capUpgradedTransport(listener.accept())
+                    } catch (
+                        @Suppress("TooGenericExceptionCaught") t: Throwable,
+                    ) {
+                        null
+                    } finally {
+                        listener.close()
+                    }
+                }
+
+            override fun cancelPendingUpgrade() {
+                pendingListener.getAndSet(null)?.close()
             }
 
             @RequiresApi(Build.VERSION_CODES.Q)
@@ -161,4 +189,14 @@ public data class BleL2capUpgradedTransport(
     val channel: L2capChannel,
 ) : UpgradedTransport {
     override val medium: Medium = Medium.BLE_L2CAP
+
+    override val inputStream: InputStream
+        get() = channel.inputStream
+
+    override val outputStream: OutputStream
+        get() = channel.outputStream
+
+    override fun close() {
+        channel.close()
+    }
 }

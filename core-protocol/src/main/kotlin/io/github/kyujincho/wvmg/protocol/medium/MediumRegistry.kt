@@ -116,6 +116,49 @@ public class MediumRegistry(
         return ladderOverride.pickBest(intersection)
     }
 
+    /**
+     * Like [selectBestUpgrade], but attempts the server-side bring-up
+     * for each shared medium in ladder order until one succeeds.
+     *
+     * This is the fallback-selection helper for medium negotiation:
+     * when a higher-priority medium is advertised and supported but its
+     * [MediumProvider.prepareUpgrade] path fails at runtime (for
+     * example, Wi-Fi Direct group creation fails because the OEM
+     * refuses P2P while STA is active), the registry falls through to
+     * the next shared rung instead of returning a failed selection.
+     * Connection drivers still need to apply the returned selection to
+     * the `BANDWIDTH_UPGRADE_NEGOTIATION` transport-swap handshake.
+     *
+     * [Medium.WIFI_LAN] is the "stay on the current socket" case. The
+     * returned [PreparedUpgradeSelection.StayOnCurrentMedium] signals
+     * that the caller should keep using the existing transport rather
+     * than emitting `UPGRADE_PATH_AVAILABLE`.
+     */
+    @Suppress(
+        "ReturnCount",
+        "LoopWithTooManyJumpStatements",
+    ) // The ladder walk is intentionally linear: one guard per rung, one exit on success.
+    public suspend fun prepareBestUpgrade(
+        peerSupported: Set<Medium>,
+        ladderOverride: MediumLadder = ladder,
+    ): PreparedUpgradeSelection? {
+        val intersection = supportedMediums().intersect(peerSupported)
+        if (intersection.isEmpty()) return null
+        for (medium in ladderOverride.rungs) {
+            if (medium !in intersection) continue
+            val provider = providerFor(medium) ?: continue
+            if (!provider.isSupported()) continue
+            if (medium == Medium.WIFI_LAN) {
+                return PreparedUpgradeSelection.StayOnCurrentMedium
+            }
+            val credentials =
+                runCatching { provider.prepareUpgrade() }
+                    .getOrNull() ?: continue
+            return PreparedUpgradeSelection.Upgrade(credentials)
+        }
+        return null
+    }
+
     public companion object {
         /**
          * The Phase 1 default: a registry with a single trivial
@@ -148,5 +191,34 @@ public class MediumRegistry(
 
             override fun isSupported(): Boolean = true
         }
+    }
+}
+
+/**
+ * Result of [MediumRegistry.prepareBestUpgrade].
+ */
+public sealed interface PreparedUpgradeSelection {
+    /**
+     * Medium selected for the resulting transport decision.
+     */
+    public val medium: Medium
+
+    /**
+     * Higher-priority medium succeeded in `prepareUpgrade`; the caller
+     * should advertise [credentials] to the peer and continue the
+     * bandwidth-upgrade handshake.
+     */
+    public data class Upgrade(
+        val credentials: UpgradePathCredentials,
+    ) : PreparedUpgradeSelection {
+        override val medium: Medium = credentials.medium
+    }
+
+    /**
+     * No higher-priority upgrade path came up, so the connection
+     * should stay on the existing Wi-Fi LAN transport.
+     */
+    public data object StayOnCurrentMedium : PreparedUpgradeSelection {
+        override val medium: Medium = Medium.WIFI_LAN
     }
 }

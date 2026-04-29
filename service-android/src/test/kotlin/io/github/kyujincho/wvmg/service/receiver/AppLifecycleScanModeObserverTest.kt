@@ -34,7 +34,7 @@ class AppLifecycleScanModeObserverTest {
     fun `onStart switches the sink to LOW_LATENCY`() {
         val recorder = ModeRecorder()
         val observer = AppLifecycleScanModeObserver(recorder::record)
-        val (_, lifecycle) = newOwner()
+        val (owner, lifecycle) = newOwner()
         lifecycle.addObserver(observer)
 
         // ProcessLifecycleOwner's real path is CREATED -> STARTED when
@@ -42,6 +42,7 @@ class AppLifecycleScanModeObserverTest {
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START)
 
+        assertThat(owner.lifecycle).isSameInstanceAs(lifecycle)
         assertThat(recorder.modes).containsExactly(ScanSettings.SCAN_MODE_LOW_LATENCY)
     }
 
@@ -49,7 +50,7 @@ class AppLifecycleScanModeObserverTest {
     fun `onStop reverts the sink to BALANCED`() {
         val recorder = ModeRecorder()
         val observer = AppLifecycleScanModeObserver(recorder::record)
-        val (_, lifecycle) = newOwner()
+        val (owner, lifecycle) = newOwner()
         lifecycle.addObserver(observer)
 
         // Foreground first to put the registry in STARTED, then
@@ -58,6 +59,7 @@ class AppLifecycleScanModeObserverTest {
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
 
+        assertThat(owner.lifecycle).isSameInstanceAs(lifecycle)
         // Both events fired in the right order: LOW_LATENCY then
         // BALANCED.
         assertThat(recorder.modes)
@@ -75,7 +77,7 @@ class AppLifecycleScanModeObserverTest {
         // tracks the most recent lifecycle event.
         val recorder = ModeRecorder()
         val observer = AppLifecycleScanModeObserver(recorder::record)
-        val (_, lifecycle) = newOwner()
+        val (owner, lifecycle) = newOwner()
         lifecycle.addObserver(observer)
 
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -83,6 +85,7 @@ class AppLifecycleScanModeObserverTest {
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START)
 
+        assertThat(owner.lifecycle).isSameInstanceAs(lifecycle)
         assertThat(recorder.modes)
             .containsExactly(
                 ScanSettings.SCAN_MODE_LOW_LATENCY,
