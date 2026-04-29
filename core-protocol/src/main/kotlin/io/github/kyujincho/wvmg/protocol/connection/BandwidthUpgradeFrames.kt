@@ -280,6 +280,43 @@ public object BandwidthUpgradeFrames {
             // so the negotiator can still surface "an upgrade was
             // offered" and the provider can reject it cleanly on adopt.
             Medium.WIFI_DIRECT -> decodeWifiDirect(info) ?: UpgradePathCredentials.Generic(medium)
+            // Wi-Fi local-only hotspot (#50). Mirrors the WifiDirect
+            // arm: the WifiHotspotCredentials sub-message carries
+            // SSID + passphrase + port + (optional) gateway and
+            // (optional) frequency. Falls back to Generic when the
+            // sub-message is absent so the negotiator can surface
+            // "an upgrade was offered" and the provider can reject it
+            // cleanly on adopt.
+            Medium.WIFI_HOTSPOT -> {
+                if (info.hasWifiHotspotCredentials()) {
+                    val raw = info.wifiHotspotCredentials
+                    UpgradePathCredentials.WifiHotspot(
+                        ssid = raw.ssid,
+                        passphrase = raw.password,
+                        port = raw.port,
+                        // Proto defaults: gateway -> "0.0.0.0", frequency -> -1.
+                        // `optional` proto3 / proto2 hasField semantics mean
+                        // an absent field reads back as the proto default,
+                        // which is exactly the "not set" sentinel we want
+                        // to surface to the adapter, so the explicit
+                        // hasGateway / hasFrequency checks are unnecessary.
+                        gateway =
+                            if (raw.hasGateway()) {
+                                raw.gateway
+                            } else {
+                                UpgradePathCredentials.WifiHotspot.DEFAULT_GATEWAY
+                            },
+                        frequencyMhz =
+                            if (raw.hasFrequency()) {
+                                raw.frequency
+                            } else {
+                                UpgradePathCredentials.WifiHotspot.FREQUENCY_NOT_SET
+                            },
+                    )
+                } else {
+                    UpgradePathCredentials.Generic(medium)
+                }
+            }
             // Remaining Phase 4 sub-issues plug the rest of the arms in
             // here as their adapters land. Until then we report Generic
             // so the upper layers can at least see that *some* path
@@ -291,7 +328,6 @@ public object BandwidthUpgradeFrames {
             // proto reserves wire number 10 there). The path that
             // builds the wire frame for BLE_L2CAP must use the
             // discovery-medium path instead — see Phase 4 #52.
-            Medium.WIFI_HOTSPOT,
             Medium.BLE_L2CAP,
             Medium.BLE,
             Medium.WEB_RTC,
@@ -372,6 +408,28 @@ public object BandwidthUpgradeFrames {
                     direct.frequency = credentials.frequency
                 }
                 builder.setWifiDirectCredentials(direct.build())
+            }
+            // Wi-Fi local-only hotspot (#50).
+            is UpgradePathCredentials.WifiHotspot -> {
+                val hotspot =
+                    UpgradePathInfo.WifiHotspotCredentials
+                        .newBuilder()
+                        .setSsid(credentials.ssid)
+                        .setPassword(credentials.passphrase)
+                        .setPort(credentials.port)
+                // Only set gateway / frequency when they carry information
+                // beyond the proto default. The wire is more compact and
+                // — more importantly — round-trips back through the
+                // `hasGateway()` / `hasFrequency()` checks in
+                // [decodeCredentials] preserving the "field not set"
+                // semantics the adapter relies on.
+                if (credentials.gateway != UpgradePathCredentials.WifiHotspot.DEFAULT_GATEWAY) {
+                    hotspot.gateway = credentials.gateway
+                }
+                if (credentials.frequencyMhz != UpgradePathCredentials.WifiHotspot.FREQUENCY_NOT_SET) {
+                    hotspot.frequency = credentials.frequencyMhz
+                }
+                builder.setWifiHotspotCredentials(hotspot.build())
             }
         }
         return builder.build()

@@ -106,6 +106,19 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
+    <!-- Wi-Fi local-only hotspot bandwidth-upgrade medium (#50). Both
+         lines are required by WifiManager.startLocalOnlyHotspot on
+         API 26+ — CHANGE_WIFI_STATE is install-time normal protection
+         level; ACCESS_FINE_LOCATION is the runtime grant the platform
+         demands before it will surface the SSID/passphrase in the
+         LocalOnlyHotspotReservation callback. The provider in
+         :discovery-android also accepts NEARBY_WIFI_DEVICES (already
+         declared above for Wi-Fi peer discovery) as a substitute on
+         API 33+ devices, so the location grant is requested at
+         onboarding only when the platform requires it. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
     <!-- Satisfies the Android 14+ FGS-type gate for `connectedDevice`.
          Normal protection level, so no runtime prompt. We do not actually
          acquire a MulticastLock — NsdManager handles mDNS in the system

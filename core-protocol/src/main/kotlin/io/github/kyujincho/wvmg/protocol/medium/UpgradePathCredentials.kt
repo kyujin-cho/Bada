@@ -335,4 +335,69 @@ public sealed interface UpgradePathCredentials {
             public const val FREQUENCY_NOT_SET: Int = -1
         }
     }
+
+    /**
+     * Wi-Fi local-only hotspot (soft-AP) credentials — the bring-up
+     * parameters the receiver needs to associate with the sender's
+     * temporary access point and then open a TCP socket on the
+     * hotspot subnet.
+     *
+     * Maps 1:1 onto `UpgradePathInfo.WifiHotspotCredentials`:
+     *
+     * ```
+     * message WifiHotspotCredentials {
+     *   optional string ssid = 1;
+     *   optional string password = 2;
+     *   optional int32 port = 3;
+     *   optional string gateway = 4 [default = "0.0.0.0"];
+     *   optional int32 frequency = 5 [default = -1];
+     * }
+     * ```
+     *
+     * `gateway` doubles as the server IP on the hotspot subnet — the
+     * proto carries no separate `ip_address` field for hotspot because
+     * Android's `LocalOnlyHotspotReservation` always installs the
+     * server-side socket on the gateway IP (typically 192.168.49.1).
+     * The peer reaches us at `gateway:port` after associating with
+     * `ssid` using `password`.
+     *
+     * @param ssid Hotspot SSID broadcast by `WifiManager.startLocalOnlyHotspot`.
+     * @param passphrase WPA2 passphrase from the same callback.
+     * @param port TCP port the server-side ServerSocket bound to on
+     *   the hotspot interface.
+     * @param gateway Dotted-quad IPv4 address of the hotspot gateway
+     *   (server side). Defaults to the proto sentinel `"0.0.0.0"`,
+     *   which the receiver must treat as "use the DHCP-supplied
+     *   gateway".
+     * @param frequencyMhz Operating frequency in MHz (proto sentinel
+     *   `-1` = unset). Hint only; the receiver cannot influence the
+     *   AP's channel choice.
+     */
+    public data class WifiHotspot(
+        val ssid: String,
+        val passphrase: String,
+        val port: Int,
+        val gateway: String = DEFAULT_GATEWAY,
+        val frequencyMhz: Int = FREQUENCY_NOT_SET,
+    ) : UpgradePathCredentials {
+        override val medium: Medium = Medium.WIFI_HOTSPOT
+
+        public companion object {
+            /**
+             * Proto default for `WifiHotspotCredentials.gateway`. A
+             * receiver that sees this value MUST fall back to the
+             * gateway address its DHCP client received after joining
+             * the hotspot's SSID.
+             */
+            public const val DEFAULT_GATEWAY: String = "0.0.0.0"
+
+            /**
+             * Proto default for `WifiHotspotCredentials.frequency`
+             * meaning "field not set". Matches `google/nearby` and
+             * the `STA_FREQUENCY_NOT_SET` sentinel used elsewhere in
+             * the bandwidth-upgrade frames.
+             */
+            public const val FREQUENCY_NOT_SET: Int = -1
+        }
+    }
 }
