@@ -12,6 +12,7 @@ import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.server.InboundConnectionCompletion
 import io.github.kyujincho.wvmg.protocol.server.TcpReceiverServer
+import io.github.kyujincho.wvmg.protocol.transport.InitialControlServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -103,7 +104,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   to BLE pulse activity. Defaults to `false` for
  *   backward-compatibility — `start()` publishes immediately as in
  *   Phase 1.
+ * @property initialControlServers Optional non-LAN initial-control
+ *   advertisement/listener surfaces. These are published and
+ *   unpublished with the same visibility lifecycle as mDNS.
  */
+@Suppress("LongParameterList")
 public class ReceiverSession(
     private val tcpServerFactory: TcpServerFactory,
     private val advertiser: DiscoveryAdvertiser,
@@ -112,6 +117,7 @@ public class ReceiverSession(
     private val secureRandomProvider: () -> SecureRandom = { SecureRandom() },
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val advertiseGated: Boolean = false,
+    private val initialControlServers: List<InitialControlServer> = emptyList(),
 ) {
     private val supervisor: Job = SupervisorJob()
 
@@ -203,14 +209,16 @@ public class ReceiverSession(
         }
 
         if (!advertiseGated) {
-            // Phase 1 / default behaviour: publish the mDNS advertisement
-            // synchronously during start so peers see us as soon as the
-            // service is up. Issue #34 introduces [advertiseGated] = true
-            // for the BLE-pulse-driven flow, where publish is deferred
-            // until [publishAdvertisement] is called.
+            // Phase 1 / default behaviour: publish the advertisement
+            // surfaces synchronously during start so peers see us as
+            // soon as the service is up. Issue #34 introduces
+            // [advertiseGated] = true for the BLE-pulse-driven flow,
+            // where publish is deferred until [publishAdvertisement] is
+            // called.
             try {
-                advertiseHandle = advertiser.advertise(endpointInfo, port)
+                publishAdvertisementLocked(tcpServer, port)
             } catch (t: Throwable) {
+                stopInitialControlServersLocked()
                 runCatching { tcpServer.stop() }
                 server = null
                 stopped.set(true)
@@ -259,6 +267,7 @@ public class ReceiverSession(
         synchronized(advertiseLock) {
             runCatching { advertiseHandle?.close() }
             advertiseHandle = null
+            stopInitialControlServersLocked()
         }
 
         runCatching { server?.stopBlocking() }
@@ -275,9 +284,9 @@ public class ReceiverSession(
         get() = started.get() && !stopped.get()
 
     /**
-     * Whether an mDNS advertisement is currently published. Used by
-     * [MdnsAdvertisementGate] (#34) to decide whether a publish/unpublish
-     * call would be a no-op.
+     * Whether the main mDNS advertisement is currently published. Used
+     * by [MdnsAdvertisementGate] (#34) to decide whether a
+     * publish/unpublish call would be a no-op.
      */
     public val isAdvertising: Boolean
         get() = advertiseHandle?.isActive == true
@@ -302,7 +311,7 @@ public class ReceiverSession(
             check(!stopped.get()) { "ReceiverSession has been stopped" }
             if (advertiseHandle?.isActive == true) return
             val tcpServer = server ?: error("TCP server is not bound")
-            advertiseHandle = advertiser.advertise(endpointInfo, tcpServer.boundPort)
+            publishAdvertisementLocked(tcpServer, tcpServer.boundPort)
         }
     }
 
@@ -315,13 +324,36 @@ public class ReceiverSession(
      */
     public fun unpublishAdvertisement() {
         synchronized(advertiseLock) {
-            val handle = advertiseHandle ?: return
-            runCatching { handle.close() }
+            val handle = advertiseHandle
+            if (handle == null && initialControlServers.none { it.isActive }) return
+            runCatching { handle?.close() }
             advertiseHandle = null
+            stopInitialControlServersLocked()
         }
     }
 
     private val advertiseLock: Any = Any()
+
+    private fun publishAdvertisementLocked(
+        tcpServer: TcpReceiverServer,
+        port: Int,
+    ) {
+        advertiseHandle = advertiser.advertise(endpointInfo, port)
+        for (initialControlServer in initialControlServers) {
+            if (initialControlServer.isActive) continue
+            runCatching {
+                initialControlServer.start(endpointInfo) { transport ->
+                    tcpServer.acceptConnectedTransport(transport)
+                }
+            }
+        }
+    }
+
+    private fun stopInitialControlServersLocked() {
+        for (initialControlServer in initialControlServers) {
+            runCatching { initialControlServer.stop() }
+        }
+    }
 
     public companion object {
         /**

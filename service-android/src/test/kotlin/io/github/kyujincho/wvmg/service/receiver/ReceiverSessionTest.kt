@@ -9,14 +9,25 @@ import com.google.common.truth.Truth.assertThat
 import io.github.kyujincho.wvmg.discovery.AdvertiseHandle
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.payload.TempFileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.server.TcpReceiverServer
+import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
+import io.github.kyujincho.wvmg.protocol.transport.InitialControlServer
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.InetAddress
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicInteger
@@ -264,6 +275,79 @@ class ReceiverSessionTest {
         }
 
     @Test
+    fun `non-gated start publishes initial control servers`() =
+        runBlocking {
+            val initialControlServer = RecordingInitialControlServer()
+            val session =
+                makeSession(
+                    initialControlServers = listOf(initialControlServer),
+                )
+
+            session.start()
+
+            assertThat(initialControlServer.startCalls).hasSize(1)
+            assertThat(initialControlServer.startCalls[0].endpointInfo).isEqualTo(sampleEndpointInfo())
+            assertThat(initialControlServer.isActive).isTrue()
+
+            session.stop()
+            assertThat(initialControlServer.stopCount).isEqualTo(1)
+        }
+
+    @Test
+    fun `gated publish controls initial control server lifecycle`() =
+        runBlocking {
+            val advertiser = RecordingAdvertiser()
+            val initialControlServer = RecordingInitialControlServer()
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    advertiseGated = true,
+                    initialControlServers = listOf(initialControlServer),
+                )
+
+            session.start()
+            assertThat(initialControlServer.startCalls).isEmpty()
+
+            session.publishAdvertisement()
+            assertThat(initialControlServer.startCalls).hasSize(1)
+            assertThat(initialControlServer.isActive).isTrue()
+
+            session.unpublishAdvertisement()
+            assertThat(initialControlServer.stopCount).isEqualTo(1)
+            assertThat(initialControlServer.isActive).isFalse()
+
+            session.publishAdvertisement()
+            assertThat(initialControlServer.startCalls).hasSize(2)
+            assertThat(initialControlServer.isActive).isTrue()
+
+            session.stop()
+            assertThat(initialControlServer.stopCount).isEqualTo(2)
+        }
+
+    @Test
+    fun `initial control transports are injected into active connection flow`() =
+        runBlocking {
+            val initialControlServer = RecordingInitialControlServer()
+            val session =
+                makeSession(
+                    advertiseGated = true,
+                    initialControlServers = listOf(initialControlServer),
+                )
+
+            session.start()
+            val activeConnection =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    withTimeout(1_000) { session.activeConnections.first() }
+                }
+
+            session.publishAdvertisement()
+            initialControlServer.accept(ClosedTransport())
+
+            assertThat(activeConnection.await()).isNotNull()
+            session.stop()
+        }
+
+    @Test
     fun `unpublishAdvertisement is a no-op when nothing is published`() =
         runBlocking {
             val advertiser = RecordingAdvertiser()
@@ -338,6 +422,7 @@ class ReceiverSessionTest {
         endpointInfo: EndpointInfo = sampleEndpointInfo(),
         factoryProvider: () -> FileDestinationFactory = { TempFileDestinationFactory() },
         advertiseGated: Boolean = false,
+        initialControlServers: List<InitialControlServer> = emptyList(),
     ): ReceiverSession =
         ReceiverSession(
             tcpServerFactory =
@@ -360,6 +445,7 @@ class ReceiverSessionTest {
             factoryProvider = factoryProvider,
             endpointInfo = endpointInfo,
             advertiseGated = advertiseGated,
+            initialControlServers = initialControlServers,
         )
 
     private fun sampleEndpointInfo(name: String = "Test Device"): EndpointInfo =
@@ -415,6 +501,58 @@ class ReceiverSessionTest {
 
         override fun close() {
             active = false
+        }
+    }
+
+    private class RecordingInitialControlServer : InitialControlServer {
+        data class StartCall(
+            val endpointInfo: EndpointInfo,
+        )
+
+        val startCalls: MutableList<StartCall> = mutableListOf()
+
+        var stopCount: Int = 0
+            private set
+
+        private var active: Boolean = false
+        private var acceptTransport: ((ConnectedTransport) -> Unit)? = null
+
+        override val isActive: Boolean
+            get() = active
+
+        override fun start(
+            endpointInfo: EndpointInfo,
+            acceptTransport: (ConnectedTransport) -> Unit,
+        ): Boolean {
+            startCalls += StartCall(endpointInfo)
+            this.acceptTransport = acceptTransport
+            active = true
+            return true
+        }
+
+        override fun stop() {
+            if (!active) return
+            active = false
+            acceptTransport = null
+            stopCount += 1
+        }
+
+        fun accept(transport: ConnectedTransport) {
+            val callback = acceptTransport ?: error("initial control server is not active")
+            callback(transport)
+        }
+    }
+
+    private class ClosedTransport : ConnectedTransport {
+        override val medium: Medium = Medium.BLUETOOTH
+
+        override val inputStream: InputStream = ByteArrayInputStream(ByteArray(0))
+
+        override val outputStream: OutputStream = ByteArrayOutputStream()
+
+        override fun close() {
+            inputStream.close()
+            outputStream.close()
         }
     }
 }

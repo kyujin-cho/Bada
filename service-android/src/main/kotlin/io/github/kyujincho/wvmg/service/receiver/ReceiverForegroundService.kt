@@ -27,6 +27,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareAdvertiser
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareScanner
+import io.github.kyujincho.wvmg.discovery.bootstrap.BluetoothClassicBootstrapServer
 import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
@@ -820,6 +821,13 @@ public class ReceiverForegroundService : Service() {
                     factoryProvider = { DownloadsWriterFactory.create(context) },
                     endpointInfo = identity,
                     mediumRegistry = MediumRegistries.defaultForContext(context.applicationContext),
+                    initialControlServers =
+                        listOf(
+                            BluetoothClassicBootstrapServer(
+                                context = context.applicationContext,
+                                endpointIdProvider = { BleEndpointIdHolder.bytes.copyOf() },
+                            ),
+                        ),
                     // Issue #34: defer mDNS publish to the
                     // [MdnsAdvertisementGate] so we only advertise while
                     // a sender BLE pulse is active (or the user has
