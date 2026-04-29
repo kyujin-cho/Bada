@@ -388,7 +388,7 @@ public interface TcpServerFactory {
          * on `0.0.0.0` (all interfaces) so any Wi-Fi peer can connect.
          */
         @JvmStatic
-        public fun default(): TcpServerFactory =
+        public fun default(logger: (String) -> Unit = {}): TcpServerFactory =
             object : TcpServerFactory {
                 override fun create(
                     scope: CoroutineScope,
@@ -401,6 +401,7 @@ public interface TcpServerFactory {
                         factoryProvider = factoryProvider,
                         secureRandomProvider = secureRandomProvider,
                         mediumRegistry = mediumRegistry,
+                        logger = logger,
                     )
             }
     }

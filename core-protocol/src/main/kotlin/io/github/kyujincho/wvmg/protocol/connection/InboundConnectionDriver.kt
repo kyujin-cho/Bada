@@ -71,6 +71,7 @@ internal class InboundConnectionDriver(
     private val factory: FileDestinationFactory,
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
+    private val logger: (String) -> Unit = {},
     /**
      * Wall-clock source for the rate estimator. Defaults to
      * [System.currentTimeMillis]; tests inject a deterministic
@@ -230,25 +231,19 @@ internal class InboundConnectionDriver(
         // Step 7: as the Nearby Connections server role, offer the best
         // prepared upgrade medium before the Nearby Share payload
         // negotiation starts. If the sender has already put a sharing
-        // payload on the original channel, stay on that channel: stock
-        // Samsung can continue sending Nearby Share frames while the old
-        // and upgraded channels are both draining, and our SecureChannel
-        // currently enforces one global receive order over one active
-        // transport at a time.
+        // payload on the original channel, keep it buffered while the
+        // upgrade orchestrator drains the old and upgraded channels in
+        // global SecureMessage sequence order.
         val activeTransport =
-            if (initialWireFrame == null) {
-                BandwidthUpgradeOrchestrator
-                    .runServerUpgradeIfAvailable(
-                        oldChannel = channel,
-                        currentMedium = transport.medium,
-                        mediumRegistry = mediumRegistry,
-                        peerSupportedMediums = peerSupportedMediums,
-                        peerEndpointId = initialFrame.v1.connectionRequest.endpointId,
-                        logger = {},
-                    )
-            } else {
-                ActiveTransportChannel(channel, transport.medium)
-            }
+            BandwidthUpgradeOrchestrator
+                .runServerUpgradeIfAvailable(
+                    oldChannel = channel,
+                    currentMedium = transport.medium,
+                    mediumRegistry = mediumRegistry,
+                    peerSupportedMediums = peerSupportedMediums,
+                    peerEndpointId = initialFrame.v1.connectionRequest.endpointId,
+                    logger = logger,
+                )
         val activeChannel = activeTransport.channel.also { secureChannel = it }
         mutableActiveMedium.value = activeTransport.medium
         val initialWireFrames =

@@ -124,15 +124,18 @@ public class InboundConnection(
      * transport swap into the dispatch loop.
      */
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
+    private val logger: (String) -> Unit = {},
 ) {
     public constructor(
         socket: Socket,
         secureRandom: SecureRandom = SecureRandom(),
         mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
+        logger: (String) -> Unit = {},
     ) : this(
         transport = socket.asConnectedTransport(),
         secureRandom = secureRandom,
         mediumRegistry = mediumRegistry,
+        logger = logger,
     )
 
     private val mutableState: MutableStateFlow<InboundConnectionState> =
@@ -250,6 +253,7 @@ public class InboundConnection(
                 factory = factory,
                 mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,
+                logger = logger,
             )
 
         return try {

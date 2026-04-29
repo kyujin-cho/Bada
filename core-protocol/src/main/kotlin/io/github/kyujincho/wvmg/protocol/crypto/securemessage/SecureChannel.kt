@@ -155,6 +155,12 @@ public class SecureChannel internal constructor(
      */
     public suspend fun receiveOfflineFrame(): OfflineFrame = session.receiveOfflineFrame(framedConnection)
 
+    internal suspend fun receiveSequencedOfflineFrame(): SequencedOfflineFrame =
+        session.receiveSequencedOfflineFrame(framedConnection)
+
+    internal suspend fun acceptSequencedOfflineFrame(frame: SequencedOfflineFrame): OfflineFrame =
+        session.acceptSequencedOfflineFrame(frame)
+
     /**
      * The next outgoing sequence number that [sendOfflineFrame] WOULD use,
      * exposed for diagnostics and tests. The value increases by exactly
@@ -258,21 +264,35 @@ internal class SecureMessageSession(
             }
             val expectedSeq = theirSeq.toInt()
 
-            val secureMessageBytes = framedConnection.receiveFrame()
-            val d2dBytes =
-                SecureMessageCodec.verifyAndDecrypt(
-                    secureMessageBytes = secureMessageBytes,
-                    decryptKey = keys.receiveEncryptKey,
-                    hmacKey = keys.receiveHmacKey,
-                )
-            val unwrapped = SecureMessageCodec.unwrapDeviceToDeviceMessage(d2dBytes)
-            if (unwrapped.sequenceNumber != expectedSeq) {
+            val sequenced = readSequencedOfflineFrame(framedConnection)
+            if (sequenced.sequenceNumber != expectedSeq) {
                 throw SequenceNumberMismatchException(
                     expected = expectedSeq,
-                    actual = unwrapped.sequenceNumber,
+                    actual = sequenced.sequenceNumber,
                 )
             }
-            return parseOfflineFrame(unwrapped.payload)
+            return sequenced.frame
+        }
+    }
+
+    suspend fun receiveSequencedOfflineFrame(framedConnection: FramedConnection): SequencedOfflineFrame =
+        readSequencedOfflineFrame(framedConnection)
+
+    suspend fun acceptSequencedOfflineFrame(sequenced: SequencedOfflineFrame): OfflineFrame {
+        receiveMutex.withLock {
+            val nextSeq = theirSeq + 1
+            check(nextSeq <= Int.MAX_VALUE.toLong()) {
+                "Receive sequence number overflowed Int.MAX_VALUE; close the channel"
+            }
+            val expectedSeq = nextSeq.toInt()
+            if (sequenced.sequenceNumber != expectedSeq) {
+                throw SequenceNumberMismatchException(
+                    expected = expectedSeq,
+                    actual = sequenced.sequenceNumber,
+                )
+            }
+            theirSeq = nextSeq
+            return sequenced.frame
         }
     }
 
@@ -293,7 +313,27 @@ internal class SecureMessageSession(
         } catch (e: com.google.protobuf.InvalidProtocolBufferException) {
             throw SecureMessageFormatException("OfflineFrame proto failed to parse", e)
         }
+
+    private suspend fun readSequencedOfflineFrame(framedConnection: FramedConnection): SequencedOfflineFrame {
+        val secureMessageBytes = framedConnection.receiveFrame()
+        val d2dBytes =
+            SecureMessageCodec.verifyAndDecrypt(
+                secureMessageBytes = secureMessageBytes,
+                decryptKey = keys.receiveEncryptKey,
+                hmacKey = keys.receiveHmacKey,
+            )
+        val unwrapped = SecureMessageCodec.unwrapDeviceToDeviceMessage(d2dBytes)
+        return SequencedOfflineFrame(
+            sequenceNumber = unwrapped.sequenceNumber,
+            frame = parseOfflineFrame(unwrapped.payload),
+        )
+    }
 }
+
+internal data class SequencedOfflineFrame(
+    val sequenceNumber: Int,
+    val frame: OfflineFrame,
+)
 
 /**
  * Thrown by [SecureChannel.receiveOfflineFrame] when the peer's reported
