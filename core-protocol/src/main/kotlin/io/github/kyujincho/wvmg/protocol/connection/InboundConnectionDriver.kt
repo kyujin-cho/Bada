@@ -134,9 +134,7 @@ internal class InboundConnectionDriver(
     /**
      * Mediums the peer advertised on `ConnectionRequestFrame.mediums`,
      * decoded into the domain enum. Empty before step 1; populated as
-     * soon as the unencrypted ConnectionRequest arrives. Phase 4
-     * sub-issue #54 reads this back via [chosenUpgradeMedium] (and the
-     * registry's ladder) to drive the upgrade decision.
+     * soon as the unencrypted ConnectionRequest arrives.
      */
     private var peerSupportedMediums: Set<Medium> = emptySet()
 
@@ -144,10 +142,9 @@ internal class InboundConnectionDriver(
      * The medium the registry selected as the best upgrade target for
      * this connection — i.e. the highest-priority entry shared by both
      * peers, per the ladder. `null` when the intersection is just
-     * Wi-Fi LAN (no upgrade is meaningful) or empty. Read by
-     * #54 when wiring the upgrade swap; exposed `internal` so tests
-     * in this module can assert the selection without poking at the
-     * driver's private state.
+     * Wi-Fi LAN (no upgrade is meaningful) or empty. The current driver
+     * records this for observability; the transport-swap orchestrator
+     * is a separate integration step.
      */
     internal var chosenUpgradeMedium: Medium? = null
         private set
@@ -181,10 +178,9 @@ internal class InboundConnectionDriver(
         // Decode the peer's advertised mediums (Phase 4 framework). The
         // intersection with our local registry's supportedMediums(),
         // resolved by the registry's ladder, picks the upgrade target.
-        // We do not act on the choice here — #54 wires the actual
-        // BANDWIDTH_UPGRADE_NEGOTIATION send — but stashing the result
-        // makes the chosen medium observable by tests today and gives
-        // #54 a single field to read.
+        // The current driver records the choice for observability; the
+        // full BANDWIDTH_UPGRADE_NEGOTIATION transport swap is wired by
+        // a later orchestrator integration.
         peerSupportedMediums =
             initialFrame.v1.connectionRequest.mediumsList
                 .mapNotNull { Medium.fromConnectionRequestMedium(it) }
