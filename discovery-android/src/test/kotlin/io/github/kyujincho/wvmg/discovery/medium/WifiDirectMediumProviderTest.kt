@@ -137,6 +137,33 @@ class WifiDirectMediumProviderTest {
         assertThat(provider.consumePendingClientTransport()).isNull()
     }
 
+    @Test
+    fun `Wi-Fi Direct generated network names match Nearby-compatible shape`() {
+        val generated = WifiDirectCredentialShape.generateNetworkName()
+
+        assertThat(WifiDirectCredentialShape.isValidNetworkName(generated)).isTrue()
+        assertThat(generated).startsWith("DIRECT-")
+        assertThat(generated).contains("-WVMG-")
+        assertThat(generated.length).isAtMost(32)
+    }
+
+    @Test
+    fun `Wi-Fi Direct network name validation rejects OEM device-name suffixes`() {
+        assertThat(
+            WifiDirectCredentialShape.isValidNetworkName("DIRECT-O3-Kyujin's vivo X300 Ult"),
+        ).isFalse()
+        assertThat(WifiDirectCredentialShape.isValidNetworkName("DIRECT-ab-WVMG")).isTrue()
+    }
+
+    @Test
+    fun `Wi-Fi Direct generated passphrase fits platform constraints`() {
+        val generated = WifiDirectCredentialShape.generatePassphrase()
+
+        assertThat(WifiDirectCredentialShape.isValidPassphrase(generated)).isTrue()
+        assertThat(generated.length).isAtLeast(8)
+        assertThat(generated.length).isAtMost(63)
+    }
+
     private fun newProvider(supported: Boolean): WifiDirectMediumProvider =
         WifiDirectMediumProvider(
             availability = FakeAvailability(supported),

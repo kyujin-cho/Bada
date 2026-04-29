@@ -18,6 +18,7 @@ import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pGroup
 import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
+import android.os.Build
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.RequiresPermission
@@ -30,6 +31,7 @@ import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
 import java.net.Socket
+import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -100,48 +102,150 @@ internal class WifiDirectGroupController(
                 removeGroupQuietly(channel)
             }
 
-        val createOk =
-            awaitActionListener { listener ->
-                manager.createGroup(channel, listener)
-            }
-        if (!createOk) {
-            Log.w(TAG, "WifiP2pManager.createGroup failed — falling back")
-            teardown.close()
-            return null
-        }
-
-        val info =
-            try {
-                withTimeout(GROUP_FORMATION_TIMEOUT_MS) {
-                    connectionChanged.awaitGroupOwner()
-                }
-            } catch (_: TimeoutCancellationException) {
-                Log.w(TAG, "Wi-Fi Direct group formation timed out after ${GROUP_FORMATION_TIMEOUT_MS}ms")
-                teardown.close()
-                return null
-            }
-        val group =
-            awaitGroupInfo(channel) ?: run {
-                Log.w(TAG, "WifiP2pManager.requestGroupInfo returned null after group creation")
-                teardown.close()
-                return null
-            }
-        val ipBytes = info.groupOwnerAddress?.address
-        if (ipBytes == null || ipBytes.size != UpgradePathCredentials.WifiDirect.IPV4_ADDRESS_LENGTH) {
-            Log.w(TAG, "Wi-Fi Direct group owner address missing or non-IPv4")
+        val requested = RequestedWifiDirectCredentials()
+        if (!createServerGroup(channel, requested)) {
             teardown.close()
             return null
         }
         val credentials =
-            UpgradePathCredentials.WifiDirect(
-                ipAddress = ipBytes,
-                port = serverPort,
-                ssid = group.networkName ?: "",
-                passphrase = group.passphrase ?: "",
-                frequency = UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET,
-            )
+            awaitServerCredentials(
+                channel = channel,
+                connectionChanged = connectionChanged,
+                requested = requested,
+                serverPort = serverPort,
+            ) ?: run {
+                teardown.close()
+                return null
+            }
         return GroupServerHandle(credentials, teardown)
     }
+
+    private suspend fun createServerGroup(
+        channel: WifiP2pManager.Channel,
+        requested: RequestedWifiDirectCredentials,
+    ): Boolean {
+        removeExistingGroupBeforeServerCreate(channel)
+        val createOk =
+            awaitActionListener { listener ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    manager.createGroup(channel, requested.toConfig(), listener)
+                } else {
+                    manager.createGroup(channel, listener)
+                }
+            }
+        if (!createOk) {
+            Log.w(TAG, "WifiP2pManager.createGroup failed — falling back")
+        }
+        return createOk
+    }
+
+    private suspend fun removeExistingGroupBeforeServerCreate(channel: WifiP2pManager.Channel) {
+        val removedExisting =
+            awaitActionListener { listener ->
+                manager.removeGroup(channel, listener)
+            }
+        if (removedExisting) {
+            Log.w(TAG, "Removed stale Wi-Fi Direct group before creating a new upgrade group")
+        }
+    }
+
+    private suspend fun awaitServerCredentials(
+        channel: WifiP2pManager.Channel,
+        connectionChanged: ConnectionChangedReceiver,
+        requested: RequestedWifiDirectCredentials,
+        serverPort: Int,
+    ): UpgradePathCredentials.WifiDirect? {
+        val info = awaitGroupOwnerInfo(connectionChanged)
+        val group = awaitCreatedGroupInfo(channel)
+        return if (info == null || group == null) {
+            null
+        } else {
+            buildServerCredentials(info, group, requested, serverPort)
+        }
+    }
+
+    private suspend fun awaitGroupOwnerInfo(connectionChanged: ConnectionChangedReceiver): WifiP2pInfo? =
+        try {
+            withTimeout(GROUP_FORMATION_TIMEOUT_MS) {
+                connectionChanged.awaitGroupOwner()
+            }
+        } catch (_: TimeoutCancellationException) {
+            Log.w(TAG, "Wi-Fi Direct group formation timed out after ${GROUP_FORMATION_TIMEOUT_MS}ms")
+            null
+        }
+
+    private suspend fun awaitCreatedGroupInfo(channel: WifiP2pManager.Channel): WifiP2pGroup? {
+        val group = awaitGroupInfo(channel)
+        if (group == null) {
+            Log.w(TAG, "WifiP2pManager.requestGroupInfo returned null after group creation")
+        }
+        return group
+    }
+
+    @Suppress("ReturnCount") // Null means "decline upgrade"; each guard logs the concrete malformed field.
+    private fun buildServerCredentials(
+        info: WifiP2pInfo,
+        group: WifiP2pGroup,
+        requested: RequestedWifiDirectCredentials,
+        serverPort: Int,
+    ): UpgradePathCredentials.WifiDirect? {
+        val ipBytes = info.groupOwnerAddress?.address
+        if (ipBytes == null || ipBytes.size != UpgradePathCredentials.WifiDirect.IPV4_ADDRESS_LENGTH) {
+            Log.w(TAG, "Wi-Fi Direct group owner address missing or non-IPv4")
+            return null
+        }
+        val strings = selectServerCredentialStrings(group, requested) ?: return null
+        Log.w(
+            TAG,
+            "Wi-Fi Direct group ready ssid='${strings.ssid}' passphraseLength=${strings.passphrase.length}",
+        )
+        return UpgradePathCredentials.WifiDirect(
+            ipAddress = ipBytes,
+            port = serverPort,
+            ssid = strings.ssid,
+            passphrase = strings.passphrase,
+            frequency = UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET,
+        )
+    }
+
+    private fun selectServerCredentialStrings(
+        group: WifiP2pGroup,
+        requested: RequestedWifiDirectCredentials,
+    ): ServerCredentialStrings? {
+        val ssid =
+            group.networkName?.takeIf(WifiDirectCredentialShape::isValidNetworkName)
+                ?: requested.networkName.takeIf(WifiDirectCredentialShape::isValidNetworkName)
+        val passphrase =
+            group.passphrase?.takeIf(WifiDirectCredentialShape::isValidPassphrase)
+                ?: requested.passphrase.takeIf(WifiDirectCredentialShape::isValidPassphrase)
+        if (ssid == null || passphrase == null) {
+            Log.w(
+                TAG,
+                "Wi-Fi Direct group credentials invalid; " +
+                    "ssid='${group.networkName.orEmpty()}' passphraseLength=${group.passphrase?.length ?: 0}",
+            )
+            return null
+        }
+        return ServerCredentialStrings(ssid, passphrase)
+    }
+
+    private data class RequestedWifiDirectCredentials(
+        val networkName: String = WifiDirectCredentialShape.generateNetworkName(),
+        val passphrase: String = WifiDirectCredentialShape.generatePassphrase(),
+    ) {
+        fun toConfig(): WifiP2pConfig =
+            WifiP2pConfig
+                .Builder()
+                .setNetworkName(networkName)
+                .setPassphrase(passphrase)
+                .enablePersistentMode(false)
+                .build()
+    }
+
+    private data class ServerCredentialStrings(
+        val ssid: String,
+        val passphrase: String,
+    )
 
     /**
      * Sender-side bring-up. Builds a `WifiP2pConfig` from the peer
@@ -167,19 +271,32 @@ internal class WifiDirectGroupController(
                 cancelConnectQuietly(channel)
             }
 
+        if (!WifiDirectCredentialShape.isValidNetworkName(credentials.ssid) ||
+            !WifiDirectCredentialShape.isValidPassphrase(credentials.passphrase)
+        ) {
+            Log.w(TAG, "Wi-Fi Direct credentials from peer are malformed; declining upgrade")
+            teardown.close()
+            return null
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            Log.w(TAG, "Wi-Fi Direct network-name join requires API 29+; declining upgrade")
+            teardown.close()
+            return null
+        }
+
         val config =
-            WifiP2pConfig().apply {
-                // The peer's MAC address is not directly part of the
-                // proto — Quick Share scrubs it on purpose. We let the
-                // platform discover the GO via the SSID; setting wps
-                // to PBC keeps the platform from prompting the user
-                // for a PIN.
-                wps.setup = WpsInfo.PBC
-                // groupOwnerIntent = 0 explicitly tells the platform
-                // we want to be the client (not the GO). The peer
-                // already created the group and handed us the PSK.
-                groupOwnerIntent = 0
-            }
+            WifiP2pConfig
+                .Builder()
+                .setNetworkName(credentials.ssid)
+                .setPassphrase(credentials.passphrase)
+                .enablePersistentMode(false)
+                .build()
+                .apply {
+                    // The peer already created the group and handed us
+                    // its PSK. Keep WPS at PBC so the platform does not
+                    // try to surface a PIN prompt.
+                    wps.setup = WpsInfo.PBC
+                }
         val connectOk =
             awaitActionListener { listener ->
                 manager.connect(channel, config, listener)
@@ -429,4 +546,37 @@ internal class WifiDirectGroupController(
         /** TCP connect timeout once the link is up. */
         const val SOCKET_CONNECT_TIMEOUT_MS: Int = 10_000
     }
+}
+
+internal object WifiDirectCredentialShape {
+    private val random = SecureRandom()
+    private val networkNameRegex = Regex("^DIRECT-[A-Za-z0-9]{2}-[A-Za-z0-9_-]+$")
+    private const val NETWORK_NAME_RANDOM_CHARS = 2
+    private const val NETWORK_NAME_SUFFIX = "WVMG"
+    private const val NETWORK_NAME_SESSION_CHARS = 6
+    private const val PASSPHRASE_LENGTH = 16
+    private const val PASSPHRASE_MIN_LENGTH = 8
+    private const val PASSPHRASE_MAX_LENGTH = 63
+    private const val ALPHANUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+    fun generateNetworkName(): String =
+        "DIRECT-${randomToken(NETWORK_NAME_RANDOM_CHARS)}-$NETWORK_NAME_SUFFIX-" +
+            randomToken(NETWORK_NAME_SESSION_CHARS)
+
+    fun generatePassphrase(): String = randomToken(PASSPHRASE_LENGTH)
+
+    fun isValidNetworkName(value: String): Boolean = networkNameRegex.matches(value)
+
+    fun isValidPassphrase(value: String): Boolean =
+        value.length in PASSPHRASE_MIN_LENGTH..PASSPHRASE_MAX_LENGTH &&
+            value.all { it.code in ASCII_PRINTABLE_RANGE }
+
+    private fun randomToken(length: Int): String =
+        buildString(length) {
+            repeat(length) {
+                append(ALPHANUM[random.nextInt(ALPHANUM.length)])
+            }
+        }
+
+    private val ASCII_PRINTABLE_RANGE = 0x20..0x7E
 }
