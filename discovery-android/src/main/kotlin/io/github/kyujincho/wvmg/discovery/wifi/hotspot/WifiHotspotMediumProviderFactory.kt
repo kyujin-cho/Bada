@@ -5,9 +5,11 @@
  */
 package io.github.kyujincho.wvmg.discovery.wifi.hotspot
 
+import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 
@@ -42,25 +44,27 @@ public object WifiHotspotMediumProviderFactory {
      * a pre-API-26 system image.
      */
     public fun create(context: Context): WifiHotspotMediumProvider {
-        val pm = context.packageManager
+        val appContext = context.applicationContext
+        val pm = appContext.packageManager
         if (!pm.hasSystemFeature(PackageManager.FEATURE_WIFI)) {
             return WifiHotspotMediumProvider()
         }
         val controller =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                AndroidLocalOnlyHotspotController(context.applicationContext)
+                AndroidLocalOnlyHotspotController(appContext)
             } else {
                 null
             }
         val client =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                AndroidWifiNetworkSpecifierClient(context.applicationContext)
+                AndroidWifiNetworkSpecifierClient(appContext)
             } else {
                 null
             }
         return WifiHotspotMediumProvider(
             controller = controller,
             client = client,
+            available = { hasRequiredPermissions(appContext) && (controller != null || client != null) },
         )
     }
 
@@ -82,5 +86,20 @@ public object WifiHotspotMediumProviderFactory {
                 "MediumRegistry.DefaultWifiLan must register a Wi-Fi LAN provider."
             }
         return MediumRegistry(listOf(lanProvider, hotspot))
+    }
+
+    @Suppress("ReturnCount") // One early return per granted-permission path keeps the gate explicit.
+    private fun hasRequiredPermissions(context: Context): Boolean {
+        val fineLocation =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        if (fineLocation) return true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val nearby =
+                ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) ==
+                    PackageManager.PERMISSION_GRANTED
+            if (nearby) return true
+        }
+        return false
     }
 }

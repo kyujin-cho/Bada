@@ -22,11 +22,13 @@ class MediumRegistryTest {
     ) : MediumProvider {
         var prepareCalls: Int = 0
             private set
+        var prepareFailure: RuntimeException? = null
 
         override fun isSupported(): Boolean = supported
 
         override suspend fun prepareUpgrade(): UpgradePathCredentials? {
             prepareCalls++
+            prepareFailure?.let { throw it }
             return preparedCredentials
         }
     }
@@ -196,6 +198,30 @@ class MediumRegistryTest {
     fun `prepareBestUpgrade falls back to Wi-Fi LAN when Wi-Fi Direct setup fails`() =
         runTest {
             val direct = FakeProvider(medium = Medium.WIFI_DIRECT, preparedCredentials = null)
+            val lan = FakeProvider(Medium.WIFI_LAN)
+            val registry =
+                MediumRegistry(
+                    providers = listOf(lan, direct),
+                    ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN)),
+                )
+
+            val prepared =
+                registry.prepareBestUpgrade(
+                    peerSupported = setOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN),
+                )
+
+            assertThat(prepared).isEqualTo(PreparedUpgradeSelection.StayOnCurrentMedium)
+            assertThat(direct.prepareCalls).isEqualTo(1)
+            assertThat(lan.prepareCalls).isEqualTo(0)
+        }
+
+    @Test
+    fun `prepareBestUpgrade falls back when a higher-priority provider throws`() =
+        runTest {
+            val direct =
+                FakeProvider(medium = Medium.WIFI_DIRECT).apply {
+                    prepareFailure = IllegalStateException("simulated bring-up crash")
+                }
             val lan = FakeProvider(Medium.WIFI_LAN)
             val registry =
                 MediumRegistry(
