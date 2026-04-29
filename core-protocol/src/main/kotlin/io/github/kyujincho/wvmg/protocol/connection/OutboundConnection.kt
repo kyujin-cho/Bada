@@ -7,7 +7,9 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.PayloadProtocolException
+import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
+import io.github.kyujincho.wvmg.protocol.transport.asConnectedTransport
 import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2HandshakeException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -22,21 +24,24 @@ import java.net.Socket
 import java.security.SecureRandom
 
 /**
- * The sender-side glue tying together TCP, framing, UKEY2,
+ * The sender-side glue tying together an initial connected transport,
+ * framing, UKEY2,
  * SecureMessage, the negotiation state machine, and outbound payload
  * streaming into a single in-flight transfer attempt.
  *
- * Owns exactly one TCP [Socket]. One [OutboundConnection] handles one
- * connection to one peer; opening more (Quick Share permits parallel
- * sends to multiple peers) is the caller's responsibility.
+ * Owns exactly one initial [ConnectedTransport]. One [OutboundConnection]
+ * handles one connection to one peer; opening more (Quick Share permits
+ * parallel sends to multiple peers) is the caller's responsibility.
  *
  * ### Lifecycle
  *
  * The complete sequence the orchestrator drives, mirroring NearDrop's
  * `OutboundNearbyConnection.swift`:
  *
- *  1. Open a TCP socket to `(targetAddress, port)`.
- *  2. Wrap the socket in a
+ *  1. Obtain the initial connected transport (either by opening the
+ *     legacy LAN TCP socket or by consuming a caller-supplied
+ *     preconnected transport).
+ *  2. Wrap the transport in a
  *     [io.github.kyujincho.wvmg.protocol.transport.FramedConnection].
  *  3. Send the unencrypted
  *     [com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame]
@@ -105,10 +110,13 @@ import java.security.SecureRandom
  * driver's dispatch loop drains. This avoids racing the FSM with the
  * wire.
  *
- * @param targetAddress IP address (or hostname) of the receiver. The
- *   discovery layer (`:discovery-android`) translates an mDNS service
- *   record into this concrete value.
- * @param port TCP port the receiver advertised in its endpoint record.
+ * @param targetAddress IP address (or hostname) of the receiver for the
+ *   legacy LAN TCP path.
+ * @param port TCP port the receiver advertised in its endpoint record
+ *   for the legacy LAN TCP path.
+ * @param transport Optional already-connected initial-control transport.
+ *   Used by sender-side non-LAN bootstrap paths such as Bluetooth
+ *   Classic RFCOMM.
  * @param endpointId 4-char ASCII identifier the sender uses for itself
  *   in the opening `ConnectionRequest`. Default: a freshly generated
  *   alphanumeric id via [generateEndpointId]. Quick Share peers (Samsung
@@ -141,9 +149,10 @@ import java.security.SecureRandom
  *   actual upgrade swap.
  */
 @Suppress("LongParameterList") // The public constructor has many knobs but every one is needed by the spec.
-public class OutboundConnection(
-    private val targetAddress: InetAddress,
-    private val port: Int,
+public class OutboundConnection private constructor(
+    private val targetAddress: InetAddress?,
+    private val port: Int?,
+    private val transport: ConnectedTransport?,
     private val endpointId: String = generateEndpointId(),
     private val endpointInfo: ByteArray = ByteArray(0),
     private val qrCodeHandshakeData: ByteArray? = null,
@@ -160,6 +169,51 @@ public class OutboundConnection(
      */
     private val logger: (String) -> Unit = {},
 ) {
+    public constructor(
+        targetAddress: InetAddress,
+        port: Int,
+        endpointId: String = generateEndpointId(),
+        endpointInfo: ByteArray = ByteArray(0),
+        qrCodeHandshakeData: ByteArray? = null,
+        connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
+        secureRandom: SecureRandom = SecureRandom(),
+        mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
+        logger: (String) -> Unit = {},
+    ) : this(
+        targetAddress = targetAddress,
+        port = port,
+        transport = null,
+        endpointId = endpointId,
+        endpointInfo = endpointInfo,
+        qrCodeHandshakeData = qrCodeHandshakeData,
+        connectTimeoutMillis = connectTimeoutMillis,
+        secureRandom = secureRandom,
+        mediumRegistry = mediumRegistry,
+        logger = logger,
+    )
+
+    public constructor(
+        transport: ConnectedTransport,
+        endpointId: String = generateEndpointId(),
+        endpointInfo: ByteArray = ByteArray(0),
+        qrCodeHandshakeData: ByteArray? = null,
+        connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
+        secureRandom: SecureRandom = SecureRandom(),
+        mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
+        logger: (String) -> Unit = {},
+    ) : this(
+        targetAddress = null,
+        port = null,
+        transport = transport,
+        endpointId = endpointId,
+        endpointInfo = endpointInfo,
+        qrCodeHandshakeData = qrCodeHandshakeData,
+        connectTimeoutMillis = connectTimeoutMillis,
+        secureRandom = secureRandom,
+        mediumRegistry = mediumRegistry,
+        logger = logger,
+    )
+
     private val mutableState: MutableStateFlow<OutboundConnectionState> =
         MutableStateFlow(OutboundConnectionState.Idle)
 
@@ -209,7 +263,7 @@ public class OutboundConnection(
      * socket itself.
      */
     @Volatile
-    private var socketRef: Socket? = null
+    private var transportRef: ConnectedTransport? = null
 
     /**
      * Whether the lifecycle has progressed past the unencrypted
@@ -223,6 +277,14 @@ public class OutboundConnection(
 
     internal fun markHandshakeComplete() {
         handshakeComplete = true
+    }
+
+    init {
+        val usingLanSocket = targetAddress != null && port != null
+        val usingPreconnectedTransport = transport != null
+        require(usingLanSocket.xor(usingPreconnectedTransport)) {
+            "OutboundConnection requires either targetAddress+port or transport"
+        }
     }
 
     /**
@@ -257,29 +319,29 @@ public class OutboundConnection(
         validateFiles(files)
 
         mutableState.value = OutboundConnectionState.Connecting
-        val socket: Socket =
+        val initialTransport: ConnectedTransport =
             try {
-                openSocket()
+                openTransport()
             } catch (e: java.io.IOException) {
-                val reason = "TCP connect failed: ${e.message ?: e::class.simpleName}"
+                val reason = "Initial connect failed: ${e.message ?: e::class.simpleName}"
                 mutableState.value = OutboundConnectionState.Failed(reason)
                 return OutboundResult.Failed(reason)
             }
-        socketRef = socket
+        transportRef = initialTransport
         // A cancel() that arrived while we were blocked in
-        // openSocket() couldn't close the socket then (it didn't exist
-        // yet), but the connect just succeeded. Honour the latched
-        // cancellation by closing the new socket eagerly so the
+        // openTransport() couldn't close the transport then (it didn't
+        // exist yet), but the connect just succeeded. Honour the latched
+        // cancellation by closing the new transport eagerly so the
         // dispatch loop's first read fails fast. Without this, a
-        // pre-handshake cancel that lost the race against a fast TCP
+        // pre-handshake cancel that lost the race against a fast initial
         // connect would have to wait for a peer-side timeout.
         if (cancelled) {
-            runCatching { socket.close() }
+            runCatching { initialTransport.close() }
         }
 
         val driver =
             OutboundConnectionDriver(
-                socket = socket,
+                initialTransport = initialTransport,
                 secureRandom = secureRandom,
                 externalEvents = externalEvents,
                 mutableState = mutableState,
@@ -305,7 +367,7 @@ public class OutboundConnection(
             handleFailure(driver, e)
         } finally {
             externalEvents.close()
-            runCatching { socket.close() }
+            runCatching { initialTransport.close() }
         }
     }
 
@@ -339,21 +401,25 @@ public class OutboundConnection(
             // fail / succeed naturally; the post-connect block in
             // [run] re-checks [cancelled] and closes the new socket
             // immediately.
-            socketRef?.let { runCatching { it.close() } }
+            transportRef?.let { runCatching { it.close() } }
         }
     }
 
     /**
-     * Open the TCP socket. Hoisted so the failure path is a clean
+     * Open or adopt the initial transport. Hoisted so the failure path is a clean
      * try/catch in [run]. Dispatched onto [Dispatchers.IO] because
      * `Socket.connect` is blocking and must not pin the calling
      * coroutine's dispatcher (which on the JVM-test side is the
      * `runTest` scheduler — pinning it would deadlock the test).
      */
-    private suspend fun openSocket(): Socket =
-        withContext(Dispatchers.IO) {
+    private suspend fun openTransport(): ConnectedTransport {
+        val preconnected = transport
+        if (preconnected != null) return preconnected
+        val address = requireNotNull(targetAddress)
+        val targetPort = requireNotNull(port)
+        return withContext(Dispatchers.IO) {
             val socket = Socket()
-            socket.connect(InetSocketAddress(targetAddress, port), connectTimeoutMillis)
+            socket.connect(InetSocketAddress(address, targetPort), connectTimeoutMillis)
             // TCP_NODELAY mirrors the receiver-side accept loop
             // (`TcpReceiverServer` line ~414). Without it, Nagle batches
             // our small UKEY2 frames (~50 B) and the unencrypted
@@ -363,8 +429,9 @@ public class OutboundConnection(
             // Samsung's UKEY2 server alarm. Best-effort: a misbehaving
             // SocketImpl that rejects this option is non-fatal.
             runCatching { socket.tcpNoDelay = true }
-            socket
+            socket.asConnectedTransport()
         }
+    }
 
     /**
      * Sanity-check the [files] list before starting any I/O.

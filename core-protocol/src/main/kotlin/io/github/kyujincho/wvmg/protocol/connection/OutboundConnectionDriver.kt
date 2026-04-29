@@ -12,7 +12,6 @@ import io.github.kyujincho.wvmg.protocol.crypto.D2DKeyDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.D2DRole
 import io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
-import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
@@ -27,6 +26,7 @@ import io.github.kyujincho.wvmg.protocol.sharing.SharingFrames
 import io.github.kyujincho.wvmg.protocol.sharing.SharingFsmEffect
 import io.github.kyujincho.wvmg.protocol.sharing.SharingFsmEvent
 import io.github.kyujincho.wvmg.protocol.sharing.SharingV1Frame
+import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
 import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2Client
@@ -39,7 +39,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
-import java.net.Socket
 import java.security.SecureRandom
 
 /**
@@ -63,7 +62,7 @@ import java.security.SecureRandom
     "LongParameterList", // Constructor takes the connection's collaborators verbatim.
 )
 internal class OutboundConnectionDriver(
-    private val socket: Socket,
+    private val initialTransport: ConnectedTransport,
     private val secureRandom: SecureRandom,
     private val externalEvents: Channel<OutboundExternalEvent>,
     private val mutableState: MutableStateFlow<OutboundConnectionState>,
@@ -112,10 +111,10 @@ internal class OutboundConnectionDriver(
     suspend fun runLifecycle(): OutboundResult {
         mutableState.value = OutboundConnectionState.Handshaking
         logger(
-            "step 1: TCP socket open (${socket.inetAddress?.hostAddress}:${socket.port}) " +
+            "step 1: initial transport open medium=${initialTransport.medium} " +
                 "endpointId=$endpointId endpointInfo.size=${endpointInfo.size}",
         )
-        val transport = FramedConnection(socket).also { framedConnection = it }
+        val transport = FramedConnection(initialTransport).also { framedConnection = it }
 
         // Step 1: send unencrypted ConnectionRequest. The mediums set
         // is sourced from the registry's supportedMediums(); the encoder
@@ -236,7 +235,7 @@ internal class OutboundConnectionDriver(
                         BandwidthUpgradeOrchestrator
                             .runClientUpgradeFromOffer(
                                 oldChannel = channel,
-                                currentMedium = Medium.WIFI_LAN,
+                                currentMedium = initialTransport.medium,
                                 offer = probe.frame,
                                 mediumRegistry = mediumRegistry,
                                 endpointId = endpointId,
@@ -257,7 +256,7 @@ internal class OutboundConnectionDriver(
     fun tearDown() {
         runCatching { secureChannel?.close() }
         runCatching { framedConnection?.close() }
-        runCatching { socket.close() }
+        runCatching { initialTransport.close() }
     }
 
     /**
@@ -396,7 +395,7 @@ internal class OutboundConnectionDriver(
                 // Close the original socket as well because the upgraded
                 // channel no longer owns it.
                 runCatching { channel.close() }
-                runCatching { socket.close() }
+                runCatching { initialTransport.close() }
                 pumpJob.cancelAndJoin()
             }
         }
