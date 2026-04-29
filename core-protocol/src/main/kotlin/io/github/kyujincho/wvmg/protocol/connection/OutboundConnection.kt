@@ -5,6 +5,7 @@
  */
 package io.github.kyujincho.wvmg.protocol.connection
 
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.PayloadProtocolException
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
 import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2HandshakeException
@@ -129,6 +130,15 @@ import java.security.SecureRandom
  *   PairedKeyEncryption fill bytes, the SecureChannel IVs, and the
  *   per-frame `payload_id` choices. Tests inject a deterministic
  *   stub; production uses a fresh [SecureRandom].
+ * @param mediumRegistry Registry of [io.github.kyujincho.wvmg.protocol.medium.MediumProvider]s
+ *   used to populate `ConnectionRequestFrame.mediums` (the set of
+ *   transports we are willing to upgrade to via
+ *   `BANDWIDTH_UPGRADE_NEGOTIATION`). Defaults to
+ *   [MediumRegistry.DefaultWifiLan] which advertises Wi-Fi LAN only —
+ *   functionally identical to NearDrop's fixed shape and the value the
+ *   project shipped before Phase 4. Phase 4 sub-issues #49–#53 each
+ *   register a per-medium provider; #54 wires the registry into the
+ *   actual upgrade swap.
  */
 @Suppress("LongParameterList") // The public constructor has many knobs but every one is needed by the spec.
 public class OutboundConnection(
@@ -139,6 +149,7 @@ public class OutboundConnection(
     private val qrCodeHandshakeData: ByteArray? = null,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
     private val secureRandom: SecureRandom = SecureRandom(),
+    private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     /**
      * Optional structured-log sink. The driver invokes it at every
      * lifecycle phase boundary (TCP connect, UKEY2 client/server init,
@@ -276,6 +287,7 @@ public class OutboundConnection(
                 endpointInfo = endpointInfo,
                 qrCodeHandshakeData = qrCodeHandshakeData,
                 files = files,
+                mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,
                 logger = logger,
             )

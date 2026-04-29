@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.payload.PayloadProtocolException
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
@@ -109,6 +110,17 @@ import java.security.SecureRandom
 public class InboundConnection(
     private val socket: Socket,
     private val secureRandom: SecureRandom = SecureRandom(),
+    /**
+     * Registry of [io.github.kyujincho.wvmg.protocol.medium.MediumProvider]s
+     * used to intersect against the peer's advertised
+     * `ConnectionRequestFrame.mediums` and pick a target for
+     * `BANDWIDTH_UPGRADE_NEGOTIATION`. Defaults to
+     * [MediumRegistry.DefaultWifiLan] (Wi-Fi LAN only) which preserves
+     * the project's pre-Phase-4 behaviour exactly. Phase 4 sub-issues
+     * #49–#53 register per-medium providers; #54 wires the actual
+     * transport swap into the dispatch loop.
+     */
+    private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
 ) {
     private val mutableState: MutableStateFlow<InboundConnectionState> =
         MutableStateFlow(InboundConnectionState.Idle)
@@ -210,6 +222,7 @@ public class InboundConnection(
                 externalEvents = externalEvents,
                 mutableState = mutableState,
                 factory = factory,
+                mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,
             )
 

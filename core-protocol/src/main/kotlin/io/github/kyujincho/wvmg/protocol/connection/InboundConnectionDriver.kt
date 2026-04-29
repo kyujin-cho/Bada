@@ -13,6 +13,8 @@ import io.github.kyujincho.wvmg.protocol.crypto.D2DRole
 import io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.protocol.medium.Medium
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
@@ -65,6 +67,7 @@ internal class InboundConnectionDriver(
     private val externalEvents: Channel<ExternalEvent>,
     private val mutableState: MutableStateFlow<InboundConnectionState>,
     private val factory: FileDestinationFactory,
+    private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
     /**
      * Wall-clock source for the rate estimator. Defaults to
@@ -129,6 +132,27 @@ internal class InboundConnectionDriver(
     private var sourceDeviceName: String? = null
 
     /**
+     * Mediums the peer advertised on `ConnectionRequestFrame.mediums`,
+     * decoded into the domain enum. Empty before step 1; populated as
+     * soon as the unencrypted ConnectionRequest arrives. Phase 4
+     * sub-issue #54 reads this back via [chosenUpgradeMedium] (and the
+     * registry's ladder) to drive the upgrade decision.
+     */
+    private var peerSupportedMediums: Set<Medium> = emptySet()
+
+    /**
+     * The medium the registry selected as the best upgrade target for
+     * this connection — i.e. the highest-priority entry shared by both
+     * peers, per the ladder. `null` when the intersection is just
+     * Wi-Fi LAN (no upgrade is meaningful) or empty. Read by
+     * #54 when wiring the upgrade swap; exposed `internal` so tests
+     * in this module can assert the selection without poking at the
+     * driver's private state.
+     */
+    internal var chosenUpgradeMedium: Medium? = null
+        private set
+
+    /**
      * Drive the entire receiver-side lifecycle. Returns the terminal
      * [InboundResult]; throws on coroutine cancellation (handled by
      * the caller).
@@ -153,6 +177,23 @@ internal class InboundConnectionDriver(
                 ?.endpointInfo
                 ?.toByteArray()
                 ?.let { EndpointInfo.parse(it)?.deviceName }
+
+        // Decode the peer's advertised mediums (Phase 4 framework). The
+        // intersection with our local registry's supportedMediums(),
+        // resolved by the registry's ladder, picks the upgrade target.
+        // We do not act on the choice here — #54 wires the actual
+        // BANDWIDTH_UPGRADE_NEGOTIATION send — but stashing the result
+        // makes the chosen medium observable by tests today and gives
+        // #54 a single field to read.
+        peerSupportedMediums =
+            initialFrame.v1.connectionRequest.mediumsList
+                .mapNotNull { Medium.fromConnectionRequestMedium(it) }
+                .toSet()
+        val chosen = mediumRegistry.selectBestUpgrade(peerSupportedMediums)
+        // WIFI_LAN is the discovery medium; selecting it means "stay on
+        // the current transport". Treat that as `null` so callers do
+        // not interpret it as an upgrade trigger.
+        chosenUpgradeMedium = chosen?.takeIf { it != Medium.WIFI_LAN }
 
         // Step 2: UKEY2 server handshake.
         val handshake = Ukey2Server.performHandshake(transport, secureRandom)
@@ -359,6 +400,19 @@ internal class InboundConnectionDriver(
                 publishCancelled(CancelCause.PEER)
                 InboundResult.Cancelled(CancelCause.PEER)
             }
+        }
+
+        if (frame.hasV1() &&
+            frame.v1.type == V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION
+        ) {
+            // Inbound BANDWIDTH_UPGRADE_NEGOTIATION on the receiver
+            // side: stock Quick Share senders do not initiate the
+            // upgrade (the protocol gives the SERVER role to the
+            // receiver), so this branch fires only when the peer is a
+            // non-conforming implementation. Phase 4 sub-issue #54
+            // wires the negotiator FSM in here; today we observe the
+            // event and drop it.
+            return null
         }
 
         if (!frame.hasV1() || frame.v1.type != V1Frame.FrameType.PAYLOAD_TRANSFER) {

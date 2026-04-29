@@ -11,6 +11,7 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Offl
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OsInfo
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import com.google.protobuf.ByteString
+import io.github.kyujincho.wvmg.protocol.medium.Medium
 
 /**
  * Builders for the small set of `OfflineFrame` messages that
@@ -50,13 +51,19 @@ internal object OutboundFrames {
     fun connectionRequest(
         endpointId: String,
         endpointInfo: ByteArray,
+        supportedMediums: Set<Medium> = setOf(Medium.WIFI_LAN),
     ): OfflineFrame {
         // Match NearDrop's ConnectionRequestFrame shape. Stock Quick Share
         // closes the socket immediately if these fields are absent — only
         // endpoint_id and endpoint_info is not enough on Android 14+:
-        //   * mediums = [WIFI_LAN] tells the receiver which transport this
-        //     connection is using; absence of any medium hits a validation
-        //     in Nearby Connections that rejects the request.
+        //   * mediums = [WIFI_LAN, ...] tells the receiver which transports
+        //     this device can negotiate up to. WIFI_LAN is mandatory because
+        //     it IS the discovery medium for every Quick Share connection
+        //     today; absence of any medium hits a validation in Nearby
+        //     Connections that rejects the request. Phase 4 (#48–#54) adds
+        //     the BANDWIDTH_UPGRADE_NEGOTIATION machinery that lets us
+        //     advertise more than just WIFI_LAN here — the orchestrator
+        //     populates this set from the MediumRegistry's supportedMediums().
         //   * keep_alive_interval / timeout are read by the receiver to
         //     decide its own KEEP_ALIVE cadence. We advertise 10 s / 10 min
         //     — PROTOCOL.md documents stock Android emitting KEEP_ALIVE
@@ -66,16 +73,26 @@ internal object OutboundFrames {
         //     Samsung Quick Share) still inspect it. Setting it to the
         //     empty string keeps modern peers happy and gives legacy peers
         //     a defined value to read.
-        val request =
+        //
+        // Always include WIFI_LAN even if the caller forgot — it is the
+        // current connection's medium. Sort the proto-side enum values so
+        // the wire encoding is deterministic for tests and for KAT-style
+        // regression detection.
+        val withWifiLan = supportedMediums + Medium.WIFI_LAN
+        val mediumProtoValues =
+            withWifiLan
+                .map { it.toConnectionRequestMedium() }
+                .sortedBy { it.number }
+        val builder =
             ConnectionRequestFrame
                 .newBuilder()
                 .setEndpointId(endpointId)
                 .setEndpointName("")
                 .setEndpointInfo(ByteString.copyFrom(endpointInfo))
-                .addMediums(ConnectionRequestFrame.Medium.WIFI_LAN)
                 .setKeepAliveIntervalMillis(KEEP_ALIVE_INTERVAL_MILLIS)
                 .setKeepAliveTimeoutMillis(KEEP_ALIVE_TIMEOUT_MILLIS)
-                .build()
+        for (m in mediumProtoValues) builder.addMediums(m)
+        val request = builder.build()
         return OfflineFrame
             .newBuilder()
             .setVersion(OfflineFrame.Version.V1)

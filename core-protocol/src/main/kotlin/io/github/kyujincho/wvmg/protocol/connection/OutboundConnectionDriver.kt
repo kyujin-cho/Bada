@@ -12,6 +12,7 @@ import io.github.kyujincho.wvmg.protocol.crypto.D2DKeyDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.D2DRole
 import io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
 import io.github.kyujincho.wvmg.protocol.payload.PayloadTransferEncoder
@@ -69,6 +70,7 @@ internal class OutboundConnectionDriver(
     private val endpointInfo: ByteArray,
     private val qrCodeHandshakeData: ByteArray?,
     private val files: List<FileSource>,
+    private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
     private val logger: (String) -> Unit = {},
     /**
@@ -114,9 +116,22 @@ internal class OutboundConnectionDriver(
         )
         val transport = FramedConnection(socket).also { framedConnection = it }
 
-        // Step 1: send unencrypted ConnectionRequest.
+        // Step 1: send unencrypted ConnectionRequest. The mediums set
+        // is sourced from the registry's supportedMediums(); the encoder
+        // ensures WIFI_LAN is always present (it IS the discovery
+        // medium today). Phase 4's per-medium adapters extend the set
+        // by registering against the registry; absent any extra
+        // provider this is functionally identical to the previous
+        // hard-coded `[WIFI_LAN]`.
+        val advertisedMediums = mediumRegistry.supportedMediums()
+        logger("step 1: advertising mediums=$advertisedMediums")
         transport.sendFrame(
-            OutboundFrames.connectionRequest(endpointId, endpointInfo).toByteArray(),
+            OutboundFrames
+                .connectionRequest(
+                    endpointId = endpointId,
+                    endpointInfo = endpointInfo,
+                    supportedMediums = advertisedMediums,
+                ).toByteArray(),
         )
         logger("step 1: sent ConnectionRequest, awaiting Ukey2ServerInit")
 
@@ -544,6 +559,24 @@ internal class OutboundConnectionDriver(
             // protocol error — Quick Share receivers can sometimes
             // hang up early after acknowledging.
             return cancelFromPeer()
+        }
+
+        if (frame.hasV1() &&
+            frame.v1.type == V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION
+        ) {
+            // Inbound BANDWIDTH_UPGRADE_NEGOTIATION: the receiver wants
+            // to switch transports. Phase 4 (#48–#54) wires the
+            // negotiator FSM in here; today we observe the event and
+            // drop it (the peer falls back to staying on Wi-Fi LAN
+            // when no UPGRADE_PATH_AVAILABLE answer arrives). Logging
+            // it makes the eventual integration test predicate easy
+            // to write.
+            logger(
+                "fsm: inbound BANDWIDTH_UPGRADE_NEGOTIATION event_type=" +
+                    frame.v1.bandwidthUpgradeNegotiation.eventType +
+                    " (no negotiator wired yet; ignored)",
+            )
+            return null
         }
 
         if (!frame.hasV1() || frame.v1.type != V1Frame.FrameType.PAYLOAD_TRANSFER) {
