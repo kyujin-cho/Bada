@@ -280,6 +280,115 @@ class BandwidthUpgradeFramesTest {
     }
 
     @Test
+    fun `upgradePathAvailable serializes Wi-Fi Direct credentials onto the proto sub-message`() {
+        // Receiver side: we have a P2P group up at 192.168.49.1:8888,
+        // SSID DIRECT-aB-test, passphrase deadbeef, channel 2437 MHz.
+        val frame =
+            BandwidthUpgradeFrames.upgradePathAvailable(
+                UpgradePathCredentials.WifiDirect(
+                    ipAddress = byteArrayOf(192.toByte(), 168.toByte(), 49, 1),
+                    port = 8888,
+                    ssid = "DIRECT-aB-test",
+                    passphrase = "deadbeef",
+                    frequency = 2437,
+                ),
+            )
+        val parsed = parse(frame)
+        assertThat(parsed.upgradePathInfo.medium.number).isEqualTo(Medium.WIFI_DIRECT.wireNumber)
+        assertThat(parsed.upgradePathInfo.hasWifiDirectCredentials()).isTrue()
+        val direct = parsed.upgradePathInfo.wifiDirectCredentials
+        assertThat(direct.ssid).isEqualTo("DIRECT-aB-test")
+        assertThat(direct.password).isEqualTo("deadbeef")
+        assertThat(direct.port).isEqualTo(8888)
+        // Gateway is dotted-quad on the wire; we verify the
+        // sign-extension fix (192 → 192, not -64).
+        assertThat(direct.gateway).isEqualTo("192.168.49.1")
+        assertThat(direct.frequency).isEqualTo(2437)
+    }
+
+    @Test
+    fun `upgradePathAvailable omits frequency when not set`() {
+        val frame =
+            BandwidthUpgradeFrames.upgradePathAvailable(
+                UpgradePathCredentials.WifiDirect(
+                    ipAddress = byteArrayOf(10, 0, 0, 1),
+                    port = 9000,
+                    ssid = "DIRECT-zz-no-freq",
+                    passphrase = "secret",
+                    // frequency defaults to FREQUENCY_NOT_SET (-1).
+                ),
+            )
+        val parsed = parse(frame)
+        assertThat(parsed.upgradePathInfo.wifiDirectCredentials.hasFrequency()).isFalse()
+    }
+
+    @Test
+    fun `decodeCredentials round-trips Wi-Fi Direct`() {
+        val original =
+            UpgradePathCredentials.WifiDirect(
+                ipAddress = byteArrayOf(192.toByte(), 168.toByte(), 49, 1),
+                port = 8443,
+                ssid = "DIRECT-Xy-WhenVivo",
+                passphrase = "C0rrectH0rseBatteryStaple",
+                frequency = 5180,
+            )
+        val frame = BandwidthUpgradeFrames.upgradePathAvailable(original)
+        val parsed = parse(frame)
+        val decoded = BandwidthUpgradeFrames.decodeCredentials(parsed.upgradePathInfo)
+        assertThat(decoded).isEqualTo(original)
+    }
+
+    @Test
+    fun `decodeCredentials falls back to Generic when Wi-Fi Direct sub-message is absent`() {
+        // The peer announces WIFI_DIRECT as the medium but did not set
+        // any credentials — we treat that as "an upgrade was offered
+        // with no parameters", which collapses to Generic so the
+        // negotiator does not protocol-error.
+        val frame =
+            BandwidthUpgradeFrames.upgradePathAvailable(
+                UpgradePathCredentials.Generic(Medium.WIFI_DIRECT),
+            )
+        val parsed = parse(frame)
+        val decoded = BandwidthUpgradeFrames.decodeCredentials(parsed.upgradePathInfo)
+        assertThat(decoded).isEqualTo(UpgradePathCredentials.Generic(Medium.WIFI_DIRECT))
+    }
+
+    @Test
+    fun `WifiDirect rejects non-IPv4 ipAddress`() {
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            UpgradePathCredentials.WifiDirect(
+                ipAddress = ByteArray(16), // IPv6-shaped, not supported by the gateway field.
+                port = 8443,
+                ssid = "DIRECT-bad",
+                passphrase = "pw",
+            )
+        }
+    }
+
+    @Test
+    fun `WifiDirect equality compares ByteArray structurally`() {
+        // Regression guard: data class auto-generated equals would
+        // compare the ByteArray by reference, breaking decoder
+        // round-trip assertions like the one above.
+        val a =
+            UpgradePathCredentials.WifiDirect(
+                ipAddress = byteArrayOf(10, 0, 0, 1),
+                port = 1,
+                ssid = "s",
+                passphrase = "p",
+            )
+        val b =
+            UpgradePathCredentials.WifiDirect(
+                ipAddress = byteArrayOf(10, 0, 0, 1),
+                port = 1,
+                ssid = "s",
+                passphrase = "p",
+            )
+        assertThat(a).isEqualTo(b)
+        assertThat(a.hashCode()).isEqualTo(b.hashCode())
+    }
+
+    @Test
     fun `every builder produces a V1 BANDWIDTH_UPGRADE_NEGOTIATION envelope`() {
         val frames =
             listOf(

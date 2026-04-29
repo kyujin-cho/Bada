@@ -249,4 +249,90 @@ public sealed interface UpgradePathCredentials {
             return result
         }
     }
+
+    /**
+     * Wi-Fi Direct (P2P) bring-up parameters (#49).
+     *
+     * The receiver becomes a Wi-Fi P2P group owner via
+     * `WifiP2pManager.createGroup(...)` and reads the resulting
+     * SSID/passphrase/group-owner-IP from `WifiP2pInfo` /
+     * `WifiP2pGroup`. The sender consumes these credentials, calls
+     * `WifiP2pManager.connect(...)` with a matching network config, and
+     * opens a TCP socket to [ipAddress]:[port] once the group has
+     * formed.
+     *
+     * Field shape mirrors `UpgradePathInfo.WifiDirectCredentials` from
+     * the vendored proto:
+     *
+     *   - [ssid] — group-owner SSID, typically `DIRECT-xx-…` (Android
+     *     prepends `DIRECT-` automatically).
+     *   - [passphrase] — pre-shared key the platform generated for the
+     *     group. Treat as ST_ACCOUNT_CREDENTIAL: never log it.
+     *   - [ipAddress] — IPv4 group-owner address bytes (4 bytes,
+     *     network order). Sent over the wire via the proto's `gateway`
+     *     string field; we decode the dotted-quad to bytes here so
+     *     consumers do not have to re-parse it.
+     *   - [port] — TCP port the receiver is listening on for the new
+     *     transport.
+     *   - [frequency] — channel frequency in MHz, mirrors
+     *     `WifiDirectCredentials.frequency`. -1 (== [FREQUENCY_NOT_SET])
+     *     when no hint is available.
+     *
+     * @param ipAddress IPv4 group-owner address, exactly 4 bytes.
+     * @param port TCP port to connect to on the group owner.
+     * @param ssid Group-owner SSID announced by the GO (`DIRECT-…`).
+     * @param passphrase Pre-shared key for the group. Sensitive.
+     * @param frequency Operating channel frequency (MHz), or
+     *   [FREQUENCY_NOT_SET].
+     */
+    public data class WifiDirect(
+        val ipAddress: ByteArray,
+        val port: Int,
+        val ssid: String,
+        val passphrase: String,
+        val frequency: Int = FREQUENCY_NOT_SET,
+    ) : UpgradePathCredentials {
+        override val medium: Medium = Medium.WIFI_DIRECT
+
+        init {
+            require(ipAddress.size == IPV4_ADDRESS_LENGTH) {
+                "Wi-Fi Direct group-owner ipAddress must be 4 bytes (IPv4); got ${ipAddress.size}"
+            }
+        }
+
+        // ByteArray on a data class needs explicit structural equality —
+        // the auto-generated equals/hashCode compares ByteArray by
+        // reference, which breaks credential round-trip tests that
+        // re-parse the wire bytes.
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is WifiDirect) return false
+            return port == other.port &&
+                frequency == other.frequency &&
+                ssid == other.ssid &&
+                passphrase == other.passphrase &&
+                ipAddress.contentEquals(other.ipAddress)
+        }
+
+        override fun hashCode(): Int {
+            var result = ipAddress.contentHashCode()
+            result = 31 * result + port
+            result = 31 * result + ssid.hashCode()
+            result = 31 * result + passphrase.hashCode()
+            result = 31 * result + frequency
+            return result
+        }
+
+        public companion object {
+            /** Length of an IPv4 address in bytes. */
+            public const val IPV4_ADDRESS_LENGTH: Int = 4
+
+            /**
+             * Sentinel matching the proto's "no frequency hint" value.
+             * `WifiDirectCredentials.frequency` has no proto default;
+             * `google/nearby` uses -1.
+             */
+            public const val FREQUENCY_NOT_SET: Int = -1
+        }
+    }
 }
