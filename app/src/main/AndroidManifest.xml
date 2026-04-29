@@ -44,14 +44,23 @@
           BLUETOOTH_SCAN permissions instead.
 
       BLUETOOTH_CONNECT is declared (API 31+) for the Phase 4 Bluetooth
-      RFCOMM bandwidth-upgrade medium (#51). The provider opens an
-      insecure RFCOMM listener on the receiver and connects from the
-      sender; both calls require BLUETOOTH_CONNECT at runtime on API
-      31+. Pairing is NOT required (we use the *insecure* RFCOMM
-      variants because the application data is already UKEY2-encrypted)
-      so the user does not see an OS pairing prompt — but the runtime
-      permission grant is still mandatory and onboarding (#31) prompts
-      for it alongside the existing BLE permissions.
+      bandwidth-upgrade mediums:
+        * Bluetooth RFCOMM (#51) — the provider opens an insecure
+          RFCOMM listener on the receiver and connects from the sender;
+          both calls require BLUETOOTH_CONNECT at runtime on API 31+.
+          Pairing is NOT required (we use the *insecure* RFCOMM variants
+          because the application data is already UKEY2-encrypted) so
+          the user does not see an OS pairing prompt — but the runtime
+          permission grant is still mandatory.
+        * BLE L2CAP CoC (#52) — BleL2capMediumProvider calls
+          BluetoothAdapter.listenUsingInsecureL2capChannel on the
+          receiver side and BluetoothDevice.createInsecureL2capChannel
+          on the sender side; both require BLUETOOTH_CONNECT at runtime
+          on API 31+.
+      The :discovery-android library manifest also declares this
+      permission at the library level so it propagates into the merged
+      manifest automatically; onboarding (#31) prompts for it alongside
+      the existing BLE permissions.
 
       READ_MEDIA_* is intentionally omitted — Phase 1 routes all media
       access through the system share-intent flow, which does not require

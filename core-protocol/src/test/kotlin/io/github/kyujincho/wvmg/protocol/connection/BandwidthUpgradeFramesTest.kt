@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.common.truth.Truth.assertThat
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame.UpgradePathInfo
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import io.github.kyujincho.wvmg.protocol.medium.Medium
@@ -277,6 +278,88 @@ class BandwidthUpgradeFramesTest {
                 ).build()
         val decoded = BandwidthUpgradeFrames.decodeCredentials(info)
         assertThat(decoded).isEqualTo(UpgradePathCredentials.Generic(Medium.BLUETOOTH))
+    }
+
+    @Test
+    fun `BLE L2CAP credentials round-trip via the BLUETOOTH wire slot`() {
+        val original =
+            UpgradePathCredentials.BleL2cap(
+                macAddress = byteArrayOf(0xAA.toByte(), 0xBB.toByte(), 0xCC.toByte(), 0x11, 0x22, 0x33),
+                psm = 0x1080,
+            )
+        val frame = BandwidthUpgradeFrames.upgradePathAvailable(original)
+        val parsed = parse(frame)
+
+        // Wire shape: BLUETOOTH medium with the L2CAP discriminator on
+        // service_name; this is what stays strictly inside the proto.
+        assertThat(parsed.upgradePathInfo.medium.number).isEqualTo(Medium.BLUETOOTH.wireNumber)
+        assertThat(parsed.upgradePathInfo.hasBluetoothCredentials()).isTrue()
+        assertThat(parsed.upgradePathInfo.bluetoothCredentials.serviceName)
+            .isEqualTo("${BandwidthUpgradeFrames.BLE_L2CAP_SERVICE_PREFIX}${original.psm}")
+        assertThat(parsed.upgradePathInfo.bluetoothCredentials.macAddress).isEqualTo("AA:BB:CC:11:22:33")
+
+        val decoded = BandwidthUpgradeFrames.decodeCredentials(parsed.upgradePathInfo)
+        assertThat(decoded).isEqualTo(original)
+    }
+
+    @Test
+    fun `BLE L2CAP decode rejects malformed PSM and falls back to Generic BLUETOOTH`() {
+        // Hand-craft a BLUETOOTH frame with a bad PSM token. The decoder
+        // must NOT throw — it falls through to Generic so the caller can
+        // route the upgrade as a no-op.
+        val info =
+            UpgradePathInfo
+                .newBuilder()
+                .setMedium(UpgradePathInfo.Medium.BLUETOOTH)
+                .setBluetoothCredentials(
+                    UpgradePathInfo.BluetoothCredentials
+                        .newBuilder()
+                        .setMacAddress("AA:BB:CC:11:22:33")
+                        .setServiceName("L2CAP:not-a-number")
+                        .build(),
+                ).build()
+        val decoded = BandwidthUpgradeFrames.decodeCredentials(info)
+        assertThat(decoded).isEqualTo(UpgradePathCredentials.Generic(Medium.BLUETOOTH))
+    }
+
+    @Test
+    fun `BLE L2CAP decode rejects malformed MAC and falls back to Generic BLUETOOTH`() {
+        val info =
+            UpgradePathInfo
+                .newBuilder()
+                .setMedium(UpgradePathInfo.Medium.BLUETOOTH)
+                .setBluetoothCredentials(
+                    UpgradePathInfo.BluetoothCredentials
+                        .newBuilder()
+                        .setMacAddress("not-a-mac")
+                        .setServiceName("L2CAP:1024")
+                        .build(),
+                ).build()
+        val decoded = BandwidthUpgradeFrames.decodeCredentials(info)
+        assertThat(decoded).isEqualTo(UpgradePathCredentials.Generic(Medium.BLUETOOTH))
+    }
+
+    @Test
+    fun `BLE L2CAP credentials reject MAC of wrong length`() {
+        try {
+            UpgradePathCredentials.BleL2cap(macAddress = byteArrayOf(1, 2, 3), psm = 0x1234)
+            error("expected IllegalArgumentException")
+        } catch (expected: IllegalArgumentException) {
+            assertThat(expected).hasMessageThat().contains("6 bytes")
+        }
+    }
+
+    @Test
+    fun `BLE L2CAP credentials reject PSM out of uint16 range`() {
+        try {
+            UpgradePathCredentials.BleL2cap(
+                macAddress = ByteArray(UpgradePathCredentials.BleL2cap.MAC_ADDRESS_LENGTH),
+                psm = 0x1_0000,
+            )
+            error("expected IllegalArgumentException")
+        } catch (expected: IllegalArgumentException) {
+            assertThat(expected).hasMessageThat().contains("uint16")
+        }
     }
 
     @Test

@@ -58,16 +58,24 @@
         tools:targetApi="31" />
 
     <!--
-      BLUETOOTH_CONNECT — required by BluetoothRfcommMediumProvider (#51)
-      to open the receiver-side RFCOMM listener via
-      listenUsingInsecureRfcommWithServiceRecord and to issue the
-      sender-side createInsecureRfcommSocketToServiceRecord(...).connect().
-      Quoting Android docs: BLUETOOTH_CONNECT covers "communicating with
-      already-paired Bluetooth devices" — RFCOMM connect/accept is in
-      that bucket regardless of whether we go through the OS pairing
-      dance (we use the *insecure* variants so no pairing prompt fires,
-      but the runtime permission is still required by the platform on
-      API 31+).
+      BLUETOOTH_CONNECT — required by:
+        * BluetoothRfcommMediumProvider (#51) to open the receiver-side
+          RFCOMM listener via listenUsingInsecureRfcommWithServiceRecord
+          and to issue the sender-side
+          createInsecureRfcommSocketToServiceRecord(...).connect().
+          Quoting Android docs: BLUETOOTH_CONNECT covers "communicating
+          with already-paired Bluetooth devices" — RFCOMM connect/accept
+          is in that bucket regardless of whether we go through the OS
+          pairing dance (we use the *insecure* variants so no pairing
+          prompt fires, but the runtime permission is still required by
+          the platform on API 31+).
+        * BleL2capMediumProvider (#52, API 29+) to call
+          BluetoothAdapter.listenUsingInsecureL2capChannel on the
+          receiver side and BluetoothDevice.createInsecureL2capChannel
+          on the sender side.
+      Runtime grant on API 31+; the legacy BLUETOOTH/BLUETOOTH_ADMIN
+      permissions below cover API 30 and below, where the install-time
+      model still applies.
     -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_CONNECT"

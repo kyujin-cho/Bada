@@ -3,6 +3,8 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:Suppress("MagicNumber") // 0xFF / 16-radix are well-known hex constants.
+
 package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame
@@ -205,11 +207,24 @@ public object BandwidthUpgradeFrames {
                     UpgradePathCredentials.Generic(medium)
                 }
             }
-            // Bluetooth RFCOMM (#51): BluetoothCredentials carries the
-            // peer device MAC + the SDP service identifier the receiver
-            // advertised via listenUsingInsecureRfcommWithServiceRecord.
+            // BLUETOOTH wire slot is shared between two mediums:
             //
-            // Wire mapping:
+            //  * Bluetooth RFCOMM (#51) — BluetoothCredentials carries
+            //    the peer device MAC + the SDP service-record UUID the
+            //    receiver advertised via
+            //    listenUsingInsecureRfcommWithServiceRecord.
+            //  * BLE L2CAP CoC (#52) — UpgradePathInfo reserves wire 10
+            //    for BLE_L2CAP so the medium tag cannot be set to
+            //    BLE_L2CAP directly. We piggy-back on the BLUETOOTH
+            //    slot and disambiguate via the service_name
+            //    discriminator "L2CAP:<psm>".
+            //
+            // Discriminator: if service_name starts with the
+            // BLE_L2CAP_SERVICE_PREFIX, decodeBleL2capIfPresent lifts
+            // the frame back into UpgradePathCredentials.BleL2cap.
+            // Otherwise we treat the sub-message as RFCOMM credentials.
+            //
+            // Wire mapping (RFCOMM):
             //  - mac_address (string): canonical colon-separated EUI-48,
             //    e.g. "AA:BB:CC:DD:EE:FF". We parse it back to 6 raw
             //    bytes so the in-memory credentials object stays a
@@ -227,17 +242,21 @@ public object BandwidthUpgradeFrames {
             // UPGRADE_FAILURE; that matches how WIFI_LAN handles a
             // missing wifi_lan_socket sub-message.
             Medium.BLUETOOTH -> {
+                val bluetooth = info.bluetoothCredentials
                 if (info.hasBluetoothCredentials() &&
-                    info.bluetoothCredentials.macAddress.isNotEmpty() &&
-                    info.bluetoothCredentials.serviceName.isNotEmpty()
+                    bluetooth.serviceName.startsWith(BLE_L2CAP_SERVICE_PREFIX)
                 ) {
-                    val bt = info.bluetoothCredentials
+                    decodeBleL2capIfPresent(info) ?: UpgradePathCredentials.Generic(medium)
+                } else if (info.hasBluetoothCredentials() &&
+                    bluetooth.macAddress.isNotEmpty() &&
+                    bluetooth.serviceName.isNotEmpty()
+                ) {
                     runCatching {
                         UpgradePathCredentials.Bluetooth(
                             macAddress =
                                 UpgradePathCredentials.Bluetooth
-                                    .macStringToBytes(bt.macAddress),
-                            serviceUuid = bt.serviceName,
+                                    .macStringToBytes(bluetooth.macAddress),
+                            serviceUuid = bluetooth.serviceName,
                         )
                     }.getOrElse { UpgradePathCredentials.Generic(medium) }
                 } else {
@@ -325,9 +344,12 @@ public object BandwidthUpgradeFrames {
             //
             // NOTE: BLE_L2CAP is in this list for completeness even
             // though it cannot appear on `UpgradePathInfo.medium` (the
-            // proto reserves wire number 10 there). The path that
-            // builds the wire frame for BLE_L2CAP must use the
-            // discovery-medium path instead — see Phase 4 #52.
+            // proto reserves wire number 10 there). The BLE_L2CAP wire
+            // path actually rides on the BLUETOOTH slot above, with the
+            // service_name "L2CAP:<psm>" discriminator dispatching to
+            // [decodeBleL2capIfPresent]. This arm therefore never fires
+            // on the wire, but keeping it here makes the `when`
+            // exhaustive over [Medium].
             Medium.BLE_L2CAP,
             Medium.BLE,
             Medium.WEB_RTC,
@@ -336,10 +358,81 @@ public object BandwidthUpgradeFrames {
     }
 
     /**
+     * Parse a BLE-L2CAP-shaped `BluetoothCredentials` payload back into
+     * [UpgradePathCredentials.BleL2cap]. Returns `null` when the proto
+     * does not carry the `L2CAP:<psm>` discriminator (i.e. it really is
+     * a classic RFCOMM offering) or when MAC / PSM fail validation.
+     *
+     * Single-return detekt-friendly shape: every short-circuit collapses
+     * to a `null` join via the elvis operator on a chain of intermediate
+     * lookups.
+     */
+    @Suppress("ReturnCount") // Validation pipeline reads cleanest with early `null` returns.
+    private fun decodeBleL2capIfPresent(info: UpgradePathInfo): UpgradePathCredentials.BleL2cap? {
+        if (!info.hasBluetoothCredentials()) return null
+        val creds = info.bluetoothCredentials
+        val service = creds.serviceName
+        if (!service.startsWith(BLE_L2CAP_SERVICE_PREFIX)) return null
+        val psm = service.substring(BLE_L2CAP_SERVICE_PREFIX.length).toIntOrNull() ?: return null
+        if (psm !in UpgradePathCredentials.BleL2cap.PSM_RANGE) return null
+        val mac = parseMacAddress(creds.macAddress) ?: return null
+        return UpgradePathCredentials.BleL2cap(macAddress = mac, psm = psm)
+    }
+
+    /**
+     * Parse `"AA:BB:CC:DD:EE:FF"` into 6 bytes. Returns `null` for any
+     * malformed input rather than throwing — the decoder treats a bad
+     * MAC the same as a missing one (drop the frame, fall through to
+     * the next ladder rung).
+     */
+    @Suppress("ReturnCount") // Per-octet validation reads cleanest with early `null` returns.
+    private fun parseMacAddress(value: String?): ByteArray? {
+        if (value == null) return null
+        val parts = value.split(':')
+        if (parts.size != UpgradePathCredentials.BleL2cap.MAC_ADDRESS_LENGTH) return null
+        val out = ByteArray(UpgradePathCredentials.BleL2cap.MAC_ADDRESS_LENGTH)
+        for ((i, octet) in parts.withIndex()) {
+            if (octet.length != MAC_OCTET_HEX_DIGITS) return null
+            val byte = octet.toIntOrNull(MAC_RADIX) ?: return null
+            if (byte !in 0..MAC_OCTET_MAX) return null
+            out[i] = byte.toByte()
+        }
+        return out
+    }
+
+    /**
+     * Format 6 bytes as `"AA:BB:CC:DD:EE:FF"`. Inverse of
+     * [parseMacAddress]; uppercase ROOT locale formatting to match what
+     * `BluetoothAdapter.getDefaultAdapter().address` returns on Android
+     * regardless of the device's regional settings.
+     */
+    private fun formatMacAddress(bytes: ByteArray): String =
+        bytes.joinToString(":") {
+            String.format(java.util.Locale.ROOT, "%02X", it.toInt() and MAC_OCTET_MAX)
+        }
+
+    /**
      * Encode a credentials value into [UpgradePathInfo]. Inverse of
      * [decodeCredentials]; same per-medium switch shape.
      */
     private fun encodeCredentials(credentials: UpgradePathCredentials): UpgradePathInfo {
+        // BLE_L2CAP cannot ride on UpgradePathInfo.medium directly (the
+        // proto reserves wire 10), so we encode it via the BLUETOOTH
+        // slot with a "L2CAP:<psm>" service-name discriminator. Callers
+        // must use [decodeCredentials] to lift the frame back to
+        // [UpgradePathCredentials.BleL2cap].
+        if (credentials is UpgradePathCredentials.BleL2cap) {
+            return UpgradePathInfo
+                .newBuilder()
+                .setMedium(Medium.BLUETOOTH.toUpgradePathMedium())
+                .setBluetoothCredentials(
+                    UpgradePathInfo.BluetoothCredentials
+                        .newBuilder()
+                        .setMacAddress(formatMacAddress(credentials.macAddress))
+                        .setServiceName("$BLE_L2CAP_SERVICE_PREFIX${credentials.psm}")
+                        .build(),
+                ).build()
+        }
         val builder =
             UpgradePathInfo
                 .newBuilder()
@@ -431,6 +524,7 @@ public object BandwidthUpgradeFrames {
                 }
                 builder.setWifiHotspotCredentials(hotspot.build())
             }
+            is UpgradePathCredentials.BleL2cap -> Unit // Handled above.
         }
         return builder.build()
     }
@@ -600,4 +694,24 @@ public object BandwidthUpgradeFrames {
 
     /** Offset of the low port byte within the service_info layout. */
     private const val WIFI_AWARE_PORT_LOW_OFFSET: Int = WIFI_AWARE_IPV6_LENGTH + 3
+
+    /**
+     * Discriminator prefix used to encode an [UpgradePathCredentials.BleL2cap]
+     * inside the `BluetoothCredentials.service_name` proto field, since
+     * `UpgradePathInfo.Medium` reserves wire number 10 for BLE_L2CAP and
+     * therefore cannot be used as the medium tag directly. The decoder
+     * inspects this prefix to lift the frame back into a [BleL2cap]
+     * credentials object — anything that does not match falls through
+     * as a regular [UpgradePathCredentials.Generic] BLUETOOTH offering.
+     */
+    public const val BLE_L2CAP_SERVICE_PREFIX: String = "L2CAP:"
+
+    /** Hex radix used by [parseMacAddress]. */
+    private const val MAC_RADIX: Int = 16
+
+    /** Maximum value of one octet in a MAC address. */
+    private const val MAC_OCTET_MAX: Int = 0xFF
+
+    /** Number of hex digits in one canonical MAC octet. */
+    private const val MAC_OCTET_HEX_DIGITS: Int = 2
 }

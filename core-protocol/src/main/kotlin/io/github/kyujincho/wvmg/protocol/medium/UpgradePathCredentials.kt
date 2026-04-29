@@ -400,4 +400,75 @@ public sealed interface UpgradePathCredentials {
             public const val FREQUENCY_NOT_SET: Int = -1
         }
     }
+
+    /**
+     * BLE L2CAP CoC credentials — receiver-side MAC address plus the
+     * PSM (Protocol/Service Multiplexer) that
+     * `BluetoothAdapter.listenUsingInsecureL2capChannel().getPsm()`
+     * assigned for the listening channel. The sender re-opens the
+     * channel via `BluetoothDevice.createInsecureL2capChannel(psm)`.
+     *
+     * ### Wire encoding caveat
+     *
+     * `BandwidthUpgradeNegotiationFrame.UpgradePathInfo.Medium` reserves
+     * wire number 10 (the BLE_L2CAP slot), so [Medium.BLE_L2CAP] cannot
+     * appear directly on `UpgradePathInfo.medium`. To stay strictly
+     * within the vendored proto we ride on the `BLUETOOTH` slot:
+     *
+     *  * `UpgradePathInfo.medium = BLUETOOTH (2)`,
+     *  * `bluetooth_credentials.mac_address = "AA:BB:CC:DD:EE:FF"`
+     *    (canonical hex), and
+     *  * `bluetooth_credentials.service_name = "L2CAP:<psm>"` — a
+     *    discriminator the decoder uses to lift the frame back into a
+     *    [BleL2cap] (vs the legacy RFCOMM-style [Bluetooth] service
+     *    advertisement on the same wire slot).
+     *
+     * The Android adapter constructs and consumes these credentials,
+     * but the wire shape and discriminator stay in `:core-protocol` so
+     * the encoder/decoder can be JVM-tested.
+     *
+     * @param macAddress 6-byte big-endian MAC address bytes for the
+     *   receiver-side `BluetoothAdapter`. The encoder formats this as
+     *   the canonical colon-delimited hex string the proto expects.
+     * @param psm The PSM returned by
+     *   `BluetoothServerSocket.getPsm()`. Wire-level 16-bit unsigned
+     *   value but Android's API exposes it as `Int`; the decoder
+     *   round-trips through [Int].
+     */
+    public data class BleL2cap(
+        val macAddress: ByteArray,
+        val psm: Int,
+    ) : UpgradePathCredentials {
+        init {
+            require(macAddress.size == MAC_ADDRESS_LENGTH) {
+                "BLE L2CAP MAC address must be 6 bytes, was ${macAddress.size}"
+            }
+            require(psm in PSM_RANGE) {
+                "BLE L2CAP PSM must fit in a uint16, was $psm"
+            }
+        }
+
+        override val medium: Medium = Medium.BLE_L2CAP
+
+        // ByteArray equality semantics — same rationale as WifiLan.
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is BleL2cap) return false
+            return psm == other.psm && macAddress.contentEquals(other.macAddress)
+        }
+
+        override fun hashCode(): Int {
+            var result = macAddress.contentHashCode()
+            result = 31 * result + psm
+            return result
+        }
+
+        public companion object {
+            /** Length of a Bluetooth MAC address in bytes. */
+            public const val MAC_ADDRESS_LENGTH: Int = 6
+
+            /** Valid range for an L2CAP PSM (uint16). */
+            public val PSM_RANGE: IntRange = 1..0xFFFF
+        }
+    }
 }
