@@ -271,7 +271,16 @@ public object BandwidthUpgradeFrames {
                     UpgradePathCredentials.Generic(medium)
                 }
             }
-            // Phase 4 sub-issues (#49–#53) plug the remaining arms in
+            // Wi-Fi Direct (#49). The receiver is the P2P group owner;
+            // the proto carries SSID + passphrase + the GO's IP (in the
+            // `gateway` string, dotted-quad) + TCP port. We surface the
+            // address as ByteArray so the adapter does not need to
+            // re-parse it. Falls back to Generic when the credentials
+            // sub-message is missing OR malformed (no SSID / port / IP),
+            // so the negotiator can still surface "an upgrade was
+            // offered" and the provider can reject it cleanly on adopt.
+            Medium.WIFI_DIRECT -> decodeWifiDirect(info) ?: UpgradePathCredentials.Generic(medium)
+            // Remaining Phase 4 sub-issues plug the rest of the arms in
             // here as their adapters land. Until then we report Generic
             // so the upper layers can at least see that *some* path
             // was advertised; the provider will reject it on adopt
@@ -282,7 +291,6 @@ public object BandwidthUpgradeFrames {
             // proto reserves wire number 10 there). The path that
             // builds the wire frame for BLE_L2CAP must use the
             // discovery-medium path instead — see Phase 4 #52.
-            Medium.WIFI_DIRECT,
             Medium.WIFI_HOTSPOT,
             Medium.BLE_L2CAP,
             Medium.BLE,
@@ -348,6 +356,23 @@ public object BandwidthUpgradeFrames {
                         .build(),
                 )
             }
+            // Wi-Fi Direct (#49). The proto's gateway field is a
+            // dotted-quad string; we serialize the receiver-side IPv4
+            // bytes that way so the wire payload matches what stock
+            // Quick Share emits.
+            is UpgradePathCredentials.WifiDirect -> {
+                val direct =
+                    UpgradePathInfo.WifiDirectCredentials
+                        .newBuilder()
+                        .setSsid(credentials.ssid)
+                        .setPassword(credentials.passphrase)
+                        .setPort(credentials.port)
+                        .setGateway(ipv4BytesToDottedQuad(credentials.ipAddress))
+                if (credentials.frequency != UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET) {
+                    direct.frequency = credentials.frequency
+                }
+                builder.setWifiDirectCredentials(direct.build())
+            }
         }
         return builder.build()
     }
@@ -400,6 +425,75 @@ public object BandwidthUpgradeFrames {
             ((serviceInfo[WIFI_AWARE_PORT_HIGH_OFFSET].toInt() and BYTE_MASK) shl PORT_HIGH_BYTE_SHIFT) or
                 (serviceInfo[WIFI_AWARE_PORT_LOW_OFFSET].toInt() and BYTE_MASK)
         return ipv6 to port
+    }
+
+    /**
+     * Decode a `WifiDirectCredentials` sub-message (#49). Returns
+     * `null` when the sub-message is absent or when any of SSID, port,
+     * or gateway IP is missing — those are the bare minimum to actually
+     * connect, and a partial credential is the same as "no credential
+     * at all" from the adopter's standpoint. Treating malformed input
+     * as Generic at the call site preserves the negotiator's invariant
+     * that an UPGRADE_PATH_AVAILABLE frame always decodes to *some*
+     * credentials value.
+     */
+    @Suppress("ReturnCount") // One guard per missing sub-field; flattening hides the validation.
+    private fun decodeWifiDirect(info: UpgradePathInfo): UpgradePathCredentials.WifiDirect? {
+        if (!info.hasWifiDirectCredentials()) return null
+        val direct = info.wifiDirectCredentials
+        val gateway = direct.gateway.takeIf { it.isNotEmpty() } ?: return null
+        val ipBytes = dottedQuadToIpv4Bytes(gateway) ?: return null
+        return UpgradePathCredentials.WifiDirect(
+            ipAddress = ipBytes,
+            port = direct.port,
+            ssid = direct.ssid,
+            passphrase = direct.password,
+            frequency =
+                if (direct.hasFrequency()) {
+                    direct.frequency
+                } else {
+                    UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET
+                },
+        )
+    }
+
+    /**
+     * Format a 4-byte IPv4 address as a dotted-quad string. Pulled out
+     * so both the encoder and tests can call it without duplicating the
+     * `&0xff` masking that Kotlin's `Byte.toInt()` would otherwise
+     * sign-extend. Avoids `InetAddress.getByAddress` so this stays
+     * pure-JVM and never resolves DNS.
+     */
+    private fun ipv4BytesToDottedQuad(bytes: ByteArray): String {
+        require(bytes.size == UpgradePathCredentials.WifiDirect.IPV4_ADDRESS_LENGTH) {
+            "Wi-Fi Direct gateway must be IPv4 (4 bytes); got ${bytes.size}"
+        }
+        return buildString {
+            for ((index, b) in bytes.withIndex()) {
+                if (index > 0) append('.')
+                append(b.toInt() and BYTE_MASK)
+            }
+        }
+    }
+
+    /**
+     * Parse a dotted-quad IPv4 string into 4 bytes (network order).
+     * Returns `null` for malformed input — used by [decodeWifiDirect]
+     * to drop wire frames whose `gateway` field is empty / IPv6 / a
+     * hostname rather than throwing the negotiator into a protocol
+     * error path. Pure validation: no DNS lookup, no IPv6 fallback.
+     */
+    @Suppress("ReturnCount") // Three guard clauses, one happy path; flattening is less readable.
+    private fun dottedQuadToIpv4Bytes(text: String): ByteArray? {
+        val parts = text.split('.')
+        if (parts.size != UpgradePathCredentials.WifiDirect.IPV4_ADDRESS_LENGTH) return null
+        val bytes = ByteArray(UpgradePathCredentials.WifiDirect.IPV4_ADDRESS_LENGTH)
+        for ((index, part) in parts.withIndex()) {
+            val value = part.toIntOrNull() ?: return null
+            if (value !in 0..BYTE_MASK) return null
+            bytes[index] = value.toByte()
+        }
+        return bytes
     }
 
     /**

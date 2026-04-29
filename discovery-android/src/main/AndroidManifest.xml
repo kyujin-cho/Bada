@@ -99,4 +99,31 @@
         android:name="android.hardware.wifi.aware"
         android:required="false" />
 
+    <!--
+      Wi-Fi Direct medium (#49). Required by WifiDirectMediumProvider /
+      WifiDirectGroupController to call WifiP2pManager.createGroup /
+      connect. neverForLocation tells Android we never derive physical
+      location from peer scans, so the platform skips the
+      ACCESS_FINE_LOCATION requirement that pre-API-33 had to ship
+      alongside this. The umbrella manifest in :app already declares
+      NEARBY_WIFI_DEVICES at the runtime layer; this library-local
+      declaration ensures any consumer of :discovery-android inherits
+      the requirement automatically.
+    -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="33" />
+
+    <!--
+      Hardware-feature hint for Wi-Fi Direct (#49). Marked optional
+      because the medium is a *bandwidth upgrade* — devices without
+      P2P still function over Wi-Fi LAN. WifiDirectAvailability checks
+      PackageManager.FEATURE_WIFI_DIRECT at runtime to decide whether
+      to advertise WIFI_DIRECT in the supported-mediums set.
+    -->
+    <uses-feature
+        android:name="android.hardware.wifi.direct"
+        android:required="false" />
+
 </manifest>
