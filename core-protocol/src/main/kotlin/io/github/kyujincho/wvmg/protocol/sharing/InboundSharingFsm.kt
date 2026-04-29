@@ -123,6 +123,23 @@ public class InboundSharingFsm(
             return handlePeerCancel()
         }
 
+        // Informational sender→receiver frames that the proto marks as
+        // deprecated ("No longer used") but Samsung's stock Quick Share
+        // (One UI) still emits in the wild — observed against a Galaxy
+        // S26 sender on One UI 8.x, where PROGRESS_UPDATE arrives during
+        // ReceivingPayloads and would otherwise abort the transfer at
+        // the SharingFsm layer. CERTIFICATE_INFO is the other proto-
+        // deprecated frame in the same lineage; pre-emptively tolerated
+        // here for the same reason.
+        if (event is SharingFsmEvent.FrameReceived &&
+            (
+                event.frame.v1.type == SharingFrameType.PROGRESS_UPDATE ||
+                    event.frame.v1.type == SharingFrameType.CERTIFICATE_INFO
+            )
+        ) {
+            return emptyList()
+        }
+
         return when (state) {
             InboundSharingState.SentPairedKeyEncryption -> onSentPairedKeyEncryption(event)
             InboundSharingState.SentPairedKeyResult -> onSentPairedKeyResult(event)
@@ -218,13 +235,53 @@ public class InboundSharingFsm(
      * UserCancel (handled in [onEvent] before dispatch). Inbound
      * `Sharing.Nearby.Frame`s of any other kind are protocol errors.
      */
+    @Suppress("ReturnCount") // Each early return guards a distinct event class; collapsing hurts readability.
     private fun onWaitingForUserConsent(event: SharingFsmEvent): List<SharingFsmEffect> {
+        if (event is SharingFsmEvent.FrameReceived &&
+            event.frame.v1.type == SharingFrameType.RESPONSE
+        ) {
+            // Samsung's stock Quick Share (One UI) sends a preemptive
+            // RESPONSE frame to the receiver right after the sender's
+            // INTRODUCTION — the sender treats the user's tap on us in
+            // the picker as their own consent and notifies us. NearDrop's
+            // PROTOCOL.md does not document this, but it is observed in
+            // the wild on One UI 8.x against a Galaxy S24/S26 sender.
+            //
+            //  - status=ACCEPT/UNKNOWN: ignore. We still need to show
+            //    consent UI to the local user; the sender is just
+            //    declaring readiness.
+            //  - status=REJECT/NOT_ENOUGH_SPACE/UNSUPPORTED_ATTACHMENT_TYPE/
+            //    TIMED_OUT: treat as a peer-side cancel — the sender has
+            //    already abandoned the transfer, so our consent UI is
+            //    moot.
+            val status = event.frame.v1.connectionResponse.status
+            return when (status) {
+                ConnectionResponseStatus.ACCEPT,
+                ConnectionResponseStatus.UNKNOWN,
+                -> emptyList()
+                else -> handlePeerCancel()
+            }
+        }
         if (event !is SharingFsmEvent.UserConsent) {
             // The peer is not supposed to push a frame at us while we are
             // showing consent UI. Treat any inbound frame here as a
             // protocol error.
+            val detail =
+                when (event) {
+                    is SharingFsmEvent.FrameReceived -> {
+                        val type = event.frame.v1.type
+                        val status =
+                            if (event.frame.v1.hasConnectionResponse()) {
+                                event.frame.v1.connectionResponse.status.name
+                            } else {
+                                "(no body)"
+                            }
+                        "FrameReceived(type=$type, status=$status)"
+                    }
+                    else -> event::class.simpleName ?: "?"
+                }
             return protocolError(
-                "unexpected ${event::class.simpleName} in WaitingForUserConsent",
+                "unexpected $detail in WaitingForUserConsent",
             )
         }
         return if (event.accept) {
@@ -255,8 +312,23 @@ public class InboundSharingFsm(
      * dispatch). Stray frames are protocol errors — for example, a
      * second `IntroductionFrame` after we already accepted is illegal.
      */
-    private fun onReceivingPayloads(event: SharingFsmEvent): List<SharingFsmEffect> =
-        protocolError("unexpected ${event::class.simpleName} in ReceivingPayloads")
+    private fun onReceivingPayloads(event: SharingFsmEvent): List<SharingFsmEffect> {
+        val detail =
+            when (event) {
+                is SharingFsmEvent.FrameReceived -> {
+                    val type = event.frame.v1.type
+                    val status =
+                        if (event.frame.v1.hasConnectionResponse()) {
+                            event.frame.v1.connectionResponse.status.name
+                        } else {
+                            "(no body)"
+                        }
+                    "FrameReceived(type=$type, status=$status)"
+                }
+                else -> event::class.simpleName ?: "?"
+            }
+        return protocolError("unexpected $detail in ReceivingPayloads")
+    }
 
     // ------------------------------------------------------------------
     // Cancel paths

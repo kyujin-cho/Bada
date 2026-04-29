@@ -245,6 +245,132 @@ class InboundSharingFsmTest {
         assertThat(fsm.state).isEqualTo(InboundSharingState.Disconnected)
     }
 
+    // ------------------------------------------------------------------
+    // Galaxy / One UI inbound interop guards
+    // ------------------------------------------------------------------
+    //
+    // Real-world frames Samsung's stock Quick Share (One UI 8.x) emits
+    // toward a receiver that the older NearDrop spec does not document.
+    // Each guard pins the lenient handling required to keep transfers
+    // alive; regressing any of these breaks Galaxy → WVMG sends.
+
+    @Test
+    fun `preemptive RESPONSE ACCEPT in WaitingForUserConsent is ignored`() {
+        // Samsung's stock Quick Share sends RESPONSE(status=ACCEPT) to
+        // the receiver right after INTRODUCTION — the sender treats the
+        // user's tap on us in the picker as their own consent and
+        // notifies us preemptively. We still need OUR user's consent.
+        val fsm = driveToWaitingForUserConsent()
+
+        val effects =
+            fsm.onEvent(
+                SharingFsmEvent.FrameReceived(
+                    SharingFrames.connectionResponse(ConnectionResponseStatus.ACCEPT),
+                ),
+            )
+
+        assertThat(effects).isEmpty()
+        assertThat(fsm.state).isEqualTo(InboundSharingState.WaitingForUserConsent)
+
+        // Local consent still drives the FSM to ReceivingPayloads.
+        fsm.onEvent(SharingFsmEvent.UserConsent(accept = true))
+        assertThat(fsm.state).isEqualTo(InboundSharingState.ReceivingPayloads)
+    }
+
+    @Test
+    fun `preemptive RESPONSE UNKNOWN in WaitingForUserConsent is ignored`() {
+        val fsm = driveToWaitingForUserConsent()
+
+        val effects =
+            fsm.onEvent(
+                SharingFsmEvent.FrameReceived(
+                    SharingFrames.connectionResponse(ConnectionResponseStatus.UNKNOWN),
+                ),
+            )
+
+        assertThat(effects).isEmpty()
+        assertThat(fsm.state).isEqualTo(InboundSharingState.WaitingForUserConsent)
+    }
+
+    @Test
+    fun `preemptive RESPONSE REJECT in WaitingForUserConsent is treated as peer cancel`() {
+        val fsm = driveToWaitingForUserConsent()
+
+        val effects =
+            fsm.onEvent(
+                SharingFsmEvent.FrameReceived(
+                    SharingFrames.connectionResponse(ConnectionResponseStatus.REJECT),
+                ),
+            )
+
+        assertThat(effects).hasSize(1)
+        assertThat(effects[0]).isInstanceOf(SharingFsmEffect.Cancelled::class.java)
+        assertThat(fsm.state).isEqualTo(InboundSharingState.Disconnected)
+    }
+
+    @Test
+    fun `PROGRESS_UPDATE during ReceivingPayloads is silently ignored`() {
+        // Proto marks PROGRESS_UPDATE deprecated but One UI 8.x emits
+        // it during the payload phase. Without the leniency guard the
+        // FSM would treat it as a stray frame and abort the transfer.
+        val fsm = driveToWaitingForUserConsent()
+        fsm.onEvent(SharingFsmEvent.UserConsent(accept = true))
+        check(fsm.state == InboundSharingState.ReceivingPayloads)
+
+        val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(progressUpdateFrame()))
+
+        assertThat(effects).isEmpty()
+        assertThat(fsm.state).isEqualTo(InboundSharingState.ReceivingPayloads)
+    }
+
+    @Test
+    fun `PROGRESS_UPDATE during WaitingForUserConsent is silently ignored`() {
+        val fsm = driveToWaitingForUserConsent()
+
+        val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(progressUpdateFrame()))
+
+        assertThat(effects).isEmpty()
+        assertThat(fsm.state).isEqualTo(InboundSharingState.WaitingForUserConsent)
+    }
+
+    @Test
+    fun `CERTIFICATE_INFO is silently ignored across states`() {
+        val fsm = driveToWaitingForUserConsent()
+
+        val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(certificateInfoFrame()))
+
+        assertThat(effects).isEmpty()
+        assertThat(fsm.state).isEqualTo(InboundSharingState.WaitingForUserConsent)
+    }
+
+    @Suppress("DEPRECATION") // ProgressUpdateFrame is proto-deprecated; we test that we tolerate it anyway.
+    private fun progressUpdateFrame(): SharingFrame =
+        SharingFrame
+            .newBuilder()
+            .setVersion(SharingFrameVersion.V1)
+            .setV1(
+                com.google.android.gms.nearby.sharing.Protocol.V1Frame
+                    .newBuilder()
+                    .setType(SharingFrameType.PROGRESS_UPDATE)
+                    .setProgressUpdate(
+                        com.google.android.gms.nearby.sharing.Protocol.ProgressUpdateFrame
+                            .newBuilder()
+                            .setProgress(0.42f)
+                            .build(),
+                    ).build(),
+            ).build()
+
+    private fun certificateInfoFrame(): SharingFrame =
+        SharingFrame
+            .newBuilder()
+            .setVersion(SharingFrameVersion.V1)
+            .setV1(
+                com.google.android.gms.nearby.sharing.Protocol.V1Frame
+                    .newBuilder()
+                    .setType(SharingFrameType.CERTIFICATE_INFO)
+                    .build(),
+            ).build()
+
     /**
      * Regression guard for issue #40: an introduction that mixes
      * `file_metadata` with multiple `text_metadata` entries MUST be

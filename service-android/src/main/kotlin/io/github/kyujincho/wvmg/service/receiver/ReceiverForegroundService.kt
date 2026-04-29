@@ -295,6 +295,7 @@ public class ReceiverForegroundService : Service() {
         // before the session starts so the first `Receiving` state
         // transition produces a progress notification.
         startProgressCoordinator(newSession)
+        startInboundDiagnosticsLogger(newSession)
 
         serviceScope.launch {
             try {
@@ -388,6 +389,43 @@ public class ReceiverForegroundService : Service() {
                 }
                 delay(DIAGNOSTICS_LOG_INTERVAL_MS)
             }
+        }
+    }
+
+    private fun startInboundDiagnosticsLogger(session: ReceiverSession) {
+        appendInboundLog("session start: pid=${android.os.Process.myPid()}")
+        serviceScope.launch {
+            session.completions.collect { completion ->
+                val line =
+                    "completion id=${completion.connectionId} " +
+                        "ref=${System.identityHashCode(completion.connection)} " +
+                        "result=${completion.result}"
+                Log.e(INBOUND_DIAG_TAG, line)
+                appendInboundLog(line)
+            }
+        }
+        serviceScope.launch {
+            session.activeConnections.collect { conn ->
+                val ref = System.identityHashCode(conn)
+                val accepted = "accepted ref=$ref"
+                Log.e(INBOUND_DIAG_TAG, accepted)
+                appendInboundLog(accepted)
+                serviceScope.launch {
+                    conn.state.collect { st ->
+                        val line = "state ref=$ref -> $st"
+                        Log.e(INBOUND_DIAG_TAG, line)
+                        appendInboundLog(line)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun appendInboundLog(line: String) {
+        runCatching {
+            val dir = getExternalFilesDir(null) ?: return
+            val f = java.io.File(dir, "wvmg-inbound.log")
+            f.appendText("${System.currentTimeMillis()} $line\n")
         }
     }
 
@@ -704,39 +742,34 @@ public class ReceiverForegroundService : Service() {
         /**
          * Build the default [EndpointInfo] for this device.
          *
-         * **Visibility bit = 1 (hidden).** Stock Quick Share unconditionally
-         * publishes mDNS records with `EndpointInfo.hidden = true`,
-         * regardless of whether the user has selected "Everyone" or
-         * "Contacts only" in the Quick Share UI. The Everyone-vs-Contacts
-         * decision is enforced during the protocol negotiation, not at
-         * the mDNS layer. Samsung One UI's stock Quick Share picker
-         * appears to whitelist records with this canonical shape and
-         * silently drops `visBit=0` records as malformed/non-conformant —
-         * which is why WVMG was invisible to a Galaxy peer's send sheet
-         * despite mDNS being fully reachable on the wire (verified via
-         * `dns-sd` from a third device on the same hotspot).
+         * **Visibility bit = 0 (visible) + inline UTF-8 device name.**
+         * This is the canonical "Everyone" shape that stock Samsung
+         * Quick Share's send sheet renders.
          *
-         * **`deviceName = null` follows from `hidden = true`.** The
-         * `EndpointInfo` invariant requires the inline UTF-8 name to be
-         * absent when the visibility bit is set; stock conveys the
-         * friendly name through other channels (BLE service-data on the
-         * sender pulse, plus the encrypted-name TLV in Contacts mode).
-         * For our GMS-free Everyone-only use case the consequence is that
-         * Samsung's picker shows a generic label until connect — that is
-         * acceptable interop for now and is tracked as a follow-up to
-         * surface the friendly name via TLV type 1 (advertising token /
-         * encrypted name material) when we can.
+         * History: an earlier commit (`c0150be`) flipped this to
+         * `hidden=true, deviceName=null` based on observing a Galaxy
+         * peer's BLE service-data byte (`0x32`) and assuming the same
+         * shape applied to the mDNS `n=` TXT payload. That assumption
+         * was wrong — the BLE pulse and the mDNS TXT carry independent
+         * advertisements with different framing, and `hidden=true` puts
+         * us in **Contacts-only** mode at the mDNS layer. Samsung's
+         * picker then tries to match our 16 random metadata bytes
+         * against its cached contact certificates, fails silently, and
+         * filters us out of the share sheet. Reverting to `hidden=false`
+         * with an inline name restored visibility against a Galaxy S26
+         * sender on One UI 8.x.
          *
-         * Random salt + encrypted-metadata-key bytes are indistinguishable
-         * to peers from real GMS-issued ones for the GMS-free use case
-         * targeted by this project.
+         * Random salt + encrypted-metadata-key bytes are
+         * indistinguishable to peers from real GMS-issued ones for the
+         * GMS-free use case targeted by this project.
+         *
+         * Receiver-side BLE pulse advertising (the planned follow-up to
+         * `c0150be`) would let us also broadcast the friendly name
+         * through the BLE channel and stay compatible if Samsung's
+         * picker ever tightens its mDNS-acceptance rules; that work is
+         * tracked separately.
          */
         private fun defaultEndpointInfo(context: Context): EndpointInfo {
-            // The application label is still loaded so future code paths
-            // (e.g. consent UI, BLE service data) that surface a friendly
-            // name can pull from the same source. The mDNS record itself
-            // intentionally does not carry it — see the kdoc above.
-            @Suppress("UNUSED_VARIABLE")
             val applicationLabel =
                 context.applicationInfo
                     .loadLabel(context.packageManager)
@@ -745,12 +778,12 @@ public class ReceiverForegroundService : Service() {
                     .take(MAX_DEFAULT_NAME_BYTES)
             return EndpointInfo(
                 version = 1,
-                hidden = true,
+                hidden = false,
                 deviceType =
                     io.github.kyujincho.wvmg.protocol.endpoint.DeviceType.PHONE,
                 reserved = false,
                 metadata = ByteArray(EndpointInfo.METADATA_LEN).also { java.security.SecureRandom().nextBytes(it) },
-                deviceName = null,
+                deviceName = applicationLabel,
                 tlvRecords = emptyList(),
             )
         }
@@ -773,6 +806,7 @@ public class ReceiverForegroundService : Service() {
 
         /** logcat tag for the diagnostics line — matches the discovery module. */
         private const val DIAGNOSTICS_TAG: String = "WvmgDiscovery"
+        private const val INBOUND_DIAG_TAG: String = "WvmgInbound"
     }
 }
 
