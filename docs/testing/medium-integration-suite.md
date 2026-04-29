@@ -76,14 +76,32 @@ adb -s <device-b> install -r app/build/outputs/apk/debug/app-debug.apk
 6. Record the measured results in [`docs/medium-perf.md`](../medium-perf.md)
    when a device pair establishes a stable benchmark.
 
+## Upgraded-medium success vs fallback
+
+Issue #133 adds a dual-channel receive handoff: while a stock sender is
+switching to a direct medium, WVMG can keep draining the original Wi-Fi
+LAN channel and the upgraded channel, then deliver SecureMessage frames
+to the sharing FSM in sequence-number order.
+
+When validating Wi-Fi Direct or another upgraded medium, record the
+result as **upgraded-medium success** only if logs show both:
+
+- `medium-upgrade: delivered ... from prior`
+- `medium-upgrade: delivered ... from upgraded`
+
+If the transfer completes but `WvmgMedium` / `WvmgInbound` only reports
+Wi-Fi LAN as the active medium, record it as **Wi-Fi LAN fallback
+success**. That is still a pass for basic transfer stability, but it is
+not evidence that the direct-medium handoff worked.
+
 ## Failure handling
 
 - If Wi-Fi Direct group creation fails, the JVM fallback-selection test is
   the guard that the registry chooses Wi-Fi LAN instead.
-- This suite does not prove live transport replacement in the connection
-  drivers. A passing run means the per-medium support gates and selection
-  ladder are healthy; full upgrade-handshake validation still requires the
-  medium-specific two-device runbooks above.
+- The JVM dual-channel reorder test proves the connection layer can
+  accept interleaved prior/upgraded SecureMessage frames, but real-device
+  validation still requires the medium-specific two-device runbooks
+  above.
 - If an instrumentation test unexpectedly fails on supported hardware,
   capture `adb logcat` for the medium-specific tag before retrying.
 - If a device skips a medium that should be available, re-check runtime

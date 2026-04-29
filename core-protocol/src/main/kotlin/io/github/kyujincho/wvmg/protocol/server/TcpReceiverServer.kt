@@ -116,6 +116,7 @@ import java.util.concurrent.atomic.AtomicLong
  *   (`InetAddress.getByName("0.0.0.0")` -- accept on every interface).
  *   Tests typically pass `InetAddress.getLoopbackAddress()` to avoid
  *   binding to the host's external NIC.
+ * @param logger diagnostic sink for per-connection protocol events.
  */
 public class TcpReceiverServer(
     private val parentScope: CoroutineScope,
@@ -123,6 +124,7 @@ public class TcpReceiverServer(
     private val secureRandomProvider: () -> SecureRandom = { SecureRandom() },
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val bindAddress: InetAddress? = null,
+    private val logger: (String) -> Unit = {},
 ) {
     /**
      * Per-connection [Mutex] table. A single Quick Share connection is
@@ -453,6 +455,7 @@ public class TcpReceiverServer(
                 transport = transport,
                 secureRandom = secureRandomProvider(),
                 mediumRegistry = mediumRegistry,
+                logger = logger,
             )
 
         internalScope.launch {

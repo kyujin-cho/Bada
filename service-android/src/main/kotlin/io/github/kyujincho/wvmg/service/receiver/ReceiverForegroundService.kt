@@ -818,7 +818,10 @@ public class ReceiverForegroundService : Service() {
                     )
                 ActiveDiscoveryHolder.set(discovery)
                 ReceiverSession(
-                    tcpServerFactory = TcpServerFactory.default(),
+                    tcpServerFactory =
+                        TcpServerFactory.default(
+                            logger = { line -> logInboundDiagnostic(context.applicationContext, line) },
+                        ),
                     advertiser =
                         DiscoveryAdvertiser { endpointInfo, port ->
                             discovery.advertise(endpointInfo, port)
@@ -918,6 +921,18 @@ public class ReceiverForegroundService : Service() {
                 deviceName = applicationLabel,
                 tlvRecords = emptyList(),
             )
+        }
+
+        private fun logInboundDiagnostic(
+            context: Context,
+            line: String,
+        ) {
+            Log.e(INBOUND_DIAG_TAG, line)
+            runCatching {
+                val dir = context.getExternalFilesDir(null) ?: return
+                val file = java.io.File(dir, "wvmg-inbound.log")
+                file.appendText("${System.currentTimeMillis()} $line\n")
+            }
         }
 
         private const val DEFAULT_DEVICE_NAME = "Quick Share"
