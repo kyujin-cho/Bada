@@ -74,15 +74,15 @@ internal object PermissionRequirements {
      * Android runtime-permission model (our minSdk is 24, so production
      * builds always request at least one permission).
      */
-    internal fun requirementsFor(): List<Requirement> {
+    internal fun requirementsFor(sdkInt: Int = Build.VERSION.SDK_INT): List<Requirement> {
         val result = mutableListOf<Requirement>()
-        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.M until Build.VERSION_CODES.S) {
+        if (sdkInt in Build.VERSION_CODES.M until Build.VERSION_CODES.S) {
             result += legacyNearbyDiscoveryPermission()
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (sdkInt >= Build.VERSION_CODES.S) {
             result += blePermissions()
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
             result += tiramisuPermissions()
         }
         return result
