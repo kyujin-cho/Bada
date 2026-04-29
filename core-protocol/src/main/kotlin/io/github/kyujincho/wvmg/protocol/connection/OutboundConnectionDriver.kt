@@ -117,13 +117,15 @@ internal class OutboundConnectionDriver(
         val transport = FramedConnection(initialTransport).also { framedConnection = it }
 
         // Step 1: send unencrypted ConnectionRequest. The mediums set
-        // is sourced from the registry's supportedMediums(); the encoder
-        // ensures WIFI_LAN is always present (it IS the discovery
-        // medium today). Phase 4's per-medium adapters extend the set
-        // by registering against the registry; absent any extra
+        // is sourced from the registry's current-medium-aware view:
+        // WIFI_LAN only means "stay on the already-open LAN socket", so
+        // a Bluetooth/BLE bootstrap must not advertise it as an
+        // off-LAN upgrade option. Phase 4's per-medium adapters extend
+        // the set by registering against the registry; absent any extra
         // provider this is functionally identical to the previous
-        // hard-coded `[WIFI_LAN]`.
-        val advertisedMediums = mediumRegistry.supportedMediums()
+        // hard-coded `[WIFI_LAN]` on the legacy LAN path.
+        val advertisedMediums =
+            mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
         logger("step 1: advertising mediums=$advertisedMediums")
         transport.sendFrame(
             OutboundFrames

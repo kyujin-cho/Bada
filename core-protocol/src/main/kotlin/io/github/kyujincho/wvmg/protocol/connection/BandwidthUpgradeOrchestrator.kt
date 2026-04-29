@@ -41,7 +41,11 @@ internal object BandwidthUpgradeOrchestrator {
         peerEndpointId: String,
         logger: (String) -> Unit,
     ): ActiveTransportChannel {
-        val selection = mediumRegistry.prepareBestUpgrade(peerSupportedMediums)
+        val selection =
+            mediumRegistry.prepareBestUpgradeForCurrentTransport(
+                peerSupported = peerSupportedMediums,
+                currentMedium = currentMedium,
+            )
         if (selection !is PreparedUpgradeSelection.Upgrade) {
             logger("medium-upgrade: server staying on current transport selection=$selection")
             return ActiveTransportChannel(oldChannel, currentMedium)

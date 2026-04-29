@@ -21,6 +21,10 @@ package io.github.kyujincho.wvmg.protocol.medium
  *     registered provider's [MediumProvider.isSupported] into the set
  *     used to populate `ConnectionRequestFrame.mediums` on the sender
  *     side and to intersect the peer's mediums on the receiver side.
+ *     [supportedMediumsForCurrentTransport] is the current-medium-aware
+ *     variant for sessions whose initial control channel is not Wi-Fi
+ *     LAN: `WIFI_LAN` is only a meaningful "stay on this socket" marker
+ *     when the current socket is already Wi-Fi LAN.
  *  2. **Provider lookup** — [providerFor] retrieves the registered
  *     adapter for a chosen medium, used by [selectBestUpgrade] when
  *     the framework is ready to perform the bandwidth-upgrade
@@ -79,6 +83,21 @@ public class MediumRegistry(
             .toSet()
 
     /**
+     * Like [supportedMediums], but shaped for a connection already
+     * running on [currentMedium].
+     *
+     * `WIFI_LAN` in our protocol surface does not represent a generic
+     * upgrade path provider; it means "keep using the already-open
+     * LAN socket". Advertising it while the current control channel is
+     * Bluetooth/BLE/etc. would mislead the peer into thinking a LAN
+     * stay-put path exists when it does not.
+     */
+    public fun supportedMediumsForCurrentTransport(currentMedium: Medium): Set<Medium> =
+        supportedMediums().filterTo(linkedSetOf()) { medium ->
+            medium != Medium.WIFI_LAN || currentMedium == Medium.WIFI_LAN
+        }
+
+    /**
      * Return the registered provider for [medium], or `null` when no
      * provider was registered for it. Note this does NOT consult
      * [MediumProvider.isSupported]; the caller is responsible for
@@ -117,6 +136,24 @@ public class MediumRegistry(
     }
 
     /**
+     * Like [selectBestUpgrade], but excludes `WIFI_LAN` unless the
+     * session is already running on Wi-Fi LAN. This keeps a
+     * preconnected Bluetooth/BLE bootstrap from incorrectly resolving
+     * to "stay on current medium" via the Wi-Fi-LAN rung.
+     */
+    public fun selectBestUpgradeForCurrentTransport(
+        peerSupported: Set<Medium>,
+        currentMedium: Medium,
+        ladderOverride: MediumLadder = ladder,
+    ): Medium? {
+        val intersection =
+            supportedMediumsForCurrentTransport(currentMedium)
+                .intersect(peerSupported)
+        if (intersection.isEmpty()) return null
+        return ladderOverride.pickBest(intersection)
+    }
+
+    /**
      * Like [selectBestUpgrade], but attempts the server-side bring-up
      * for each shared medium in ladder order until one succeeds.
      *
@@ -143,6 +180,39 @@ public class MediumRegistry(
         ladderOverride: MediumLadder = ladder,
     ): PreparedUpgradeSelection? {
         val intersection = supportedMediums().intersect(peerSupported)
+        if (intersection.isEmpty()) return null
+        for (medium in ladderOverride.rungs) {
+            if (medium !in intersection) continue
+            val provider = providerFor(medium) ?: continue
+            if (!provider.isSupported()) continue
+            if (medium == Medium.WIFI_LAN) {
+                return PreparedUpgradeSelection.StayOnCurrentMedium
+            }
+            val credentials =
+                runCatching { provider.prepareUpgrade() }
+                    .getOrNull() ?: continue
+            return PreparedUpgradeSelection.Upgrade(credentials)
+        }
+        return null
+    }
+
+    /**
+     * Like [prepareBestUpgrade], but treats `WIFI_LAN` as a valid
+     * "stay on current transport" result only when [currentMedium] is
+     * actually [Medium.WIFI_LAN].
+     */
+    @Suppress(
+        "ReturnCount",
+        "LoopWithTooManyJumpStatements",
+    )
+    public suspend fun prepareBestUpgradeForCurrentTransport(
+        peerSupported: Set<Medium>,
+        currentMedium: Medium,
+        ladderOverride: MediumLadder = ladder,
+    ): PreparedUpgradeSelection? {
+        val intersection =
+            supportedMediumsForCurrentTransport(currentMedium)
+                .intersect(peerSupported)
         if (intersection.isEmpty()) return null
         for (medium in ladderOverride.rungs) {
             if (medium !in intersection) continue

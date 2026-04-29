@@ -180,16 +180,25 @@ internal class InboundConnectionDriver(
                 ?.let { EndpointInfo.parse(it)?.deviceName }
 
         // Decode the peer's advertised mediums (Phase 4 framework). The
-        // intersection with our local registry's supportedMediums(),
-        // resolved by the registry's ladder, picks the upgrade target.
-        // The current driver records the choice for observability; the
-        // full BANDWIDTH_UPGRADE_NEGOTIATION transport swap is wired by
-        // a later orchestrator integration.
+        // intersection with our local registry's current-medium-aware
+        // supported set, resolved by the registry's ladder, picks the
+        // upgrade target. WIFI_LAN is only meaningful when the existing
+        // control channel is already LAN-backed; on a Bluetooth/BLE
+        // bootstrap we must ignore it or we would suppress real upgrade
+        // candidates by treating "stay on current socket" as if the
+        // current socket were LAN. The current driver records the
+        // choice for observability; the full
+        // BANDWIDTH_UPGRADE_NEGOTIATION transport swap is wired by a
+        // later orchestrator integration.
         peerSupportedMediums =
             initialFrame.v1.connectionRequest.mediumsList
                 .mapNotNull { Medium.fromConnectionRequestMedium(it) }
                 .toSet()
-        val chosen = mediumRegistry.selectBestUpgrade(peerSupportedMediums)
+        val chosen =
+            mediumRegistry.selectBestUpgradeForCurrentTransport(
+                peerSupported = peerSupportedMediums,
+                currentMedium = transport.medium,
+            )
         // WIFI_LAN is the discovery medium; selecting it means "stay on
         // the current transport". Treat that as `null` so callers do
         // not interpret it as an upgrade trigger.
