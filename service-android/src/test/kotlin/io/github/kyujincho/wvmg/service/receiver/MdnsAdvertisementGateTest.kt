@@ -364,6 +364,95 @@ class MdnsAdvertisementGateTest {
             session.stop()
         }
 
+    @Test
+    fun `BLE broadcaster starts and stops in lock-step with mDNS publish`() =
+        runTest {
+            val advertiser = RecordingAdvertiser()
+            val session = startedGatedSession(advertiser = advertiser)
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
+            val override = MutableStateFlow(false)
+            val qr = MutableStateFlow(false)
+            val broadcaster = RecordingBleBroadcaster()
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    debounceIdleMillis = 30_000L,
+                    bleBroadcaster = broadcaster,
+                )
+            gate.start(this)
+            advanceUntilIdle()
+            // Idle at boot: BLE advertise stays off.
+            assertThat(broadcaster.startCount).isEqualTo(0)
+
+            // Pulse activity flips publish on; BLE must start in lock-step.
+            ble.value = ScanActivity.Active(lastSeenAtMillis = 1_000L)
+            advanceUntilIdle()
+            assertThat(session.isAdvertising).isTrue()
+            assertThat(broadcaster.startCount).isEqualTo(1)
+
+            // Idle again: 30 s debounce holds both channels up. Use
+            // advanceTimeBy to step through the debounce — advanceUntilIdle
+            // would jump straight to the timer's fire time.
+            ble.value = ScanActivity.Idle
+            advanceTimeBy(1L)
+            advanceTimeBy(29_998L)
+            assertThat(session.isAdvertising).isTrue()
+            assertThat(broadcaster.stopCount).isEqualTo(0)
+
+            // Cross the debounce threshold: both channels unpublish
+            // together.
+            advanceTimeBy(10L)
+            advanceUntilIdle()
+            assertThat(session.isAdvertising).isFalse()
+            assertThat(broadcaster.stopCount).isAtLeast(1)
+
+            gate.stop()
+            session.stop()
+        }
+
+    @Test
+    fun `outbound veto stops BLE advertise immediately bypassing debounce`() =
+        runTest {
+            val advertiser = RecordingAdvertiser()
+            val session = startedGatedSession(advertiser = advertiser)
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Active(lastSeenAtMillis = 1_000L))
+            val override = MutableStateFlow(false)
+            val qr = MutableStateFlow(false)
+            val outbound = MutableStateFlow(false)
+            val broadcaster = RecordingBleBroadcaster()
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    outboundSessionActive = outbound,
+                    debounceIdleMillis = 30_000L,
+                    bleBroadcaster = broadcaster,
+                )
+            gate.start(this)
+            advanceUntilIdle()
+            // Active pulse + no outbound: both channels advertising.
+            assertThat(session.isAdvertising).isTrue()
+            assertThat(broadcaster.startCount).isAtLeast(1)
+            val baselineStops = broadcaster.stopCount
+
+            // Outbound flips on: must immediately tear down both
+            // channels, not waiting on the debounce.
+            outbound.value = true
+            advanceUntilIdle()
+            assertThat(session.isAdvertising).isFalse()
+            assertThat(broadcaster.stopCount).isGreaterThan(baselineStops)
+
+            gate.stop()
+            session.stop()
+        }
+
     // --------------------------------------------------------------
     // Helpers
     // --------------------------------------------------------------
@@ -433,6 +522,29 @@ class MdnsAdvertisementGateTest {
             val handle = FakeAdvertiseHandle(port = port)
             calls += Call(endpointInfo, port, handle)
             return handle
+        }
+    }
+
+    /**
+     * Recording [BleVisibilityBroadcaster] that counts start/stop
+     * invocations. Used by the lock-step tests to verify BLE-side
+     * advertise mirrors mDNS publish exactly.
+     */
+    private class RecordingBleBroadcaster : BleVisibilityBroadcaster {
+        @Volatile
+        var startCount: Int = 0
+            private set
+
+        @Volatile
+        var stopCount: Int = 0
+            private set
+
+        override fun start() {
+            startCount += 1
+        }
+
+        override fun stop() {
+            stopCount += 1
         }
     }
 

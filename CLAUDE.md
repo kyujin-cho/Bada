@@ -43,7 +43,7 @@ CI (`.github/workflows/ci.yml`) runs `staticAnalysis`, `:core-protocol:test`, `:
 Several diagnostic logcat tags are wired up for real-device testing — useful when discovery or transfer behaves differently from JVM tests:
 
 ```bash
-adb logcat -s WvmgDiscovery WvmgSend WvmgOutbound WvmgBleScan
+adb logcat -s WvmgDiscovery WvmgSend WvmgOutbound WvmgBleScan WvmgBleAdv WvmgMdnsGate
 ```
 
 If a manufacturer's logcat filter swallows the app's `Log.i` output (vivo Funtouch OS does this), `OutboundConnection`'s logger uses `Log.e` and also appends to `getExternalFilesDir(null)/wvmg-outbound.log` — pull it with:
@@ -63,8 +63,12 @@ Five Gradle modules. The split is driven by one hard rule: the protocol implemen
 :core-protocol-test    KAT vectors and shared fixtures. Pure JVM.
 :discovery-android     mDNS publish/browse via Android NsdManager (migrated from JmDNS
                        in #98 to fix vivo / Funtouch / OriginOS interop), network-change
-                       watcher. Phase 2: BLE pulse scanner (BleQuickShareScanner) under
-                       `discovery.ble`. Android-only; wraps :core-protocol's EndpointInfo.
+                       watcher. Phase 2 BLE: pulse scanner (BleQuickShareScanner,
+                       service UUID 0xFE2C), sender pulse advertiser (BleAdvertiser,
+                       0xFE2C), and receiver-side fast-advertisement advertiser
+                       (BleQuickShareAdvertiser, 0xFEF3, #121) — all under
+                       `discovery.ble`. Android-only; wraps :core-protocol's
+                       EndpointInfo / BleServiceData byte encoders.
 :service-android       Foreground receiver service (connectedDevice type), MediaStore-backed
                        FileDestinationFactory, consent notification + broadcast receiver.
 :app                   UI: permissions onboarding, share-intent SendActivity, ShowQrActivity,

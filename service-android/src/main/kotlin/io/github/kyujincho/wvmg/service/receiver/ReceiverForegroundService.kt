@@ -23,7 +23,9 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.kyujincho.wvmg.discovery.Discovery
+import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareAdvertiser
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareScanner
+import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.downloads.DownloadsWriterFactory
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentBroadcastReceiver
@@ -123,6 +125,20 @@ public class ReceiverForegroundService : Service() {
 
     @Volatile
     private var bleScanner: BleQuickShareScanner? = null
+
+    /**
+     * Receiver-side BLE pulse advertiser (#121). Owned for the lifetime
+     * of the foreground service alongside the scanner; lifecycle-gated
+     * via [MdnsAdvertisementGate]'s [BleVisibilityBroadcaster] sink so
+     * BLE advertise tracks mDNS publish/unpublish in lock-step.
+     *
+     * `null` when the receiver service is not running, or when BLE
+     * peripheral advertising is unavailable (no `BLUETOOTH_ADVERTISE`
+     * grant — see [BleQuickShareAdvertiser.start]'s graceful failure
+     * path).
+     */
+    @Volatile
+    private var bleAdvertiser: BleQuickShareAdvertiser? = null
 
     @Volatile
     private var mdnsGate: MdnsAdvertisementGate? = null
@@ -239,7 +255,21 @@ public class ReceiverForegroundService : Service() {
         // controls the single scan registration over its lifetime.
         scanner.start()
 
-        // Attach the foreground/background scan-mode observer (#35).
+        // Construct the receiver-side BLE pulse advertiser (#121). The
+        // advertiser is **not** started here — the [MdnsAdvertisementGate]
+        // routes its publish/unpublish decisions to both mDNS and BLE
+        // simultaneously through [BleVisibilityBroadcaster], so
+        // start/stop calls happen in lock-step with the existing mDNS
+        // path. Failures inside the advertiser (no permission, no
+        // peripheral mode, adapter off) are swallowed and logged
+        // there; the receiver continues in mDNS-only mode.
+        bleAdvertiser = BleQuickShareAdvertiser(applicationContext)
+
+        // Attach the foreground/background mode observer (#35) for both
+        // the scanner and the advertiser. Symmetric tuning: BALANCED in
+        // the background, LOW_LATENCY while the user has the app
+        // foregrounded, so a fresh send-side picker scan sees us within
+        // a few hundred milliseconds.
         // ProcessLifecycleOwner requires its observers to be attached
         // on the main thread.
         attachProcessLifecycleObserver(scanner)
@@ -259,12 +289,44 @@ public class ReceiverForegroundService : Service() {
      * thread.
      */
     private fun attachProcessLifecycleObserver(scanner: BleQuickShareScanner) {
-        val observer = AppLifecycleScanModeObserver { mode -> scanner.setScanMode(mode) }
+        // The observer fans the foreground/background transition out to
+        // both the scanner and the advertiser. Both classes' mode
+        // setters are idempotent and inline-callable; the closure holds
+        // a reference to the volatile [bleAdvertiser] field so it picks
+        // up `null` cleanly if the service tears down between
+        // observer-attach and the next lifecycle callback.
+        val observer =
+            AppLifecycleScanModeObserver { scanMode ->
+                scanner.setScanMode(scanMode)
+                bleAdvertiser?.setAdvertiseMode(translateToAdvertiseMode(scanMode))
+            }
         processLifecycleObserver = observer
         runOnMainThread {
             ProcessLifecycleOwner.get().lifecycle.addObserver(observer)
         }
     }
+
+    /**
+     * Translate a [android.bluetooth.le.ScanSettings] scan-mode constant
+     * to the corresponding [android.bluetooth.le.AdvertiseSettings]
+     * advertise-mode constant. Mirrors the BALANCED ↔ LOW_LATENCY pairing
+     * the scanner already uses.
+     *
+     * The mapping is intentionally tight — only the two modes the
+     * lifecycle observer toggles between are recognised. Anything else
+     * falls back to BALANCED, which is the safe default for a
+     * continuously-running foreground service.
+     */
+    private fun translateToAdvertiseMode(scanMode: Int): Int =
+        when (scanMode) {
+            ScanSettings.SCAN_MODE_LOW_LATENCY ->
+                android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY
+            ScanSettings.SCAN_MODE_BALANCED ->
+                android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_BALANCED
+            ScanSettings.SCAN_MODE_LOW_POWER ->
+                android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_LOW_POWER
+            else -> android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_BALANCED
+        }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -358,9 +420,50 @@ public class ReceiverForegroundService : Service() {
                 alwaysVisibleOverride = MdnsVisibilityOverrideHolder.activeFlow,
                 qrSessionActive = QrSessionActiveHolder.activeFlow,
                 outboundSessionActive = OutboundSessionActiveHolder.activeFlow,
+                bleBroadcaster = buildBleBroadcaster(activeSession),
             )
         gate.start(serviceScope)
         mdnsGate = gate
+    }
+
+    /**
+     * Build a [BleVisibilityBroadcaster] that hands the gate's
+     * publish/unpublish decisions to the [bleAdvertiser] using the
+     * receiver's stable [EndpointInfo] and a process-stable 4-byte
+     * endpoint_id slug.
+     *
+     * The endpoint_id we feed into BLE is intentionally **independent**
+     * of the per-publish mDNS instance name slug — that one is rotated
+     * on every `Discovery.advertise` call. For #121 we only need a
+     * valid 4-byte ASCII slug; future work can align the two so a
+     * single peer's BLE pulse and mDNS service-info report the same id.
+     *
+     * Returns [BleVisibilityBroadcaster.Noop] if [bleAdvertiser] is
+     * `null` (the service is between start/stop, or no advertiser was
+     * constructed in [startBleScanner] for some reason). The gate
+     * tolerates a no-op broadcaster the same way it tolerates a
+     * never-active BLE pulse: mDNS still publishes/unpublishes per the
+     * other gating signals.
+     */
+    @Suppress("UNUSED_PARAMETER", "ReturnCount")
+    private fun buildBleBroadcaster(session: ReceiverSession): BleVisibilityBroadcaster {
+        val advertiser = bleAdvertiser ?: return BleVisibilityBroadcaster.Noop
+        val endpointInfo =
+            EndpointIdentityHolder.snapshot.get() ?: return BleVisibilityBroadcaster.Noop
+        val endpointId = BleEndpointIdHolder.bytes
+        return object : BleVisibilityBroadcaster {
+            override fun start() {
+                // BleQuickShareAdvertiser.start re-uses the existing
+                // platform registration when the identity is unchanged,
+                // so re-issuing start() while already advertising is
+                // effectively a no-op.
+                advertiser.start(endpointInfo, endpointId)
+            }
+
+            override fun stop() {
+                advertiser.stop()
+            }
+        }
     }
 
     /**
@@ -610,6 +713,14 @@ public class ReceiverForegroundService : Service() {
         bleScanner?.stop()
         bleScanner = null
         ActiveBleScannerHolder.clear()
+
+        // Tear the receiver-side BLE pulse advertiser down (#121). The
+        // gate's stop above already issued a final `stop()` on the
+        // broadcaster as part of its outbound-veto / debounce path,
+        // but we re-stop unconditionally here in case the gate teardown
+        // raced with a fresh "should publish" decision.
+        bleAdvertiser?.stop()
+        bleAdvertiser = null
 
         serviceJob.cancel()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -970,6 +1081,41 @@ internal object ActiveDiscoveryHolder {
 
     fun clear() {
         ref = null
+    }
+}
+
+/**
+ * Process-singleton holder for the receiver's stable 4-byte ASCII
+ * endpoint_id slug used by the BLE pulse advertiser (#121).
+ *
+ * The same slug is the natural primary key Quick Share peers use to
+ * dedupe sightings of a device across BLE and mDNS. We cache it here so
+ * a service restart (e.g. `START_STICKY` resurrection) keeps the
+ * receiver's identity stable across both channels — flipping ids on
+ * every restart would make the same physical device look like a fresh
+ * peer to neighbors.
+ *
+ * The mDNS instance name is currently regenerated on every
+ * `Discovery.advertise` call and therefore drifts independently — that
+ * is a known follow-up. For #121 the only acceptance criterion is "BLE
+ * pulses carry a valid 4-byte ASCII endpoint_id," which this holder
+ * satisfies on its own.
+ */
+internal object BleEndpointIdHolder {
+    /**
+     * The cached 4-byte slug. Generated on first read using
+     * `[A-Za-z0-9]` — same alphabet [InstanceName] uses internally —
+     * so the bytes round-trip cleanly through any future base64-url
+     * conversion.
+     */
+    val bytes: ByteArray by lazy { generate() }
+
+    private fun generate(): ByteArray {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        val random = java.security.SecureRandom()
+        return ByteArray(BleServiceData.ENDPOINT_ID_LEN) {
+            alphabet[random.nextInt(alphabet.length)].code.toByte()
+        }
     }
 }
 

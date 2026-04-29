@@ -67,9 +67,9 @@
     <string name="permission_notifications_title">Notifications</string>
     <string name="permission_notifications_rationale">Used to show the foreground transfer service indicator and to alert you about incoming files. Without this permission, transfers still work but you will not be notified about them.</string>
 
-    <!-- BLUETOOTH_ADVERTISE (API 31+, #31). -->
+    <!-- BLUETOOTH_ADVERTISE (API 31+, #31 / #121). -->
     <string name="permission_bluetooth_advertise_title">Bluetooth advertising</string>
-    <string name="permission_bluetooth_advertise_rationale">Used to broadcast a short Bluetooth Low Energy pulse so nearby Quick Share receivers wake up automatically when you start a send. Without this permission, sends still work but the receiver may need to manually open Quick Share first.</string>
+    <string name="permission_bluetooth_advertise_rationale">Used to broadcast Bluetooth Low Energy pulses: one to wake nearby receivers when you start a send, and another to make this device visible to other phones\' Quick Share pickers. Without this permission, transfers still work but the picker may show this device under a generic label until the connection starts.</string>
 
     <!-- BLUETOOTH_SCAN (API 31+, #31). -->
     <string name="permission_bluetooth_scan_title">Nearby Bluetooth devices</string>

@@ -103,9 +103,14 @@ class AndroidManifestPermissionsTest {
     @Test
     fun `bluetooth advertise declared for phase 2 ble auto-discovery`() {
         // BLUETOOTH_ADVERTISE is required (API 31+) so we can broadcast
-        // the Quick Share BLE service-data pulse that wakes nearby
-        // receivers (#31 / #32). It does not need neverForLocation —
-        // that flag is only meaningful for SCAN.
+        // BOTH:
+        //   * the sender-side Quick Share pulse on `0xFE2C` that wakes
+        //     nearby receivers (#31 / #32), and
+        //   * the receiver-side fast-advertisement pulse on `0xFEF3`
+        //     that makes us visible to stock Quick Share pickers
+        //     (#121).
+        // It does not need neverForLocation — that flag is only
+        // meaningful for SCAN.
         assertTrue(
             "BLUETOOTH_ADVERTISE must be declared",
             manifest.contains("android.permission.BLUETOOTH_ADVERTISE"),

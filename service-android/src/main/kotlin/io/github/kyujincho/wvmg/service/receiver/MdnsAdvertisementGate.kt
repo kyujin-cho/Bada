@@ -94,6 +94,23 @@ public class MdnsAdvertisementGate(
     private val qrSessionActive: StateFlow<Boolean>,
     private val outboundSessionActive: StateFlow<Boolean> = MutableStateFlow(false),
     private val debounceIdleMillis: Long = DEFAULT_DEBOUNCE_IDLE_MILLIS,
+    /**
+     * Optional sink for the receiver-side BLE pulse advertiser (#121).
+     *
+     * When supplied, the gate calls [BleVisibilityBroadcaster.start] /
+     * [BleVisibilityBroadcaster.stop] in lock-step with the mDNS
+     * publish/unpublish decisions. Same debounce window, same outbound
+     * veto — BLE and mDNS advertise (and unpublish) symmetrically so
+     * peers see consistent presence across both channels.
+     *
+     * Defaults to a no-op [BleVisibilityBroadcaster.Noop]; tests and
+     * the production wiring inject a real implementation backed by
+     * `BleQuickShareAdvertiser`. Wiring it through the gate (rather
+     * than spawning a parallel observer) keeps the publish/unpublish
+     * decisions trivially in sync — there is one decision, applied to
+     * both sinks.
+     */
+    private val bleBroadcaster: BleVisibilityBroadcaster = BleVisibilityBroadcaster.Noop,
 ) {
     @Volatile
     private var collectorJob: Job? = null
@@ -206,6 +223,7 @@ public class MdnsAdvertisementGate(
                     Log.w(TAG, "unpublish: threw during outbound veto", t)
                 }
             }
+            stopBleSafely(reason = "outbound send active")
             return
         }
         val shouldPublish =
@@ -227,6 +245,11 @@ public class MdnsAdvertisementGate(
                     Log.w(TAG, "publish: failed (decision=$decision)", t)
                 }
             }
+            // Symmetric BLE advertise — start in lock-step with the
+            // mDNS publish. The broadcaster is itself idempotent, so
+            // re-issuing start() while it is already advertising is a
+            // no-op on the platform.
+            startBleSafely(decision)
             return
         }
 
@@ -252,8 +275,45 @@ public class MdnsAdvertisementGate(
                         // already torn down.
                         Log.w(TAG, "unpublish: threw", t)
                     }
+                    // Symmetric BLE teardown — same debounce window so
+                    // the BLE advertiser does not flap on intermittent
+                    // pulses, and so peers stop seeing us on both
+                    // channels at the same wall-clock moment.
+                    stopBleSafely(reason = "idle for ${debounceIdleMillis}ms")
                 }
             }
+    }
+
+    /**
+     * Best-effort `bleBroadcaster.start` that swallows all exceptions
+     * with a logged warning. The broadcaster itself is supposed to fail
+     * silently (no advertise permission, no LE peripheral, etc.); this
+     * wrapper exists so a misbehaving fake in tests cannot poison the
+     * gate's mDNS path.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun startBleSafely(decision: Decision) {
+        try {
+            bleBroadcaster.start()
+            Log.w(TAG, "publish: BLE pulse advertise started (decision=$decision)")
+        } catch (t: Throwable) {
+            Log.w(TAG, "publish: BLE pulse advertise threw (decision=$decision)", t)
+        }
+    }
+
+    /**
+     * Best-effort `bleBroadcaster.stop` that swallows all exceptions.
+     * Logging mirrors [startBleSafely] so the lifecycle is greppable
+     * end-to-end.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun stopBleSafely(reason: String) {
+        try {
+            bleBroadcaster.stop()
+            Log.w(TAG, "unpublish: BLE pulse advertise stopped ($reason)")
+        } catch (t: Throwable) {
+            Log.w(TAG, "unpublish: BLE pulse advertise stop threw ($reason)", t)
+        }
     }
 
     /**
@@ -279,5 +339,49 @@ public class MdnsAdvertisementGate(
          * avoid flapping if the BLE pulse is intermittent."
          */
         public const val DEFAULT_DEBOUNCE_IDLE_MILLIS: Long = 30_000L
+    }
+}
+
+/**
+ * Sink for the receiver-side BLE pulse advertiser (#121).
+ *
+ * Lifted out of [MdnsAdvertisementGate] so the gate stays platform-
+ * neutral and so JVM unit tests can record start/stop calls without
+ * standing up an Android `BluetoothLeAdvertiser`. Production wires this
+ * to a closure that captures the gate's `BleQuickShareAdvertiser` plus
+ * the receiver's stable [EndpointInfo] / endpoint_id.
+ *
+ * Implementations must be idempotent: the gate calls [start] every time
+ * its publish decision flips back on, regardless of whether the
+ * underlying advertiser is already running.
+ */
+public interface BleVisibilityBroadcaster {
+    /**
+     * Advertise the receiver's BLE pulse. Idempotent.
+     *
+     * Failures (no permission, no peripheral mode, adapter off) are
+     * the broadcaster's responsibility to swallow — the gate logs but
+     * does not retry.
+     */
+    public fun start()
+
+    /**
+     * Stop advertising. Idempotent.
+     */
+    public fun stop()
+
+    /**
+     * No-op broadcaster used when the gate is constructed without BLE
+     * support — early test fixtures, or production paths where the
+     * `BleQuickShareAdvertiser` could not be initialised.
+     */
+    public object Noop : BleVisibilityBroadcaster {
+        override fun start() {
+            // Intentionally empty.
+        }
+
+        override fun stop() {
+            // Intentionally empty.
+        }
     }
 }
