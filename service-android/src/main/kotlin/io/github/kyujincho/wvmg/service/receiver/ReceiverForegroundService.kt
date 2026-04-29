@@ -45,8 +45,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -1076,6 +1081,46 @@ public object OutboundSessionActiveHolder {
     public fun setOutboundSessionActive(active: Boolean) {
         state.value = active
     }
+}
+
+/**
+ * Process-wide mirror of the receiver mDNS advertisement state.
+ *
+ * `SendActivity` uses this as a small synchronization point for vivo /
+ * Funtouch / OriginOS devices whose `NsdManager` can wedge a browse
+ * listener when the same process starts browsing the Quick Share service
+ * type before its own receiver-side publish has fully torn down.
+ */
+public object ReceiverAdvertisementStateHolder {
+    private val state: MutableStateFlow<Boolean> = MutableStateFlow(false)
+
+    /** Hot flow signalling whether the receiver mDNS record is active. */
+    public val advertisingFlow: StateFlow<Boolean> = state
+
+    /** Current snapshot of [advertisingFlow]. */
+    public val isAdvertising: Boolean
+        get() = state.value
+
+    /**
+     * Wait until receiver mDNS is no longer advertised, bounded so a
+     * stale state signal cannot block the sender picker indefinitely.
+     */
+    public suspend fun awaitNotAdvertising(
+        timeoutMillis: Long = DEFAULT_AWAIT_NOT_ADVERTISING_TIMEOUT_MILLIS,
+    ): Boolean {
+        if (!state.value) return true
+        return withTimeoutOrNull(timeoutMillis) {
+            advertisingFlow
+                .filter { advertising -> !advertising }
+                .first()
+        } != null
+    }
+
+    internal fun setAdvertising(active: Boolean) {
+        state.value = active
+    }
+
+    public const val DEFAULT_AWAIT_NOT_ADVERTISING_TIMEOUT_MILLIS: Long = 2_000L
 }
 
 /**
