@@ -9,6 +9,9 @@ import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumProvider
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * [MediumProvider] for [Medium.WIFI_HOTSPOT] (Wi-Fi local-only soft-AP).
@@ -85,6 +88,8 @@ public class WifiHotspotMediumProvider(
 ) : MediumProvider {
     override val medium: Medium = Medium.WIFI_HOTSPOT
 
+    private val pendingReservation: AtomicReference<HotspotReservation?> = AtomicReference(null)
+
     override fun isSupported(): Boolean = available()
 
     /**
@@ -107,13 +112,31 @@ public class WifiHotspotMediumProvider(
     @Suppress("ReturnCount") // One early return per failure mode keeps the contract readable.
     override suspend fun prepareUpgrade(): UpgradePathCredentials? {
         val ctl = controller ?: return null
+        pendingReservation.getAndSet(null)?.teardown?.invoke()
         val reservation = ctl.start() ?: return null
-        // The server socket is owned by the orchestrator from this
-        // point on; we deliberately do NOT capture it in a field
-        // because two parallel upgrade attempts would race over a
-        // single reservation slot. The orchestrator stitches the
-        // accept loop in via the framework's upgrade hook (#54).
+        pendingReservation.set(reservation)
         return reservation.credentials
+    }
+
+    @Suppress("SwallowedException")
+    override suspend fun acceptUpgrade(): UpgradedTransport? =
+        withContext(Dispatchers.IO) {
+            val reservation = pendingReservation.getAndSet(null) ?: return@withContext null
+            try {
+                WifiHotspotTransport(
+                    socket = reservation.serverSocket.accept(),
+                    teardown = reservation.teardown,
+                )
+            } catch (
+                @Suppress("TooGenericExceptionCaught") t: Throwable,
+            ) {
+                reservation.teardown()
+                null
+            }
+        }
+
+    override fun cancelPendingUpgrade() {
+        pendingReservation.getAndSet(null)?.teardown?.invoke()
     }
 
     /**

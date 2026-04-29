@@ -8,6 +8,8 @@ package io.github.kyujincho.wvmg.discovery.medium
 import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
 import java.io.Closeable
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.Socket
 
 /**
@@ -41,4 +43,15 @@ public data class WifiDirectTransport(
     val teardown: Closeable,
 ) : UpgradedTransport {
     override val medium: Medium = Medium.WIFI_DIRECT
+
+    override val inputStream: InputStream
+        get() = socket.getInputStream()
+
+    override val outputStream: OutputStream
+        get() = socket.getOutputStream()
+
+    override fun close() {
+        runCatching { socket.close() }
+        runCatching { teardown.close() }
+    }
 }

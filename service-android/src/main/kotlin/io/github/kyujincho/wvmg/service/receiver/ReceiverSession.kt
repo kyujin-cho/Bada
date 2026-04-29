@@ -8,6 +8,7 @@ package io.github.kyujincho.wvmg.service.receiver
 import io.github.kyujincho.wvmg.discovery.AdvertiseHandle
 import io.github.kyujincho.wvmg.protocol.connection.InboundConnection
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.server.InboundConnectionCompletion
 import io.github.kyujincho.wvmg.protocol.server.TcpReceiverServer
@@ -109,6 +110,7 @@ public class ReceiverSession(
     private val factoryProvider: () -> FileDestinationFactory,
     private val endpointInfo: EndpointInfo,
     private val secureRandomProvider: () -> SecureRandom = { SecureRandom() },
+    private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val advertiseGated: Boolean = false,
 ) {
     private val supervisor: Job = SupervisorJob()
@@ -185,7 +187,13 @@ public class ReceiverSession(
         val tcpServer: TcpReceiverServer
         val port: Int
         try {
-            tcpServer = tcpServerFactory.create(scope, factoryProvider, secureRandomProvider)
+            tcpServer =
+                tcpServerFactory.create(
+                    scope = scope,
+                    factoryProvider = factoryProvider,
+                    secureRandomProvider = secureRandomProvider,
+                    mediumRegistry = mediumRegistry,
+                )
             port = tcpServer.start()
             server = tcpServer
         } catch (t: Throwable) {
@@ -336,6 +344,7 @@ public interface TcpServerFactory {
         scope: CoroutineScope,
         factoryProvider: () -> FileDestinationFactory,
         secureRandomProvider: () -> SecureRandom,
+        mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     ): TcpReceiverServer
 
     public companion object {
@@ -350,11 +359,13 @@ public interface TcpServerFactory {
                     scope: CoroutineScope,
                     factoryProvider: () -> FileDestinationFactory,
                     secureRandomProvider: () -> SecureRandom,
+                    mediumRegistry: MediumRegistry,
                 ): TcpReceiverServer =
                     TcpReceiverServer(
                         parentScope = scope,
                         factoryProvider = factoryProvider,
                         secureRandomProvider = secureRandomProvider,
+                        mediumRegistry = mediumRegistry,
                     )
             }
     }

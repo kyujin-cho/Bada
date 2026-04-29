@@ -3,6 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("MissingPermission")
 @file:Suppress("MagicNumber") // Bluetooth API status codes are well-known.
 
 package io.github.kyujincho.wvmg.discovery.ble

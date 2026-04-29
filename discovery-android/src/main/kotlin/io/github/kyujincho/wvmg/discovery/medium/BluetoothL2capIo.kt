@@ -3,6 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("HardwareIds", "MissingPermission")
 @file:Suppress(
     "MagicNumber", // 6-byte MAC, 2-hex-digit octets, 16-radix, 0xFF mask are well-known.
     "ReturnCount", // Per-octet validation reads cleanest with early `null` returns.

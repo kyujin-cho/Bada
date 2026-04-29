@@ -88,6 +88,22 @@ class ConnectionRequestMediumsTest {
         assertThat(req.endpointName).isEqualTo("")
         assertThat(req.keepAliveIntervalMillis).isEqualTo(10_000)
         assertThat(req.keepAliveTimeoutMillis).isEqualTo(600_000)
+        assertThat(req.hasNonce()).isTrue()
+        assertThat(req.hasMediumMetadata()).isTrue()
+        assertThat(req.mediumMetadata.apFrequency).isEqualTo(-1)
+    }
+
+    @Test
+    fun `caller supplied nonce reaches the wire`() {
+        val frame =
+            OutboundFrames.connectionRequest(
+                endpointId = "ABCD",
+                endpointInfo = ByteArray(0),
+                nonce = 0x12345678,
+            )
+        val req = parseRequest(frame)
+        assertThat(req.hasNonce()).isTrue()
+        assertThat(req.nonce).isEqualTo(0x12345678)
     }
 
     private fun parseRequest(frame: OfflineFrame): ConnectionRequestFrame {

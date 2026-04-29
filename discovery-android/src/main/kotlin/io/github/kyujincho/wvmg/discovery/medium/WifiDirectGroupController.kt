@@ -3,6 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("MissingPermission")
 @file:Suppress("MagicNumber") // Wi-Fi Direct frequencies and timeouts are well-known constants.
 
 package io.github.kyujincho.wvmg.discovery.medium

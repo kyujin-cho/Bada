@@ -129,7 +129,7 @@ class WifiAwareMediumProviderTest {
                 val support =
                     FakeSupport(
                         available = true,
-                        adoptResult = client,
+                        adoptResult = WifiAwareSocketHandle(client) {},
                     )
                 val provider = WifiAwareMediumProvider(support)
                 val transport =
@@ -152,6 +152,43 @@ class WifiAwareMediumProviderTest {
             }
         }
 
+    @Test
+    fun `acceptUpgrade wraps support socket and transport close runs teardown`() =
+        runTest {
+            val server = ServerSocket(0)
+            val clientHolder = arrayOfNulls<Socket>(1)
+            val connectThread =
+                Thread {
+                    clientHolder[0] = Socket("127.0.0.1", server.localPort)
+                }.apply { start() }
+            val accepted = server.accept()
+            connectThread.join()
+            val client = clientHolder[0]!!
+            var teardownCalled = false
+            try {
+                val support =
+                    FakeSupport(
+                        available = true,
+                        acceptResult =
+                            WifiAwareSocketHandle(client) {
+                                teardownCalled = true
+                            },
+                    )
+                val provider = WifiAwareMediumProvider(support)
+                val transport = provider.acceptUpgrade()
+
+                assertThat(transport).isInstanceOf(WifiAwareTransport::class.java)
+                assertThat((transport as WifiAwareTransport).socket).isSameInstanceAs(client)
+
+                transport.close()
+                assertThat(teardownCalled).isTrue()
+            } finally {
+                runCatching { client.close() }
+                runCatching { accepted.close() }
+                runCatching { server.close() }
+            }
+        }
+
     /**
      * Fake [WifiAwareSupport] that records the arguments the provider
      * passes in and returns whatever the test sets.
@@ -159,7 +196,8 @@ class WifiAwareMediumProviderTest {
     private class FakeSupport(
         private val available: Boolean = true,
         private val prepareResult: UpgradePathCredentials.WifiAware? = null,
-        private val adoptResult: Socket? = null,
+        private val adoptResult: WifiAwareSocketHandle? = null,
+        private val acceptResult: WifiAwareSocketHandle? = null,
     ) : WifiAwareSupport {
         var lastGeneratedPassphrase: String? = null
             private set
@@ -171,6 +209,9 @@ class WifiAwareMediumProviderTest {
             return prepareResult
         }
 
-        override suspend fun adoptUpgrade(credentials: UpgradePathCredentials.WifiAware): Socket? = adoptResult
+        override suspend fun adoptUpgrade(credentials: UpgradePathCredentials.WifiAware): WifiAwareSocketHandle? =
+            adoptResult
+
+        override suspend fun acceptUpgrade(): WifiAwareSocketHandle? = acceptResult
     }
 }

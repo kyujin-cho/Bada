@@ -10,6 +10,7 @@ import io.github.kyujincho.wvmg.discovery.AdvertiseHandle
 import io.github.kyujincho.wvmg.discovery.ble.ScanActivity
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.payload.TempFileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.server.TcpReceiverServer
@@ -466,7 +467,7 @@ class MdnsAdvertisementGateTest {
             // startBleSafely so the gate's mDNS publish path is unaffected.
             val throwingBroadcaster =
                 object : BleVisibilityBroadcaster {
-                    override fun start() = error("synthetic BLE advertise failure")
+                    override fun start(): Boolean = error("synthetic BLE advertise failure")
 
                     override fun stop() = Unit
                 }
@@ -511,11 +512,13 @@ class MdnsAdvertisementGateTest {
                             scope: CoroutineScope,
                             factoryProvider: () -> FileDestinationFactory,
                             secureRandomProvider: () -> SecureRandom,
+                            mediumRegistry: MediumRegistry,
                         ): TcpReceiverServer =
                             TcpReceiverServer(
                                 parentScope = scope,
                                 factoryProvider = factoryProvider,
                                 secureRandomProvider = secureRandomProvider,
+                                mediumRegistry = mediumRegistry,
                                 bindAddress = InetAddress.getLoopbackAddress(),
                             )
                     },
@@ -579,8 +582,9 @@ class MdnsAdvertisementGateTest {
         var stopCount: Int = 0
             private set
 
-        override fun start() {
+        override fun start(): Boolean {
             startCount += 1
+            return true
         }
 
         override fun stop() {

@@ -3,6 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("MissingPermission")
 @file:Suppress("MagicNumber") // Wi-Fi reason codes and well-known subnet octets are spec values.
 
 package io.github.kyujincho.wvmg.discovery.wifi.hotspot

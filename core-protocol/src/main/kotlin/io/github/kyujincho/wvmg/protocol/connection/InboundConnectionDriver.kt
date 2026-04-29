@@ -25,6 +25,7 @@ import io.github.kyujincho.wvmg.protocol.sharing.SharingFrameType
 import io.github.kyujincho.wvmg.protocol.sharing.SharingFrames
 import io.github.kyujincho.wvmg.protocol.sharing.SharingFsmEffect
 import io.github.kyujincho.wvmg.protocol.sharing.SharingFsmEvent
+import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
 import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2Server
@@ -36,7 +37,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
-import java.net.Socket
 import java.security.SecureRandom
 
 /**
@@ -62,10 +62,11 @@ import java.security.SecureRandom
     "LongParameterList", // Constructor takes the connection's collaborators verbatim.
 )
 internal class InboundConnectionDriver(
-    private val socket: Socket,
+    private val transport: ConnectedTransport,
     private val secureRandom: SecureRandom,
     private val externalEvents: Channel<ExternalEvent>,
     private val mutableState: MutableStateFlow<InboundConnectionState>,
+    private val mutableActiveMedium: MutableStateFlow<Medium>,
     private val factory: FileDestinationFactory,
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
@@ -156,10 +157,11 @@ internal class InboundConnectionDriver(
      */
     suspend fun runLifecycle(): InboundResult {
         mutableState.value = InboundConnectionState.Handshaking
-        val transport = FramedConnection(socket).also { framedConnection = it }
+        mutableActiveMedium.value = transport.medium
+        val framedTransport = FramedConnection(transport).also { framedConnection = it }
 
         // Step 1: read the unencrypted ConnectionRequest from the peer.
-        val initialFrame = readOfflineFrameUnencrypted(transport)
+        val initialFrame = readOfflineFrameUnencrypted(framedTransport)
         check(initialFrame.isConnectionRequest()) {
             "First frame must be ConnectionRequest, got ${initialFrame.v1.type}"
         }
@@ -192,13 +194,13 @@ internal class InboundConnectionDriver(
         chosenUpgradeMedium = chosen?.takeIf { it != Medium.WIFI_LAN }
 
         // Step 2: UKEY2 server handshake.
-        val handshake = Ukey2Server.performHandshake(transport, secureRandom)
+        val handshake = Ukey2Server.performHandshake(framedTransport, secureRandom)
 
         // Step 3: send unencrypted ConnectionResponse{ACCEPT}.
-        transport.sendFrame(OfflineFrames.connectionResponse().toByteArray())
+        framedTransport.sendFrame(OfflineFrames.connectionResponse().toByteArray())
 
         // Step 4: read peer's unencrypted ConnectionResponse.
-        val peerResponse = readOfflineFrameUnencrypted(transport)
+        val peerResponse = readOfflineFrameUnencrypted(framedTransport)
         check(peerResponse.isConnectionResponse()) {
             "Expected ConnectionResponse, got ${peerResponse.v1.type}"
         }
@@ -216,12 +218,29 @@ internal class InboundConnectionDriver(
         pin = PinDerivation.deriveFourDigitPin(sessionKeys.authString)
 
         // Step 6: SecureChannel takes over.
-        val channel = SecureChannel(transport, sessionKeys, secureRandom).also { secureChannel = it }
+        val channel = SecureChannel(framedTransport, sessionKeys, secureRandom).also { secureChannel = it }
 
-        // Step 7-9: drive the negotiation FSM through to consent.
+        // Step 7: as the Nearby Connections server role, offer the best
+        // prepared upgrade medium before the Nearby Share payload
+        // negotiation starts. On any prepare/adopt/accept failure the
+        // orchestrator returns the original Wi-Fi LAN channel.
+        val activeTransport =
+            BandwidthUpgradeOrchestrator
+                .runServerUpgradeIfAvailable(
+                    oldChannel = channel,
+                    currentMedium = transport.medium,
+                    mediumRegistry = mediumRegistry,
+                    peerSupportedMediums = peerSupportedMediums,
+                    peerEndpointId = initialFrame.v1.connectionRequest.endpointId,
+                    logger = {},
+                )
+        val activeChannel = activeTransport.channel.also { secureChannel = it }
+        mutableActiveMedium.value = activeTransport.medium
+
+        // Step 8-10: drive the negotiation FSM through to consent.
         mutableState.value = InboundConnectionState.Negotiating
         val negotiationFsm = InboundSharingFsm(secureRandom = secureRandom).also { fsm = it }
-        applyEffects(channel, negotiationFsm.start())
+        applyEffects(activeChannel, negotiationFsm.start())
 
         // Mark the handshake as complete so a racing UI-side cancel()
         // takes the cooperative FSM path (CANCEL + DISCONNECTION on the
@@ -230,7 +249,7 @@ internal class InboundConnectionDriver(
         // point on.
         onHandshakeComplete()
 
-        return runReceiveLoop(channel, negotiationFsm)
+        return runReceiveLoop(activeChannel, negotiationFsm)
     }
 
     /**
@@ -250,7 +269,7 @@ internal class InboundConnectionDriver(
     fun tearDown() {
         runCatching { secureChannel?.close() }
         runCatching { framedConnection?.close() }
-        runCatching { socket.close() }
+        runCatching { transport.close() }
         runCatching { assembler.reset() }
         // Best-effort drop every reserved-but-not-committed destination.
         // For factories without commit semantics (TempFile, in-memory)
@@ -279,23 +298,39 @@ internal class InboundConnectionDriver(
             // without bound by spamming small frames.
             val wireChannel: Channel<WireMessage> = Channel(Channel.RENDEZVOUS)
             val pumpJob: Job = launch { runInboundPump(channel, wireChannel) }
+            val keepAliveJob: Job = launch { runKeepAliveTicker(channel) }
             try {
                 dispatchLoop(channel, fsm, wireChannel)
             } finally {
-                // Close the socket BEFORE cancelAndJoin: the pump is parked
+                keepAliveJob.cancelAndJoin()
+                // Close the active channel BEFORE cancelAndJoin: the pump is parked
                 // in SecureChannel.receiveOfflineFrame()'s blocking Socket
                 // read under withContext(Dispatchers.IO), which does NOT
                 // honour coroutine cancellation while parked in a syscall.
-                // Closing the socket throws SocketException out of the read
-                // so the pump exits and cancelAndJoin can complete. Any
-                // final writes (e.g. Disconnection from the Cancelled-state
-                // path in terminalResultFromState) must run BEFORE the
-                // dispatchLoop returns — by the time we reach this finally
-                // there are no more outbound writes pending.
-                runCatching { socket.close() }
+                // Closing the channel breaks that read even after a
+                // bandwidth upgrade swaps the wire from the original TCP
+                // socket to a provider-owned transport. Any final writes
+                // (e.g. Disconnection from the Cancelled-state path in
+                // terminalResultFromState) must run BEFORE the dispatchLoop
+                // returns — by the time we reach this finally there are no
+                // more outbound writes pending.
+                runCatching { channel.close() }
+                runCatching { transport.close() }
                 pumpJob.cancelAndJoin()
             }
         }
+
+    /**
+     * Receiver-side KEEP_ALIVE ticker. Stock Android expects both peers
+     * to emit keep-alives after the secure channel is established; without
+     * this, long Galaxy -> WVMG transfers can be cancelled by the sender
+     * even while FILE payload chunks are still flowing.
+     */
+    private suspend fun runKeepAliveTicker(channel: SecureChannel) {
+        KeepAliveTicker.run(
+            send = channel::sendOfflineFrame,
+        )
+    }
 
     /**
      * Inbound pump. Reads frames from the [SecureChannel] in a loop and

@@ -58,6 +58,14 @@ public class Discovery internal constructor(
     private val browser: NsdBrowser,
     private val networkWatcherFactory: NetworkWatcherFactory = NetworkWatcherFactory.NoOp,
     /**
+     * Optional source for a stable 4-byte endpoint id shared with another
+     * discovery medium, currently the receiver-side BLE fast advertisement.
+     * When present, mDNS instance-name generation uses this id instead of
+     * drawing an independent random slug, so stock peers can correlate the
+     * BLE and mDNS sightings to one endpoint.
+     */
+    private val instanceEndpointIdProvider: (() -> ByteArray?)? = null,
+    /**
      * When `true`, the browse path drops any record whose mDNS instance
      * name matches one currently advertised by this process — that is,
      * the multicast-loopback echo of our own publish. Disabled in
@@ -76,6 +84,20 @@ public class Discovery internal constructor(
         registrar = AndroidNsdRegistrar(systemNsdManager(context)),
         browser = AndroidNsdBrowser(systemNsdManager(context)),
         networkWatcherFactory = AndroidNetworkWatcherFactory(context.applicationContext),
+    )
+
+    /**
+     * Production constructor variant for callers that need mDNS to reuse
+     * an endpoint id already advertised on another medium.
+     */
+    public constructor(
+        context: Context,
+        instanceEndpointIdProvider: () -> ByteArray?,
+    ) : this(
+        registrar = AndroidNsdRegistrar(systemNsdManager(context)),
+        browser = AndroidNsdBrowser(systemNsdManager(context)),
+        networkWatcherFactory = AndroidNetworkWatcherFactory(context.applicationContext),
+        instanceEndpointIdProvider = instanceEndpointIdProvider,
     )
 
     /**
@@ -100,7 +122,8 @@ public class Discovery internal constructor(
      * a Galaxy peer to log `EndpointParsingFailure` and drop us from
      * the picker even though our service was visible at the NSD layer.
      * The instance name is generated freshly on every call via
-     * [InstanceName.generate].
+     * [InstanceName.generate], optionally reusing a caller-supplied
+     * endpoint id so BLE and mDNS can describe the same peer.
      *
      * Implementation notes:
      *  - The synchronous publish happens through `NsdManager.registerService`,
@@ -122,7 +145,13 @@ public class Discovery internal constructor(
         require(port in 1..MAX_PORT) {
             "port must be in 1..$MAX_PORT (TCP), got $port"
         }
-        val instanceName = InstanceName.generate()
+        val instanceEndpointId = instanceEndpointIdProvider?.invoke()
+        val instanceName =
+            if (instanceEndpointId != null) {
+                InstanceName.generate(instanceEndpointId)
+            } else {
+                InstanceName.generate()
+            }
         // GMS Nearby's WifiLanServiceInfo (google/nearby
         // `wifi_lan_service_info.cc`) calls `Base64Utils::Decode` on the
         // TXT `n` value before parsing. We therefore publish the
@@ -134,7 +163,11 @@ public class Discovery internal constructor(
             Base64Url.encode(endpointInfo.serialize()).toByteArray(Charsets.US_ASCII)
         val attributes = mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to encodedEndpointInfo)
 
-        Log.i(TAG, "advertise: starting publish instance=$instanceName port=$port")
+        Log.i(
+            TAG,
+            "advertise: starting publish instance=$instanceName " +
+                "endpointId=${instanceEndpointId?.toAsciiLabel() ?: "-"} port=$port",
+        )
 
         return try {
             val handle =
@@ -426,18 +459,22 @@ public class Discovery internal constructor(
             browser: NsdBrowser,
             networkWatcherFactory: NetworkWatcherFactory = NetworkWatcherFactory.NoOp,
             filterSelfPublishedInstances: Boolean = false,
+            instanceEndpointIdProvider: (() -> ByteArray?)? = null,
         ): Discovery =
             Discovery(
                 registrar = registrar,
                 browser = browser,
                 networkWatcherFactory = networkWatcherFactory,
                 filterSelfPublishedInstances = filterSelfPublishedInstances,
+                instanceEndpointIdProvider = instanceEndpointIdProvider,
             )
 
         private fun systemNsdManager(context: Context): NsdManager =
             context.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
     }
 }
+
+private fun ByteArray.toAsciiLabel(): String = String(this, Charsets.US_ASCII)
 
 /**
  * Aggregated registration request consumed by [NsdAdvertiseHandle].

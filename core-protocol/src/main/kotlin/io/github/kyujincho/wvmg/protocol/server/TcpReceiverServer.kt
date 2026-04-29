@@ -7,7 +7,10 @@ package io.github.kyujincho.wvmg.protocol.server
 
 import io.github.kyujincho.wvmg.protocol.connection.InboundConnection
 import io.github.kyujincho.wvmg.protocol.connection.InboundResult
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
+import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
+import io.github.kyujincho.wvmg.protocol.transport.asConnectedTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -118,8 +121,33 @@ public class TcpReceiverServer(
     private val parentScope: CoroutineScope,
     private val factoryProvider: () -> FileDestinationFactory,
     private val secureRandomProvider: () -> SecureRandom = { SecureRandom() },
+    private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val bindAddress: InetAddress? = null,
 ) {
+    /**
+     * Per-connection [Mutex] table. A single Quick Share connection is
+     * inherently single-threaded on the wire (the sequence-number
+     * invariant from #1.9 forbids concurrent sends), but we still
+     * defensively guard the `InboundConnection.run` invocation with a
+     * [Mutex] so a future caller cannot accidentally invoke `run` twice
+     * on the same connection from two different coroutines.
+     *
+     * The map is keyed by the connection id (monotonic counter) and
+     * cleaned up when the connection coroutine completes.
+     */
+    private val connectionMutexes: MutableMap<Long, Mutex> = mutableMapOf()
+
+    /**
+     * Live client transports, keyed by connection id. We track these so
+     * [stop] can eagerly close them: the receive path inside
+     * [InboundConnection] uses `withContext(Dispatchers.IO)` for blocking
+     * reads, which is **not** auto-interruptible on coroutine
+     * cancellation. Closing the underlying transport is the only reliable
+     * way to unblock a thread parked in `read()`.
+     */
+    private val activeTransports: MutableMap<Long, ConnectedTransport> = mutableMapOf()
+    private val connectionMutexesLock = Any()
+
     /**
      * Per-server supervisor scope. Every connection coroutine and the
      * accept loop are children of this scope; [stop] cancels it.
@@ -144,8 +172,8 @@ public class TcpReceiverServer(
                 runCatching { serverSocket?.close() }
                 val inFlight =
                     synchronized(connectionMutexesLock) {
-                        val snapshot = activeSockets.values.toList()
-                        activeSockets.clear()
+                        val snapshot = activeTransports.values.toList()
+                        activeTransports.clear()
                         snapshot
                     }
                 inFlight.forEach { runCatching { it.close() } }
@@ -213,32 +241,6 @@ public class TcpReceiverServer(
      * [results].
      */
     private val connectionCounter = AtomicLong(0)
-
-    /**
-     * Per-connection [Mutex] table. A single Quick Share connection is
-     * inherently single-threaded on the wire (the sequence-number
-     * invariant from #1.9 forbids concurrent sends), but we still
-     * defensively guard the `InboundConnection.run` invocation with a
-     * [Mutex] so a future caller cannot accidentally invoke `run` twice
-     * on the same connection from two different coroutines.
-     *
-     * The map is keyed by the connection id (monotonic counter) and
-     * cleaned up when the connection coroutine completes.
-     */
-    private val connectionMutexes: MutableMap<Long, Mutex> = mutableMapOf()
-
-    /**
-     * Live client sockets, keyed by connection id. We track these so
-     * [stop] can eagerly close them: the receive path inside
-     * [InboundConnection] uses `withContext(Dispatchers.IO)` for blocking
-     * reads, which is **not** auto-interruptible on coroutine
-     * cancellation. Closing the underlying socket is the only reliable
-     * way to unblock a thread parked in `read()`. Without this,
-     * `supervisor.cancelAndJoin()` would deadlock until the peer
-     * eventually closes its end.
-     */
-    private val activeSockets: MutableMap<Long, Socket> = mutableMapOf()
-    private val connectionMutexesLock = Any()
 
     private val mutableResults: MutableSharedFlow<InboundConnectionCompletion> =
         MutableSharedFlow(replay = 0, extraBufferCapacity = RESULTS_BUFFER)
@@ -346,13 +348,13 @@ public class TcpReceiverServer(
             // the read, which propagates through InboundConnection.run as
             // an InboundResult.Failed and unblocks the coroutine so
             // cancelAndJoin can complete.
-            val socketsToClose: List<Socket> =
+            val transportsToClose: List<ConnectedTransport> =
                 synchronized(connectionMutexesLock) {
-                    val snapshot = activeSockets.values.toList()
-                    activeSockets.clear()
+                    val snapshot = activeTransports.values.toList()
+                    activeTransports.clear()
                     snapshot
                 }
-            socketsToClose.forEach { runCatching { it.close() } }
+            transportsToClose.forEach { runCatching { it.close() } }
 
             // Cancel everything under the supervisor and join. Cancelling
             // the supervisor propagates to the accept loop and to every
@@ -413,8 +415,23 @@ public class TcpReceiverServer(
             // Failure to set it is non-fatal -- log-and-continue.
             runCatching { client.tcpNoDelay = true }
 
-            launchConnection(client)
+            acceptConnectedTransport(client.asConnectedTransport())
         }
+    }
+
+    /**
+     * Inject an already-connected non-TCP initial control transport into the
+     * same inbound protocol stack used by the LAN listener.
+     *
+     * Ownership transfers to the server on success. If the server is already
+     * stopping, the transport is closed immediately and ignored.
+     */
+    public fun acceptConnectedTransport(transport: ConnectedTransport) {
+        if (stopped) {
+            runCatching { transport.close() }
+            return
+        }
+        launchConnection(transport)
     }
 
     /**
@@ -423,15 +440,20 @@ public class TcpReceiverServer(
      * runs under a per-connection [Mutex] (defense-in-depth against
      * accidental concurrent `run`).
      */
-    private fun launchConnection(client: Socket) {
+    private fun launchConnection(transport: ConnectedTransport) {
         val connectionId = connectionCounter.incrementAndGet()
         val mutex = Mutex()
         synchronized(connectionMutexesLock) {
             connectionMutexes[connectionId] = mutex
-            activeSockets[connectionId] = client
+            activeTransports[connectionId] = transport
         }
 
-        val inbound = InboundConnection(socket = client, secureRandom = secureRandomProvider())
+        val inbound =
+            InboundConnection(
+                transport = transport,
+                secureRandom = secureRandomProvider(),
+                mediumRegistry = mediumRegistry,
+            )
 
         internalScope.launch {
             // Emit the active connection BEFORE invoking run() so
@@ -449,7 +471,7 @@ public class TcpReceiverServer(
                     // was externally cancelled. Make sure the socket is
                     // closed even though InboundConnection.run already
                     // does this in its finally block -- belt and braces.
-                    runCatching { client.close() }
+                    runCatching { transport.close() }
                     throw cancel
                 } catch (
                     @Suppress("TooGenericExceptionCaught") e: Throwable,
@@ -461,13 +483,13 @@ public class TcpReceiverServer(
                     // supervisor (it would not cancel siblings, but
                     // would leak as an UnhandledCoroutineExceptionHandler
                     // log).
-                    runCatching { client.close() }
+                    runCatching { transport.close() }
                     @Suppress("UnsafeCallOnNullableType")
                     InboundResult.Failed("Unexpected ${e::class.simpleName}: ${e.message ?: ""}")
                 } finally {
                     synchronized(connectionMutexesLock) {
                         connectionMutexes.remove(connectionId)
-                        activeSockets.remove(connectionId)
+                        activeTransports.remove(connectionId)
                     }
                 }
 

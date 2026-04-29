@@ -9,8 +9,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
-import java.nio.file.FileAlreadyExistsException
-import java.nio.file.Files
 
 /**
  * Legacy (`API 24-28`) implementation of [DownloadsEnvironment].
@@ -82,16 +80,16 @@ internal class LegacyDownloadsEnvironment(
         // AFTER any extension. On commit we strip exactly this suffix
         // to recover the visible filename.
         val partFile = File(targetDir, "$displayName$PART_SUFFIX")
-        // Use Files.createFile so a colliding `.part` file (i.e. a
-        // crashed previous transfer that we never cleaned up) raises
-        // FileAlreadyExistsException. The DownloadsWriter retries on
-        // that exception with a `(1)`, `(2)`, ... suffix on the
-        // VISIBLE name -- the partFile derived from the suffixed
-        // visible name is itself unique.
+        // createNewFile atomically returns false when a colliding `.part`
+        // file exists (i.e. a crashed previous transfer that we never
+        // cleaned up). The DownloadsWriter retries that condition with a
+        // `(1)`, `(2)`, ... suffix on the VISIBLE name -- the partFile
+        // derived from the suffixed visible name is itself unique.
         try {
-            Files.createFile(partFile.toPath())
-        } catch (e: FileAlreadyExistsException) {
-            // Re-throw unchanged; DownloadsWriter listens for this.
+            if (!partFile.createNewFile()) {
+                throw DownloadFileAlreadyExistsException(partFile.absolutePath)
+            }
+        } catch (e: DownloadFileAlreadyExistsException) {
             throw e
         } catch (e: IOException) {
             throw IOException(
@@ -183,3 +181,7 @@ internal class LegacyDownloadsEnvironment(
         const val PART_SUFFIX: String = ".part"
     }
 }
+
+internal class DownloadFileAlreadyExistsException(
+    path: String,
+) : IOException(path)

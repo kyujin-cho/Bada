@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.ConnectionRequestFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.ConnectionResponseFrame
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OsInfo
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
@@ -47,11 +48,15 @@ internal object OutboundFrames {
      *   [io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo]
      *   describing the sender. May be empty when the sender does not
      *   wish to be identified by name.
+     * @param nonce Opening-request tie-breaker field. Stock Nearby
+     *   always sets this field; callers that do not need simultaneous
+     *   connection tie-breaking may use the deterministic default.
      */
     fun connectionRequest(
         endpointId: String,
         endpointInfo: ByteArray,
         supportedMediums: Set<Medium> = setOf(Medium.WIFI_LAN),
+        nonce: Int = 0,
     ): OfflineFrame {
         // Match NearDrop's ConnectionRequestFrame shape. Stock Quick Share
         // closes the socket immediately if these fields are absent — only
@@ -89,6 +94,8 @@ internal object OutboundFrames {
                 .setEndpointId(endpointId)
                 .setEndpointName("")
                 .setEndpointInfo(ByteString.copyFrom(endpointInfo))
+                .setNonce(nonce)
+                .setMediumMetadata(defaultMediumMetadata())
                 .setKeepAliveIntervalMillis(KEEP_ALIVE_INTERVAL_MILLIS)
                 .setKeepAliveTimeoutMillis(KEEP_ALIVE_TIMEOUT_MILLIS)
         for (m in mediumProtoValues) builder.addMediums(m)
@@ -130,6 +137,24 @@ internal object OutboundFrames {
      * links.
      */
     private const val KEEP_ALIVE_TIMEOUT_MILLIS: Int = 600_000
+
+    /**
+     * Minimal stock-shaped medium metadata for the opening request.
+     *
+     * Android's public Nearby stack always includes this sub-message on
+     * `ConnectionRequestFrame`; richer Android-only callers can thread
+     * precise AP/BSSID/channel data later, but setting the sub-message
+     * here keeps the field-shape compatible without introducing
+     * `android.*` dependencies into `:core-protocol`.
+     */
+    private fun defaultMediumMetadata(): MediumMetadata =
+        MediumMetadata
+            .newBuilder()
+            .setSupports5Ghz(false)
+            .setSupports6Ghz(false)
+            .setMobileRadio(false)
+            .setApFrequency(-1)
+            .build()
 
     /** Legacy `status` field value for "STATUS_OK". 0 in the proto enum. */
     private const val STATUS_OK: Int = 0

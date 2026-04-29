@@ -9,6 +9,7 @@ import com.google.common.truth.Truth.assertThat
 import io.github.kyujincho.wvmg.discovery.AdvertiseHandle
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.payload.TempFileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.server.TcpReceiverServer
@@ -174,6 +175,7 @@ class ReceiverSessionTest {
                     scope: CoroutineScope,
                     factoryProvider: () -> FileDestinationFactory,
                     secureRandomProvider: () -> SecureRandom,
+                    mediumRegistry: MediumRegistry,
                 ): TcpReceiverServer = throw java.io.IOException("simulated tcp factory failure")
             }
         val session =
@@ -344,11 +346,13 @@ class ReceiverSessionTest {
                         scope: CoroutineScope,
                         factoryProvider: () -> FileDestinationFactory,
                         secureRandomProvider: () -> SecureRandom,
+                        mediumRegistry: MediumRegistry,
                     ): TcpReceiverServer =
                         TcpReceiverServer(
                             parentScope = scope,
                             factoryProvider = factoryProvider,
                             secureRandomProvider = secureRandomProvider,
+                            mediumRegistry = mediumRegistry,
                             bindAddress = InetAddress.getLoopbackAddress(),
                         )
                 },
