@@ -3,6 +3,8 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("MissingPermission")
+
 package io.github.kyujincho.wvmg.service.receiver
 
 import android.app.Service
@@ -25,6 +27,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareAdvertiser
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareScanner
+import io.github.kyujincho.wvmg.discovery.bootstrap.BluetoothClassicBootstrapServer
+import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.downloads.DownloadsWriterFactory
@@ -41,8 +45,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -432,11 +441,11 @@ public class ReceiverForegroundService : Service() {
      * receiver's stable [EndpointInfo] and a process-stable 4-byte
      * endpoint_id slug.
      *
-     * The endpoint_id we feed into BLE is intentionally **independent**
-     * of the per-publish mDNS instance name slug — that one is rotated
-     * on every `Discovery.advertise` call. For #121 we only need a
-     * valid 4-byte ASCII slug; future work can align the two so a
-     * single peer's BLE pulse and mDNS service-info report the same id.
+     * The endpoint_id we feed into BLE is the same process-stable slug
+     * that production `Discovery` uses for the mDNS instance name.
+     * Stock Nearby Connections discovery dedupes cross-medium sightings
+     * by this id, so the receiver must not advertise one id over BLE
+     * and another via mDNS.
      *
      * Returns [BleVisibilityBroadcaster.Noop] if [bleAdvertiser] is
      * `null` (the service is between start/stop, or no advertiser was
@@ -452,12 +461,12 @@ public class ReceiverForegroundService : Service() {
             EndpointIdentityHolder.snapshot.get() ?: return BleVisibilityBroadcaster.Noop
         val endpointId = BleEndpointIdHolder.bytes
         return object : BleVisibilityBroadcaster {
-            override fun start() {
+            override fun start(): Boolean {
                 // BleQuickShareAdvertiser.start re-uses the existing
                 // platform registration when the identity is unchanged,
                 // so re-issuing start() while already advertising is
                 // effectively a no-op.
-                advertiser.start(endpointInfo, endpointId)
+                return advertiser.start(endpointInfo, endpointId)
             }
 
             override fun stop() {
@@ -802,16 +811,31 @@ public class ReceiverForegroundService : Service() {
                 // Keep one Discovery per session so the periodic
                 // diagnostic snapshot in [startReceiverSession] reflects
                 // the same instance the advertise lambda is using.
-                val discovery = Discovery(context)
+                val discovery =
+                    Discovery(
+                        context = context,
+                        instanceEndpointIdProvider = { BleEndpointIdHolder.bytes.copyOf() },
+                    )
                 ActiveDiscoveryHolder.set(discovery)
                 ReceiverSession(
-                    tcpServerFactory = TcpServerFactory.default(),
+                    tcpServerFactory =
+                        TcpServerFactory.default(
+                            logger = { line -> logInboundDiagnostic(context.applicationContext, line) },
+                        ),
                     advertiser =
                         DiscoveryAdvertiser { endpointInfo, port ->
                             discovery.advertise(endpointInfo, port)
                         },
                     factoryProvider = { DownloadsWriterFactory.create(context) },
                     endpointInfo = identity,
+                    mediumRegistry = MediumRegistries.defaultForContext(context.applicationContext),
+                    initialControlServers =
+                        listOf(
+                            BluetoothClassicBootstrapServer(
+                                context = context.applicationContext,
+                                endpointIdProvider = { BleEndpointIdHolder.bytes.copyOf() },
+                            ),
+                        ),
                     // Issue #34: defer mDNS publish to the
                     // [MdnsAdvertisementGate] so we only advertise while
                     // a sender BLE pulse is active (or the user has
@@ -897,6 +921,18 @@ public class ReceiverForegroundService : Service() {
                 deviceName = applicationLabel,
                 tlvRecords = emptyList(),
             )
+        }
+
+        private fun logInboundDiagnostic(
+            context: Context,
+            line: String,
+        ) {
+            Log.e(INBOUND_DIAG_TAG, line)
+            runCatching {
+                val dir = context.getExternalFilesDir(null) ?: return
+                val file = java.io.File(dir, "wvmg-inbound.log")
+                file.appendText("${System.currentTimeMillis()} $line\n")
+            }
         }
 
         private const val DEFAULT_DEVICE_NAME = "Quick Share"
@@ -1063,6 +1099,46 @@ public object OutboundSessionActiveHolder {
 }
 
 /**
+ * Process-wide mirror of the receiver mDNS advertisement state.
+ *
+ * `SendActivity` uses this as a small synchronization point for vivo /
+ * Funtouch / OriginOS devices whose `NsdManager` can wedge a browse
+ * listener when the same process starts browsing the Quick Share service
+ * type before its own receiver-side publish has fully torn down.
+ */
+public object ReceiverAdvertisementStateHolder {
+    private val state: MutableStateFlow<Boolean> = MutableStateFlow(false)
+
+    /** Hot flow signalling whether the receiver mDNS record is active. */
+    public val advertisingFlow: StateFlow<Boolean> = state
+
+    /** Current snapshot of [advertisingFlow]. */
+    public val isAdvertising: Boolean
+        get() = state.value
+
+    /**
+     * Wait until receiver mDNS is no longer advertised, bounded so a
+     * stale state signal cannot block the sender picker indefinitely.
+     */
+    public suspend fun awaitNotAdvertising(
+        timeoutMillis: Long = DEFAULT_AWAIT_NOT_ADVERTISING_TIMEOUT_MILLIS,
+    ): Boolean {
+        if (!state.value) return true
+        return withTimeoutOrNull(timeoutMillis) {
+            advertisingFlow
+                .filter { advertising -> !advertising }
+                .first()
+        } != null
+    }
+
+    internal fun setAdvertising(active: Boolean) {
+        state.value = active
+    }
+
+    public const val DEFAULT_AWAIT_NOT_ADVERTISING_TIMEOUT_MILLIS: Long = 2_000L
+}
+
+/**
  * Process-wide holder for the active [Discovery] instance. The
  * receiver session factory stashes its [Discovery] here so the service
  * body's diagnostic-snapshot loop can read it without expanding the
@@ -1095,11 +1171,9 @@ internal object ActiveDiscoveryHolder {
  * every restart would make the same physical device look like a fresh
  * peer to neighbors.
  *
- * The mDNS instance name is currently regenerated on every
- * `Discovery.advertise` call and therefore drifts independently — that
- * is a known follow-up. For #121 the only acceptance criterion is "BLE
- * pulses carry a valid 4-byte ASCII endpoint_id," which this holder
- * satisfies on its own.
+ * Production `Discovery` is configured to reuse this slug inside every
+ * mDNS instance name, so BLE fast advertisements and mDNS service
+ * records identify the same endpoint.
  */
 internal object BleEndpointIdHolder {
     /**

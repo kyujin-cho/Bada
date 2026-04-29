@@ -40,6 +40,9 @@ junitJupiter = "5.11.3"
 truth = "1.4.4"
 androidxJunit = "1.2.1"
 androidxEspresso = "3.6.1"
+androidxTestRunner = "1.6.2"
+robolectric = "4.16.1"
+robolectricAndroidAll = "15-robolectric-12650502"
 
 # Static analysis
 ktlintPlugin = "12.1.2"
@@ -82,9 +85,13 @@ junit4 = { module = "junit:junit", version.ref = "junit4" }
 junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junitJupiter" }
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junitJupiter" }
 junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junitJupiter" }
+junit-vintage-engine = { module = "org.junit.vintage:junit-vintage-engine", version.ref = "junitJupiter" }
 truth = { module = "com.google.truth:truth", version.ref = "truth" }
 androidx-test-junit = { module = "androidx.test.ext:junit", version.ref = "androidxJunit" }
 androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidxEspresso" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+robolectric-android-all = { module = "org.robolectric:android-all", version.ref = "robolectricAndroidAll" }
 
 # Detekt formatting plugin (loadable into detekt's plugin classpath)
 detekt-formatting = { module = "io.gitlab.arturbosch.detekt:detekt-formatting", version.ref = "detekt" }

@@ -194,6 +194,7 @@ public object BandwidthUpgradeFrames {
      * a credentials shape this module does not yet know how to parse —
      * Phase 4 sub-issues add new arms here as they land.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     public fun decodeCredentials(info: UpgradePathInfo): UpgradePathCredentials? {
         val medium = Medium.fromUpgradePathMedium(info.medium) ?: return null
         return when (medium) {
@@ -415,6 +416,7 @@ public object BandwidthUpgradeFrames {
      * Encode a credentials value into [UpgradePathInfo]. Inverse of
      * [decodeCredentials]; same per-medium switch shape.
      */
+    @Suppress("LongMethod")
     private fun encodeCredentials(credentials: UpgradePathCredentials): UpgradePathInfo {
         // BLE_L2CAP cannot ride on UpgradePathInfo.medium directly (the
         // proto reserves wire 10), so we encode it via the BLUETOOTH

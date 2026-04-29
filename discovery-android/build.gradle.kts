@@ -40,6 +40,7 @@ android {
 
     testOptions {
         unitTests {
+            isIncludeAndroidResources = true
             // The discovery code calls `android.util.Log.i(...)` for the
             // structured diagnostics added in #83. Without
             // `returnDefaultValues = true` the AGP unit-test runtime
@@ -62,18 +63,59 @@ dependencies {
 
     // Junit Jupiter is the project-wide test runtime; align with
     // :core-protocol so all unit tests run under the same engine.
+    testImplementation(libs.junit4)
     testImplementation(libs.junit.jupiter.api)
     testImplementation(libs.junit.jupiter.params)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
     testRuntimeOnly(libs.junit.jupiter.engine)
+    testRuntimeOnly(libs.junit.vintage.engine)
 
     androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.truth)
 }
 
-// Run JVM unit tests with the Jupiter engine so test discovery works
-// without per-class @RunWith annotations.
+afterEvaluate {
+    val debugUnitTest = tasks.named<Test>("testDebugUnitTest")
+    val robolectricAndroidAllClasspath =
+        configurations.detachedConfiguration(
+            dependencies.create(
+                libs.robolectric.android.all
+                    .get(),
+            ),
+        )
+    val robolectricDebugUnitTest =
+        tasks.register<Test>("robolectricDebugUnitTest") {
+            val debugClasspath =
+                debugUnitTest
+                    .get()
+                    .classpath
+                    .filter { file -> !file.name.startsWith("mockable-android") }
+            description = "Runs Robolectric JUnit4 integration tests for discovery-android."
+            group = "verification"
+            testClassesDirs = debugUnitTest.get().testClassesDirs
+            classpath = files(robolectricAndroidAllClasspath) + debugClasspath
+            include("**/AndroidNsdRobolectricTest.class")
+            shouldRunAfter(debugUnitTest)
+        }
+
+    debugUnitTest.configure {
+        finalizedBy(robolectricDebugUnitTest)
+    }
+}
+
+// Run regular JVM unit tests with the Jupiter engine so test discovery
+// works without per-class @RunWith annotations. Robolectric tests use the
+// dedicated JUnit4 task above because Jupiter resolves Android platform
+// descriptors before Robolectric can install its sandbox classloader.
 tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
+    if (name != "robolectricDebugUnitTest") {
+        useJUnitPlatform()
+        exclude("**/AndroidNsdRobolectricTest.class")
+        exclude("**/AndroidNsdRobolectricTest$*.class")
+        exclude("**/AndroidNsdRobolectricTestKt.class")
+        exclude("**/TestShadowNsdManager*.class")
+    }
 }

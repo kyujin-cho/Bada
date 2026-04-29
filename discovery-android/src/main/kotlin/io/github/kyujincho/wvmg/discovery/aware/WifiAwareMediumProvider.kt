@@ -3,6 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("InlinedApi", "MissingPermission", "NewApi")
 
 // Wi-Fi Aware passphrase length / IPv6 byte length are well-known.
 // The platform lifecycle is inherently multi-step async; suppressing
@@ -51,13 +52,18 @@ import io.github.kyujincho.wvmg.protocol.medium.MediumProvider
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Wi-Fi Aware (NAN) [MediumProvider] for Android 8.0+ devices whose
@@ -101,11 +107,10 @@ import java.security.SecureRandom
  * ### Lifecycle
  *
  * The platform [WifiAwareSession] and any [DiscoverySession] /
- * [Network] objects are released by the per-call helpers in
- * [prepareUpgrade] / [adoptUpgrade] before they return. The provider
- * itself holds no long-lived state. If the orchestrator decides to
- * reuse the provider across multiple upgrades, each call brings up a
- * fresh attach.
+ * [Network] objects stay alive until the returned [WifiAwareTransport]
+ * closes. The server side keeps one pending reservation between
+ * [prepareUpgrade] and [acceptUpgrade], matching the generic
+ * [MediumProvider] contract.
  *
  * ### Testability
  *
@@ -187,8 +192,17 @@ public class WifiAwareMediumProvider internal constructor(
             logger.warn("adoptUpgrade: Wi-Fi Aware not available; refusing")
             return null
         }
-        val socket = support.adoptUpgrade(credentials) ?: return null
-        return WifiAwareTransport(socket)
+        val handle = support.adoptUpgrade(credentials) ?: return null
+        return WifiAwareTransport(handle.socket, handle.teardown)
+    }
+
+    override suspend fun acceptUpgrade(): UpgradedTransport? {
+        val handle = support.acceptUpgrade() ?: return null
+        return WifiAwareTransport(handle.socket, handle.teardown)
+    }
+
+    override fun cancelPendingUpgrade() {
+        support.cancelPendingUpgrade()
     }
 
     /**
@@ -251,9 +265,30 @@ public class WifiAwareMediumProvider internal constructor(
  */
 public class WifiAwareTransport(
     public val socket: Socket,
+    private val teardown: () -> Unit = {},
 ) : UpgradedTransport {
     override val medium: Medium = Medium.WIFI_AWARE
+
+    override val inputStream: InputStream
+        get() = socket.getInputStream()
+
+    override val outputStream: OutputStream
+        get() = socket.getOutputStream()
+
+    override fun close() {
+        runCatching { socket.close() }
+        runCatching { teardown() }
+    }
 }
+
+/**
+ * Connected Wi-Fi Aware socket plus the platform resources that must
+ * stay alive while the socket is in use.
+ */
+public data class WifiAwareSocketHandle(
+    val socket: Socket,
+    val teardown: () -> Unit,
+)
 
 /**
  * Platform-abstraction surface so the provider can be unit-tested
@@ -274,10 +309,19 @@ public interface WifiAwareSupport {
 
     /**
      * Run the subscriber-side bring-up against [credentials]. Returns
-     * a connected [Socket] on success, `null` on failure (after
+     * a connected socket handle on success, `null` on failure (after
      * releasing any partial resources).
      */
-    public suspend fun adoptUpgrade(credentials: UpgradePathCredentials.WifiAware): Socket?
+    public suspend fun adoptUpgrade(credentials: UpgradePathCredentials.WifiAware): WifiAwareSocketHandle?
+
+    /**
+     * Accept the subscriber's TCP connection on the server-side Aware
+     * data path prepared by [prepareUpgrade].
+     */
+    public suspend fun acceptUpgrade(): WifiAwareSocketHandle? = null
+
+    /** Release any server-side pending Aware data path resources. */
+    public fun cancelPendingUpgrade() {}
 }
 
 /**
@@ -298,6 +342,7 @@ public class AndroidWifiAwareSupport(
         HandlerThread("WvmgWifiAwareCb").apply { start() }
     }
     private val handler: Handler by lazy { Handler(handlerThread.looper) }
+    private val pendingServer: AtomicReference<PendingAwareServer?> = AtomicReference(null)
 
     override fun isAvailable(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
@@ -343,6 +388,10 @@ public class AndroidWifiAwareSupport(
     @Suppress("LongMethod") // Wi-Fi Aware lifecycle is inherently long; splitting hides intent.
     override suspend fun prepareUpgrade(passphrase: String): UpgradePathCredentials.WifiAware? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            Log.w(TAG, "prepareUpgrade: responder-side peerless data path requires API 31+")
+            return null
+        }
         val mgr =
             context.getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
                 ?: return null
@@ -350,6 +399,7 @@ public class AndroidWifiAwareSupport(
             context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                 ?: return null
 
+        cancelPendingUpgrade()
         val attached =
             attachSession(mgr) ?: run {
                 Log.w(TAG, "prepareUpgrade: Wi-Fi Aware attach failed or timed out")
@@ -358,8 +408,8 @@ public class AndroidWifiAwareSupport(
 
         var publishSession: PublishDiscoverySession? = null
         var serverSocket: ServerSocket? = null
-        var network: Network? = null
         var networkCallback: ConnectivityManager.NetworkCallback? = null
+        var completed = false
         try {
             publishSession =
                 publish(attached, WifiAwareMediumProvider.SERVICE_NAME)
@@ -370,21 +420,9 @@ public class AndroidWifiAwareSupport(
             serverSocket = ServerSocket(0, BACKLOG, InetAddress.getByName("::"))
             val boundPort = serverSocket.localPort
 
-            // Wait for a subscriber match. The platform delivers the
-            // PeerHandle through the discovery callback; the data path
-            // is brought up below.
-            val match =
-                withTimeoutOrNullCompat(WifiAwareMediumProvider.PREPARE_TIMEOUT_MS) {
-                    waitForMatch(publishSession)
-                } ?: run {
-                    Log.w(TAG, "prepareUpgrade: subscriber match timed out")
-                    return null
-                }
-
             val specifier =
-                buildAwareNetworkSpecifier(
-                    discoverySession = publishSession,
-                    peerHandle = match.peerHandle,
+                buildPublisherAwareNetworkSpecifier(
+                    publishSession = publishSession,
                     passphrase = passphrase,
                     port = boundPort,
                 ) ?: return null
@@ -398,7 +436,18 @@ public class AndroidWifiAwareSupport(
                         Log.w(TAG, "prepareUpgrade: network request timed out")
                         return null
                     }
-            network = networkResult.network
+            val previous =
+                pendingServer.getAndSet(
+                    PendingAwareServer(
+                        serverSocket = serverSocket,
+                        connectivityManager = cm,
+                        networkCallback = cb,
+                        publishSession = publishSession,
+                        awareSession = attached,
+                    ),
+                )
+            previous?.teardown()
+            completed = true
 
             return UpgradePathCredentials.WifiAware(
                 serviceName = WifiAwareMediumProvider.SERVICE_NAME,
@@ -412,19 +461,11 @@ public class AndroidWifiAwareSupport(
             Log.w(TAG, "prepareUpgrade: failure", t)
             return null
         } finally {
-            // Note: do NOT close the server socket here — caller will
-            // accept() on it once the subscriber dials in (orchestrator
-            // owns this lifecycle in #54). For now the framework hands
-            // the credentials off and lets adoption complete.
-            networkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
-            // network release is implicit on callback unregister.
-            publishSession?.close()
-            attached.close()
-            // serverSocket intentionally leaked to caller via the
-            // credentials path. (#54 will tighten this once the
-            // orchestrator owns the lifecycle.)
-            if (serverSocket != null && network == null) {
-                runCatching { serverSocket.close() }
+            if (!completed) {
+                networkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+                publishSession?.close()
+                attached.close()
+                runCatching { serverSocket?.close() }
             }
         }
     }
@@ -437,7 +478,7 @@ public class AndroidWifiAwareSupport(
         ],
     )
     @Suppress("LongMethod")
-    override suspend fun adoptUpgrade(credentials: UpgradePathCredentials.WifiAware): Socket? {
+    override suspend fun adoptUpgrade(credentials: UpgradePathCredentials.WifiAware): WifiAwareSocketHandle? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
         val mgr =
             context.getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
@@ -452,22 +493,23 @@ public class AndroidWifiAwareSupport(
                 return null
             }
 
-        var subscribeSession: SubscribeDiscoverySession? = null
+        var subscribeHandle: DiscoveryHandle<SubscribeDiscoverySession>? = null
         var networkCallback: ConnectivityManager.NetworkCallback? = null
+        var completed = false
         try {
-            subscribeSession =
+            subscribeHandle =
                 subscribe(attached, credentials.serviceName)
                     ?: return null
             val match =
                 withTimeoutOrNullCompat(WifiAwareMediumProvider.ADOPT_TIMEOUT_MS) {
-                    waitForMatch(subscribeSession)
+                    subscribeHandle.matches.await()
                 } ?: run {
                     Log.w(TAG, "adoptUpgrade: publisher match timed out")
                     return null
                 }
             val specifier =
-                buildAwareNetworkSpecifier(
-                    discoverySession = subscribeSession,
+                buildPeerAwareNetworkSpecifier(
+                    discoverySession = subscribeHandle.session,
                     peerHandle = match.peerHandle,
                     passphrase = credentials.passphrase,
                     // Subscriber side does not bind a server socket; the
@@ -489,20 +531,57 @@ public class AndroidWifiAwareSupport(
             // OS routes the TCP through the Aware interface.
             // scope_id = 0; the Network's socket factory attaches the
             // correct interface scope when the socket is created.
-            val target = Inet6Address.getByAddress(null, credentials.ipv6Address, 0)
-            return networkResult.network
-                .socketFactory
-                .createSocket(target, credentials.port)
+            val targetBytes =
+                if (credentials.ipv6Address.isUnspecifiedIpv6()) {
+                    networkResult.ipv6Address
+                } else {
+                    credentials.ipv6Address
+                }
+            val target = Inet6Address.getByAddress(null, targetBytes, 0)
+            val socket =
+                networkResult.network
+                    .socketFactory
+                    .createSocket(target, credentials.port)
+            completed = true
+            return WifiAwareSocketHandle(socket) {
+                networkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+                subscribeHandle.session.close()
+                attached.close()
+            }
         } catch (
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
             Log.w(TAG, "adoptUpgrade: failure", t)
             return null
         } finally {
-            networkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
-            subscribeSession?.close()
-            attached.close()
+            if (!completed) {
+                networkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+                subscribeHandle?.session?.close()
+                attached.close()
+            }
         }
+    }
+
+    override suspend fun acceptUpgrade(): WifiAwareSocketHandle? =
+        withContext(Dispatchers.IO) {
+            val pending = pendingServer.get() ?: return@withContext null
+            try {
+                val socket = pending.serverSocket.accept()
+                runCatching { pending.serverSocket.close() }
+                WifiAwareSocketHandle(socket) {
+                    cancelPendingUpgrade()
+                }
+            } catch (
+                @Suppress("TooGenericExceptionCaught") t: Throwable,
+            ) {
+                Log.w(TAG, "acceptUpgrade: failure", t)
+                cancelPendingUpgrade()
+                null
+            }
+        }
+
+    override fun cancelPendingUpgrade() {
+        pendingServer.getAndSet(null)?.teardown()
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -554,8 +633,9 @@ public class AndroidWifiAwareSupport(
     private suspend fun subscribe(
         session: WifiAwareSession,
         serviceName: String,
-    ): SubscribeDiscoverySession? {
+    ): DiscoveryHandle<SubscribeDiscoverySession>? {
         val deferred = CompletableDeferred<SubscribeDiscoverySession?>()
+        val matches = CompletableDeferred<Match>()
         val cb =
             object : DiscoverySessionCallback() {
                 override fun onSubscribeStarted(s: SubscribeDiscoverySession) {
@@ -565,24 +645,35 @@ public class AndroidWifiAwareSupport(
                 override fun onSessionConfigFailed() {
                     deferred.complete(null)
                 }
+
+                override fun onServiceDiscovered(
+                    peerHandle: PeerHandle,
+                    serviceSpecificInfo: ByteArray,
+                    matchFilter: MutableList<ByteArray>,
+                ) {
+                    if (!matches.isCompleted) {
+                        matches.complete(Match(peerHandle))
+                    }
+                }
+
+                override fun onServiceDiscoveredWithinRange(
+                    peerHandle: PeerHandle,
+                    serviceSpecificInfo: ByteArray,
+                    matchFilter: MutableList<ByteArray>,
+                    distanceMm: Int,
+                ) {
+                    if (!matches.isCompleted) {
+                        matches.complete(Match(peerHandle))
+                    }
+                }
             }
         val config = SubscribeConfig.Builder().setServiceName(serviceName).build()
         session.subscribe(config, cb, handler)
-        return withTimeoutOrNullCompat(WifiAwareMediumProvider.PREPARE_TIMEOUT_MS) { deferred.await() }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.O)
-    private suspend fun waitForMatch(
-        @Suppress("UNUSED_PARAMETER") session: DiscoverySession,
-    ): Match? {
-        // Match delivery happens through the same DiscoverySessionCallback
-        // we passed into publish/subscribe. In production we'd hold the
-        // CompletableDeferred reference there and complete it from
-        // onServiceDiscovered; this file's wiring uses a separate callback
-        // for clarity. The orchestrator (#54) ties these together when it
-        // owns the full lifecycle. For now the support layer's contract is
-        // "best-effort"; tests cover the credential codec end-to-end.
-        return null
+        val started =
+            withTimeoutOrNullCompat(WifiAwareMediumProvider.PREPARE_TIMEOUT_MS) {
+                deferred.await()
+            } ?: return null
+        return DiscoveryHandle(started, matches)
     }
 
     /**
@@ -597,7 +688,7 @@ public class AndroidWifiAwareSupport(
      *   meaningful for the publisher role; ignored for subscribers.
      */
     @RequiresApi(Build.VERSION_CODES.O)
-    private fun buildAwareNetworkSpecifier(
+    private fun buildPeerAwareNetworkSpecifier(
         discoverySession: DiscoverySession,
         peerHandle: PeerHandle,
         passphrase: String,
@@ -621,6 +712,26 @@ public class AndroidWifiAwareSupport(
         // the prepareUpgrade body above already does.
         @Suppress("DEPRECATION")
         return discoverySession.createNetworkSpecifierPassphrase(peerHandle, passphrase)
+    }
+
+    /**
+     * Build the responder-side peerless network specifier. Android only
+     * exposes this shape from API 31 onward; older devices fall back to
+     * the next medium because the server cannot prepare a usable Aware
+     * data path before the subscriber has received credentials.
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun buildPublisherAwareNetworkSpecifier(
+        publishSession: PublishDiscoverySession,
+        passphrase: String,
+        port: Int,
+    ): android.net.NetworkSpecifier? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        val builder = WifiAwareNetworkSpecifier.Builder(publishSession)
+        builder.setPskPassphrase(passphrase)
+        builder.setPort(port)
+        builder.setTransportProtocol(IPPROTO_TCP)
+        return builder.build()
     }
 
     private fun buildNetworkRequest(
@@ -697,6 +808,34 @@ public class AndroidWifiAwareSupport(
     )
 
     /**
+     * Discovery session plus the first peer match observed by its
+     * callback.
+     */
+    private data class DiscoveryHandle<T : DiscoverySession>(
+        val session: T,
+        val matches: CompletableDeferred<Match>,
+    )
+
+    /**
+     * Server-side resources that must stay alive after
+     * [prepareUpgrade] returns and until the accepted transport closes.
+     */
+    private data class PendingAwareServer(
+        val serverSocket: ServerSocket,
+        val connectivityManager: ConnectivityManager,
+        val networkCallback: ConnectivityManager.NetworkCallback,
+        val publishSession: PublishDiscoverySession,
+        val awareSession: WifiAwareSession,
+    ) {
+        fun teardown() {
+            runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
+            runCatching { serverSocket.close() }
+            publishSession.close()
+            awareSession.close()
+        }
+    }
+
+    /**
      * Resolution of a `requestNetwork` call: the bound [Network] plus
      * the peer-side IPv6 address the caller will dial.
      */
@@ -708,8 +847,13 @@ public class AndroidWifiAwareSupport(
     private companion object {
         const val TAG = "WvmgWifiAware"
         const val BACKLOG = 1
+        const val IPPROTO_TCP = 6
     }
 }
+
+private fun ByteArray.isUnspecifiedIpv6(): Boolean = size == IPV6_ADDRESS_LENGTH && all { it == 0.toByte() }
+
+private const val IPV6_ADDRESS_LENGTH: Int = 16
 
 /**
  * Small kotlinx.coroutines wrapper so [withTimeoutOrNull] usage is

@@ -14,9 +14,13 @@ import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumProvider
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.Closeable
 import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -46,9 +50,9 @@ import java.util.concurrent.atomic.AtomicReference
  *  * `prepareUpgrade` allocates a ServerSocket on a free port, hands
  *    its number to the controller, and stashes both the socket and the
  *    teardown so [pendingServer] / [pendingClient] can later be
- *    reclaimed by the orchestrator (#54). Until #54 wires the swap,
- *    the provider simply tears down on every prepare/adopt to avoid
- *    leaking radios.
+ *    reclaimed by the orchestrator (#54). Wi-Fi Direct is device-wide,
+ *    so overlapping upgrade attempts are declined and the framework
+ *    falls back to the next available medium.
  *
  * Permissions: caller MUST hold [Manifest.permission.NEARBY_WIFI_DEVICES]
  * on API 33+ (or [Manifest.permission.ACCESS_FINE_LOCATION] on older
@@ -96,18 +100,27 @@ public class WifiDirectMediumProvider internal constructor(
     /** Same shape as [pendingServer], but for the client-side adopt path. */
     private val pendingClient: AtomicReference<WifiDirectTransport?> = AtomicReference(null)
 
+    /** Wi-Fi Direct group ownership is device-wide; serialize receiver-side upgrades. */
+    private val serverUpgradeActive = AtomicBoolean(false)
+
+    /** Client joins are also device-wide and should not stomp on each other. */
+    private val clientUpgradeActive = AtomicBoolean(false)
+
     override fun isSupported(): Boolean = availability.isSupported()
 
     @RequiresPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
     @Suppress("ReturnCount") // One guard per failure mode — controller missing, socket alloc, group failure.
     override suspend fun prepareUpgrade(): UpgradePathCredentials? {
-        val previous = pendingServer.getAndSet(null)
-        previous?.serverSocket?.runCatching { close() }
-        previous?.handle?.teardown?.runCatching { close() }
+        if (!serverUpgradeActive.compareAndSet(false, true)) {
+            Log.w(TAG, "Wi-Fi Direct server upgrade already active; declining concurrent prepare")
+            return null
+        }
 
+        var prepared = false
         val controller =
             controllerFactory() ?: run {
                 Log.w(TAG, "WifiP2pManager unavailable on prepareUpgrade")
+                serverUpgradeActive.set(false)
                 return null
             }
         val serverSocket =
@@ -115,49 +128,86 @@ public class WifiDirectMediumProvider internal constructor(
                 serverSocketFactory()
             } catch (e: IOException) {
                 Log.w(TAG, "Failed to allocate ServerSocket for Wi-Fi Direct upgrade", e)
+                serverUpgradeActive.set(false)
                 return null
             }
-        val handle = controller.createGroupAsServer(serverPort = serverSocket.localPort)
-        if (handle == null) {
-            serverSocket.runCatching { close() }
-            return null
+        try {
+            val handle = controller.createGroupAsServer(serverPort = serverSocket.localPort)
+            if (handle == null) {
+                return null
+            }
+            val guardedHandle =
+                handle.copy(teardown = leaseReleasingTeardown(handle.teardown, serverUpgradeActive))
+            pendingServer.set(PendingServer(guardedHandle, serverSocket))
+            prepared = true
+            return guardedHandle.credentials
+        } finally {
+            if (!prepared) {
+                serverSocket.runCatching { close() }
+                serverUpgradeActive.set(false)
+            }
         }
-        pendingServer.set(PendingServer(handle, serverSocket))
-        return handle.credentials
     }
 
     @RequiresPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
     @Suppress("ReturnCount") // Five guards: medium mismatch, missing concrete creds, controller, connect, success.
     override suspend fun adoptUpgrade(credentials: UpgradePathCredentials): UpgradedTransport? {
+        if (!clientUpgradeActive.compareAndSet(false, true)) {
+            Log.w(TAG, "Wi-Fi Direct client upgrade already active; declining concurrent adopt")
+            return null
+        }
+
+        var adopted = false
         // The framework does not enforce credentials.medium == this.medium;
         // the contract on MediumProvider says we must validate explicitly.
         // Returning null falls back to the next ladder rung instead of
         // hard-erroring the connection.
         if (credentials.medium != Medium.WIFI_DIRECT) {
             Log.w(TAG, "adoptUpgrade called with mismatched medium ${credentials.medium}")
+            clientUpgradeActive.set(false)
             return null
         }
         val direct =
             credentials as? UpgradePathCredentials.WifiDirect ?: run {
                 Log.w(TAG, "adoptUpgrade got Wi-Fi Direct medium but no concrete credentials")
+                clientUpgradeActive.set(false)
                 return null
             }
         val controller =
             controllerFactory() ?: run {
                 Log.w(TAG, "WifiP2pManager unavailable on adoptUpgrade")
+                clientUpgradeActive.set(false)
                 return null
             }
-        val transport = controller.connectAsClient(direct) ?: return null
-        pendingClient.getAndSet(transport)?.let { stale ->
-            // A previous adopt attempt's transport is still around; tear
-            // it down so we never leak the underlying socket. This only
-            // happens when the orchestrator drops a successful adopt
-            // without claiming the transport (e.g. peer aborted between
-            // our adopt and their CLIENT_INTRODUCTION_ACK).
-            stale.runCatching { socket.close() }
-            stale.runCatching { teardown.close() }
+        try {
+            val transport = controller.connectAsClient(direct) ?: return null
+            val guardedTransport =
+                transport.copy(teardown = leaseReleasingTeardown(transport.teardown, clientUpgradeActive))
+            pendingClient.getAndSet(guardedTransport)?.let { stale ->
+                // A previous adopt attempt's transport is still around; tear
+                // it down so we never leak the underlying socket. This only
+                // happens when the orchestrator drops a successful adopt
+                // without claiming the transport (e.g. peer aborted between
+                // our adopt and their CLIENT_INTRODUCTION_ACK).
+                stale.runCatching { socket.close() }
+                stale.runCatching { teardown.close() }
+            }
+            adopted = true
+            return guardedTransport
+        } finally {
+            if (!adopted) {
+                clientUpgradeActive.set(false)
+            }
         }
-        return transport
+    }
+
+    override suspend fun acceptUpgrade(): UpgradedTransport? =
+        withContext(Dispatchers.IO) {
+            consumePendingServerTransport()
+        }
+
+    override fun cancelPendingUpgrade() {
+        cancelPending()
     }
 
     /**
@@ -165,21 +215,44 @@ public class WifiDirectMediumProvider internal constructor(
      * server-side `ServerSocket` allocated in [prepareUpgrade] and
      * clears the slot. Returns `null` when no upgrade is pending.
      */
-    public fun consumePendingServerSocket(): Socket? {
-        val pending = pendingServer.getAndSet(null) ?: return null
-        // Block-accept on the receiver-side socket. The peer is about
-        // to call connect on this exact port. We hand teardown back as
-        // a closeable on the returned transport in #54; for now the
-        // server socket itself is the only handle the orchestrator
-        // needs, so close the listening socket once accept returns to
-        // free the port.
-        return try {
-            pending.serverSocket.use { listener -> listener.accept() }
+    public fun consumePendingServerSocket(): Socket? = consumePendingServerTransport()?.socket
+
+    /**
+     * **Internal — for the orchestrator wired in #54.** Hands back the
+     * connected server-side transport allocated in [prepareUpgrade].
+     */
+    public fun consumePendingServerTransport(): WifiDirectTransport? {
+        val pending = pendingServer.get() ?: return null
+        return acceptPendingServerTransport(pending)
+    }
+
+    private fun acceptPendingServerTransport(pending: PendingServer): WifiDirectTransport? =
+        try {
+            // Block-accept on the receiver-side socket. The peer is about
+            // to call connect on this exact port. Close the listening socket
+            // once accept returns to free the port.
+            val socket = pending.serverSocket.use { listener -> listener.accept() }
+            claimAcceptedServerTransport(pending, socket)
         } catch (e: IOException) {
             Log.w(TAG, "Wi-Fi Direct ServerSocket.accept threw", e)
-            pending.handle.teardown.runCatching { close() }
+            if (pendingServer.compareAndSet(pending, null)) {
+                pending.handle.teardown.runCatching { close() }
+            }
             null
         }
+
+    private fun claimAcceptedServerTransport(
+        pending: PendingServer,
+        socket: Socket,
+    ): WifiDirectTransport? {
+        if (!pendingServer.compareAndSet(pending, null)) {
+            socket.runCatching { close() }
+            return null
+        }
+        return WifiDirectTransport(
+            socket = socket,
+            teardown = pending.handle.teardown,
+        )
     }
 
     /**
@@ -203,6 +276,24 @@ public class WifiDirectMediumProvider internal constructor(
         pendingClient.getAndSet(null)?.let { transport ->
             transport.socket.runCatching { close() }
             transport.teardown.runCatching { close() }
+        }
+        serverUpgradeActive.set(false)
+        clientUpgradeActive.set(false)
+    }
+
+    private fun leaseReleasingTeardown(
+        delegate: Closeable,
+        active: AtomicBoolean,
+    ): Closeable {
+        val closed = AtomicBoolean(false)
+        return Closeable {
+            if (closed.compareAndSet(false, true)) {
+                try {
+                    delegate.close()
+                } finally {
+                    active.set(false)
+                }
+            }
         }
     }
 

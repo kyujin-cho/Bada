@@ -3,6 +3,8 @@
  *
  * Licensed under the Apache License, Version 2.0.
  */
+@file:android.annotation.SuppressLint("HardwareIds", "MissingPermission")
+
 package io.github.kyujincho.wvmg.discovery.medium
 
 import android.Manifest
@@ -25,6 +27,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 
@@ -211,6 +215,15 @@ public class BluetoothRfcommMediumProvider internal constructor(
         } finally {
             activeServer.getAndSet(null)?.closeQuietly()
         }
+    }
+
+    override suspend fun acceptUpgrade(): UpgradedTransport? =
+        withContext(Dispatchers.IO) {
+            acceptUpgradedSocket()?.let(::BluetoothRfcommTransport)
+        }
+
+    override fun cancelPendingUpgrade() {
+        activeServer.getAndSet(null)?.closeQuietly()
     }
 
     /**
@@ -464,6 +477,12 @@ public data class BluetoothRfcommTransport(
 ) : UpgradedTransport,
     Closeable {
     override val medium: Medium = Medium.BLUETOOTH
+
+    override val inputStream: InputStream
+        get() = socket.inputStream
+
+    override val outputStream: OutputStream
+        get() = socket.outputStream
 
     override fun close() {
         socket.closeQuietly()

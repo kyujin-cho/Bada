@@ -13,14 +13,9 @@ import org.junit.jupiter.api.Test
  * Pure-JVM tests for [AndroidNsdRegistrar]'s `applyAttributes` helper
  * that pushes binary TXT attributes onto an `NsdServiceInfo`.
  *
- * The Android unit-tests-with-default-values harness can't load
- * `NsdServiceInfo` as-is (the platform stub jar lacks Code attributes
- * for non-abstract methods, throwing `ClassFormatError` even when a
- * test merely instantiates the class). To work around that, the
- * production code's `applyAttributes` helper is exposed in a form that
- * delegates the platform call through a caller-supplied lambda; the
- * tests below drive that lambda against recording stubs and assert the
- * raw [ByteArray] payload is passed through unmodified.
+ * Robolectric integration coverage for the actual [NsdServiceInfo]
+ * mutation path lives in [AndroidNsdRobolectricTest]. These tests keep
+ * the test-friendly helper pinned with plain recording lambdas.
  *
  * The lambda always receives raw bytes regardless of API level — both
  * the public byte[] overload (API 33+) and the reflective fallback
@@ -101,15 +96,9 @@ class AndroidNsdRegistrarTest {
         // TIRAMISU). Pin that the lookup target is at minimum visible
         // on whatever platform JAR the unit tests run against.
         //
-        // Best-effort: the AGP unit-test stub jar throws either
-        // `NoSuchMethodException` (when @hide methods are redacted) or
-        // `ClassFormatError` ("Absent Code attribute …") when the class
-        // can't even load. In both cases this test no-ops; the
-        // production reflection target is verified against AOSP
-        // `NsdServiceInfo.java` (API 35 + 36) in the kdoc on
-        // `applyAttributes`. A future runtime (Robolectric, or a stub
-        // jar that does include the @hide method bodies) lets this
-        // test actually fire its assertions.
+        // Best-effort: when the plain AGP unit-test stub cannot load
+        // the platform class, this test no-ops. The executable
+        // Robolectric coverage is in AndroidNsdRobolectricTest.
         val method =
             try {
                 NsdServiceInfo::class.java.getDeclaredMethod(

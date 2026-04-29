@@ -5,6 +5,7 @@
  */
 package io.github.kyujincho.wvmg.discovery.medium
 
+import android.Manifest
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.truth.Truth.assertThat
@@ -15,6 +16,7 @@ import io.github.kyujincho.wvmg.protocol.medium.MediumLadder
 import io.github.kyujincho.wvmg.protocol.medium.MediumProvider
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -29,8 +31,26 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class RealDeviceMediumSupportIntegrationTest {
+    private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context =
-        InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        instrumentation.targetContext.applicationContext
+
+    @Before
+    fun grantRuntimePermissions() {
+        val packageName = context.packageName
+        val automation = instrumentation.uiAutomation
+        listOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.NEARBY_WIFI_DEVICES,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_ADVERTISE,
+        ).forEach { permission ->
+            runCatching {
+                automation.grantRuntimePermission(packageName, permission)
+            }
+        }
+    }
 
     @Test
     fun wifiDirect_support_probe_registers_with_registry() {

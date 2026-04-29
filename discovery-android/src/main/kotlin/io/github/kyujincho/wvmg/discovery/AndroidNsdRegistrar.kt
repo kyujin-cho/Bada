@@ -15,6 +15,8 @@ import java.io.IOException
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.net.InetAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -111,6 +113,7 @@ internal class AndroidNsdRegistrar(
     ) : NsdManager.RegistrationListener {
         private val unregistered = AtomicBoolean(false)
         private val resumed = AtomicBoolean(false)
+        private val unregisterSignal = CountDownLatch(1)
 
         @Volatile
         private var handle: AndroidNsdRegistrationHandle? = null
@@ -149,6 +152,7 @@ internal class AndroidNsdRegistrar(
 
         override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) {
             handle?.markInactive()
+            unregisterSignal.countDown()
         }
 
         override fun onUnregistrationFailed(
@@ -159,17 +163,27 @@ internal class AndroidNsdRegistrar(
             // (e.g. service already gone), the handle is dead from our
             // perspective.
             handle?.markInactive()
+            unregisterSignal.countDown()
             Log.w(TAG, "NsdManager unregister failed errorCode=$errorCode")
         }
 
         fun cancel() {
             if (unregistered.compareAndSet(false, true)) {
                 runCatching { nsdManager.unregisterService(this) }
+                    .onFailure {
+                        handle?.markInactive()
+                        unregisterSignal.countDown()
+                    }
             }
         }
 
         fun unregister() {
             cancel()
+            runCatching {
+                unregisterSignal.await(UNREGISTER_CALLBACK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            }.onFailure {
+                Log.w(TAG, "NsdManager unregister wait failed", it)
+            }
         }
 
         private fun readHostAddress(serviceInfo: NsdServiceInfo): InetAddress? =
@@ -218,6 +232,7 @@ internal class AndroidNsdRegistrar(
 
     internal companion object {
         private const val TAG = Discovery.TAG
+        private const val UNREGISTER_CALLBACK_TIMEOUT_MILLIS: Long = 1_000L
 
         /**
          * Cached reflective handle on `NsdServiceInfo.setAttribute(String, byte[])`.

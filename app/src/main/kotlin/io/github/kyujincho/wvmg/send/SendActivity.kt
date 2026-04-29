@@ -25,12 +25,14 @@ import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.discovery.DiscoveryEvent
 import io.github.kyujincho.wvmg.discovery.ble.BleAdvertiseHandle
 import io.github.kyujincho.wvmg.discovery.ble.BleAdvertiser
+import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
 import io.github.kyujincho.wvmg.protocol.connection.FileSource
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnection
 import io.github.kyujincho.wvmg.protocol.connection.OutboundConnectionState
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.receiver.OutboundSessionActiveHolder
+import io.github.kyujincho.wvmg.service.receiver.ReceiverAdvertisementStateHolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -78,6 +80,8 @@ public class SendActivity : AppCompatActivity() {
 
     private var files: List<FileSource> = emptyList()
     private val peers: MutableList<DiscoveredService> = mutableListOf()
+    private val pendingPeerRemovalJobs: MutableMap<String, Job> = mutableMapOf()
+    private var outboundPresenceJob: Job? = null
     private var discoveryJob: Job? = null
     private var connectionJob: Job? = null
     private var activeConnection: OutboundConnection? = null
@@ -143,9 +147,7 @@ public class SendActivity : AppCompatActivity() {
 
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
-        startDiscovery()
-        startEmptyPeerHintTimer()
-        startBleAdvertise()
+        startOutboundPresence()
     }
 
     /**
@@ -205,9 +207,11 @@ public class SendActivity : AppCompatActivity() {
         // OutboundConnection so a CancelFrame is sent on the wire when
         // possible (best-effort — already-terminal states are no-ops).
         activeConnection?.cancel()
+        outboundPresenceJob?.cancel()
         discoveryJob?.cancel()
         connectionJob?.cancel()
         emptyPeerHintJob?.cancel()
+        cancelPendingPeerRemovals()
         stopBleAdvertise()
         // Lift the gate veto so the receiver-side mDNS record can come
         // back up if any of the gate's existing publish signals
@@ -348,19 +352,60 @@ public class SendActivity : AppCompatActivity() {
     // Discovery
     // -----------------------------------------------------------------
 
+    private fun startOutboundPresence() {
+        outboundPresenceJob?.cancel()
+        outboundPresenceJob =
+            lifecycleScope.launch {
+                val receiverWasAdvertising = ReceiverAdvertisementStateHolder.isAdvertising
+                if (receiverWasAdvertising) {
+                    logOutboundDiagnostic(
+                        "discovery: waiting for receiver mDNS unpublish before browse",
+                    )
+                }
+
+                val unpublishObserved = ReceiverAdvertisementStateHolder.awaitNotAdvertising()
+                if (!unpublishObserved) {
+                    logOutboundDiagnostic(
+                        "discovery: receiver mDNS unpublish wait timed out; starting browse",
+                    )
+                } else if (receiverWasAdvertising) {
+                    logOutboundDiagnostic("discovery: receiver mDNS unpublish observed")
+                }
+
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.CREATED)) return@launch
+                startDiscovery()
+                startEmptyPeerHintTimer()
+                startBleAdvertise()
+            }
+    }
+
     private fun startDiscovery() {
         val discovery = Discovery(applicationContext)
+        logOutboundDiagnostic("discovery: start")
         discoveryJob =
             lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    discovery.browse().collect { event -> onDiscoveryEvent(event) }
+                    logOutboundDiagnostic("discovery: browse collector start")
+                    try {
+                        discovery.browse().collect { event -> onDiscoveryEvent(event) }
+                    } finally {
+                        logOutboundDiagnostic("discovery: browse collector stop")
+                    }
                 }
             }
     }
 
     private fun onDiscoveryEvent(event: DiscoveryEvent) {
+        val before = peers.size
         when (event) {
-            is DiscoveryEvent.Resolved -> upsertResolvedPeer(event.service)
+            is DiscoveryEvent.Resolved -> {
+                cancelPendingPeerRemoval(event.service.instanceName)
+                upsertResolvedPeer(event.service)
+                logOutboundDiagnostic(
+                    "discovery: resolved ${formatPeerSnapshot(event.service)} " +
+                        "before=$before after=${peers.size} rows=${formatPeerRows()}",
+                )
+            }
             is DiscoveryEvent.Lost -> {
                 // Lost events fire per-instance-name. Because Resolved
                 // events may have replaced an older instance under the
@@ -368,7 +413,11 @@ public class SendActivity : AppCompatActivity() {
                 // current peer's `instanceName` — that's fine, we
                 // silently skip. The next mDNS query will re-resolve a
                 // still-valid record if Samsung is just rotating ids.
-                peers.removeAll { it.instanceName == event.instanceName }
+                schedulePeerRemoval(event.instanceName)
+                logOutboundDiagnostic(
+                    "discovery: lost instance=${event.instanceName} scheduledRemovalMillis=$PEER_LOST_GRACE_MILLIS " +
+                        "before=$before after=${peers.size} rows=${formatPeerRows()}",
+                )
             }
         }
         renderPeerList()
@@ -410,6 +459,7 @@ public class SendActivity : AppCompatActivity() {
             peers.add(incoming)
             return
         }
+        cancelPendingPeerRemoval(peers[existingIndex].instanceName)
         // Keep whichever record carries a friendly device name. Stock
         // Samsung alternates anonymous and named instances on the wire;
         // the picker should settle on the named one once seen rather
@@ -433,6 +483,39 @@ public class SendActivity : AppCompatActivity() {
     private fun peerDedupKey(peer: DiscoveredService): Pair<String, Int>? {
         val addr = peer.primaryAddress()?.hostAddress ?: return null
         return addr to peer.port
+    }
+
+    /**
+     * Samsung Quick Share frequently rotates mDNS instance names and may
+     * emit a short `Lost` gap before the replacement record is resolved.
+     * Removing rows immediately makes the picker appear empty even though
+     * the same TCP listener is still available. Delay the removal so
+     * routine rotation does not flicker the UI, while still eventually
+     * clearing truly-gone peers.
+     */
+    private fun schedulePeerRemoval(instanceName: String) {
+        pendingPeerRemovalJobs.remove(instanceName)?.cancel()
+        pendingPeerRemovalJobs[instanceName] =
+            lifecycleScope.launch {
+                delay(PEER_LOST_GRACE_MILLIS)
+                pendingPeerRemovalJobs.remove(instanceName)
+                val before = peers.size
+                val removed = peers.removeAll { it.instanceName == instanceName }
+                logOutboundDiagnostic(
+                    "discovery: lost removal instance=$instanceName removed=$removed " +
+                        "before=$before after=${peers.size} rows=${formatPeerRows()}",
+                )
+                if (removed) renderPeerList()
+            }
+    }
+
+    private fun cancelPendingPeerRemoval(instanceName: String) {
+        pendingPeerRemovalJobs.remove(instanceName)?.cancel()
+    }
+
+    private fun cancelPendingPeerRemovals() {
+        pendingPeerRemovalJobs.values.forEach { it.cancel() }
+        pendingPeerRemovalJobs.clear()
     }
 
     private fun renderPeerList() {
@@ -498,7 +581,7 @@ public class SendActivity : AppCompatActivity() {
      */
     private fun formatPeerSnapshot(
         peer: DiscoveredService,
-        chosenTarget: InetAddress,
+        chosenTarget: InetAddress? = null,
     ): String {
         val instanceName = peer.instanceName
         val endpointIdHex =
@@ -533,9 +616,23 @@ public class SendActivity : AppCompatActivity() {
                 }
             }
         return "instance=$instanceName endpointId=$endpointIdHex " +
-            "addrs=[$addressList] picked=${chosenTarget.hostAddress} " +
+            "addrs=[$addressList] picked=${chosenTarget?.hostAddress ?: "<none>"} " +
             "port=${peer.port} endpointInfo={$infoSummary}"
     }
+
+    private fun formatPeerRows(): String =
+        if (peers.isEmpty()) {
+            "<empty>"
+        } else {
+            peers.joinToString(";") { peer ->
+                val name = peer.endpointInfo?.deviceName ?: "<anon>"
+                val endpointId =
+                    peer.endpointId
+                        ?.joinToString("") { "%02x".format(it) }
+                        ?: "<none>"
+                "${peer.instanceName}/$endpointId/${peer.primaryAddress()?.hostAddress ?: "?"}:${peer.port}/$name"
+            }
+        }
 
     @Suppress("ReturnCount")
     private fun peerLabel(peer: DiscoveredService): String {
@@ -585,6 +682,7 @@ public class SendActivity : AppCompatActivity() {
         // browser holding the multicast lock during the actual transfer.
         discoveryJob?.cancel()
         discoveryJob = null
+        cancelPendingPeerRemovals()
 
         // Hide the picker chrome.
         binding.sendPeerList.visibility = View.GONE
@@ -617,6 +715,7 @@ public class SendActivity : AppCompatActivity() {
                 targetAddress = target,
                 port = peer.port,
                 endpointInfo = senderEndpointInfoBytes,
+                mediumRegistry = MediumRegistries.defaultForContext(applicationContext),
                 logger = { msg ->
                     // vivo Funtouch OS filters Log.i for non-system apps —
                     // use Log.e to bypass the filter, and also append to a
@@ -817,8 +916,10 @@ public class SendActivity : AppCompatActivity() {
         bleAdvertiser = advertiser
         bleAdvertiseHandle = advertiser.start()
         if (bleAdvertiseHandle == null) {
+            logOutboundDiagnostic("ble: pulse not started; falling back to mDNS-only discovery")
             Log.i(BLE_TAG, "BLE pulse not started — falling back to mDNS-only discovery")
         } else {
+            logOutboundDiagnostic("ble: pulse started")
             Log.i(BLE_TAG, "BLE pulse started")
         }
     }
@@ -864,6 +965,11 @@ public class SendActivity : AppCompatActivity() {
         }
     }
 
+    private fun logOutboundDiagnostic(line: String) {
+        Log.e(OUTBOUND_TAG, line)
+        appendOutboundLog(line)
+    }
+
     public companion object {
         /**
          * Custom intent action used by [io.github.kyujincho.wvmg.MainActivity]
@@ -877,6 +983,7 @@ public class SendActivity : AppCompatActivity() {
         public const val ACTION_SEND_FOLDER: String = "io.github.kyujincho.wvmg.action.SEND_FOLDER"
 
         private const val OUTBOUND_TAG: String = "WvmgOutbound"
+        private const val PEER_LOST_GRACE_MILLIS: Long = 15_000L
 
         // BLE advertise diagnostics share the discovery tag so a single
         // `adb logcat -s WvmgDiscovery` line surfaces both mDNS and BLE

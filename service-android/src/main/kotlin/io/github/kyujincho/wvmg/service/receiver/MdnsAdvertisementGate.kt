@@ -294,8 +294,12 @@ public class MdnsAdvertisementGate(
     @Suppress("TooGenericExceptionCaught")
     private fun startBleSafely(decision: Decision) {
         try {
-            bleBroadcaster.start()
-            Log.w(TAG, "publish: BLE pulse advertise started (decision=$decision)")
+            val started = bleBroadcaster.start()
+            if (started) {
+                Log.w(TAG, "publish: BLE pulse advertise started (decision=$decision)")
+            } else {
+                Log.w(TAG, "publish: BLE pulse advertise unavailable (decision=$decision)")
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "publish: BLE pulse advertise threw (decision=$decision)", t)
         }
@@ -362,8 +366,12 @@ public interface BleVisibilityBroadcaster {
      * Failures (no permission, no peripheral mode, adapter off) are
      * the broadcaster's responsibility to swallow — the gate logs but
      * does not retry.
+     *
+     * @return `true` when a platform advertisement is active after the
+     * call, `false` when BLE advertising was unavailable or intentionally
+     * skipped.
      */
-    public fun start()
+    public fun start(): Boolean
 
     /**
      * Stop advertising. Idempotent.
@@ -376,8 +384,9 @@ public interface BleVisibilityBroadcaster {
      * `BleQuickShareAdvertiser` could not be initialised.
      */
     public object Noop : BleVisibilityBroadcaster {
-        override fun start() {
+        override fun start(): Boolean {
             // Intentionally empty.
+            return false
         }
 
         override fun stop() {

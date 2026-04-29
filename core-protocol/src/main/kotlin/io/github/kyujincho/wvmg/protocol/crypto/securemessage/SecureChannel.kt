@@ -85,24 +85,18 @@ import java.security.SecureRandom
  *   pass a default [SecureRandom]; tests pass a deterministic stub to
  *   reproduce exact ciphertexts.
  */
-public class SecureChannel(
+public class SecureChannel internal constructor(
     private val framedConnection: FramedConnection,
-    sessionKeys: D2DSessionKeys,
-    private val secureRandom: SecureRandom = SecureRandom(),
+    internal val session: SecureMessageSession,
 ) : AutoCloseable {
-    private val keys: DirectionalKeys = sessionKeys.forRole()
-
-    // Sequence counters live behind the same locks that serialize wire I/O.
-    // We do not use AtomicLong because the only correct semantics for
-    // sequence numbers here is "increment THEN send/receive under the
-    // same lock that serializes the wire frame". Any window between
-    // increment and send would let a second coroutine sneak in a frame
-    // with a higher sequence number, causing the receiver to reject ours.
-    private var mySeq: Long = 0L
-    private var theirSeq: Long = 0L
-
-    private val sendMutex = Mutex()
-    private val receiveMutex = Mutex()
+    public constructor(
+        framedConnection: FramedConnection,
+        sessionKeys: D2DSessionKeys,
+        secureRandom: SecureRandom = SecureRandom(),
+    ) : this(
+        framedConnection = framedConnection,
+        session = SecureMessageSession(sessionKeys, secureRandom),
+    )
 
     /**
      * Encrypts, signs, and sends a single [OfflineFrame].
@@ -126,33 +120,7 @@ public class SecureChannel(
      *   callers must close the connection rather than retry.
      */
     public suspend fun sendOfflineFrame(frame: OfflineFrame) {
-        sendMutex.withLock {
-            mySeq += 1
-            // Use the int-narrowed value because `DeviceToDeviceMessage.sequence_number`
-            // is `int32` on the wire. The Long counter exists purely so we
-            // can detect overflow if it ever happens — Quick Share peers
-            // do not negotiate sequence numbers above Int.MAX_VALUE.
-            check(mySeq <= Int.MAX_VALUE.toLong()) {
-                "Send sequence number overflowed Int.MAX_VALUE; close the channel"
-            }
-            val sequenceNumber = mySeq.toInt()
-
-            val payload = frame.toByteArray()
-            val d2dBytes =
-                SecureMessageCodec.wrapDeviceToDeviceMessage(
-                    offlineFrame = payload,
-                    sequenceNumber = sequenceNumber,
-                )
-            val iv = SecureMessageCodec.randomIv(secureRandom)
-            val secureMessageBytes =
-                SecureMessageCodec.encryptAndSign(
-                    payload = d2dBytes,
-                    encryptKey = keys.sendEncryptKey,
-                    hmacKey = keys.sendHmacKey,
-                    iv = iv,
-                )
-            framedConnection.sendFrame(secureMessageBytes)
-        }
+        session.sendOfflineFrame(framedConnection, frame)
     }
 
     /**
@@ -185,31 +153,13 @@ public class SecureChannel(
      *   [io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream] when
      *   the peer closes cleanly between frames).
      */
-    public suspend fun receiveOfflineFrame(): OfflineFrame {
-        receiveMutex.withLock {
-            theirSeq += 1
-            check(theirSeq <= Int.MAX_VALUE.toLong()) {
-                "Receive sequence number overflowed Int.MAX_VALUE; close the channel"
-            }
-            val expectedSeq = theirSeq.toInt()
+    public suspend fun receiveOfflineFrame(): OfflineFrame = session.receiveOfflineFrame(framedConnection)
 
-            val secureMessageBytes = framedConnection.receiveFrame()
-            val d2dBytes =
-                SecureMessageCodec.verifyAndDecrypt(
-                    secureMessageBytes = secureMessageBytes,
-                    decryptKey = keys.receiveEncryptKey,
-                    hmacKey = keys.receiveHmacKey,
-                )
-            val unwrapped = SecureMessageCodec.unwrapDeviceToDeviceMessage(d2dBytes)
-            if (unwrapped.sequenceNumber != expectedSeq) {
-                throw SequenceNumberMismatchException(
-                    expected = expectedSeq,
-                    actual = unwrapped.sequenceNumber,
-                )
-            }
-            return parseOfflineFrame(unwrapped.payload)
-        }
-    }
+    internal suspend fun receiveSequencedOfflineFrame(): SequencedOfflineFrame =
+        session.receiveSequencedOfflineFrame(framedConnection)
+
+    internal suspend fun acceptSequencedOfflineFrame(frame: SequencedOfflineFrame): OfflineFrame =
+        session.acceptSequencedOfflineFrame(frame)
 
     /**
      * The next outgoing sequence number that [sendOfflineFrame] WOULD use,
@@ -220,7 +170,7 @@ public class SecureChannel(
      * produces sequence number `1`).
      */
     public val nextSendSequenceNumber: Long
-        get() = mySeq
+        get() = session.nextSendSequenceNumber
 
     /**
      * The next incoming sequence number that [receiveOfflineFrame] WOULD
@@ -228,7 +178,7 @@ public class SecureChannel(
      * semantics as [nextSendSequenceNumber].
      */
     public val nextReceiveSequenceNumber: Long
-        get() = theirSeq
+        get() = session.nextReceiveSequenceNumber
 
     /**
      * Closes the underlying [FramedConnection]. The channel itself holds
@@ -237,6 +187,120 @@ public class SecureChannel(
     override fun close() {
         framedConnection.close()
     }
+
+    internal fun withTransport(framedConnection: FramedConnection): SecureChannel =
+        SecureChannel(framedConnection, session)
+
+    internal fun hasBufferedInput(): Boolean = framedConnection.hasBufferedInput()
+}
+
+/**
+ * Shared SecureMessage state for one UKEY2-derived encrypted session.
+ *
+ * A Quick Share bandwidth upgrade moves the encrypted stream from one
+ * physical transport to another without renegotiating UKEY2. The send
+ * and receive sequence numbers therefore belong to the secure session,
+ * not to the socket. [SecureChannel] is the single-transport facade used
+ * by the existing connection drivers; upgrade orchestration can create a
+ * second facade with [SecureChannel.withTransport] while preserving the
+ * counters held here.
+ */
+internal class SecureMessageSession(
+    sessionKeys: D2DSessionKeys,
+    private val secureRandom: SecureRandom = SecureRandom(),
+) {
+    private val keys: DirectionalKeys = sessionKeys.forRole()
+
+    // Sequence counters live behind the same locks that serialize wire I/O.
+    // We do not use AtomicLong because the only correct semantics for
+    // sequence numbers here is "increment THEN send/receive under the
+    // same lock that serializes the wire frame". Any window between
+    // increment and send would let a second coroutine sneak in a frame
+    // with a higher sequence number, causing the receiver to reject ours.
+    private var mySeq: Long = 0L
+    private var theirSeq: Long = 0L
+
+    private val sendMutex = Mutex()
+    private val receiveMutex = Mutex()
+
+    suspend fun sendOfflineFrame(
+        framedConnection: FramedConnection,
+        frame: OfflineFrame,
+    ) {
+        sendMutex.withLock {
+            mySeq += 1
+            // Use the int-narrowed value because `DeviceToDeviceMessage.sequence_number`
+            // is `int32` on the wire. The Long counter exists purely so we
+            // can detect overflow if it ever happens — Quick Share peers
+            // do not negotiate sequence numbers above Int.MAX_VALUE.
+            check(mySeq <= Int.MAX_VALUE.toLong()) {
+                "Send sequence number overflowed Int.MAX_VALUE; close the channel"
+            }
+            val sequenceNumber = mySeq.toInt()
+
+            val payload = frame.toByteArray()
+            val d2dBytes =
+                SecureMessageCodec.wrapDeviceToDeviceMessage(
+                    offlineFrame = payload,
+                    sequenceNumber = sequenceNumber,
+                )
+            val iv = SecureMessageCodec.randomIv(secureRandom)
+            val secureMessageBytes =
+                SecureMessageCodec.encryptAndSign(
+                    payload = d2dBytes,
+                    encryptKey = keys.sendEncryptKey,
+                    hmacKey = keys.sendHmacKey,
+                    iv = iv,
+                )
+            framedConnection.sendFrame(secureMessageBytes)
+        }
+    }
+
+    suspend fun receiveOfflineFrame(framedConnection: FramedConnection): OfflineFrame {
+        receiveMutex.withLock {
+            theirSeq += 1
+            check(theirSeq <= Int.MAX_VALUE.toLong()) {
+                "Receive sequence number overflowed Int.MAX_VALUE; close the channel"
+            }
+            val expectedSeq = theirSeq.toInt()
+
+            val sequenced = readSequencedOfflineFrame(framedConnection)
+            if (sequenced.sequenceNumber != expectedSeq) {
+                throw SequenceNumberMismatchException(
+                    expected = expectedSeq,
+                    actual = sequenced.sequenceNumber,
+                )
+            }
+            return sequenced.frame
+        }
+    }
+
+    suspend fun receiveSequencedOfflineFrame(framedConnection: FramedConnection): SequencedOfflineFrame =
+        readSequencedOfflineFrame(framedConnection)
+
+    suspend fun acceptSequencedOfflineFrame(sequenced: SequencedOfflineFrame): OfflineFrame {
+        receiveMutex.withLock {
+            val nextSeq = theirSeq + 1
+            check(nextSeq <= Int.MAX_VALUE.toLong()) {
+                "Receive sequence number overflowed Int.MAX_VALUE; close the channel"
+            }
+            val expectedSeq = nextSeq.toInt()
+            if (sequenced.sequenceNumber != expectedSeq) {
+                throw SequenceNumberMismatchException(
+                    expected = expectedSeq,
+                    actual = sequenced.sequenceNumber,
+                )
+            }
+            theirSeq = nextSeq
+            return sequenced.frame
+        }
+    }
+
+    val nextSendSequenceNumber: Long
+        get() = mySeq
+
+    val nextReceiveSequenceNumber: Long
+        get() = theirSeq
 
     /**
      * Parses a serialized [OfflineFrame] and surfaces parse failures as a
@@ -249,7 +313,27 @@ public class SecureChannel(
         } catch (e: com.google.protobuf.InvalidProtocolBufferException) {
             throw SecureMessageFormatException("OfflineFrame proto failed to parse", e)
         }
+
+    private suspend fun readSequencedOfflineFrame(framedConnection: FramedConnection): SequencedOfflineFrame {
+        val secureMessageBytes = framedConnection.receiveFrame()
+        val d2dBytes =
+            SecureMessageCodec.verifyAndDecrypt(
+                secureMessageBytes = secureMessageBytes,
+                decryptKey = keys.receiveEncryptKey,
+                hmacKey = keys.receiveHmacKey,
+            )
+        val unwrapped = SecureMessageCodec.unwrapDeviceToDeviceMessage(d2dBytes)
+        return SequencedOfflineFrame(
+            sequenceNumber = unwrapped.sequenceNumber,
+            frame = parseOfflineFrame(unwrapped.payload),
+        )
+    }
 }
+
+internal data class SequencedOfflineFrame(
+    val sequenceNumber: Int,
+    val frame: OfflineFrame,
+)
 
 /**
  * Thrown by [SecureChannel.receiveOfflineFrame] when the peer's reported

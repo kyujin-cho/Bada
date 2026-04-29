@@ -40,8 +40,14 @@ class MediumLadderTest {
     }
 
     @Test
-    fun `default ladder ranks Wi-Fi LAN first`() {
-        assertThat(MediumLadder.Default.rungs.first()).isEqualTo(Medium.WIFI_LAN)
+    fun `default ladder ranks upgrade mediums before Wi-Fi LAN fallback`() {
+        assertThat(MediumLadder.Default.rungs.take(4))
+            .containsExactly(
+                Medium.WIFI_AWARE,
+                Medium.WIFI_DIRECT,
+                Medium.WIFI_HOTSPOT,
+                Medium.WIFI_LAN,
+            ).inOrder()
     }
 
     @Test

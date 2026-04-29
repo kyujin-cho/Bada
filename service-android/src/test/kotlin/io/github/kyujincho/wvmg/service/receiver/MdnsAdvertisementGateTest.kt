@@ -10,16 +10,21 @@ import io.github.kyujincho.wvmg.discovery.AdvertiseHandle
 import io.github.kyujincho.wvmg.discovery.ble.ScanActivity
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.payload.TempFileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.server.TcpReceiverServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.InetAddress
 import java.security.SecureRandom
@@ -41,6 +46,16 @@ import java.security.SecureRandom
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MdnsAdvertisementGateTest {
+    @BeforeEach
+    fun setUp() {
+        ReceiverAdvertisementStateHolder.setAdvertising(false)
+    }
+
+    @AfterEach
+    fun tearDown() {
+        ReceiverAdvertisementStateHolder.setAdvertising(false)
+    }
+
     @Test
     fun `idle activity at boot does not publish`() =
         runTest {
@@ -439,6 +454,7 @@ class MdnsAdvertisementGateTest {
             advanceUntilIdle()
             // Active pulse + no outbound: both channels advertising.
             assertThat(session.isAdvertising).isTrue()
+            assertThat(ReceiverAdvertisementStateHolder.isAdvertising).isTrue()
             assertThat(broadcaster.startCount).isAtLeast(1)
             val baselineStops = broadcaster.stopCount
 
@@ -447,10 +463,28 @@ class MdnsAdvertisementGateTest {
             outbound.value = true
             advanceUntilIdle()
             assertThat(session.isAdvertising).isFalse()
+            assertThat(ReceiverAdvertisementStateHolder.isAdvertising).isFalse()
             assertThat(broadcaster.stopCount).isGreaterThan(baselineStops)
 
             gate.stop()
             session.stop()
+        }
+
+    @Test
+    fun `receiver advertisement holder waits until unpublish is observed`() =
+        runTest {
+            ReceiverAdvertisementStateHolder.setAdvertising(true)
+
+            val observed =
+                async {
+                    ReceiverAdvertisementStateHolder.awaitNotAdvertising(timeoutMillis = 1_000L)
+                }
+            runCurrent()
+            assertThat(observed.isCompleted).isFalse()
+
+            ReceiverAdvertisementStateHolder.setAdvertising(false)
+
+            assertThat(observed.await()).isTrue()
         }
 
     @Test
@@ -466,7 +500,7 @@ class MdnsAdvertisementGateTest {
             // startBleSafely so the gate's mDNS publish path is unaffected.
             val throwingBroadcaster =
                 object : BleVisibilityBroadcaster {
-                    override fun start() = error("synthetic BLE advertise failure")
+                    override fun start(): Boolean = error("synthetic BLE advertise failure")
 
                     override fun stop() = Unit
                 }
@@ -511,11 +545,13 @@ class MdnsAdvertisementGateTest {
                             scope: CoroutineScope,
                             factoryProvider: () -> FileDestinationFactory,
                             secureRandomProvider: () -> SecureRandom,
+                            mediumRegistry: MediumRegistry,
                         ): TcpReceiverServer =
                             TcpReceiverServer(
                                 parentScope = scope,
                                 factoryProvider = factoryProvider,
                                 secureRandomProvider = secureRandomProvider,
+                                mediumRegistry = mediumRegistry,
                                 bindAddress = InetAddress.getLoopbackAddress(),
                             )
                     },
@@ -579,8 +615,9 @@ class MdnsAdvertisementGateTest {
         var stopCount: Int = 0
             private set
 
-        override fun start() {
+        override fun start(): Boolean {
             startCount += 1
+            return true
         }
 
         override fun stop() {

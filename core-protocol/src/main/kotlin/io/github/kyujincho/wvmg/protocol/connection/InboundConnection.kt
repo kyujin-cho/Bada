@@ -7,10 +7,13 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
+import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.payload.PayloadProtocolException
+import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
+import io.github.kyujincho.wvmg.protocol.transport.asConnectedTransport
 import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2HandshakeException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -108,7 +111,7 @@ import java.security.SecureRandom
  *   [SecureRandom].
  */
 public class InboundConnection(
-    private val socket: Socket,
+    private val transport: ConnectedTransport,
     private val secureRandom: SecureRandom = SecureRandom(),
     /**
      * Registry of [io.github.kyujincho.wvmg.protocol.medium.MediumProvider]s
@@ -121,9 +124,25 @@ public class InboundConnection(
      * transport swap into the dispatch loop.
      */
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
+    private val logger: (String) -> Unit = {},
 ) {
+    public constructor(
+        socket: Socket,
+        secureRandom: SecureRandom = SecureRandom(),
+        mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
+        logger: (String) -> Unit = {},
+    ) : this(
+        transport = socket.asConnectedTransport(),
+        secureRandom = secureRandom,
+        mediumRegistry = mediumRegistry,
+        logger = logger,
+    )
+
     private val mutableState: MutableStateFlow<InboundConnectionState> =
         MutableStateFlow(InboundConnectionState.Idle)
+
+    private val mutableActiveMedium: MutableStateFlow<Medium> =
+        MutableStateFlow(transport.medium)
 
     /**
      * Observable lifecycle state.
@@ -134,6 +153,15 @@ public class InboundConnection(
      * are the last value the flow ever publishes.
      */
     public val state: StateFlow<InboundConnectionState> = mutableState.asStateFlow()
+
+    /**
+     * Medium the live control channel currently runs over.
+     *
+     * Starts at the initial accept transport and flips if a successful
+     * `BANDWIDTH_UPGRADE_NEGOTIATION` swaps the SecureChannel onto a
+     * different medium.
+     */
+    public val activeMedium: StateFlow<Medium> = mutableActiveMedium.asStateFlow()
 
     /**
      * External-event channel. The receive loop drains this between
@@ -217,13 +245,15 @@ public class InboundConnection(
 
         val driver =
             InboundConnectionDriver(
-                socket = socket,
+                transport = transport,
                 secureRandom = secureRandom,
                 externalEvents = externalEvents,
                 mutableState = mutableState,
+                mutableActiveMedium = mutableActiveMedium,
                 factory = factory,
                 mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,
+                logger = logger,
             )
 
         return try {
@@ -248,7 +278,7 @@ public class InboundConnection(
             // user's Downloads UI.
             runCatching { driver.tearDown() }
             externalEvents.close()
-            runCatching { socket.close() }
+            runCatching { transport.close() }
         }
     }
 
@@ -326,7 +356,7 @@ public class InboundConnection(
             // a CANCEL on the unencrypted leg. The peer observes a
             // TCP close, which Quick Share treats as a connection
             // abort.
-            runCatching { socket.close() }
+            runCatching { transport.close() }
         }
     }
 

@@ -75,6 +75,10 @@
     <string name="permission_bluetooth_scan_title">Nearby Bluetooth devices</string>
     <string name="permission_bluetooth_scan_rationale">Used to listen for nearby Quick Share senders so this device wakes up its receiver only when needed. Quick Share never uses this to determine your physical location.</string>
 
+    <!-- BLUETOOTH_CONNECT (API 31+, Phase 4 Bluetooth transports). -->
+    <string name="permission_bluetooth_connect_title">Bluetooth connections</string>
+    <string name="permission_bluetooth_connect_rationale">Used to accept and open Bluetooth peer-to-peer links when the two devices cannot reach each other over the current Wi-Fi network. Transfers still use Quick Share encryption.</string>
+
     <!-- Permission status labels. -->
     <string name="permission_status_granted">Granted</string>
     <string name="permission_status_denied">Required - not granted</string>

@@ -200,6 +200,32 @@ class DiscoveryAdvertiseTest {
         }
     }
 
+    @Test
+    fun `advertise can reuse a caller supplied endpoint ID in the instance name`() {
+        val requestedNames = mutableListOf<String>()
+        val endpointId = "WvMg".toByteArray(Charsets.US_ASCII)
+        val registrar =
+            CountingNsdRegistrar(
+                onRegister = { instanceName, _, _ -> requestedNames += instanceName },
+            )
+        val discovery =
+            Discovery.forTesting(
+                registrar = registrar,
+                browser = NoopNsdBrowser,
+                instanceEndpointIdProvider = { endpointId.copyOf() },
+            )
+
+        val handle = discovery.advertise(sampleEndpointInfo(), port = 51_002)
+        try {
+            assertThat(requestedNames).hasSize(1)
+            val decoded = InstanceName.decodeRawBytes(requestedNames.single())
+            assertThat(decoded).isNotNull()
+            assertThat(InstanceName.extractEndpointId(decoded!!)!!).isEqualTo(endpointId)
+        } finally {
+            handle.close()
+        }
+    }
+
     private fun sampleEndpointInfo(): EndpointInfo =
         EndpointInfo(
             version = 1,

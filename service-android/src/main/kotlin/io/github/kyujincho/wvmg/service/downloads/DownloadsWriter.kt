@@ -144,8 +144,8 @@ internal class DownloadsWriter(
      * exists" condition the writer should retry with a suffix bump.
      *
      * Recognized signals:
-     *  - [java.nio.file.FileAlreadyExistsException] — what the legacy
-     *    environment raises when `Files.createFile` finds the path
+     *  - [DownloadFileAlreadyExistsException] — what the legacy
+     *    environment raises when placeholder creation finds the path
      *    occupied.
      *  - The literal class name `"FileAlreadyExistsException"` — defends
      *    against alternate JDK / Android implementations that throw a
@@ -159,7 +159,7 @@ internal class DownloadsWriter(
         var t: Throwable? = throwable
         var found = false
         while (t != null && !found) {
-            if (t is java.nio.file.FileAlreadyExistsException ||
+            if (t is DownloadFileAlreadyExistsException ||
                 t::class.simpleName == "FileAlreadyExistsException"
             ) {
                 found = true

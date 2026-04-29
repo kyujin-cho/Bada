@@ -35,6 +35,9 @@ jobs:
       - name: Run :core-protocol JVM tests
         run: ./gradlew :core-protocol:test --stacktrace
 
+      - name: Run :discovery-android JVM unit tests
+        run: ./gradlew :discovery-android:testDebugUnitTest --stacktrace
+
       - name: Run :app JVM unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 

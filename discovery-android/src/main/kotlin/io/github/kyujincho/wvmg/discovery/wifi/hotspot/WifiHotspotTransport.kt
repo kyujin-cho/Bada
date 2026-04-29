@@ -7,6 +7,8 @@ package io.github.kyujincho.wvmg.discovery.wifi.hotspot
 
 import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.Socket
 
 /**
@@ -43,13 +45,19 @@ public class WifiHotspotTransport(
 ) : UpgradedTransport {
     override val medium: Medium = Medium.WIFI_HOTSPOT
 
+    override val inputStream: InputStream
+        get() = socket.getInputStream()
+
+    override val outputStream: OutputStream
+        get() = socket.getOutputStream()
+
     private var released: Boolean = false
 
     /**
      * Close the socket and release the underlying network association.
      * Safe to call multiple times — subsequent calls are no-ops.
      */
-    public fun release() {
+    override fun close() {
         if (released) return
         released = true
         // Order matters: close the socket before unregistering the
@@ -69,5 +77,9 @@ public class WifiHotspotTransport(
             // Best-effort: teardown may have already been triggered
             // by the platform releasing our NetworkCallback.
         }
+    }
+
+    public fun release() {
+        close()
     }
 }
