@@ -184,6 +184,8 @@ public class SecureChannel internal constructor(
 
     internal fun withTransport(framedConnection: FramedConnection): SecureChannel =
         SecureChannel(framedConnection, session)
+
+    internal fun hasBufferedInput(): Boolean = framedConnection.hasBufferedInput()
 }
 
 /**

@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.net.InetAddress
+import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -65,6 +67,7 @@ public class Discovery internal constructor(
      * BLE and mDNS sightings to one endpoint.
      */
     private val instanceEndpointIdProvider: (() -> ByteArray?)? = null,
+    private val localAddressProvider: () -> Set<InetAddress> = ::localInterfaceAddresses,
     /**
      * When `true`, the browse path drops any record whose mDNS instance
      * name matches one currently advertised by this process — that is,
@@ -318,6 +321,14 @@ public class Discovery internal constructor(
         if (addresses.isNotEmpty() && addresses.all { it.isLoopbackAddress }) {
             return null
         }
+        if (addresses.isNotEmpty() && isLocalInterfaceRecord(addresses)) {
+            Log.i(
+                TAG,
+                "browse: dropping self-interface record ${event.instanceName} " +
+                    "addrs=${addresses.joinToString { it.hostAddress }}",
+            )
+            return null
+        }
         // The system mDNS responder reflects our own published
         // advertisement back to our own browser through multicast
         // loopback (the LAN IP the responder bound to is reachable on
@@ -351,6 +362,12 @@ public class Discovery internal constructor(
             port = event.port,
             endpointInfo = endpointInfo,
         )
+    }
+
+    private fun isLocalInterfaceRecord(addresses: List<InetAddress>): Boolean {
+        val localAddresses = localAddressProvider()
+        if (localAddresses.isEmpty()) return false
+        return addresses.any(localAddresses::contains)
     }
 
     /**
@@ -460,6 +477,7 @@ public class Discovery internal constructor(
             networkWatcherFactory: NetworkWatcherFactory = NetworkWatcherFactory.NoOp,
             filterSelfPublishedInstances: Boolean = false,
             instanceEndpointIdProvider: (() -> ByteArray?)? = null,
+            localAddressProvider: () -> Set<InetAddress> = { emptySet() },
         ): Discovery =
             Discovery(
                 registrar = registrar,
@@ -467,10 +485,24 @@ public class Discovery internal constructor(
                 networkWatcherFactory = networkWatcherFactory,
                 filterSelfPublishedInstances = filterSelfPublishedInstances,
                 instanceEndpointIdProvider = instanceEndpointIdProvider,
+                localAddressProvider = localAddressProvider,
             )
 
         private fun systemNsdManager(context: Context): NsdManager =
             context.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
+
+        private fun localInterfaceAddresses(): Set<InetAddress> {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return emptySet()
+            val addresses = mutableSetOf<InetAddress>()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                val inetAddresses = networkInterface.inetAddresses ?: continue
+                while (inetAddresses.hasMoreElements()) {
+                    addresses += inetAddresses.nextElement()
+                }
+            }
+            return addresses
+        }
     }
 }
 

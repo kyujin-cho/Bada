@@ -34,6 +34,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
@@ -220,22 +221,41 @@ internal class InboundConnectionDriver(
         // Step 6: SecureChannel takes over.
         val channel = SecureChannel(framedTransport, sessionKeys, secureRandom).also { secureChannel = it }
 
+        // Stock Android may send its first Nearby Share BYTES payload
+        // immediately after connection success, before it processes our
+        // bandwidth-upgrade offer. Drain one already-buffered frame so the
+        // SecureMessage receive sequence remains aligned across the upgrade.
+        val initialWireFrame = pollBufferedInitialWireFrame(channel)
+
         // Step 7: as the Nearby Connections server role, offer the best
         // prepared upgrade medium before the Nearby Share payload
-        // negotiation starts. On any prepare/adopt/accept failure the
-        // orchestrator returns the original Wi-Fi LAN channel.
+        // negotiation starts. If the sender has already put a sharing
+        // payload on the original channel, stay on that channel: stock
+        // Samsung can continue sending Nearby Share frames while the old
+        // and upgraded channels are both draining, and our SecureChannel
+        // currently enforces one global receive order over one active
+        // transport at a time.
         val activeTransport =
-            BandwidthUpgradeOrchestrator
-                .runServerUpgradeIfAvailable(
-                    oldChannel = channel,
-                    currentMedium = transport.medium,
-                    mediumRegistry = mediumRegistry,
-                    peerSupportedMediums = peerSupportedMediums,
-                    peerEndpointId = initialFrame.v1.connectionRequest.endpointId,
-                    logger = {},
-                )
+            if (initialWireFrame == null) {
+                BandwidthUpgradeOrchestrator
+                    .runServerUpgradeIfAvailable(
+                        oldChannel = channel,
+                        currentMedium = transport.medium,
+                        mediumRegistry = mediumRegistry,
+                        peerSupportedMediums = peerSupportedMediums,
+                        peerEndpointId = initialFrame.v1.connectionRequest.endpointId,
+                        logger = {},
+                    )
+            } else {
+                ActiveTransportChannel(channel, transport.medium)
+            }
         val activeChannel = activeTransport.channel.also { secureChannel = it }
         mutableActiveMedium.value = activeTransport.medium
+        val initialWireFrames =
+            buildList {
+                initialWireFrame?.let(::add)
+                addAll(activeTransport.bufferedFrames)
+            }
 
         // Step 8-10: drive the negotiation FSM through to consent.
         mutableState.value = InboundConnectionState.Negotiating
@@ -249,7 +269,18 @@ internal class InboundConnectionDriver(
         // point on.
         onHandshakeComplete()
 
-        return runReceiveLoop(activeChannel, negotiationFsm)
+        return runReceiveLoop(activeChannel, negotiationFsm, initialWireFrames)
+    }
+
+    private suspend fun pollBufferedInitialWireFrame(channel: SecureChannel): OfflineFrame? {
+        repeat(INITIAL_FRAME_PROBE_ATTEMPTS) {
+            val available = runCatching { transport.inputStream.available() }.getOrDefault(0)
+            if (available > 0) {
+                return channel.receiveOfflineFrame()
+            }
+            delay(INITIAL_FRAME_PROBE_DELAY_MILLIS)
+        }
+        return null
     }
 
     /**
@@ -285,6 +316,7 @@ internal class InboundConnectionDriver(
     private suspend fun runReceiveLoop(
         channel: SecureChannel,
         fsm: InboundSharingFsm,
+        initialWireFrames: List<OfflineFrame> = emptyList(),
     ): InboundResult =
         coroutineScope {
             // RENDEZVOUS capacity (the default) means the inbound pump
@@ -300,7 +332,7 @@ internal class InboundConnectionDriver(
             val pumpJob: Job = launch { runInboundPump(channel, wireChannel) }
             val keepAliveJob: Job = launch { runKeepAliveTicker(channel) }
             try {
-                dispatchLoop(channel, fsm, wireChannel)
+                dispatchLoop(channel, fsm, wireChannel, initialWireFrames)
             } finally {
                 keepAliveJob.cancelAndJoin()
                 // Close the active channel BEFORE cancelAndJoin: the pump is parked
@@ -368,20 +400,31 @@ internal class InboundConnectionDriver(
         channel: SecureChannel,
         fsm: InboundSharingFsm,
         wireChannel: Channel<WireMessage>,
+        initialWireFrames: List<OfflineFrame> = emptyList(),
     ): InboundResult {
+        val bufferedFrames =
+            ArrayDeque<OfflineFrame>().apply {
+                addAll(initialWireFrames)
+            }
         while (true) {
             if (fsm.state == InboundSharingState.Disconnected) {
                 return terminalResultFromState()
             }
 
             val event: DriverEvent =
-                select {
-                    externalEvents.onReceive { ev -> DriverEvent.External(ev) }
-                    wireChannel.onReceive { msg ->
-                        when (msg) {
-                            is WireMessage.Frame -> DriverEvent.Wire(msg.frame)
-                            WireMessage.Closed -> DriverEvent.PeerClosed
-                            is WireMessage.Error -> DriverEvent.PumpError(msg.cause)
+                if (bufferedFrames.isNotEmpty()) {
+                    bufferedFrames
+                        .removeFirst()
+                        .let { frame -> DriverEvent.Wire(frame) }
+                } else {
+                    select {
+                        externalEvents.onReceive { ev -> DriverEvent.External(ev) }
+                        wireChannel.onReceive { msg ->
+                            when (msg) {
+                                is WireMessage.Frame -> DriverEvent.Wire(msg.frame)
+                                WireMessage.Closed -> DriverEvent.PeerClosed
+                                is WireMessage.Error -> DriverEvent.PumpError(msg.cause)
+                            }
                         }
                     }
                 }
@@ -767,5 +810,10 @@ internal class InboundConnectionDriver(
     private suspend fun readOfflineFrameUnencrypted(transport: FramedConnection): OfflineFrame {
         val bytes = transport.receiveFrame()
         return OfflineFrame.parseFrom(bytes)
+    }
+
+    private companion object {
+        private const val INITIAL_FRAME_PROBE_ATTEMPTS = 20
+        private const val INITIAL_FRAME_PROBE_DELAY_MILLIS = 10L
     }
 }

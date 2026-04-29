@@ -155,6 +155,8 @@ public class FramedConnection(
             }
         }
 
+    internal fun hasBufferedInput(): Boolean = input.available() > 0
+
     /**
      * Closes the underlying socket. Idempotent: subsequent calls are
      * no-ops.

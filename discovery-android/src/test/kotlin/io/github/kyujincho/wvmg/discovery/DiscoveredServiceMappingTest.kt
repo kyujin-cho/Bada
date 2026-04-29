@@ -105,6 +105,23 @@ class DiscoveredServiceMappingTest {
     }
 
     @Test
+    fun `peer whose resolved address belongs to this device is filtered out`() {
+        val localAddress = InetAddress.getByName("192.168.1.10")
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(localAddress, InetAddress.getByName("192.168.1.42")),
+                port = 54_326,
+                attributes = emptyMap(),
+            )
+        val result =
+            newDiscovery(
+                localAddresses = setOf(localAddress),
+            ).toDiscoveredService(event)
+        assertThat(result).isNull()
+    }
+
+    @Test
     fun `blank instance name is dropped — defensive guard against misbehaving mDNS responders`() {
         // A handful of OEM mDNS responder implementations have been observed
         // surfacing a "resolved" callback with an empty or blank service name.
@@ -115,7 +132,7 @@ class DiscoveredServiceMappingTest {
             NsdBrowserEvent.Resolved(
                 instanceName = "   ", // whitespace-only, isBlank() == true
                 addresses = listOf(InetAddress.getByName("192.168.1.42")),
-                port = 54_326,
+                port = 54_327,
                 attributes = emptyMap(),
             )
         val result = newDiscovery().toDiscoveredService(event)
@@ -153,7 +170,7 @@ class DiscoveredServiceMappingTest {
         assertThat(result).isNull()
     }
 
-    private fun newDiscovery(): Discovery =
+    private fun newDiscovery(localAddresses: Set<InetAddress> = emptySet()): Discovery =
         Discovery.forTesting(
             registrar =
                 object : NsdRegistrar {
@@ -168,5 +185,6 @@ class DiscoveredServiceMappingTest {
                 object : NsdBrowser {
                     override fun discover(serviceType: String) = error("toDiscoveredService should not need a browser")
                 },
+            localAddressProvider = { localAddresses },
         )
 }
