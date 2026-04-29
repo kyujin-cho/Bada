@@ -40,7 +40,7 @@ public class BleFastAdvertisementScanner(
     public fun scan(): Flow<Observation> =
         callbackFlow {
             if (!hasScanPermission()) {
-                Log.i(TAG, "BLE fast-advertisement scan unavailable: missing BLUETOOTH_SCAN")
+                Log.i(TAG, "BLE fast-advertisement scan unavailable: missing runtime permission")
                 close()
                 return@callbackFlow
             }
@@ -71,7 +71,13 @@ public class BleFastAdvertisementScanner(
                     }
                 }
 
-            scanner.startScan(buildFilters(), buildSettings(), callback)
+            try {
+                scanner.startScan(buildFilters(), buildSettings(), callback)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "BLE fast-advertisement scan start rejected by platform", e)
+                close()
+                return@callbackFlow
+            }
             awaitClose {
                 runCatching { scanner.stopScan(callback) }
             }
@@ -103,10 +109,12 @@ public class BleFastAdvertisementScanner(
         return adapter.bluetoothLeScanner
     }
 
-    private fun hasScanPermission(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
-        return checkSPermission()
-    }
+    private fun hasScanPermission(): Boolean =
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> checkSPermission()
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> hasLegacyLocationPermission()
+            else -> true
+        }
 
     @RequiresApi(Build.VERSION_CODES.S)
     private fun checkSPermission(): Boolean =
@@ -114,6 +122,16 @@ public class BleFastAdvertisementScanner(
             context,
             Manifest.permission.BLUETOOTH_SCAN,
         ) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasLegacyLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
 
     private fun buildFilters(): List<ScanFilter> =
         listOf(
