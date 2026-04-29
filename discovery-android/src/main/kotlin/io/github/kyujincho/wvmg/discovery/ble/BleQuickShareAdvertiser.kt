@@ -49,11 +49,13 @@ import java.util.concurrent.atomic.AtomicReference
  * [ versPCP(1) | endpoint_id(4 ASCII) | endpoint_info_len(1) | EndpointInfo(N) ]
  * ```
  *
- * For our hidden, version=1, PHONE EndpointInfo (matching
- * `ReceiverForegroundService.defaultEndpointInfo`) the total payload is
+ * For our hidden, version=1, PHONE EndpointInfo the total payload is
  * **23 bytes**, which fits alongside the 16-bit service-data AD header
  * inside the legacy 31-byte advertising-PDU budget without needing
- * extended advertising.
+ * extended advertising. The receiver's mDNS path may carry a visible
+ * name-bearing EndpointInfo for stock picker compatibility; the BLE
+ * payload factory intentionally emits this compact hidden form so the
+ * fast advertisement remains legal on legacy Android BLE advertisers.
  *
  * ### Lifecycle
  *
@@ -110,9 +112,9 @@ import java.util.concurrent.atomic.AtomicReference
  * @param gate platform-advertiser abstraction; tests inject a fake.
  * @param permissionChecker checks `BLUETOOTH_ADVERTISE` at start time;
  *   defaults to a [ContextCompat]-backed implementation in production.
- * @param payloadFactory builds the 23-byte service-data payload from
+ * @param payloadFactory builds the compact service-data payload from
  *   the supplied [EndpointInfo] and the latest endpoint_id. Defaults to
- *   [BleServiceData.encode].
+ *   [BleServiceData.encode] over a hidden, no-name copy of the identity.
  */
 public class BleQuickShareAdvertiser internal constructor(
     private val gate: BleAdvertiserGate,
@@ -503,9 +505,9 @@ internal class AndroidAdvertisePermissionChecker(
 }
 
 /**
- * Builder for the 23-byte service-data payload. The default
- * implementation delegates to [BleServiceData.encode] in `:core-protocol`;
- * tests can substitute a fake to drive specific failure paths.
+ * Builder for the compact service-data payload. The default implementation
+ * delegates to [BleServiceData.encode] in `:core-protocol`; tests can
+ * substitute a fake to drive specific failure paths.
  */
 public fun interface PayloadFactory {
     public fun build(
@@ -522,7 +524,18 @@ public object DefaultPayloadFactory : PayloadFactory {
     override fun build(
         endpointId: ByteArray,
         endpointInfo: EndpointInfo,
-    ): ByteArray = BleServiceData.encode(endpointId, endpointInfo)
+    ): ByteArray = BleServiceData.encode(endpointId, endpointInfo.compactForFastAdvertisement())
+
+    private fun EndpointInfo.compactForFastAdvertisement(): EndpointInfo =
+        EndpointInfo(
+            version = version,
+            hidden = true,
+            deviceType = deviceType,
+            reserved = reserved,
+            metadata = metadata.copyOf(),
+            deviceName = null,
+            tlvRecords = emptyList(),
+        )
 }
 
 /**

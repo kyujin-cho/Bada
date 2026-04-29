@@ -95,6 +95,36 @@ class BleQuickShareAdvertiserTest {
     }
 
     @Test
+    fun `start compacts visible EndpointInfo to hidden BLE payload`() {
+        val gate = RecordingGate(failOnStart = false)
+        val advertiser =
+            BleQuickShareAdvertiser.forTesting(
+                gate = gate,
+                permissionChecker = { true },
+            )
+        val info =
+            EndpointInfo(
+                version = 1,
+                hidden = false,
+                deviceType = DeviceType.PHONE,
+                reserved = false,
+                metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
+                deviceName = "WhenVivoMeetsGoogle",
+            )
+
+        val started = advertiser.start(info, endpointId("Wvmg"))
+
+        assertThat(started).isTrue()
+        val (payload, _) = gate.startCalls.single()
+        assertThat(payload).hasLength(23)
+        val parsedInfo = BleServiceData.parse(payload)!!.endpointInfo
+        assertThat(parsedInfo.hidden).isTrue()
+        assertThat(parsedInfo.deviceName).isNull()
+        assertThat(parsedInfo.deviceType).isEqualTo(info.deviceType)
+        assertThat(parsedInfo.metadata).isEqualTo(info.metadata)
+    }
+
+    @Test
     fun `start rejects an endpoint_id of the wrong length`() {
         val advertiser =
             BleQuickShareAdvertiser.forTesting(

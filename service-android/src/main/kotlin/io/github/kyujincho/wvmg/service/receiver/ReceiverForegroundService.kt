@@ -221,8 +221,8 @@ public class ReceiverForegroundService : Service() {
         // Multiple startService calls are idempotent — the second one
         // just keeps the existing session alive.
         if (session == null) {
-            startReceiverSession()
             startBleScanner()
+            startReceiverSession()
         }
 
         return START_STICKY
@@ -439,7 +439,9 @@ public class ReceiverForegroundService : Service() {
      * Build a [BleVisibilityBroadcaster] that hands the gate's
      * publish/unpublish decisions to the [bleAdvertiser] using the
      * receiver's stable [EndpointInfo] and a process-stable 4-byte
-     * endpoint_id slug.
+     * endpoint_id slug. The advertiser compacts the EndpointInfo into
+     * the hidden, no-name BLE shape so it fits the legacy advertisement
+     * budget; the mDNS path keeps the visible, name-bearing identity.
      *
      * The endpoint_id we feed into BLE is the same process-stable slug
      * that production `Discovery` uses for the mDNS instance name.
