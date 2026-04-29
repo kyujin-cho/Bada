@@ -268,6 +268,7 @@ public class ReceiverSession(
             runCatching { advertiseHandle?.close() }
             advertiseHandle = null
             stopInitialControlServersLocked()
+            ReceiverAdvertisementStateHolder.setAdvertising(false)
         }
 
         runCatching { server?.stopBlocking() }
@@ -329,6 +330,7 @@ public class ReceiverSession(
             runCatching { handle?.close() }
             advertiseHandle = null
             stopInitialControlServersLocked()
+            ReceiverAdvertisementStateHolder.setAdvertising(false)
         }
     }
 
@@ -339,6 +341,7 @@ public class ReceiverSession(
         port: Int,
     ) {
         advertiseHandle = advertiser.advertise(endpointInfo, port)
+        ReceiverAdvertisementStateHolder.setAdvertising(true)
         for (initialControlServer in initialControlServers) {
             if (initialControlServer.isActive) continue
             runCatching {

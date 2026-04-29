@@ -32,6 +32,7 @@ import io.github.kyujincho.wvmg.protocol.connection.OutboundConnectionState
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.receiver.OutboundSessionActiveHolder
+import io.github.kyujincho.wvmg.service.receiver.ReceiverAdvertisementStateHolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -80,6 +81,7 @@ public class SendActivity : AppCompatActivity() {
     private var files: List<FileSource> = emptyList()
     private val peers: MutableList<DiscoveredService> = mutableListOf()
     private val pendingPeerRemovalJobs: MutableMap<String, Job> = mutableMapOf()
+    private var outboundPresenceJob: Job? = null
     private var discoveryJob: Job? = null
     private var connectionJob: Job? = null
     private var activeConnection: OutboundConnection? = null
@@ -145,9 +147,7 @@ public class SendActivity : AppCompatActivity() {
 
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
-        startDiscovery()
-        startEmptyPeerHintTimer()
-        startBleAdvertise()
+        startOutboundPresence()
     }
 
     /**
@@ -207,6 +207,7 @@ public class SendActivity : AppCompatActivity() {
         // OutboundConnection so a CancelFrame is sent on the wire when
         // possible (best-effort — already-terminal states are no-ops).
         activeConnection?.cancel()
+        outboundPresenceJob?.cancel()
         discoveryJob?.cancel()
         connectionJob?.cancel()
         emptyPeerHintJob?.cancel()
@@ -350,6 +351,33 @@ public class SendActivity : AppCompatActivity() {
     // -----------------------------------------------------------------
     // Discovery
     // -----------------------------------------------------------------
+
+    private fun startOutboundPresence() {
+        outboundPresenceJob?.cancel()
+        outboundPresenceJob =
+            lifecycleScope.launch {
+                val receiverWasAdvertising = ReceiverAdvertisementStateHolder.isAdvertising
+                if (receiverWasAdvertising) {
+                    logOutboundDiagnostic(
+                        "discovery: waiting for receiver mDNS unpublish before browse",
+                    )
+                }
+
+                val unpublishObserved = ReceiverAdvertisementStateHolder.awaitNotAdvertising()
+                if (!unpublishObserved) {
+                    logOutboundDiagnostic(
+                        "discovery: receiver mDNS unpublish wait timed out; starting browse",
+                    )
+                } else if (receiverWasAdvertising) {
+                    logOutboundDiagnostic("discovery: receiver mDNS unpublish observed")
+                }
+
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.CREATED)) return@launch
+                startDiscovery()
+                startEmptyPeerHintTimer()
+                startBleAdvertise()
+            }
+    }
 
     private fun startDiscovery() {
         val discovery = Discovery(applicationContext)

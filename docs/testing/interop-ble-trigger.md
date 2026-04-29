@@ -376,6 +376,26 @@ within 5 s of the BLE pulse landing on vivo hardware.
    service type:_FC9F5ED42C8A._tcp.local` line and `onServiceFound`
    entries for each visible Quick Share peer.
 
+### Same-service publish / browse sequencing
+
+Funtouch 16 can wedge a process-local `NsdManager.discoverServices`
+listener if WVMG starts browsing `_FC9F5ED42C8A._tcp` while its own
+receiver-side `registerService` for the same type is still active or
+tearing down. The sender flow therefore flips the outbound-session veto,
+waits briefly for the receiver mDNS advertisement to report stopped,
+then starts the peer-picker browse.
+
+When verifying issue #107 on a vivo device:
+
+1. Start the receiver service and enable Always Visible.
+2. Open a share intent while a Samsung / Pixel peer is visible.
+3. Confirm logcat or `wvmg-outbound.log` contains:
+   `discovery: waiting for receiver mDNS unpublish before browse`
+   followed by `discovery: receiver mDNS unpublish observed`.
+4. Confirm the peer picker re-acquires the Samsung / Pixel peer within
+   about 5 s. If it does not, collect `dumpsys servicediscovery` before
+   force-stopping WVMG so the platform listener/cache state is preserved.
+
 ### App freezing must be disabled
 
 Funtouch's "App Freezer" / "Background process management" suspends
