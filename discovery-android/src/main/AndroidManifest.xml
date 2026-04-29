@@ -81,47 +81,57 @@
         android:maxSdkVersion="30" />
 
     <!--
-      Wi-Fi Aware (NAN) bandwidth-upgrade medium (#53). Compile-time
-      gating only — the umbrella :app manifest declares the runtime
-      grants the user is asked for. The hardware-feature line is
-      `required="false"` because Wi-Fi Aware coverage is patchy and
-      the app falls back to other mediums on unsupported devices.
+      Wi-Fi family bandwidth-upgrade mediums (#49 Wi-Fi Direct, #50
+      Wi-Fi local-only hotspot, #53 Wi-Fi Aware).
 
-      The data-path bring-up uses ConnectivityManager.requestNetwork
-      with a WifiAwareNetworkSpecifier; this needs CHANGE_WIFI_STATE
-      so the framework can pick a Wi-Fi Aware network on our behalf.
-      Discovery requires either NEARBY_WIFI_DEVICES (API 33+) or
-      ACCESS_FINE_LOCATION; both are runtime-gated and live in :app.
+      Compile-time:
+        * CHANGE_WIFI_STATE — required by:
+          - WifiManager.startLocalOnlyHotspot (sender role,
+            AndroidLocalOnlyHotspotController, #50) on API 26+;
+          - WifiP2pManager.createGroup / connect (#49);
+          - ConnectivityManager.requestNetwork with a
+            WifiAwareNetworkSpecifier (#53), so the framework can
+            pick a Wi-Fi Aware network on our behalf.
+
+      Runtime (must be granted by the user on API 26+):
+        * ACCESS_FINE_LOCATION — historically required by
+          WifiManager.startLocalOnlyHotspot on API 26+ for the SSID /
+          passphrase to surface in the LocalOnlyHotspotReservation
+          callback (#50). NEARBY_WIFI_DEVICES (API 33+) may substitute
+          on newer devices; the permission gate in
+          AndroidLocalOnlyHotspotController.hasRequiredPermissions
+          accepts either grant.
+        * NEARBY_WIFI_DEVICES — declared with neverForLocation so the
+          platform skips the location-tag enforcement on API 33+
+          devices where it can substitute for ACCESS_FINE_LOCATION on
+          the local-only-hotspot path, and is the preferred grant for
+          Wi-Fi Direct discovery (#49) and Wi-Fi Aware
+          publish/subscribe (#53).
+
+      Onboarding (#20 / #31) requests the runtime permissions; these
+      manifest declarations make the requirements library-local so a
+      consumer cannot accidentally compile against the providers
+      without declaring them at the app level.
     -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-
-    <uses-feature
-        android:name="android.hardware.wifi.aware"
-        android:required="false" />
-
-    <!--
-      Wi-Fi Direct medium (#49). Required by WifiDirectMediumProvider /
-      WifiDirectGroupController to call WifiP2pManager.createGroup /
-      connect. neverForLocation tells Android we never derive physical
-      location from peer scans, so the platform skips the
-      ACCESS_FINE_LOCATION requirement that pre-API-33 had to ship
-      alongside this. The umbrella manifest in :app already declares
-      NEARBY_WIFI_DEVICES at the runtime layer; this library-local
-      declaration ensures any consumer of :discovery-android inherits
-      the requirement automatically.
-    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="33" />
 
     <!--
-      Hardware-feature hint for Wi-Fi Direct (#49). Marked optional
-      because the medium is a *bandwidth upgrade* — devices without
-      P2P still function over Wi-Fi LAN. WifiDirectAvailability checks
-      PackageManager.FEATURE_WIFI_DIRECT at runtime to decide whether
-      to advertise WIFI_DIRECT in the supported-mediums set.
+      Hardware-feature hints for the optional bandwidth-upgrade
+      mediums. All marked `required="false"` because they are
+      *bandwidth upgrades* — devices without these chipsets still
+      function over Wi-Fi LAN. The matching availability classes
+      (WifiDirectAvailability / WifiAwareAvailability) check the
+      PackageManager features at runtime to decide whether to
+      advertise the medium in the supported-mediums set.
     -->
+    <uses-feature
+        android:name="android.hardware.wifi.aware"
+        android:required="false" />
     <uses-feature
         android:name="android.hardware.wifi.direct"
         android:required="false" />

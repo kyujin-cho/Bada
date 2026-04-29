@@ -152,14 +152,16 @@ class AndroidManifestPermissionsTest {
     }
 
     @Test
-    fun `bluetooth connect is not declared yet`() {
-        // BLUETOOTH_CONNECT is only needed when initiating or accepting
-        // GATT connections — Phase 2 only advertises and scans, so
-        // declaring CONNECT today would surface a permission prompt the
-        // app does not need. Guard against accidentally pulling it in
-        // before BLE L2CAP support lands.
-        assertFalse(
-            "BLUETOOTH_CONNECT must NOT be declared until BLE L2CAP support lands",
+    fun `bluetooth connect is declared for phase 4 bluetooth rfcomm medium`() {
+        // BLUETOOTH_CONNECT was kept off the manifest through Phase 2
+        // (only ADVERTISE / SCAN were needed for the BLE pulse layer).
+        // Phase 4 issue #51 adds the Bluetooth RFCOMM bandwidth-upgrade
+        // medium, which calls listenUsingInsecureRfcommWithServiceRecord
+        // on the receiver and createInsecureRfcommSocketToServiceRecord
+        // on the sender — both gated by BLUETOOTH_CONNECT at runtime on
+        // API 31+. The umbrella manifest must therefore declare it.
+        assertTrue(
+            "BLUETOOTH_CONNECT must be declared for the Phase 4 Bluetooth RFCOMM medium (#51)",
             manifest.contains("android.permission.BLUETOOTH_CONNECT"),
         )
     }
@@ -169,20 +171,52 @@ class AndroidManifestPermissionsTest {
         // Phase 1 uses the system share-intent flow, which does not need
         // direct media access. READ_MEDIA_* would surface needless
         // permissions to users — guard against that drift.
+        //
+        // ACCESS_FINE_LOCATION used to be on this list as a Phase 1
+        // safety guard. Phase 4 #50 (Wi-Fi local-only hotspot
+        // bandwidth-upgrade medium) requires the platform's hotspot
+        // path to surface SSID + passphrase via the
+        // LocalOnlyHotspotReservation callback, which gates that data
+        // behind ACCESS_FINE_LOCATION on API 26+ (NEARBY_WIFI_DEVICES
+        // is accepted in lieu on API 33+ but the older grant is the
+        // only universally-supported one). We therefore moved the
+        // permission off the forbidden list and added a dedicated
+        // declaration test below.
+        //
+        // ACCESS_COARSE_LOCATION remains forbidden — we never want
+        // the coarse-location permission, only the fine-grained one
+        // when the hotspot path strictly requires it.
         val mediaForbidden =
             listOf(
                 "android.permission.READ_MEDIA_IMAGES",
                 "android.permission.READ_MEDIA_VIDEO",
                 "android.permission.READ_MEDIA_AUDIO",
-                "android.permission.ACCESS_FINE_LOCATION",
                 "android.permission.ACCESS_COARSE_LOCATION",
             )
         for (permission in mediaForbidden) {
             assertFalse(
-                "$permission must NOT be declared in Phase 1",
+                "$permission must NOT be declared",
                 manifest.contains(permission),
             )
         }
+    }
+
+    @Test
+    fun `wifi hotspot upgrade permissions declared for phase 4 issue 50`() {
+        // Wi-Fi local-only hotspot (WIFI_HOTSPOT bandwidth-upgrade
+        // medium, #50) needs CHANGE_WIFI_STATE to call
+        // WifiManager.startLocalOnlyHotspot and ACCESS_FINE_LOCATION
+        // for the platform to surface SSID + passphrase via the
+        // reservation callback on API 26+. Both must be declared in
+        // the umbrella manifest.
+        assertTrue(
+            "CHANGE_WIFI_STATE must be declared for Wi-Fi local-only hotspot (#50)",
+            manifest.contains("android.permission.CHANGE_WIFI_STATE"),
+        )
+        assertTrue(
+            "ACCESS_FINE_LOCATION must be declared for Wi-Fi local-only hotspot (#50)",
+            manifest.contains("android.permission.ACCESS_FINE_LOCATION"),
+        )
     }
 
     @Test

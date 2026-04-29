@@ -389,6 +389,77 @@ class BandwidthUpgradeFramesTest {
     }
 
     @Test
+    fun `upgradePathAvailable carries Wi-Fi Hotspot credentials`() {
+        val frame =
+            BandwidthUpgradeFrames.upgradePathAvailable(
+                UpgradePathCredentials.WifiHotspot(
+                    ssid = "DIRECT-AB-Quickshare",
+                    passphrase = "p4ssphrase",
+                    port = 41201,
+                    gateway = "192.168.49.1",
+                    frequencyMhz = 5180,
+                ),
+            )
+        val parsed = parse(frame)
+        assertThat(parsed.upgradePathInfo.medium.number).isEqualTo(Medium.WIFI_HOTSPOT.wireNumber)
+        assertThat(parsed.upgradePathInfo.hasWifiHotspotCredentials()).isTrue()
+        val raw = parsed.upgradePathInfo.wifiHotspotCredentials
+        assertThat(raw.ssid).isEqualTo("DIRECT-AB-Quickshare")
+        assertThat(raw.password).isEqualTo("p4ssphrase")
+        assertThat(raw.port).isEqualTo(41201)
+        assertThat(raw.gateway).isEqualTo("192.168.49.1")
+        assertThat(raw.frequency).isEqualTo(5180)
+    }
+
+    @Test
+    fun `decodeCredentials round-trips Wi-Fi Hotspot with all fields`() {
+        val original =
+            UpgradePathCredentials.WifiHotspot(
+                ssid = "AndroidShare_xyz",
+                passphrase = "correcthorsebatterystaple",
+                port = 53111,
+                gateway = "192.168.49.1",
+                frequencyMhz = 2412,
+            )
+        val frame = BandwidthUpgradeFrames.upgradePathAvailable(original)
+        val parsed = parse(frame)
+        val decoded = BandwidthUpgradeFrames.decodeCredentials(parsed.upgradePathInfo)
+        assertThat(decoded).isEqualTo(original)
+    }
+
+    @Test
+    fun `decodeCredentials round-trips Wi-Fi Hotspot omitting optional fields`() {
+        // The encoder skips gateway and frequency when they hold the
+        // proto-default sentinels; the decoder must re-materialise the
+        // sentinels from `hasGateway()` / `hasFrequency()` returning false.
+        val original =
+            UpgradePathCredentials.WifiHotspot(
+                ssid = "DIRECT-CD",
+                passphrase = "secret",
+                port = 12345,
+            )
+        val frame = BandwidthUpgradeFrames.upgradePathAvailable(original)
+        val parsed = parse(frame)
+        val raw = parsed.upgradePathInfo.wifiHotspotCredentials
+        assertThat(raw.hasGateway()).isFalse()
+        assertThat(raw.hasFrequency()).isFalse()
+        val decoded = BandwidthUpgradeFrames.decodeCredentials(parsed.upgradePathInfo)
+        assertThat(decoded).isEqualTo(original)
+    }
+
+    @Test
+    fun `decodeCredentials returns Generic when WIFI_HOTSPOT is missing the sub-message`() {
+        // A bug-compatible peer might send `medium=WIFI_HOTSPOT` with no
+        // `wifi_hotspot_credentials` populated. Treat it as a generic
+        // "advertised but no credentials" frame so the upper layer can
+        // fall back to UPGRADE_FAILURE rather than crashing.
+        val frame = BandwidthUpgradeFrames.upgradePathAvailable(UpgradePathCredentials.Generic(Medium.WIFI_HOTSPOT))
+        val parsed = parse(frame)
+        val decoded = BandwidthUpgradeFrames.decodeCredentials(parsed.upgradePathInfo)
+        assertThat(decoded).isEqualTo(UpgradePathCredentials.Generic(Medium.WIFI_HOTSPOT))
+    }
+
+    @Test
     fun `every builder produces a V1 BANDWIDTH_UPGRADE_NEGOTIATION envelope`() {
         val frames =
             listOf(
