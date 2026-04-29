@@ -20,11 +20,9 @@ import org.junit.jupiter.api.Test
  * Pure-JVM tests for [AndroidNsdBrowser]'s timeout-and-queue
  * primitives.
  *
- * The full integration that exercises [android.net.nsd.NsdManager.resolveService]
- * cannot run from a JVM unit test — the AGP unit-test stub jar throws
- * `ClassFormatError` when the test merely allocates an `NsdServiceInfo`.
- * That integration is verified end-to-end on real hardware via the
- * BLE-trigger interop runbook (`docs/testing/interop-ble-trigger.md`).
+ * Robolectric integration coverage for the actual [android.net.nsd.NsdManager]
+ * call path lives in [AndroidNsdRobolectricTest]. These tests stay as
+ * narrow regression guards for the queue constants and timeout helper.
  *
  * What we *can* and *do* exercise from JVM:
  *
@@ -154,19 +152,10 @@ class AndroidNsdBrowserTest {
     // silently no-ops, leaving the resolve worker hung at the 5 s
     // timeout and the picker empty.
     //
-    // Issue #100 originally proposed Robolectric integration coverage
-    // for `AndroidNsdBrowser.runResolve`. Robolectric+AGP+Jupiter
-    // integration in this project is non-trivial: Kotlin compiles
-    // captured-variable lambdas with synthetic methods on the outer
-    // class whose method descriptors reference platform-typed lambda
-    // parameters (NsdManager.DiscoveryListener), which then resolve to
-    // the AGP unit-test stub jar's NsdServiceInfo and trigger
-    // ClassFormatError during JUnit Platform discovery — before
-    // Robolectric's own classloader has a chance to substitute. The
-    // tests below are the JVM-friendly substitute: they pin the
-    // predicate's contract precisely. A regression that breaks the
-    // f1bdcb5 fix (e.g. switching `> 0` to `>= 0`, or removing the
-    // shortcut altogether) fails these tests immediately.
+    // The tests below pin the JVM-friendly predicate contract. A
+    // regression that breaks the f1bdcb5 fix (e.g. switching `> 0` to
+    // `>= 0`, or removing the shortcut altogether) fails here, while
+    // AndroidNsdRobolectricTest exercises the platform call path.
 
     @Test
     fun `shouldSkipResolve returns true for a positive port (modern MdnsDiscoveryManager pipeline)`() {
