@@ -453,6 +453,46 @@ class MdnsAdvertisementGateTest {
             session.stop()
         }
 
+    @Test
+    fun `BLE broadcaster throwing on start is swallowed and mDNS still publishes`() =
+        runTest {
+            val advertiser = RecordingAdvertiser()
+            val session = startedGatedSession(advertiser = advertiser)
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
+            val override = MutableStateFlow(false)
+            val qr = MutableStateFlow(false)
+
+            // A broadcaster whose start() throws — should be swallowed by
+            // startBleSafely so the gate's mDNS publish path is unaffected.
+            val throwingBroadcaster =
+                object : BleVisibilityBroadcaster {
+                    override fun start() = error("synthetic BLE advertise failure")
+
+                    override fun stop() = Unit
+                }
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    bleBroadcaster = throwingBroadcaster,
+                )
+            gate.start(this)
+            advanceUntilIdle()
+
+            override.value = true
+            advanceUntilIdle()
+
+            // mDNS must have published despite the BLE broadcaster throwing.
+            assertThat(session.isAdvertising).isTrue()
+            assertThat(advertiser.calls).hasSize(1)
+
+            gate.stop()
+            session.stop()
+        }
+
     // --------------------------------------------------------------
     // Helpers
     // --------------------------------------------------------------

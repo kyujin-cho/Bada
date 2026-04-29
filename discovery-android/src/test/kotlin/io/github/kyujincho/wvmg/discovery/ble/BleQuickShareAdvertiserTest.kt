@@ -244,6 +244,54 @@ class BleQuickShareAdvertiserTest {
         assertThat(advertiser.isAdvertising).isFalse()
     }
 
+    @Test
+    fun `start after stop re-registers successfully`() {
+        // Regression guard: stop() must clear the active registration state
+        // so a subsequent start() can open a fresh platform registration.
+        // A buggy implementation that leaves currentEndpointInfo non-null
+        // would short-circuit on identity-unchanged comparison and return
+        // true without touching the gate — hiding the fact that the
+        // platform registration was already closed.
+        val gate = RecordingGate(failOnStart = false)
+        val advertiser =
+            BleQuickShareAdvertiser.forTesting(
+                gate = gate,
+                permissionChecker = { true },
+            )
+        advertiser.start(hiddenPhone(), endpointId("Wvmg"))
+        advertiser.stop()
+        assertThat(advertiser.isAdvertising).isFalse()
+
+        // Re-start: must open a fresh platform registration even though
+        // the identity bytes are identical to the previous run.
+        val restarted = advertiser.start(hiddenPhone(), endpointId("Wvmg"))
+        assertThat(restarted).isTrue()
+        assertThat(advertiser.isAdvertising).isTrue()
+        // Two total calls: first start + re-start (stop clears state so
+        // the idempotency guard does not block the second start).
+        assertThat(gate.startCalls).hasSize(2)
+        assertThat(gate.lastRegistration?.closed).isFalse()
+    }
+
+    @Test
+    fun `start returns false when payload factory throws`() {
+        // The try/catch around payloadFactory.build must swallow the error
+        // and return false so the receiver continues in mDNS-only mode
+        // instead of crashing or leaving an inconsistent registration.
+        val gate = RecordingGate(failOnStart = false)
+        val advertiser =
+            BleQuickShareAdvertiser.forTesting(
+                gate = gate,
+                permissionChecker = { true },
+                payloadFactory = { _, _ -> error("synthetic payload build failure") },
+            )
+        val started = advertiser.start(hiddenPhone(), endpointId("Wvmg"))
+        assertThat(started).isFalse()
+        assertThat(advertiser.isAdvertising).isFalse()
+        // The platform gate must not have been contacted at all.
+        assertThat(gate.startCalls).isEmpty()
+    }
+
     private fun hiddenPhone(): EndpointInfo =
         EndpointInfo(
             version = 1,
