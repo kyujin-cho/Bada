@@ -43,10 +43,15 @@
           so API 31+ devices use the runtime BLUETOOTH_ADVERTISE /
           BLUETOOTH_SCAN permissions instead.
 
-      BLUETOOTH_CONNECT is intentionally NOT declared — Phase 2 only
-      advertises and scans; it does not initiate or accept GATT
-      connections. If/when BLE L2CAP support lands the runtime permission
-      will be added alongside that work.
+      BLUETOOTH_CONNECT is declared (API 31+) for the Phase 4 Bluetooth
+      RFCOMM bandwidth-upgrade medium (#51). The provider opens an
+      insecure RFCOMM listener on the receiver and connects from the
+      sender; both calls require BLUETOOTH_CONNECT at runtime on API
+      31+. Pairing is NOT required (we use the *insecure* RFCOMM
+      variants because the application data is already UKEY2-encrypted)
+      so the user does not see an OS pairing prompt — but the runtime
+      permission grant is still mandatory and onboarding (#31) prompts
+      for it alongside the existing BLE permissions.
 
       READ_MEDIA_* is intentionally omitted — Phase 1 routes all media
       access through the system share-intent flow, which does not require
@@ -77,6 +82,13 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="31" />
+
+    <!-- Phase 4 Bluetooth RFCOMM bandwidth-upgrade (#51). Runtime on
+         API 31+. Pairing is intentionally not required (insecure RFCOMM
+         variants); UKEY2 is the security boundary. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_CONNECT"
         tools:targetApi="31" />
 
     <!-- Legacy Bluetooth permission model for API ≤ 30. Capped with

@@ -205,6 +205,45 @@ public object BandwidthUpgradeFrames {
                     UpgradePathCredentials.Generic(medium)
                 }
             }
+            // Bluetooth RFCOMM (#51): BluetoothCredentials carries the
+            // peer device MAC + the SDP service identifier the receiver
+            // advertised via listenUsingInsecureRfcommWithServiceRecord.
+            //
+            // Wire mapping:
+            //  - mac_address (string): canonical colon-separated EUI-48,
+            //    e.g. "AA:BB:CC:DD:EE:FF". We parse it back to 6 raw
+            //    bytes so the in-memory credentials object stays a
+            //    bit-exact round-trip with the encoder side.
+            //  - service_name (string): the canonical 8-4-4-4-12 SDP
+            //    UUID the receiver registered. Google Nearby Connections
+            //    uses service_name as the SDP UUID identifier on RFCOMM
+            //    (Android needs a UUID for createInsecureRfcomm…), so we
+            //    surface it as `serviceUuid` and copy it into
+            //    `serviceName` for the rare consumer that wants both.
+            //
+            // An invalid / empty MAC string drops the Bluetooth oneof
+            // and returns Generic so the negotiator's CLIENT-side code
+            // can treat it as "no usable credentials" and emit
+            // UPGRADE_FAILURE; that matches how WIFI_LAN handles a
+            // missing wifi_lan_socket sub-message.
+            Medium.BLUETOOTH -> {
+                if (info.hasBluetoothCredentials() &&
+                    info.bluetoothCredentials.macAddress.isNotEmpty() &&
+                    info.bluetoothCredentials.serviceName.isNotEmpty()
+                ) {
+                    val bt = info.bluetoothCredentials
+                    runCatching {
+                        UpgradePathCredentials.Bluetooth(
+                            macAddress =
+                                UpgradePathCredentials.Bluetooth
+                                    .macStringToBytes(bt.macAddress),
+                            serviceUuid = bt.serviceName,
+                        )
+                    }.getOrElse { UpgradePathCredentials.Generic(medium) }
+                } else {
+                    UpgradePathCredentials.Generic(medium)
+                }
+            }
             // Phase 4 sub-issues (#49–#53) plug the remaining arms in
             // here as their adapters land. Until then we report Generic
             // so the upper layers can at least see that *some* path
@@ -219,7 +258,6 @@ public object BandwidthUpgradeFrames {
             Medium.WIFI_DIRECT,
             Medium.WIFI_HOTSPOT,
             Medium.WIFI_AWARE,
-            Medium.BLUETOOTH,
             Medium.BLE_L2CAP,
             Medium.BLE,
             Medium.WEB_RTC,
@@ -244,6 +282,21 @@ public object BandwidthUpgradeFrames {
                         .newBuilder()
                         .setIpAddress(ByteString.copyFrom(credentials.ipAddress))
                         .setWifiPort(credentials.port)
+                        .build(),
+                )
+            }
+            // Bluetooth RFCOMM (#51): emit the BluetoothCredentials
+            // sub-message. The proto carries mac_address as a string,
+            // so format the raw bytes back to "AA:BB:CC:DD:EE:FF" here.
+            // service_name carries the SDP UUID the receiver registered;
+            // see decodeCredentials for why we tag it as the UUID
+            // identifier rather than a free-form name field.
+            is UpgradePathCredentials.Bluetooth -> {
+                builder.setBluetoothCredentials(
+                    UpgradePathInfo.BluetoothCredentials
+                        .newBuilder()
+                        .setMacAddress(credentials.macAddressString())
+                        .setServiceName(credentials.serviceUuid)
                         .build(),
                 )
             }
