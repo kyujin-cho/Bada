@@ -131,6 +131,30 @@ class BleQuickShareAdvertiserTest {
     }
 
     @Test
+    fun `start is idempotent on identity-unchanged calls`() {
+        // Regression guard: the MdnsAdvertisementGate decision loop calls
+        // start() on every BLE-scan re-arm during steady-state publishing.
+        // A naive teardown-then-rebuild leaves a brief gap in the BLE
+        // pulse and churns the host BT stack. When the identity bytes are
+        // unchanged from the active registration, the second start() must
+        // be a true no-op on the platform.
+        val gate = RecordingGate(failOnStart = false)
+        val advertiser =
+            BleQuickShareAdvertiser.forTesting(
+                gate = gate,
+                permissionChecker = { true },
+            )
+        val info = hiddenPhone()
+        val id = endpointId("Wvmg")
+
+        advertiser.start(info, id)
+        advertiser.start(info, id.copyOf()) // distinct array, equal contents
+
+        assertThat(gate.startCalls).hasSize(1)
+        assertThat(gate.lastRegistration?.closed).isFalse()
+    }
+
+    @Test
     fun `stop is idempotent and tears the registration down`() {
         val gate = RecordingGate(failOnStart = false)
         val advertiser =

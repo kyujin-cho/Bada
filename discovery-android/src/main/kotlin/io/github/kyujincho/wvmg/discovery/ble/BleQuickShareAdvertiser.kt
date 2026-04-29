@@ -207,8 +207,22 @@ public class BleQuickShareAdvertiser internal constructor(
             require(endpointId.size == BleServiceData.ENDPOINT_ID_LEN) {
                 "endpointId must be ${BleServiceData.ENDPOINT_ID_LEN} bytes, got ${endpointId.size}"
             }
-            // Replace any previous registration so the platform never
-            // sees stale identity bytes alongside the fresh ones.
+            // Idempotent on identity-unchanged calls: the gate may invoke
+            // start() repeatedly during steady-state publishing (every
+            // BLE-scan re-arm passes through the same MdnsAdvertisementGate
+            // decision loop). Tearing the platform registration down and
+            // rebuilding it on every flap leaves a brief gap in the BLE
+            // pulse and churns the host BT stack. Short-circuit when the
+            // already-active registration carries the same identity bytes.
+            if (active.get() != null &&
+                currentEndpointInfo == endpointInfo &&
+                currentEndpointId?.contentEquals(endpointId) == true
+            ) {
+                return@synchronized true
+            }
+            // Identity changed (or we're starting fresh) — replace any
+            // previous registration so the platform never sees stale
+            // identity bytes alongside the fresh ones.
             active.getAndSet(null)?.runCatchingClose()
 
             if (!permissionChecker.hasAdvertisePermission()) {
