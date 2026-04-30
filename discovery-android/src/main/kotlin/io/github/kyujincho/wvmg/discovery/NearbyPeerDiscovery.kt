@@ -170,6 +170,10 @@ private class PeerAggregator {
         state.bleRssi = observation.rssi
         state.bleL2capPsm = observation.l2capPsm
         state.bleGattConnectable = observation.gattConnectable
+        observation.displayName?.toDisplayNameOrNull()?.let { displayName ->
+            state.bleDisplayName = displayName
+            state.bleDisplayNameSource = observation.displayNameSource?.logLabel
+        }
         observation.advertiserAddress?.let { bleIndex[it] = state.stableId }
 
         return changeEvents(before, state.toPeerOrNull())
@@ -255,6 +259,8 @@ private data class MutablePeer(
     var bleRssi: Int? = null,
     var bleL2capPsm: Int? = null,
     var bleGattConnectable: Boolean = false,
+    var bleDisplayName: String? = null,
+    var bleDisplayNameSource: String? = null,
 ) {
     fun toPeerOrNull(): NearbyPeer? {
         val lan =
@@ -279,6 +285,8 @@ private data class MutablePeer(
                     rssi = bleRssi,
                     l2capPsm = bleL2capPsm,
                     gattConnectable = bleGattConnectable,
+                    displayName = bleDisplayName,
+                    displayNameSource = bleDisplayNameSource,
                 )
             } else {
                 null
@@ -314,3 +322,8 @@ private fun DiscoveredService.lanRouteKey(): Pair<String, Int>? =
     primaryAddress()?.hostAddress?.let { host -> host to port }
 
 private fun ByteArray.toAsciiLabel(): String = String(this, Charsets.US_ASCII)
+
+private fun String?.toDisplayNameOrNull(): String? =
+    this
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }

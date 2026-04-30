@@ -86,11 +86,32 @@ public data class NearbyPeer(
 
     /** User-facing fallback label shared by the sender UI and tests. */
     public fun displayName(): String {
-        val name = endpointInfo?.deviceName
-        if (!name.isNullOrBlank()) return name
+        val name = endpointInfo?.deviceName.toDisplayNameOrNull()
+        if (name != null) return name
+        val bleName = bleAdvertisement?.displayName.toDisplayNameOrNull()
+        if (bleName != null) return bleName
         if (!endpointId.isNullOrBlank()) return "Quick Share device ($endpointId)"
         if (bleAdvertisement?.gattConnectable == true) return "Quick Share BLE device"
         return stableId
+    }
+
+    /** Diagnostic source for the label selected by [displayName]. */
+    public fun displayNameSource(): String {
+        val endpointName = endpointInfo?.deviceName.toDisplayNameOrNull()
+        val bleName = bleAdvertisement?.displayName.toDisplayNameOrNull()
+        return when {
+            endpointName != null ->
+                if (endpointName == bleName) {
+                    bleAdvertisement?.displayNameSource ?: "endpoint-info"
+                } else {
+                    "endpoint-info"
+                }
+            bleName != null ->
+                bleAdvertisement?.displayNameSource ?: "ble-metadata"
+            !endpointId.isNullOrBlank() -> "endpoint-id"
+            bleAdvertisement?.gattConnectable == true -> "ble-gatt-fallback"
+            else -> "stable-id"
+        }
     }
 
     /** Wi-Fi LAN candidate surfaced by mDNS browse. */
@@ -122,8 +143,15 @@ public data class NearbyPeer(
         val rssi: Int?,
         val l2capPsm: Int?,
         val gattConnectable: Boolean,
+        val displayName: String? = null,
+        val displayNameSource: String? = null,
     )
 }
+
+private fun String?.toDisplayNameOrNull(): String? =
+    this
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
 
 /** Sender-side peer-list events emitted by [NearbyPeerDiscovery]. */
 public sealed class NearbyPeerEvent {

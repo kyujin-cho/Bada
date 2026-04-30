@@ -11,6 +11,7 @@ import io.github.kyujincho.wvmg.discovery.classic.BluetoothClassicPeerScanner
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.protocol.medium.Medium
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -18,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import java.net.InetAddress
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class NearbyPeerDiscoveryTest {
     @Test
     fun `bluetooth and LAN sightings merge into one LAN-first peer`() =
@@ -257,9 +259,93 @@ class NearbyPeerDiscoveryTest {
             assertThat(resolved.isConnectable).isTrue()
             assertThat(resolved.candidateMediums).containsExactly(Medium.BLE)
             assertThat(resolved.displayName()).isEqualTo("Quick Share BLE device")
+            assertThat(resolved.displayNameSource()).isEqualTo("ble-gatt-fallback")
             assertThat(resolved.preferredRoute()).isEqualTo(
                 NearbyPeerRoute.BleGatt(macAddress = "28:1B:3E:BA:B1:1B"),
             )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `BLE GATT advertisement uses parsed BLE display name before endpoint fallback`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "RINE",
+                    endpointInfo = null,
+                    advertiserAddress = "28:1B:3E:BA:B1:1B",
+                    rssi = -41,
+                    l2capPsm = null,
+                    gattConnectable = true,
+                    displayName = "Galaxy S26",
+                    displayNameSource =
+                        BleFastAdvertisementScanner.DisplayNameSource.BLE_LOCAL_NAME,
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
+            assertThat(resolved.displayName()).isEqualTo("Galaxy S26")
+            assertThat(resolved.displayNameSource()).isEqualTo("ble-local-name")
+            assertThat(resolved.bleAdvertisement?.displayName).isEqualTo("Galaxy S26")
+            assertThat(resolved.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.BleGatt(macAddress = "28:1B:3E:BA:B1:1B"),
+            )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `BLE GATT advertisement falls back to endpoint id before generic label`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "RINE",
+                    endpointInfo = null,
+                    advertiserAddress = "28:1B:3E:BA:B1:1B",
+                    rssi = -41,
+                    l2capPsm = null,
+                    gattConnectable = true,
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
+            assertThat(resolved.displayName()).isEqualTo("Quick Share device (RINE)")
+            assertThat(resolved.displayNameSource()).isEqualTo("endpoint-id")
 
             collector.cancel()
         }
