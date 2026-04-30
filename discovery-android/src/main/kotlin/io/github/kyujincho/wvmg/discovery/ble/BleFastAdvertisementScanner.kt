@@ -180,7 +180,6 @@ public class BleFastAdvertisementScanner(
         DCT_ADVERTISEMENT("dct-advertisement"),
         GATT_SLOT_ENDPOINT_INFO("gatt-slot-endpoint-info"),
         BLE_LOCAL_NAME("ble-local-name"),
-        BLUETOOTH_DEVICE_NAME("bluetooth-device-name"),
     }
 
     @Suppress("CyclomaticComplexMethod", "NestedBlockDepth", "LongMethod")
@@ -203,7 +202,7 @@ public class BleFastAdvertisementScanner(
             )
             return null
         }
-        val localDisplayName = displayNameFromScanResult()
+        val localDisplayName = scanRecord.displayNameCandidate()
         val fastObservation =
             fastData?.let { serviceData ->
                 BleAdvertisementHeader.parse(serviceData)?.let { header ->
@@ -273,17 +272,6 @@ public class BleFastAdvertisementScanner(
             fastObservation = fastObservation,
             dctObservation = dctObservation,
         )
-    }
-
-    private fun ScanResult.displayNameFromScanResult(): DisplayNameCandidate? {
-        scanRecord?.deviceName.toDisplayNameOrNull()?.let { name ->
-            return DisplayNameCandidate(name, DisplayNameSource.BLE_LOCAL_NAME)
-        }
-        val bluetoothName =
-            runCatching { device?.name }
-                .getOrNull()
-                .toDisplayNameOrNull()
-        return bluetoothName?.let { DisplayNameCandidate(it, DisplayNameSource.BLUETOOTH_DEVICE_NAME) }
     }
 
     private fun resolveScanner(): BluetoothLeScanner? {
@@ -460,6 +448,13 @@ private data class DisplayNameCandidate(
     val value: String,
     val source: BleFastAdvertisementScanner.DisplayNameSource,
 )
+
+private fun ScanRecord.displayNameCandidate(): DisplayNameCandidate? =
+    // Only trust the current advertisement's local-name field here. BluetoothDevice.name
+    // is a cached alias gated by BLUETOOTH_CONNECT and can be stale in degraded scan-only mode.
+    deviceName
+        .toDisplayNameOrNull()
+        ?.let { DisplayNameCandidate(it, BleFastAdvertisementScanner.DisplayNameSource.BLE_LOCAL_NAME) }
 
 private fun String?.toDisplayNameOrNull(): String? =
     this

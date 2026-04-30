@@ -132,7 +132,7 @@ internal class SendPeerPickerController(
                     append(" hidden=").append(info.hidden)
                     append(" type=").append(info.deviceType.name)
                     append(" name=")
-                    append(info.deviceName?.let { "\"$it\"" } ?: "<null>")
+                    append(info.deviceName.toQuotedLogValue(nullToken = "<null>"))
                     if (info.tlvRecords.isNotEmpty()) {
                         append(" tlv=").append(
                             info.tlvRecords.joinToString(",") { tlv ->
@@ -154,13 +154,13 @@ internal class SendPeerPickerController(
         val bleIdentitySummary =
             formatBleIdentitySnapshot(peer)
         return "peer=${peer.stableId} endpointId=$endpointId mediums=${peer.candidateMediums} " +
-            "addrs=[$addressList] route=$routeSummary displayName=\"${peer.displayName()}\" " +
+            "addrs=[$addressList] route=$routeSummary displayName=${peer.displayName().toQuotedLogValue()} " +
             "displayNameSource=${peer.displayNameSource()}$bleIdentitySummary endpointInfo={$infoSummary}"
     }
 
     private fun formatBleIdentitySnapshot(peer: NearbyPeer): String {
         val ble = peer.bleAdvertisement ?: return ""
-        val displayName = ble.displayName?.let { "\"$it\"" } ?: "<none>"
+        val displayName = ble.displayName.toQuotedLogValue()
         val displayNameSource = ble.displayNameSource ?: "<none>"
         return " bleName=$displayName bleNameSource=$displayNameSource"
     }
@@ -283,7 +283,7 @@ internal class SendPeerPickerController(
                         null -> "<none>"
                     }
                 "${peer.stableId}/${peer.endpointId ?: "<none>"}/$route/" +
-                    "${peer.displayName()}(${peer.displayNameSource()})"
+                    "${peer.displayName().toSanitizedLogValue()}(${peer.displayNameSource()})"
             }
         }
 
@@ -292,3 +292,23 @@ internal class SendPeerPickerController(
         private const val DISABLED_PEER_ALPHA: Float = 0.6f
     }
 }
+
+private fun String?.toQuotedLogValue(nullToken: String = "<none>"): String =
+    this
+        ?.toSanitizedLogValue()
+        ?.let { "\"$it\"" }
+        ?: nullToken
+
+private fun String.toSanitizedLogValue(): String =
+    buildString(length) {
+        this@toSanitizedLogValue.forEach { ch ->
+            when (ch) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> append(ch)
+            }
+        }
+    }
