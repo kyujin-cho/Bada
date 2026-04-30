@@ -25,14 +25,17 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
+import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
+import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.protocol.endpoint.NearbyServiceId
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
 /**
  * Sender-side scanner for the stock Quick Share receiver fast-advertisement
- * BLE payload on service UUID `0xFEF3`.
+ * BLE payloads on service UUIDs `0xFEF3` and `0xFC73`.
  */
 public class BleFastAdvertisementScanner(
     private val context: Context,
@@ -77,7 +80,11 @@ public class BleFastAdvertisementScanner(
                 }
 
             try {
-                Log.w(TAG, "BLE fast-advertisement scan start uuid=${BleServiceData.SERVICE_UUID_128_STRING}")
+                Log.w(
+                    TAG,
+                    "BLE fast-advertisement scan start uuid=${BleServiceData.SERVICE_UUID_128_STRING} " +
+                        "dctUuid=${DctAdvertisement.SERVICE_UUID_128_STRING}",
+                )
                 scanner.startScan(buildFilters(), buildSettings(), callback)
             } catch (e: SecurityException) {
                 Log.w(TAG, "BLE fast-advertisement scan start rejected by platform", e)
@@ -103,37 +110,58 @@ public class BleFastAdvertisementScanner(
                 Log.w(TAG, "BLE fast-advertisement result without ScanRecord address=${device?.address}")
                 return null
             }
-        val serviceData =
-            scanRecord.getServiceData(SERVICE_UUID) ?: run {
-                Log.w(
-                    TAG,
-                    "BLE fast-advertisement result without service data " +
-                        "address=${device?.address} rssi=$rssi uuids=${scanRecord.serviceUuids}",
-                )
-                return null
+        val fastData = scanRecord.getServiceData(SERVICE_UUID)
+        val dctData = scanRecord.getServiceData(DCT_SERVICE_UUID)
+        if (fastData == null && dctData == null) {
+            Log.w(
+                TAG,
+                "BLE receiver-advertisement result without supported service data " +
+                    "address=${device?.address} rssi=$rssi uuids=${scanRecord.serviceUuids}",
+            )
+            return null
+        }
+        val fastObservation =
+            fastData?.let { serviceData ->
+                parseFastServiceData(serviceData, device?.address, rssi).also { observation ->
+                    if (observation == null) {
+                        Log.w(
+                            TAG,
+                            "BLE fast-advertisement parse failed address=${device?.address} " +
+                                "rssi=$rssi bytes=${serviceData.toHex()}",
+                        )
+                    } else {
+                        Log.w(
+                            TAG,
+                            "BLE fast-advertisement observed endpointId=${observation.endpointId} " +
+                                "address=${observation.advertiserAddress} rssi=${observation.rssi} " +
+                                "psm=${observation.l2capPsm} bytes=${serviceData.toHex()}",
+                        )
+                    }
+                }
             }
-        val parsed =
-            BleServiceData.parse(serviceData) ?: run {
-                Log.w(
-                    TAG,
-                    "BLE fast-advertisement parse failed address=${device?.address} " +
-                        "rssi=$rssi bytes=${serviceData.toHex()}",
-                )
-                return null
+        val dctObservation =
+            dctData?.let { serviceData ->
+                parseDctServiceData(serviceData, device?.address, rssi).also { observation ->
+                    if (observation == null) {
+                        Log.w(
+                            TAG,
+                            "BLE DCT advertisement parse failed or ignored address=${device?.address} " +
+                                "rssi=$rssi bytes=${serviceData.toHex()}",
+                        )
+                    } else {
+                        Log.w(
+                            TAG,
+                            "BLE DCT advertisement observed endpointId=${observation.endpointId} " +
+                                "address=${observation.advertiserAddress} rssi=${observation.rssi} " +
+                                "psm=${observation.l2capPsm} name=${observation.endpointInfo.deviceName} " +
+                                "bytes=${serviceData.toHex()}",
+                        )
+                    }
+                }
             }
-        val endpointId = String(parsed.endpointId, Charsets.US_ASCII)
-        val l2capPsm = BleServiceData.parsePsmExtraField(serviceData)?.takeIf { it > 0 }
-        Log.w(
-            TAG,
-            "BLE fast-advertisement observed endpointId=$endpointId " +
-                "address=${device?.address} rssi=$rssi psm=$l2capPsm bytes=${serviceData.toHex()}",
-        )
-        return Observation(
-            endpointId = endpointId,
-            endpointInfo = parsed.endpointInfo,
-            advertiserAddress = device?.address,
-            rssi = rssi,
-            l2capPsm = l2capPsm,
+        return chooseObservation(
+            fastObservation = fastObservation,
+            dctObservation = dctObservation,
         )
     }
 
@@ -174,6 +202,10 @@ public class BleFastAdvertisementScanner(
                 .Builder()
                 .setServiceData(SERVICE_UUID, ByteArray(0), ByteArray(0))
                 .build(),
+            ScanFilter
+                .Builder()
+                .setServiceData(DCT_SERVICE_UUID, ByteArray(0), ByteArray(0))
+                .build(),
         )
 
     private fun buildSettings(): ScanSettings =
@@ -183,11 +215,73 @@ public class BleFastAdvertisementScanner(
             .setReportDelay(0)
             .build()
 
-    private companion object {
+    public companion object {
         private const val TAG: String = "WvmgBleFastScan"
-        private val SERVICE_UUID: ParcelUuid =
-            ParcelUuid.fromString(BleServiceData.SERVICE_UUID_128_STRING)
+        private val SERVICE_UUID: ParcelUuid
+            get() = ParcelUuid.fromString(BleServiceData.SERVICE_UUID_128_STRING)
+        private val DCT_SERVICE_UUID: ParcelUuid
+            get() = ParcelUuid.fromString(DctAdvertisement.SERVICE_UUID_128_STRING)
+        private val EXPECTED_DCT_SERVICE_ID_HASH: ByteArray =
+            DctAdvertisement.computeServiceIdHash(NearbyServiceId.VALUE)
+
+        internal fun parseFastServiceData(
+            serviceData: ByteArray,
+            advertiserAddress: String?,
+            rssi: Int?,
+        ): Observation? {
+            val parsed = BleServiceData.parse(serviceData) ?: return null
+            val endpointId = String(parsed.endpointId, Charsets.US_ASCII)
+            val l2capPsm = BleServiceData.parsePsmExtraField(serviceData)?.takeIf { it > 0 }
+            return Observation(
+                endpointId = endpointId,
+                endpointInfo = parsed.endpointInfo,
+                advertiserAddress = advertiserAddress,
+                rssi = rssi,
+                l2capPsm = l2capPsm,
+            )
+        }
+
+        internal fun parseDctServiceData(
+            serviceData: ByteArray,
+            advertiserAddress: String?,
+            rssi: Int?,
+        ): Observation? {
+            val parsed = DctAdvertisement.parse(serviceData) ?: return null
+            if (!parsed.serviceIdHash.contentEquals(EXPECTED_DCT_SERVICE_ID_HASH)) return null
+            val endpointId =
+                DctAdvertisement.generateEndpointId(parsed.dedup, parsed.deviceName) ?: return null
+            val l2capPsm = parsed.psm.takeIf { it > 0 }
+            return Observation(
+                endpointId = endpointId,
+                endpointInfo = parsed.toEndpointInfo(),
+                advertiserAddress = advertiserAddress,
+                rssi = rssi,
+                l2capPsm = l2capPsm,
+            )
+        }
+
+        private fun chooseObservation(
+            fastObservation: Observation?,
+            dctObservation: Observation?,
+        ): Observation? =
+            when {
+                dctObservation == null -> fastObservation
+                fastObservation == null -> dctObservation
+                dctObservation.l2capPsm != null -> dctObservation
+                !dctObservation.endpointInfo.deviceName.isNullOrBlank() -> dctObservation
+                else -> fastObservation
+            }
     }
 }
+
+private fun DctAdvertisement.Parsed.toEndpointInfo(): EndpointInfo =
+    EndpointInfo(
+        version = 1,
+        hidden = false,
+        deviceType = DeviceType.PHONE,
+        reserved = false,
+        metadata = ByteArray(EndpointInfo.METADATA_LEN),
+        deviceName = deviceName,
+    )
 
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
