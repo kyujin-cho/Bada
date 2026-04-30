@@ -267,7 +267,7 @@ private class BleGattClientTransport(
             close()
             return
         }
-        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        descriptor.value = cccdValueFor(outgoing)
         if (!gatt.writeDescriptor(descriptor)) {
             Log.w(TAG, "write notification descriptor returned false")
             close()
@@ -348,6 +348,13 @@ private class BleGattClientTransport(
         return toPeripheral != null && fromPeripheral != null
     }
 
+    private fun cccdValueFor(characteristic: BluetoothGattCharacteristic): ByteArray =
+        if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
+            BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        } else {
+            BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+        }
+
     @Synchronized
     private fun sendWeaveConnectionRequest() {
         negotiatedPacketSize =
@@ -414,7 +421,9 @@ private class BleGattClientTransport(
         when {
             prefix.contentEquals(CONTROL_PACKET_PREFIX) -> handleControlPacket(message)
             prefix.contentEquals(NearbyServiceId.hashPrefix) -> {
-                receiveMultiplexBytes(message.copyOfRange(SERVICE_ID_HASH_LEN, message.size))
+                val payload = message.copyOfRange(SERVICE_ID_HASH_LEN, message.size)
+                sendWeaveMessage(NearbyBleSocketFrames.encodePacketAcknowledgementPacket(payload.size))
+                receiveMultiplexBytes(payload)
             }
             else -> {
                 Log.w(TAG, "discarded BLE GATT socket message for unexpected service hash")
@@ -553,7 +562,7 @@ private class BleGattClientTransport(
         val packet = if (writeQueue.isEmpty()) return else writeQueue.removeFirst()
         val openGatt = gatt ?: return close()
         val outgoing = toPeripheral ?: return close()
-        outgoing.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        outgoing.writeType = writeTypeFor(outgoing)
         outgoing.value = packet
         writeInFlight = openGatt.writeCharacteristic(outgoing)
         if (!writeInFlight) {
@@ -573,6 +582,13 @@ private class BleGattClientTransport(
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }
+
+private fun writeTypeFor(characteristic: BluetoothGattCharacteristic): Int =
+    if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
+        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+    } else {
+        BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+    }
 
 private fun ArrayList<Byte>.toByteArray(): ByteArray {
     val out = ByteArray(size)

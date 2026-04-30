@@ -83,6 +83,20 @@ class BleFastAdvertisementScannerTest {
     }
 
     @Test
+    fun `GATT advertisement header preserves non-connectable scan result`() {
+        val observed =
+            BleFastAdvertisementScanner.parseFastServiceData(
+                serviceData = "VSAUARACAAADAAo8Vu4sAAA".toByteArray(Charsets.US_ASCII),
+                advertiserAddress = "28:1B:3E:BA:B1:1B",
+                rssi = -41,
+                gattConnectable = false,
+            )
+
+        assertThat(observed).isNotNull()
+        assertThat(observed!!.gattConnectable).isFalse()
+    }
+
+    @Test
     fun `DCT service data becomes a named L2CAP observation`() {
         val payload =
             DctAdvertisement.encode(

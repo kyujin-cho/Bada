@@ -21,6 +21,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelUuid
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
@@ -33,6 +34,8 @@ import io.github.kyujincho.wvmg.protocol.endpoint.NearbyServiceId
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Sender-side scanner for the stock Quick Share receiver fast-advertisement
@@ -43,6 +46,54 @@ public class BleFastAdvertisementScanner(
 ) {
     public fun scan(): Flow<Observation> =
         callbackFlow {
+            val gattAdvertisementReader = BleGattAdvertisementReader(context.applicationContext)
+            val gattReadAttempts = ConcurrentHashMap<String, Long>()
+            val gattReadInFlight = ConcurrentHashMap.newKeySet<String>()
+            val gattReadSucceeded = ConcurrentHashMap.newKeySet<String>()
+
+            fun scheduleGattAdvertisementRead(
+                header: BleAdvertisementHeader,
+                advertiserAddress: String,
+                rssi: Int?,
+            ) {
+                val key = "$advertiserAddress:${header.advertisementHash.toHex()}:${header.numSlots}"
+                if (key in gattReadSucceeded) return
+                if (!gattReadInFlight.add(key)) return
+                val now = SystemClock.elapsedRealtime()
+                val lastAttempt = gattReadAttempts[key]
+                if (lastAttempt != null && now - lastAttempt < GATT_READ_RETRY_MILLIS) {
+                    gattReadInFlight.remove(key)
+                    return
+                }
+                gattReadAttempts[key] = now
+                launch {
+                    try {
+                        val slotAdvertisements =
+                            gattAdvertisementReader.read(
+                                macAddress = advertiserAddress,
+                                slotCount = header.numSlots,
+                            )
+                        if (slotAdvertisements.isNotEmpty()) {
+                            gattReadSucceeded.add(key)
+                        }
+                        slotAdvertisements.forEach { slot ->
+                            trySend(
+                                Observation(
+                                    endpointId = slot.endpointId,
+                                    endpointInfo = slot.endpointInfo,
+                                    advertiserAddress = advertiserAddress,
+                                    rssi = rssi,
+                                    l2capPsm = slot.l2capPsm ?: header.psm.takeIf { it > 0 },
+                                    gattConnectable = true,
+                                ),
+                            ).isSuccess
+                        }
+                    } finally {
+                        gattReadInFlight.remove(key)
+                    }
+                }
+            }
+
             if (!hasScanPermission()) {
                 Log.i(TAG, "BLE fast-advertisement scan unavailable: missing runtime permission")
                 close()
@@ -61,14 +112,14 @@ public class BleFastAdvertisementScanner(
                         callbackType: Int,
                         result: ScanResult?,
                     ) {
-                        result?.toObservation()?.let { observation ->
+                        result?.toObservation(::scheduleGattAdvertisementRead)?.let { observation ->
                             trySend(observation).isSuccess
                         }
                     }
 
                     override fun onBatchScanResults(results: MutableList<ScanResult>?) {
                         results.orEmpty().forEach { result ->
-                            result.toObservation()?.let { observation ->
+                            result.toObservation(::scheduleGattAdvertisementRead)?.let { observation ->
                                 trySend(observation).isSuccess
                             }
                         }
@@ -106,7 +157,10 @@ public class BleFastAdvertisementScanner(
         val gattConnectable: Boolean,
     )
 
-    private fun ScanResult.toObservation(): Observation? {
+    @Suppress("CyclomaticComplexMethod", "NestedBlockDepth")
+    private fun ScanResult.toObservation(
+        scheduleGattAdvertisementRead: (BleAdvertisementHeader, String, Int?) -> Unit,
+    ): Observation? {
         val scanRecord: ScanRecord =
             scanRecord ?: run {
                 Log.w(TAG, "BLE fast-advertisement result without ScanRecord address=${device?.address}")
@@ -114,6 +168,7 @@ public class BleFastAdvertisementScanner(
             }
         val fastData = scanRecord.getServiceData(SERVICE_UUID)
         val dctData = scanRecord.getServiceData(DCT_SERVICE_UUID)
+        val gattConnectable = isGattConnectable()
         if (fastData == null && dctData == null) {
             Log.w(
                 TAG,
@@ -124,7 +179,14 @@ public class BleFastAdvertisementScanner(
         }
         val fastObservation =
             fastData?.let { serviceData ->
-                parseFastServiceData(serviceData, device?.address, rssi).also { observation ->
+                BleAdvertisementHeader.parse(serviceData)?.let { header ->
+                    device?.address?.let { address ->
+                        if (gattConnectable) {
+                            scheduleGattAdvertisementRead(header, address, rssi)
+                        }
+                    }
+                }
+                parseFastServiceData(serviceData, device?.address, rssi, gattConnectable).also { observation ->
                     if (observation == null) {
                         Log.w(
                             TAG,
@@ -144,7 +206,7 @@ public class BleFastAdvertisementScanner(
             }
         val dctObservation =
             dctData?.let { serviceData ->
-                parseDctServiceData(serviceData, device?.address, rssi).also { observation ->
+                parseDctServiceData(serviceData, device?.address, rssi, gattConnectable).also { observation ->
                     if (observation == null) {
                         Log.w(
                             TAG,
@@ -219,8 +281,16 @@ public class BleFastAdvertisementScanner(
             .setReportDelay(0)
             .build()
 
+    private fun ScanResult.isGattConnectable(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            isConnectable
+        } else {
+            device?.address != null
+        }
+
     public companion object {
         private const val TAG: String = "WvmgBleFastScan"
+        private const val GATT_READ_RETRY_MILLIS: Long = 5_000L
         private val SERVICE_UUID: ParcelUuid
             get() = ParcelUuid.fromString(BleServiceData.SERVICE_UUID_128_STRING)
         private val DCT_SERVICE_UUID: ParcelUuid
@@ -232,6 +302,7 @@ public class BleFastAdvertisementScanner(
             serviceData: ByteArray,
             advertiserAddress: String?,
             rssi: Int?,
+            gattConnectable: Boolean = advertiserAddress != null,
         ): Observation? {
             BleAdvertisementHeader.parse(serviceData)?.let { header ->
                 val l2capPsm = header.psm.takeIf { it > 0 }
@@ -241,7 +312,7 @@ public class BleFastAdvertisementScanner(
                     advertiserAddress = advertiserAddress,
                     rssi = rssi,
                     l2capPsm = l2capPsm,
-                    gattConnectable = advertiserAddress != null,
+                    gattConnectable = gattConnectable && advertiserAddress != null,
                 )
             }
             val parsed = BleServiceData.parse(serviceData) ?: return null
@@ -253,7 +324,7 @@ public class BleFastAdvertisementScanner(
                 advertiserAddress = advertiserAddress,
                 rssi = rssi,
                 l2capPsm = l2capPsm,
-                gattConnectable = advertiserAddress != null,
+                gattConnectable = gattConnectable && advertiserAddress != null,
             )
         }
 
@@ -261,6 +332,7 @@ public class BleFastAdvertisementScanner(
             serviceData: ByteArray,
             advertiserAddress: String?,
             rssi: Int?,
+            gattConnectable: Boolean = advertiserAddress != null,
         ): Observation? {
             val parsed = DctAdvertisement.parse(serviceData) ?: return null
             if (!parsed.serviceIdHash.contentEquals(EXPECTED_DCT_SERVICE_ID_HASH)) return null
@@ -273,7 +345,7 @@ public class BleFastAdvertisementScanner(
                 advertiserAddress = advertiserAddress,
                 rssi = rssi,
                 l2capPsm = l2capPsm,
-                gattConnectable = advertiserAddress != null,
+                gattConnectable = gattConnectable && advertiserAddress != null,
             )
         }
 

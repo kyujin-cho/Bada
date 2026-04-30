@@ -27,6 +27,7 @@ import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.google.location.nearby.mediums.proto.BleFramesProto
 import com.google.location.nearby.mediums.proto.MultiplexFramesProto
+import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.protocol.endpoint.NearbyServiceId
@@ -328,7 +329,7 @@ public class BleGattInitialControlServer(
                 endpointId: ByteArray,
             ): List<BluetoothGattCharacteristic> {
                 val visibleAdvertisement =
-                    runCatching { BleServiceData.encodeFramed(endpointId, endpointInfo) }
+                    runCatching { BleAdvertisement.encodeGattAdvertisement(endpointId, endpointInfo) }
                         .getOrDefault(ByteArray(0))
 
                 return (0 until GATT_ADVERTISEMENT_SLOT_COUNT).map { slot ->
@@ -364,7 +365,7 @@ public class BleGattInitialControlServer(
 
         private const val GATT_ADVERTISEMENT_SLOT_COUNT: Int = 16
 
-        private fun advertisementSlotUuid(slot: Int): UUID =
+        internal fun advertisementSlotUuid(slot: Int): UUID =
             UUID.fromString("00000000-0000-3000-8000-${slot.toString(radix = 16).padStart(12, '0')}")
     }
 }
@@ -508,8 +509,10 @@ private class BleWeaveGattSession(
             }
 
             else -> {
+                val payload = message.copyOfRange(NearbyServiceId.hashPrefix.size, message.size)
+                sendWeaveMessage(NearbyBleSocketFrames.encodePacketAcknowledgementPacket(payload.size))
                 multiplexBridge.receivePhysicalBytes(
-                    message.copyOfRange(NearbyServiceId.hashPrefix.size, message.size),
+                    payload,
                 )
             }
         }
