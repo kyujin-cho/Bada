@@ -7,10 +7,13 @@ package io.github.kyujincho.wvmg.discovery.ble
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
+import android.bluetooth.le.AdvertisingSetCallback
+import android.bluetooth.le.AdvertisingSetParameters
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
 import android.content.pm.PackageManager
@@ -21,7 +24,9 @@ import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
+import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
+import io.github.kyujincho.wvmg.protocol.endpoint.NearbyServiceId
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 
@@ -41,21 +46,31 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * ### Wire format
  *
- * The service-data payload is built by [BleServiceData.encode] in
+ * The service-data payload is built by [BleServiceData.encodeFramed] in
  * `:core-protocol` (pure-JVM, KAT-tested). The shape captured from a
  * Galaxy peer's broadcast is:
  *
  * ```text
- * [ versPCP(1) | endpoint_id(4 ASCII) | endpoint_info_len(1) | EndpointInfo(N) ]
+ * [ frameType(0x4a) | inner_len | versPCP | endpoint_id(4 ASCII) |
+ *   endpoint_info_len | EndpointInfo(N) | device_token(2) ]
  * ```
  *
- * For our hidden, version=1, PHONE EndpointInfo the total payload is
- * **23 bytes**, which fits alongside the 16-bit service-data AD header
+ * For our hidden, version=1, PHONE EndpointInfo the inner payload is
+ * **23 bytes** and the stock BLE v2 framed service-data value is
+ * **27 bytes**, which fits alongside the 16-bit service-data AD header
  * inside the legacy 31-byte advertising-PDU budget without needing
  * extended advertising. The receiver's mDNS path may carry a visible
  * name-bearing EndpointInfo for stock picker compatibility; the BLE
  * payload factory intentionally emits this compact hidden form so the
  * fast advertisement remains legal on legacy Android BLE advertisers.
+ *
+ * WVMG also submits a second legacy DCT advertisement on `0xFC73`. Stock
+ * Nearby uses DCT as the compact visible identity path: it carries a short
+ * name and a service-id hash without stuffing the name into the 27-byte
+ * `0xFEF3` fast-advertisement value. Keeping this as a legacy advertisement
+ * matters for off-LAN discovery because Samsung's GMS scan path was observed
+ * to ignore WVMG's extended-only DCT set while still consuming legacy
+ * `0xFEF3` scan-response data.
  *
  * ### Lifecycle
  *
@@ -112,14 +127,24 @@ import java.util.concurrent.atomic.AtomicReference
  * @param gate platform-advertiser abstraction; tests inject a fake.
  * @param permissionChecker checks `BLUETOOTH_ADVERTISE` at start time;
  *   defaults to a [ContextCompat]-backed implementation in production.
- * @param payloadFactory builds the compact service-data payload from
+ * @param payloadFactory builds the compact framed service-data payload from
  *   the supplied [EndpointInfo] and the latest endpoint_id. Defaults to
  *   [BleServiceData.encode] over a hidden, no-name copy of the identity.
+ * @param visiblePayloadFactory optionally builds an Android O+ extended
+ *   `0xFEF3` payload carrying the visible [EndpointInfo]. This is the BLE-only
+ *   path Samsung ShareLive was observed to promote into the share sheet when
+ *   DCT was ignored.
+ * @param dctPayloadFactory optionally builds the `0xFC73` DCT payload for
+ *   Android O+ secondary advertising. DCT is the stock Nearby path that
+ *   carries a short visible receiver name without overfilling the 27-byte
+ *   `0xFEF3` fast-advertisement value.
  */
 public class BleQuickShareAdvertiser internal constructor(
     private val gate: BleAdvertiserGate,
     private val permissionChecker: AdvertisePermissionChecker,
     private val payloadFactory: PayloadFactory = DefaultPayloadFactory,
+    private val visiblePayloadFactory: OptionalPayloadFactory = DefaultVisiblePayloadFactory,
+    private val dctPayloadFactory: DctPayloadFactory = DefaultDctPayloadFactory,
 ) {
     /**
      * Production constructor. Builds a real [BleAdvertiserGate] over the
@@ -241,10 +266,28 @@ public class BleQuickShareAdvertiser internal constructor(
                     Log.w(TAG, "start: payload build failed; skipping BLE pulse advertise", t)
                     return@synchronized false
                 }
+            val dctPayload =
+                try {
+                    dctPayloadFactory.build(endpointInfo)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.w(TAG, "start: DCT payload build failed; compact BLE pulse only", t)
+                    null
+                }
+            val visiblePayload =
+                try {
+                    visiblePayloadFactory.build(endpointId, endpointInfo)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.w(TAG, "start: visible extended payload build failed; compact BLE pulse only", t)
+                    null
+                }
 
             val registration =
                 try {
-                    gate.startAdvertising(payload, currentMode)
+                    gate.startAdvertising(payload, currentMode, dctPayload, visiblePayload)
                 } catch (
                     @Suppress("TooGenericExceptionCaught") t: Throwable,
                 ) {
@@ -267,8 +310,12 @@ public class BleQuickShareAdvertiser internal constructor(
             Log.w(
                 TAG,
                 "start: BLE pulse advertise started bytes=${payload.size} " +
+                    "endpointId=${endpointId.toAsciiLabel()} payload=${payload.toHex()} " +
+                    "visibleBytes=${visiblePayload?.size ?: 0} " +
+                    "dctBytes=${dctPayload?.size ?: 0} dctEndpointId=${endpointInfo.dctEndpointId() ?: "-"} " +
                     "uuid=${BleServiceData.SERVICE_UUID_128_STRING} " +
-                    "mode=${describeAdvertiseMode(currentMode)}",
+                    "dctUuid=${DctAdvertisement.SERVICE_UUID_128_STRING} " +
+                    "mode=${describeAdvertiseMode(currentMode)} placement=scan-response+extended-visible+dct-legacy",
             )
             true
         }
@@ -343,9 +390,27 @@ public class BleQuickShareAdvertiser internal constructor(
                     Log.w(TAG, "setAdvertiseMode: payload rebuild threw", t)
                     return@synchronized false
                 }
+            val dctPayload =
+                try {
+                    dctPayloadFactory.build(info)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.w(TAG, "setAdvertiseMode: DCT payload rebuild threw; compact BLE pulse only", t)
+                    null
+                }
+            val visiblePayload =
+                try {
+                    visiblePayloadFactory.build(id, info)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.w(TAG, "setAdvertiseMode: visible extended payload rebuild threw; compact BLE pulse only", t)
+                    null
+                }
             val restarted =
                 try {
-                    gate.startAdvertising(payload, mode)
+                    gate.startAdvertising(payload, mode, dctPayload, visiblePayload)
                 } catch (
                     @Suppress("TooGenericExceptionCaught") t: Throwable,
                 ) {
@@ -363,7 +428,11 @@ public class BleQuickShareAdvertiser internal constructor(
             active.set(restarted)
             Log.w(
                 TAG,
-                "setAdvertiseMode: ${describeAdvertiseMode(previous)} -> ${describeAdvertiseMode(mode)}",
+                "setAdvertiseMode: ${describeAdvertiseMode(previous)} -> ${describeAdvertiseMode(mode)} " +
+                    "endpointId=${id.toAsciiLabel()} payload=${payload.toHex()} " +
+                    "visibleBytes=${visiblePayload?.size ?: 0} " +
+                    "dctBytes=${dctPayload?.size ?: 0} dctEndpointId=${info.dctEndpointId() ?: "-"} " +
+                    "placement=scan-response+extended-visible+dct-legacy",
             )
             true
         }
@@ -400,11 +469,10 @@ public class BleQuickShareAdvertiser internal constructor(
          * Build the platform [AdvertiseSettings] for the given mode.
          *
          * Pinned configuration:
-         *  * `setConnectable(false)` — Quick Share fast advertisements
-         *    are non-connectable. We never accept GATT connections; the
-         *    advertisement only signals presence. Setting this `false`
-         *    also keeps the advertising-PDU budget free for the
-         *    service-data payload.
+         *  * `setConnectable(true)` — stock Quick Share taps a visible
+         *    off-LAN peer by opening a BLE GATT socket against the same
+         *    advertiser address. The service data still lives in the scan
+         *    response so the legacy advertising-PDU budget remains small.
          *  * `setTxPowerLevel(ADVERTISE_TX_POWER_HIGH)` — best chance
          *    of a wake-up across a typical room. Symmetric to the
          *    sender-side `BleAdvertiser` and to the BALANCED scan-mode
@@ -418,11 +486,37 @@ public class BleQuickShareAdvertiser internal constructor(
                 .Builder()
                 .setAdvertiseMode(mode)
                 .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+                .setConnectable(true)
+                .build()
+
+        /**
+         * Build the secondary legacy DCT advertisement settings. DCT is an
+         * identity hint only in WVMG's current off-LAN path; the connectable
+         * GATT socket remains on the primary `0xFEF3` advertisement.
+         */
+        internal fun buildDctSettings(mode: Int): AdvertiseSettings =
+            AdvertiseSettings
+                .Builder()
+                .setAdvertiseMode(mode)
+                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
                 .setConnectable(false)
                 .build()
 
         /**
-         * Build the platform [AdvertiseData] containing only the
+         * Build the primary legacy advertisement. The Quick Share fast
+         * payload is carried in the scan response so the platform emits
+         * a legacy, connectable, scannable advertisement shape like
+         * stock Nearby's high-power receiver advertising path.
+         */
+        internal fun buildAdvertiseData(): AdvertiseData =
+            AdvertiseData
+                .Builder()
+                .setIncludeDeviceName(false)
+                .setIncludeTxPowerLevel(false)
+                .build()
+
+        /**
+         * Build the scan-response [AdvertiseData] containing only the
          * 16-bit service-data AD for `0xFEF3`.
          *
          * The service-UUID is embedded inside the service-data
@@ -431,8 +525,18 @@ public class BleQuickShareAdvertiser internal constructor(
          * UUIDs" AD — including both pushes us over the 31-byte
          * legacy budget. This mirrors the comment in [BleAdvertiser].
          */
-        internal fun buildAdvertiseData(payload: ByteArray): AdvertiseData {
-            val parcelUuid = ParcelUuid(UUID.fromString(BleServiceData.SERVICE_UUID_128_STRING))
+        internal fun buildScanResponseData(payload: ByteArray): AdvertiseData =
+            buildServiceData(BleServiceData.SERVICE_UUID_128_STRING, payload)
+
+        /** Build an [AdvertiseData] carrying DCT service data under `0xFC73`. */
+        internal fun buildDctAdvertiseData(payload: ByteArray): AdvertiseData =
+            buildServiceData(DctAdvertisement.SERVICE_UUID_128_STRING, payload)
+
+        private fun buildServiceData(
+            uuid: String,
+            payload: ByteArray,
+        ): AdvertiseData {
+            val parcelUuid = ParcelUuid(UUID.fromString(uuid))
             return AdvertiseData
                 .Builder()
                 .addServiceData(parcelUuid, payload)
@@ -466,11 +570,15 @@ public class BleQuickShareAdvertiser internal constructor(
             gate: BleAdvertiserGate,
             permissionChecker: AdvertisePermissionChecker = AdvertisePermissionChecker { true },
             payloadFactory: PayloadFactory = DefaultPayloadFactory,
+            visiblePayloadFactory: OptionalPayloadFactory = DefaultVisiblePayloadFactory,
+            dctPayloadFactory: DctPayloadFactory = DefaultDctPayloadFactory,
         ): BleQuickShareAdvertiser =
             BleQuickShareAdvertiser(
                 gate = gate,
                 permissionChecker = permissionChecker,
                 payloadFactory = payloadFactory,
+                visiblePayloadFactory = visiblePayloadFactory,
+                dctPayloadFactory = dctPayloadFactory,
             )
     }
 }
@@ -505,8 +613,8 @@ internal class AndroidAdvertisePermissionChecker(
 }
 
 /**
- * Builder for the compact service-data payload. The default implementation
- * delegates to [BleServiceData.encode] in `:core-protocol`; tests can
+ * Builder for the compact framed service-data payload. The default implementation
+ * delegates to [BleServiceData.encodeFramed] in `:core-protocol`; tests can
  * substitute a fake to drive specific failure paths.
  */
 public fun interface PayloadFactory {
@@ -524,7 +632,7 @@ public object DefaultPayloadFactory : PayloadFactory {
     override fun build(
         endpointId: ByteArray,
         endpointInfo: EndpointInfo,
-    ): ByteArray = BleServiceData.encode(endpointId, endpointInfo.compactForFastAdvertisement())
+    ): ByteArray = BleServiceData.encodeFramed(endpointId, endpointInfo.compactForFastAdvertisement())
 
     private fun EndpointInfo.compactForFastAdvertisement(): EndpointInfo =
         EndpointInfo(
@@ -537,6 +645,65 @@ public object DefaultPayloadFactory : PayloadFactory {
             tlvRecords = emptyList(),
         )
 }
+
+/** Optional payload builder for secondary extended advertisements. */
+public fun interface OptionalPayloadFactory {
+    public fun build(
+        endpointId: ByteArray,
+        endpointInfo: EndpointInfo,
+    ): ByteArray?
+}
+
+/**
+ * Builds the visible-name extended `0xFEF3` payload. A visible EndpointInfo
+ * cannot fit in the legacy 31-byte scan-response budget once the BLE v2 frame
+ * wrapper and device token are included, but it fits in an extended advertising
+ * set and is what Samsung ShareLive promoted during off-LAN receiver testing.
+ */
+public object DefaultVisiblePayloadFactory : OptionalPayloadFactory {
+    override fun build(
+        endpointId: ByteArray,
+        endpointInfo: EndpointInfo,
+    ): ByteArray? {
+        if (endpointInfo.hidden || endpointInfo.deviceName == null) return null
+        val psm = BleDctPsmHolder.currentPsm
+        return if (psm != null && psm != DctAdvertisement.DEFAULT_PSM) {
+            BleServiceData.encodeFramedWithPsm(endpointId, endpointInfo, psm)
+        } else {
+            BleServiceData.encodeFramed(endpointId, endpointInfo)
+        }
+    }
+}
+
+/**
+ * Optional builder for the DCT (`0xFC73`) advertisement payload. DCT carries a
+ * short visible name for Nearby's off-LAN discovery path while the primary
+ * `0xFEF3` fast advertisement remains the legal compact hidden shape.
+ */
+public fun interface DctPayloadFactory {
+    public fun build(endpointInfo: EndpointInfo): ByteArray?
+}
+
+public object DefaultDctPayloadFactory : DctPayloadFactory {
+    override fun build(endpointInfo: EndpointInfo): ByteArray? =
+        endpointInfo.deviceName?.takeIf { it.isNotBlank() }?.let { name ->
+            DctAdvertisement.encode(
+                serviceId = NearbyServiceId.VALUE,
+                deviceName = name,
+                psm = BleDctPsmHolder.currentPsm ?: DctAdvertisement.DEFAULT_PSM,
+                dedup = DctAdvertisement.DEFAULT_DEDUP,
+            )
+        }
+}
+
+private fun ByteArray.toAsciiLabel(): String = String(this, Charsets.US_ASCII)
+
+private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+private fun EndpointInfo.dctEndpointId(): String? =
+    deviceName
+        ?.takeIf { it.isNotBlank() }
+        ?.let { DctAdvertisement.generateEndpointId(DctAdvertisement.DEFAULT_DEDUP, it) }
 
 /**
  * Abstract handle over the platform [BluetoothLeAdvertiser]. The real
@@ -554,17 +721,19 @@ public interface BleAdvertiserGate {
     /**
      * Begins a Quick Share fast-advertisement under
      * [BleServiceData.SERVICE_UUID_128_STRING] with the given
-     * 23-ish-byte service-data payload and platform mode.
+     * 27-byte hidden framed service-data payload and platform mode.
      *
      * Returns a [Registration] handle whose [Registration.close] stops
      * the platform advertisement, or `null` if it could not be started
      * (adapter off, no LE peripheral mode, etc.).
      *
-     * @param serviceData the encoded service-data payload from
-     *   [BleServiceData.encode]. Must be ≤ 23 bytes for the
+     * @param serviceData the encoded `0xFEF3` service-data payload from
+     *   [BleServiceData.encodeFramed]. Must be ≤ 27 bytes for the
      *   default hidden EndpointInfo shape; longer payloads (e.g. with
      *   inline UTF-8 device name) may exceed the 31-byte advertising-PDU
      *   budget and trigger `ADVERTISE_FAILED_DATA_TOO_LARGE`.
+     * @param dctServiceData optional `0xFC73` DCT service-data payload used
+     *   as the stock off-LAN visible-name hint.
      * @param mode one of [AdvertiseSettings.ADVERTISE_MODE_LOW_POWER],
      *   [AdvertiseSettings.ADVERTISE_MODE_BALANCED], or
      *   [AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY].
@@ -572,6 +741,8 @@ public interface BleAdvertiserGate {
     public fun startAdvertising(
         serviceData: ByteArray,
         mode: Int,
+        dctServiceData: ByteArray? = null,
+        visibleServiceData: ByteArray? = null,
     ): Registration?
 
     /** Token returned from [startAdvertising]; close to stop the underlying advertisement. */
@@ -595,17 +766,45 @@ internal class AndroidBleAdvertiserGate(
     override fun startAdvertising(
         serviceData: ByteArray,
         mode: Int,
+        dctServiceData: ByteArray?,
+        visibleServiceData: ByteArray?,
     ): BleAdvertiserGate.Registration? {
-        val advertiser = resolveAdvertiser() ?: return null
-        val settings = BleQuickShareAdvertiser.buildSettings(mode)
-        val data = BleQuickShareAdvertiser.buildAdvertiseData(serviceData)
-        val callback = AdvertiseCallbackImpl()
-        advertiser.startAdvertising(settings, data, callback)
-        return Registration(advertiser, callback)
+        val resolved = resolveAdvertiser() ?: return null
+        val advertiser = resolved.advertiser
+        val visibleRegistration =
+            startVisibleExtendedAdvertisingIfAvailable(
+                advertiser = advertiser,
+                adapter = resolved.adapter,
+                serviceData = visibleServiceData,
+                mode = mode,
+            )
+        val callback =
+            if (visibleRegistration == null) {
+                val settings = BleQuickShareAdvertiser.buildSettings(mode)
+                val data = BleQuickShareAdvertiser.buildAdvertiseData()
+                val scanResponse = BleQuickShareAdvertiser.buildScanResponseData(serviceData)
+                AdvertiseCallbackImpl(label = "advertise").also { primaryCallback ->
+                    advertiser.startAdvertising(settings, data, scanResponse, primaryCallback)
+                }
+            } else {
+                Log.w(
+                    BleQuickShareAdvertiser.TAG,
+                    "advertise: hidden legacy 0xFEF3 suppressed while visible extended set is active",
+                )
+                null
+            }
+        val dctRegistration =
+            startDctAdvertisingIfAvailable(
+                advertiser = advertiser,
+                adapter = resolved.adapter,
+                serviceData = dctServiceData,
+                mode = mode,
+            )
+        return Registration(advertiser, callback, visibleRegistration, dctRegistration)
     }
 
     @Suppress("ReturnCount")
-    private fun resolveAdvertiser(): BluetoothLeAdvertiser? {
+    private fun resolveAdvertiser(): ResolvedAdvertiser? {
         // Each early-return covers a distinct failure mode that the
         // production logs already differentiate; collapsing them into a
         // single chained ?: hides the cause when one trips. Suppress
@@ -615,16 +814,229 @@ internal class AndroidBleAdvertiserGate(
                 ?: return null
         val adapter: BluetoothAdapter = manager.adapter ?: return null
         if (!adapter.isEnabled) return null
-        return adapter.bluetoothLeAdvertiser
+        val advertiser = adapter.bluetoothLeAdvertiser ?: return null
+        return ResolvedAdvertiser(adapter, advertiser)
     }
 
-    private class AdvertiseCallbackImpl : AdvertiseCallback() {
+    @Suppress("ReturnCount", "TooGenericExceptionCaught")
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
+    private fun startDctAdvertisingIfAvailable(
+        advertiser: BluetoothLeAdvertiser,
+        adapter: BluetoothAdapter,
+        serviceData: ByteArray?,
+        mode: Int,
+    ): DctRegistration? {
+        if (serviceData == null) return null
+        val legacyAdvertiseDataSize = SERVICE_DATA_AD_OVERHEAD_BYTES + serviceData.size
+        if (legacyAdvertiseDataSize <= LEGACY_ADVERTISING_DATA_BYTES) {
+            return try {
+                val callback = AdvertiseCallbackImpl(label = "DCT advertise")
+                advertiser.startAdvertising(
+                    BleQuickShareAdvertiser.buildDctSettings(mode),
+                    BleQuickShareAdvertiser.buildDctAdvertiseData(serviceData),
+                    callback,
+                )
+                Log.w(
+                    BleQuickShareAdvertiser.TAG,
+                    "DCT advertise: submitted legacy bytes=${serviceData.size} " +
+                        "uuid=${DctAdvertisement.SERVICE_UUID_128_STRING}",
+                )
+                DctRegistration.Legacy(callback)
+            } catch (t: Throwable) {
+                Log.w(
+                    BleQuickShareAdvertiser.TAG,
+                    "DCT advertise: legacy startAdvertising threw; trying extended set",
+                    t,
+                )
+                startExtendedDctAdvertisingIfAvailable(
+                    advertiser = advertiser,
+                    adapter = adapter,
+                    serviceData = serviceData,
+                    mode = mode,
+                )
+            }
+        }
+
+        Log.w(
+            BleQuickShareAdvertiser.TAG,
+            "DCT advertise: legacy payload too large bytes=$legacyAdvertiseDataSize; trying extended set",
+        )
+        return startExtendedDctAdvertisingIfAvailable(
+            advertiser = advertiser,
+            adapter = adapter,
+            serviceData = serviceData,
+            mode = mode,
+        )
+    }
+
+    @Suppress("ReturnCount", "TooGenericExceptionCaught")
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
+    private fun startExtendedDctAdvertisingIfAvailable(
+        advertiser: BluetoothLeAdvertiser,
+        adapter: BluetoothAdapter,
+        serviceData: ByteArray,
+        mode: Int,
+    ): DctRegistration? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        if (!adapter.isLeExtendedAdvertisingSupported) {
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "DCT advertise: controller does not support LE extended advertising",
+            )
+            return null
+        }
+        val advertiseDataSize = SERVICE_DATA_AD_OVERHEAD_BYTES + serviceData.size
+        if (advertiseDataSize > adapter.leMaximumAdvertisingDataLength) {
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "DCT advertise: payload too large bytes=$advertiseDataSize " +
+                    "max=${adapter.leMaximumAdvertisingDataLength}",
+            )
+            return null
+        }
+        return try {
+            val callback = AdvertisingSetCallbackImpl(label = "DCT advertise")
+            advertiser.startAdvertisingSet(
+                buildExtendedParameters(mode, connectable = false),
+                BleQuickShareAdvertiser.buildDctAdvertiseData(serviceData),
+                null,
+                null,
+                null,
+                0,
+                0,
+                callback,
+            )
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "DCT advertise: submitted extended bytes=${serviceData.size} " +
+                    "uuid=${DctAdvertisement.SERVICE_UUID_128_STRING}",
+            )
+            DctRegistration.Extended(callback)
+        } catch (t: Throwable) {
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "DCT advertise: startAdvertisingSet threw; compact BLE pulse only",
+                t,
+            )
+            null
+        }
+    }
+
+    @Suppress("ReturnCount", "TooGenericExceptionCaught")
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
+    private fun startVisibleExtendedAdvertisingIfAvailable(
+        advertiser: BluetoothLeAdvertiser,
+        adapter: BluetoothAdapter,
+        serviceData: ByteArray?,
+        mode: Int,
+    ): ExtendedRegistration? {
+        if (serviceData == null) return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        if (!adapter.isLeExtendedAdvertisingSupported) {
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "visible advertise: controller does not support LE extended advertising",
+            )
+            return null
+        }
+        val advertiseDataSize = SERVICE_DATA_AD_OVERHEAD_BYTES + serviceData.size
+        if (advertiseDataSize > adapter.leMaximumAdvertisingDataLength) {
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "visible advertise: payload too large bytes=$advertiseDataSize " +
+                    "max=${adapter.leMaximumAdvertisingDataLength}",
+            )
+            return null
+        }
+        return try {
+            val callback = AdvertisingSetCallbackImpl(label = "visible advertise")
+            advertiser.startAdvertisingSet(
+                buildExtendedParameters(mode, connectable = true),
+                BleQuickShareAdvertiser.buildScanResponseData(serviceData),
+                null,
+                null,
+                null,
+                0,
+                0,
+                callback,
+            )
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "visible advertise: submitted extended bytes=${serviceData.size} " +
+                    "uuid=${BleServiceData.SERVICE_UUID_128_STRING}",
+            )
+            ExtendedRegistration(callback)
+        } catch (t: Throwable) {
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "visible advertise: startAdvertisingSet threw; compact BLE pulse only",
+                t,
+            )
+            null
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun buildExtendedParameters(
+        mode: Int,
+        connectable: Boolean,
+    ): AdvertisingSetParameters =
+        AdvertisingSetParameters
+            .Builder()
+            .setLegacyMode(false)
+            .setConnectable(connectable)
+            .setScannable(false)
+            .setAnonymous(false)
+            .setIncludeTxPower(false)
+            .setPrimaryPhy(BluetoothDevice.PHY_LE_1M)
+            .setSecondaryPhy(BluetoothDevice.PHY_LE_1M)
+            .setInterval(mode.toExtendedInterval())
+            .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_HIGH)
+            .build()
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun Int.toExtendedInterval(): Int =
+        when (this) {
+            AdvertiseSettings.ADVERTISE_MODE_LOW_POWER -> AdvertisingSetParameters.INTERVAL_HIGH
+            AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY -> AdvertisingSetParameters.INTERVAL_LOW
+            else -> AdvertisingSetParameters.INTERVAL_MEDIUM
+        }
+
+    private data class ResolvedAdvertiser(
+        val adapter: BluetoothAdapter,
+        val advertiser: BluetoothLeAdvertiser,
+    )
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private class AdvertisingSetCallbackImpl(
+        private val label: String,
+    ) : AdvertisingSetCallback() {
+        @Volatile
+        var lastStatus: Int? = null
+            private set
+
+        override fun onAdvertisingSetStarted(
+            advertisingSet: android.bluetooth.le.AdvertisingSet?,
+            txPower: Int,
+            status: Int,
+        ) {
+            lastStatus = status
+            Log.w(
+                BleQuickShareAdvertiser.TAG,
+                "$label: onAdvertisingSetStarted status=$status txPower=$txPower",
+            )
+        }
+    }
+
+    private class AdvertiseCallbackImpl(
+        private val label: String,
+    ) : AdvertiseCallback() {
         @Volatile
         var lastError: Int? = null
             private set
 
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.w(BleQuickShareAdvertiser.TAG, "advertise: onStartSuccess settings=$settingsInEffect")
+            Log.w(BleQuickShareAdvertiser.TAG, "$label: onStartSuccess settings=$settingsInEffect")
         }
 
         @Suppress("MagicNumber")
@@ -639,13 +1051,49 @@ internal class AndroidBleAdvertiserGate(
                     ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "FEATURE_UNSUPPORTED"
                     else -> "UNKNOWN"
                 }
-            Log.w(BleQuickShareAdvertiser.TAG, "advertise: onStartFailure code=$errorCode ($label)")
+            Log.w(BleQuickShareAdvertiser.TAG, "${this.label}: onStartFailure code=$errorCode ($label)")
+        }
+    }
+
+    private sealed class DctRegistration {
+        @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
+        abstract fun close(advertiser: BluetoothLeAdvertiser)
+
+        class Legacy(
+            private val callback: AdvertiseCallbackImpl,
+        ) : DctRegistration() {
+            @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
+            override fun close(advertiser: BluetoothLeAdvertiser) {
+                advertiser.stopAdvertising(callback)
+            }
+        }
+
+        @RequiresApi(Build.VERSION_CODES.O)
+        class Extended(
+            private val callback: AdvertisingSetCallbackImpl,
+        ) : DctRegistration() {
+            @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
+            override fun close(advertiser: BluetoothLeAdvertiser) {
+                advertiser.stopAdvertisingSet(callback)
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private class ExtendedRegistration(
+        private val callback: AdvertisingSetCallbackImpl,
+    ) {
+        @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
+        fun close(advertiser: BluetoothLeAdvertiser) {
+            advertiser.stopAdvertisingSet(callback)
         }
     }
 
     private inner class Registration(
         private val advertiser: BluetoothLeAdvertiser,
-        private val callback: AdvertiseCallbackImpl,
+        private val callback: AdvertiseCallbackImpl?,
+        private val visibleRegistration: ExtendedRegistration?,
+        private val dctRegistration: DctRegistration?,
     ) : BleAdvertiserGate.Registration {
         @Volatile
         private var closed: Boolean = false
@@ -654,15 +1102,40 @@ internal class AndroidBleAdvertiserGate(
         override fun close() {
             if (closed) return
             closed = true
-            try {
-                advertiser.stopAdvertising(callback)
-            } catch (
-                @Suppress("TooGenericExceptionCaught") t: Throwable,
-            ) {
-                // Adapter may have been turned off after startAdvertising
-                // succeeded; we still want the registration discarded.
-                Log.w(BleQuickShareAdvertiser.TAG, "stopAdvertising threw", t)
+            if (dctRegistration != null) {
+                try {
+                    dctRegistration.close(advertiser)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.w(BleQuickShareAdvertiser.TAG, "stop DCT advertise threw", t)
+                }
+            }
+            if (visibleRegistration != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    visibleRegistration.close(advertiser)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    Log.w(BleQuickShareAdvertiser.TAG, "stop visible advertise threw", t)
+                }
+            }
+            if (callback != null) {
+                try {
+                    advertiser.stopAdvertising(callback)
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") t: Throwable,
+                ) {
+                    // Adapter may have been turned off after startAdvertising
+                    // succeeded; we still want the registration discarded.
+                    Log.w(BleQuickShareAdvertiser.TAG, "stopAdvertising threw", t)
+                }
             }
         }
+    }
+
+    private companion object {
+        private const val SERVICE_DATA_AD_OVERHEAD_BYTES: Int = 4
+        private const val LEGACY_ADVERTISING_DATA_BYTES: Int = 31
     }
 }

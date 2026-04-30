@@ -27,9 +27,11 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareAdvertiser
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareScanner
-import io.github.kyujincho.wvmg.discovery.bootstrap.BluetoothClassicBootstrapServer
+import io.github.kyujincho.wvmg.discovery.bootstrap.BleGattInitialControlServer
+import io.github.kyujincho.wvmg.discovery.bootstrap.BleL2capInitialControlServer
 import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
+import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.service.downloads.DownloadsWriterFactory
 import io.github.kyujincho.wvmg.service.receiver.consent.ConsentBroadcastReceiver
@@ -461,7 +463,7 @@ public class ReceiverForegroundService : Service() {
         val advertiser = bleAdvertiser ?: return BleVisibilityBroadcaster.Noop
         val endpointInfo =
             EndpointIdentityHolder.snapshot.get() ?: return BleVisibilityBroadcaster.Noop
-        val endpointId = BleEndpointIdHolder.bytes
+        val endpointId = BleEndpointIdHolder.bytesFor(endpointInfo)
         return object : BleVisibilityBroadcaster {
             override fun start(): Boolean {
                 // BleQuickShareAdvertiser.start re-uses the existing
@@ -816,7 +818,7 @@ public class ReceiverForegroundService : Service() {
                 val discovery =
                     Discovery(
                         context = context,
-                        instanceEndpointIdProvider = { BleEndpointIdHolder.bytes.copyOf() },
+                        instanceEndpointIdProvider = { BleEndpointIdHolder.bytesFor(identity) },
                     )
                 ActiveDiscoveryHolder.set(discovery)
                 ReceiverSession(
@@ -833,9 +835,12 @@ public class ReceiverForegroundService : Service() {
                     mediumRegistry = MediumRegistries.defaultForContext(context.applicationContext),
                     initialControlServers =
                         listOf(
-                            BluetoothClassicBootstrapServer(
+                            BleL2capInitialControlServer(
                                 context = context.applicationContext,
-                                endpointIdProvider = { BleEndpointIdHolder.bytes.copyOf() },
+                            ),
+                            BleGattInitialControlServer(
+                                context = context.applicationContext,
+                                endpointIdProvider = { BleEndpointIdHolder.bytesFor(identity) },
                             ),
                         ),
                     // Issue #34: defer mDNS publish to the
@@ -1179,14 +1184,30 @@ internal object ActiveDiscoveryHolder {
  */
 internal object BleEndpointIdHolder {
     /**
-     * The cached 4-byte slug. Generated on first read using
-     * `[A-Za-z0-9]` — same alphabet [InstanceName] uses internally —
-     * so the bytes round-trip cleanly through any future base64-url
-     * conversion.
+     * The cached 4-byte slug. Prefer the DCT-derived endpoint_id for
+     * name-bearing identities so stock Nearby's `0xFC73` parser, our
+     * `0xFEF3` fast advertisement, the GATT slot advertisement, and
+     * mDNS all describe the same logical endpoint. If the identity has
+     * no visible name, fall back to the historical random slug.
      */
-    val bytes: ByteArray by lazy { generate() }
+    private val cached: AtomicReference<ByteArray?> = AtomicReference(null)
 
-    private fun generate(): ByteArray {
+    fun bytesFor(endpointInfo: EndpointInfo): ByteArray {
+        cached.get()?.let { return it.copyOf() }
+        val generated = generate(endpointInfo)
+        return if (cached.compareAndSet(null, generated.copyOf())) {
+            generated.copyOf()
+        } else {
+            cached.get()!!.copyOf()
+        }
+    }
+
+    private fun generate(endpointInfo: EndpointInfo): ByteArray {
+        endpointInfo.deviceName
+            ?.takeIf { it.isNotBlank() }
+            ?.let { DctAdvertisement.generateEndpointId(DctAdvertisement.DEFAULT_DEDUP, it) }
+            ?.let { return it.toByteArray(Charsets.US_ASCII) }
+
         val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         val random = java.security.SecureRandom()
         return ByteArray(BleServiceData.ENDPOINT_ID_LEN) {

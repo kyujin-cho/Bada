@@ -21,6 +21,7 @@ import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
 import android.os.Looper
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
@@ -195,16 +196,18 @@ internal class WifiDirectGroupController(
             return null
         }
         val strings = selectServerCredentialStrings(group, requested) ?: return null
+        val frequency = selectServerFrequency(group)
         Log.w(
             TAG,
-            "Wi-Fi Direct group ready ssid='${strings.ssid}' passphraseLength=${strings.passphrase.length}",
+            "Wi-Fi Direct group ready ssid='${strings.ssid}' " +
+                "passphraseLength=${strings.passphrase.length} frequency=$frequency",
         )
         return UpgradePathCredentials.WifiDirect(
             ipAddress = ipBytes,
             port = serverPort,
             ssid = strings.ssid,
             passphrase = strings.passphrase,
-            frequency = UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET,
+            frequency = frequency,
         )
     }
 
@@ -229,10 +232,20 @@ internal class WifiDirectGroupController(
         return ServerCredentialStrings(ssid, passphrase)
     }
 
+    private fun selectServerFrequency(group: WifiP2pGroup): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET
+        }
+        return group.frequency
+            .takeIf { it > 0 }
+            ?: UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET
+    }
+
     private data class RequestedWifiDirectCredentials(
         val networkName: String = WifiDirectCredentialShape.generateNetworkName(),
         val passphrase: String = WifiDirectCredentialShape.generatePassphrase(),
     ) {
+        @RequiresApi(Build.VERSION_CODES.Q)
         fun toConfig(): WifiP2pConfig =
             WifiP2pConfig
                 .Builder()

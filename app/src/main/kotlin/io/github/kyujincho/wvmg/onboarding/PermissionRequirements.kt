@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.onboarding
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -74,6 +75,7 @@ internal object PermissionRequirements {
      * Android runtime-permission model (our minSdk is 24, so production
      * builds always request at least one permission).
      */
+    @SuppressLint("NewApi") // Callers may pass sdkInt in tests; each API-specific list is gated here.
     internal fun requirementsFor(sdkInt: Int = Build.VERSION.SDK_INT): List<Requirement> {
         val result = mutableListOf<Requirement>()
         if (sdkInt in Build.VERSION_CODES.M until Build.VERSION_CODES.S) {

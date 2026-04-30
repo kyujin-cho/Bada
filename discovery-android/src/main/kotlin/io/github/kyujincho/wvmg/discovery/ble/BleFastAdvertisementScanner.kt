@@ -69,9 +69,15 @@ public class BleFastAdvertisementScanner(
                             }
                         }
                     }
+
+                    override fun onScanFailed(errorCode: Int) {
+                        Log.w(TAG, "BLE fast-advertisement scan failed code=$errorCode")
+                        close()
+                    }
                 }
 
             try {
+                Log.w(TAG, "BLE fast-advertisement scan start uuid=${BleServiceData.SERVICE_UUID_128_STRING}")
                 scanner.startScan(buildFilters(), buildSettings(), callback)
             } catch (e: SecurityException) {
                 Log.w(TAG, "BLE fast-advertisement scan start rejected by platform", e)
@@ -91,11 +97,37 @@ public class BleFastAdvertisementScanner(
     )
 
     private fun ScanResult.toObservation(): Observation? {
-        val scanRecord: ScanRecord = scanRecord ?: return null
-        val serviceData = scanRecord.getServiceData(SERVICE_UUID) ?: return null
-        val parsed = BleServiceData.parse(serviceData) ?: return null
+        val scanRecord: ScanRecord =
+            scanRecord ?: run {
+                Log.w(TAG, "BLE fast-advertisement result without ScanRecord address=${device?.address}")
+                return null
+            }
+        val serviceData =
+            scanRecord.getServiceData(SERVICE_UUID) ?: run {
+                Log.w(
+                    TAG,
+                    "BLE fast-advertisement result without service data " +
+                        "address=${device?.address} rssi=$rssi uuids=${scanRecord.serviceUuids}",
+                )
+                return null
+            }
+        val parsed =
+            BleServiceData.parse(serviceData) ?: run {
+                Log.w(
+                    TAG,
+                    "BLE fast-advertisement parse failed address=${device?.address} " +
+                        "rssi=$rssi bytes=${serviceData.toHex()}",
+                )
+                return null
+            }
+        val endpointId = String(parsed.endpointId, Charsets.US_ASCII)
+        Log.w(
+            TAG,
+            "BLE fast-advertisement observed endpointId=$endpointId " +
+                "address=${device?.address} rssi=$rssi bytes=${serviceData.toHex()}",
+        )
         return Observation(
-            endpointId = String(parsed.endpointId, Charsets.US_ASCII),
+            endpointId = endpointId,
             endpointInfo = parsed.endpointInfo,
             advertiserAddress = device?.address,
             rssi = rssi,
@@ -137,7 +169,7 @@ public class BleFastAdvertisementScanner(
         listOf(
             ScanFilter
                 .Builder()
-                .setServiceUuid(SERVICE_UUID)
+                .setServiceData(SERVICE_UUID, ByteArray(0), ByteArray(0))
                 .build(),
         )
 
@@ -154,3 +186,5 @@ public class BleFastAdvertisementScanner(
             ParcelUuid.fromString(BleServiceData.SERVICE_UUID_128_STRING)
     }
 }
+
+private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
