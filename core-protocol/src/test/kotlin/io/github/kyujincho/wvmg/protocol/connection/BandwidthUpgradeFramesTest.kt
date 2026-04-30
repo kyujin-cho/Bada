@@ -29,6 +29,7 @@ class BandwidthUpgradeFramesTest {
             )
         val parsed = parse(frame)
         assertThat(parsed.eventType).isEqualTo(BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_AVAILABLE)
+        assertThat(parsed.upgradePathInfo.supportsClientIntroductionAck).isTrue()
         assertThat(parsed.upgradePathInfo.medium.number).isEqualTo(Medium.WIFI_LAN.wireNumber)
         assertThat(parsed.upgradePathInfo.hasWifiLanSocket()).isTrue()
         assertThat(parsed.upgradePathInfo.wifiLanSocket.wifiPort).isEqualTo(4433)
@@ -45,6 +46,7 @@ class BandwidthUpgradeFramesTest {
                 UpgradePathCredentials.Generic(Medium.WIFI_DIRECT),
             )
         val parsed = parse(frame)
+        assertThat(parsed.upgradePathInfo.supportsClientIntroductionAck).isTrue()
         assertThat(parsed.upgradePathInfo.medium.number).isEqualTo(Medium.WIFI_DIRECT.wireNumber)
         assertThat(parsed.upgradePathInfo.hasWifiLanSocket()).isFalse()
     }
@@ -378,6 +380,7 @@ class BandwidthUpgradeFramesTest {
             )
         val parsed = parse(frame)
         assertThat(parsed.upgradePathInfo.medium.number).isEqualTo(Medium.WIFI_DIRECT.wireNumber)
+        assertThat(parsed.upgradePathInfo.supportsClientIntroductionAck).isTrue()
         assertThat(parsed.upgradePathInfo.hasWifiDirectCredentials()).isTrue()
         val direct = parsed.upgradePathInfo.wifiDirectCredentials
         assertThat(direct.ssid).isEqualTo("DIRECT-aB-test")

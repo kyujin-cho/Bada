@@ -15,7 +15,7 @@ logic.
 ```
 :app                  UI, share intents, settings (Android application)
 :service-android      ForegroundService, notifications, MediaStore writes
-:discovery-android    JmDNS / NsdManager wrappers, BLE advertise/scan
+:discovery-android    NsdManager wrappers, BLE advertise/scan, Bluetooth Classic bootstrap
 :core-protocol        Pure-Kotlin protocol implementation (no Android deps)
 :core-protocol-test   KAT vectors, fixtures
 ```
@@ -132,18 +132,25 @@ for the full sub-issue list and merged PRs.
 
 ## Networking requirements
 
-Phase 1 uses Wi-Fi LAN discovery (mDNS) to find nearby devices:
+Shared Wi-Fi remains the baseline Quick Share path, but sender-side
+bootstrap is no longer limited to pure LAN discovery:
 
-- **Both the sender and the receiver must be on the same Wi-Fi network**
-  — and on the same VLAN. mDNS multicasts (`_FC9F5ED42C8A._tcp.local.`)
-  do not cross routed subnets, so a typical "Guest" SSID will silently
-  break discovery.
+- **WVMG sender -> stock Quick Share receiver** can start either from the
+  shared-LAN mDNS path or from a nearby Bluetooth-assisted bootstrap path
+  when the devices are off-LAN. For the off-LAN path, keep Bluetooth on
+  at both ends and use the stock peer's visible-to-everyone mode.
+- **Stock Quick Share sender -> WVMG receiver** still depends on the
+  shared-LAN receiver discovery path today, so keep the devices on the
+  same Wi-Fi network for that direction.
+- For the shared-LAN regression path, both devices must be on the same
+  Wi-Fi network and on the same VLAN. mDNS multicasts
+  (`_FC9F5ED42C8A._tcp.local.`) do not cross routed subnets, so a
+  typical "Guest" SSID will silently break discovery.
 - The Wi-Fi network must permit IPv4 multicast / mDNS traffic. Some
   enterprise APs drop multicast frames by default.
 - AP isolation / "client isolation" must be off on the access point.
-- BLE auto-discovery (the "ping nearby devices" pulse that lights up a
-  stock receiver's "Sharing nearby" sheet automatically) is **out of
-  scope for Phase 1** and tracked under Phase 2.
+- The stock-device interop matrix and current manual validation checklist
+  live in [docs/testing/interop-stock-quick-share-android.md](docs/testing/interop-stock-quick-share-android.md).
 
 The receiver's persistent notification surfaces the current Wi-Fi SSID
 (`Receiving on "<SSID>"`) so you can verify both ends match without

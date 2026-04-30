@@ -8,6 +8,7 @@ package io.github.kyujincho.wvmg.protocol.endpoint
 import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.security.MessageDigest
 
 /**
  * Bit-exact regression tests for [BleServiceData] (issue #121).
@@ -16,7 +17,7 @@ import org.junit.jupiter.api.assertThrows
  * pulse during the c0150be triage:
  *
  * ```text
- * [ 0x23 PCP | endpoint_id | 0x11 length | 0x32 ... ]
+ * [ 0x4a frame | 0x17 length | 0x23 PCP | endpoint_id | 0x11 length | 0x32 ... | token ]
  * ```
  *
  * If a regression flips bit packing or field order, every stock Quick
@@ -98,6 +99,90 @@ class BleServiceDataTest {
         assertThat(parsed.pcp).isEqualTo(BleServiceData.DEFAULT_PCP)
         assertThat(parsed.endpointId).isEqualTo(byteArrayOf(0x57, 0x76, 0x6D, 0x67))
         assertThat(parsed.endpointInfo).isEqualTo(info)
+    }
+
+    @Test
+    fun `encodeFramed wraps the fast-advertisement body like stock Nearby`() {
+        val info = hiddenPhoneEndpointInfo()
+        val payload = BleServiceData.encodeFramed("Wvmg", info)
+
+        assertThat(payload).hasLength(27)
+        assertThat(payload[0].toInt() and 0xFF)
+            .isEqualTo(BleServiceData.FRAME_TYPE_FAST_ADVERTISEMENT)
+        assertThat(payload[1].toInt() and 0xFF).isEqualTo(23)
+        assertThat(payload[2].toInt() and 0xFF).isEqualTo(0x23)
+        assertThat(payload.copyOfRange(3, 7)).isEqualTo(byteArrayOf(0x57, 0x76, 0x6D, 0x67))
+        assertThat(payload[7].toInt() and 0xFF).isEqualTo(0x11)
+        assertThat(payload.copyOfRange(25, 27))
+            .isEqualTo(sha256FirstTwo(payload.copyOfRange(2, 25)))
+        assertThat(BleServiceData.parse(payload)?.endpointInfo).isEqualTo(info)
+    }
+
+    @Test
+    fun `encodeFramedWithPsm appends stock extended-advertisement PSM extra field`() {
+        val info = hiddenPhoneEndpointInfo()
+        val payload = BleServiceData.encodeFramedWithPsm("Wvmg", info, psm = 0x1234)
+
+        assertThat(payload).hasLength(30)
+        assertThat(payload[27].toInt() and 0xFF).isEqualTo(BleServiceData.EXTRA_FIELD_PSM_MASK)
+        assertThat(payload[28].toInt() and 0xFF).isEqualTo(0x12)
+        assertThat(payload[29].toInt() and 0xFF).isEqualTo(0x34)
+        assertThat(BleServiceData.parsePsmExtraField(payload)).isEqualTo(0x1234)
+        assertThat(BleServiceData.parse(payload)?.endpointInfo).isEqualTo(info)
+    }
+
+    @Test
+    fun `encodeFramedWithPsm rejects invalid PSM values`() {
+        val info = hiddenPhoneEndpointInfo()
+        assertThrows<IllegalArgumentException> {
+            BleServiceData.encodeFramedWithPsm("Wvmg", info, psm = 0)
+        }
+        assertThrows<IllegalArgumentException> {
+            BleServiceData.encodeFramedWithPsm("Wvmg", info, psm = 0x1_0000)
+        }
+    }
+
+    @Test
+    fun `parse accepts captured stock framed fast advertisement`() {
+        val payload =
+            byteArrayOf(
+                0x4A,
+                0x17,
+                0x23,
+                0x30,
+                0x51,
+                0x52,
+                0x52,
+                0x11,
+                0x32,
+                0x82.toByte(),
+                0x49,
+                0x92.toByte(),
+                0x9C.toByte(),
+                0x32,
+                0xFF.toByte(),
+                0x2B,
+                0x2C,
+                0xC2.toByte(),
+                0x38,
+                0xA4.toByte(),
+                0x62,
+                0xE7.toByte(),
+                0xB1.toByte(),
+                0x35,
+                0xE3.toByte(),
+                0x4A,
+                0xF9.toByte(),
+            )
+
+        val parsed = BleServiceData.parse(payload)
+
+        assertThat(parsed).isNotNull()
+        assertThat(String(parsed!!.endpointId, Charsets.US_ASCII)).isEqualTo("0QRR")
+        assertThat(parsed.version).isEqualTo(BleServiceData.DEFAULT_VERSION)
+        assertThat(parsed.pcp).isEqualTo(BleServiceData.DEFAULT_PCP)
+        assertThat(parsed.endpointInfo.hidden).isTrue()
+        assertThat(parsed.endpointInfo.deviceType).isEqualTo(DeviceType.PHONE)
     }
 
     @Test
@@ -219,4 +304,10 @@ class BleServiceDataTest {
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { 0x00 },
             deviceName = null,
         )
+
+    private fun sha256FirstTwo(bytes: ByteArray): ByteArray =
+        MessageDigest
+            .getInstance("SHA-256")
+            .digest(bytes)
+            .copyOfRange(0, BleServiceData.DEVICE_TOKEN_LEN)
 }

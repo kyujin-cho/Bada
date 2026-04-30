@@ -59,8 +59,12 @@ public object MediumRegistries {
             WifiAwareMediumProvider(context),
             WifiDirectMediumProvider(context),
             WifiHotspotMediumProviderFactory.create(context),
+            BleGattMediumProvider(context),
             BleL2capMediumProvider(context).asProvider(),
-            BluetoothRfcommMediumProvider(context),
+            // Bluetooth Classic RFCOMM is intentionally omitted from the
+            // production ladder. Stock Quick Share's off-LAN tap path is
+            // BLE/GATT, and keeping Classic active causes discovery and
+            // permission side effects without helping Galaxy interop.
         )
 
     /**

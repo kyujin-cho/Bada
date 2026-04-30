@@ -6,10 +6,12 @@
 package io.github.kyujincho.wvmg.send
 
 import android.content.ContentResolver
+import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.net.Uri
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Log
 import io.github.kyujincho.wvmg.protocol.connection.FileSource
 import java.nio.channels.Channels
 import java.nio.channels.ReadableByteChannel
@@ -29,13 +31,14 @@ import kotlin.math.absoluteValue
  *    falling back to the URI's last path segment, falling back to a
  *    generic placeholder. The Quick Share spec does not mandate a
  *    particular name shape, but receivers display this string verbatim.
- *  - **Size** — read from `OpenableColumns.SIZE`. If unknown
- *    (`-1`, missing column, or a `null` cursor), we report `0`. The
- *    receiver will then either trust the announced size or simply
+ *  - **Size** — read from `OpenableColumns.SIZE`, with an
+ *    `AssetFileDescriptor` length/stat fallback for providers that can
+ *    stream the URI but omit a usable cursor size. If all paths are
+ *    unknown (`-1`, missing column, or a `null` cursor), we report `0`.
+ *    The receiver will then either trust the announced size or simply
  *    receive bytes until the channel runs out (current orchestrator
  *    behaviour: streams up to `size` bytes — so an unknown size yields
- *    a zero-byte transfer; this is documented as a known limitation
- *    and is acceptable for #24's MVP).
+ *    a zero-byte transfer).
  *  - **MIME type** — `ContentResolver.getType(uri)`. May be `null`
  *    (e.g. for plain `file://` URIs without a registered mapping); we
  *    surface an empty string in that case so the receiver renders the
@@ -233,10 +236,11 @@ internal class ContentResolverMetadataReader(
 ) : UriMetadataReader {
     override fun read(uri: Uri): UriMetadata {
         val cursorMetadata = readCursorColumns(uri)
+        val size = resolveSize(uri, cursorMetadata.size)
         val mime = contentResolver.getType(uri)
         return UriMetadata(
             displayName = cursorMetadata.displayName,
-            size = cursorMetadata.size,
+            size = size,
             mimeType = mime,
             lastModifiedSeconds = cursorMetadata.lastModifiedSeconds,
         )
@@ -289,6 +293,46 @@ internal class ContentResolverMetadataReader(
         return cursor.getLong(index)
     }
 
+    private fun resolveSize(
+        uri: Uri,
+        cursorSize: Long,
+    ): Long {
+        if (cursorSize > 0L) return cursorSize
+
+        val descriptorSize = readDescriptorSize(uri)
+        val resolvedSize =
+            when {
+                descriptorSize > 0L -> descriptorSize
+                cursorSize >= 0L -> cursorSize
+                else -> -1L
+            }
+        Log.e(
+            TAG,
+            "URI size resolved uri=$uri cursorSize=$cursorSize " +
+                "descriptorSize=$descriptorSize resolvedSize=$resolvedSize",
+        )
+        return resolvedSize
+    }
+
+    private fun readDescriptorSize(uri: Uri): Long =
+        runCatching {
+            contentResolver
+                .openAssetFileDescriptor(uri, READ_MODE)
+                ?.use(::sizeFromDescriptor)
+                ?: -1L
+        }.getOrElse { e ->
+            Log.e(TAG, "URI descriptor size fallback failed uri=$uri: ${e.message}", e)
+            -1L
+        }
+
+    private fun sizeFromDescriptor(descriptor: AssetFileDescriptor): Long {
+        val length = descriptor.length
+        if (length >= 0L) return length
+
+        val statSize = descriptor.parcelFileDescriptor.statSize
+        return if (statSize >= 0L) statSize else -1L
+    }
+
     private fun readLastModifiedSeconds(cursor: Cursor): Long {
         val index = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
         if (index < 0 || cursor.isNull(index)) return 0L
@@ -310,6 +354,9 @@ internal class ContentResolverMetadataReader(
     )
 
     private companion object {
+        const val TAG: String = "WvmgOutbound"
+        const val READ_MODE: String = "r"
+
         val PROJECTION =
             arrayOf(
                 OpenableColumns.DISPLAY_NAME,

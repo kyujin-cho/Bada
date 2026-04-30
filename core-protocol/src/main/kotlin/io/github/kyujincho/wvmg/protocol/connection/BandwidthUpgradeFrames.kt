@@ -26,16 +26,21 @@ import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
  *      [UpgradePathInfo] describing which medium and the per-medium
  *      bring-up parameters.
  *   2. **`CLIENT_INTRODUCTION`** — client side. After the client has
- *      reconnected on the new medium, it sends its endpoint id over
- *      the new socket so the server can map the new connection back
- *      to the original one.
+ *      reconnected on the new medium, it sends its endpoint id as a raw
+ *      length-prefixed `OfflineFrame` over the new socket so the server
+ *      can map the new connection back to the original one.
  *   3. **`CLIENT_INTRODUCTION_ACK`** — server side. ACKs the
- *      introduction.
+ *      introduction as a raw length-prefixed `OfflineFrame` on the new
+ *      socket before that socket joins the SecureMessage session.
  *   4. **`LAST_WRITE_TO_PRIOR_CHANNEL`** — either side, on the OLD
  *      transport. "I am about to stop writing on the old socket." The
  *      sender flushes pending writes, then sends this and stops.
  *   5. **`SAFE_TO_CLOSE_PRIOR_CHANNEL`** — either side, on the OLD
  *      transport. "I have observed your LAST_WRITE; you can FIN now."
+ *      Some stock Quick Share senders move on after receiving the
+ *      receiver's safe-to-close and never send their own final safe
+ *      frame, so the receiver treats the peer's LAST_WRITE plus our
+ *      SAFE_TO_CLOSE as sufficient after a short drain window.
  *   6. **`UPGRADE_FAILURE`** — either side. Aborts the upgrade and
  *      tells the peer we are staying on the current transport.
  *
@@ -427,6 +432,7 @@ public object BandwidthUpgradeFrames {
             return UpgradePathInfo
                 .newBuilder()
                 .setMedium(Medium.BLUETOOTH.toUpgradePathMedium())
+                .setSupportsClientIntroductionAck(true)
                 .setBluetoothCredentials(
                     UpgradePathInfo.BluetoothCredentials
                         .newBuilder()
@@ -439,6 +445,7 @@ public object BandwidthUpgradeFrames {
             UpgradePathInfo
                 .newBuilder()
                 .setMedium(credentials.medium.toUpgradePathMedium())
+                .setSupportsClientIntroductionAck(true)
         when (credentials) {
             is UpgradePathCredentials.Generic -> Unit // Medium-only; nothing extra to set.
             is UpgradePathCredentials.WifiLan -> {

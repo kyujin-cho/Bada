@@ -16,6 +16,7 @@ import io.github.kyujincho.wvmg.protocol.medium.PreparedUpgradeSelection
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
 import io.github.kyujincho.wvmg.protocol.medium.asFramedConnection
+import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.TreeMap
@@ -41,7 +42,11 @@ internal object BandwidthUpgradeOrchestrator {
         peerEndpointId: String,
         logger: (String) -> Unit,
     ): ActiveTransportChannel {
-        val selection = mediumRegistry.prepareBestUpgrade(peerSupportedMediums)
+        val selection =
+            mediumRegistry.prepareBestUpgradeForCurrentTransport(
+                peerSupported = peerSupportedMediums,
+                currentMedium = currentMedium,
+            )
         if (selection !is PreparedUpgradeSelection.Upgrade) {
             logger("medium-upgrade: server staying on current transport selection=$selection")
             return ActiveTransportChannel(oldChannel, currentMedium)
@@ -95,32 +100,36 @@ internal object BandwidthUpgradeOrchestrator {
         logger: (String) -> Unit,
     ): ActiveTransportChannel {
         val bufferedFrames = mutableListOf<OfflineFrame>()
-        val newChannel = oldChannel.withTransport(transport.asFramedConnection())
-        val reader = DualChannelFrameReader(oldChannel, newChannel, logger)
+        val newFramedConnection = transport.asFramedConnection()
         val clientIntro =
-            receiveExpectedUpgradeFrame(
-                reader = reader,
+            receiveRawUpgradeFrame(
+                framedConnection = newFramedConnection,
                 expected = BandwidthUpgradeNegotiationFrame.EventType.CLIENT_INTRODUCTION,
-                stage = "server client introduction",
-                applicationFrames = bufferedFrames,
-                logger = logger,
+                stage = "server raw client introduction",
             )
         validateServerClientIntroduction(
             intro = clientIntro,
             peerEndpointId = peerEndpointId,
         )
-        newChannel.sendOfflineFrame(BandwidthUpgradeFrames.clientIntroductionAck())
-        exchangePriorChannelClose(
-            oldChannel = oldChannel,
+        newFramedConnection.sendFrame(BandwidthUpgradeFrames.clientIntroductionAck().toByteArray())
+        logger("medium-upgrade: server sent raw CLIENT_INTRODUCTION_ACK")
+        val newChannel = oldChannel.withTransport(newFramedConnection)
+        oldChannel.sendOfflineFrame(BandwidthUpgradeFrames.lastWriteToPriorChannel())
+        val reader = DualChannelFrameReader(oldChannel, newChannel, logger)
+        receiveServerPeerLastWrite(
             reader = reader,
             bufferedFrames = bufferedFrames,
             logger = logger,
-            stagePrefix = "server",
         )
-        reader.drainAvailableFrames(
-            stage = "server post-safe-to-close",
-            applicationFrames = bufferedFrames,
-        )
+        oldChannel.sendOfflineFrame(BandwidthUpgradeFrames.safeToClosePriorChannel())
+        logger("medium-upgrade: server sent SAFE_TO_CLOSE_PRIOR_CHANNEL on prior channel")
+        val consumedPeerSafe =
+            drainServerPostSafeFrames(
+                reader = reader,
+                bufferedFrames = bufferedFrames,
+                logger = logger,
+            )
+        closePriorChannelAfterUpgrade(oldChannel, consumedPeerSafe, logger)
         logger("medium-upgrade: server completed ${credentials.medium}")
         return ActiveTransportChannel(newChannel, credentials.medium, bufferedFrames)
     }
@@ -139,6 +148,8 @@ internal object BandwidthUpgradeOrchestrator {
                 logger("medium-upgrade: client received malformed upgrade offer")
                 return ActiveTransportChannel(oldChannel, currentMedium)
             }
+        val expectsClientIntroductionAck =
+            offer.v1.bandwidthUpgradeNegotiation.upgradePathInfo.supportsClientIntroductionAck
         val provider = mediumRegistry.providerFor(credentials.medium)
         if (provider == null) {
             logger("medium-upgrade: client has no provider for ${credentials.medium}")
@@ -163,6 +174,7 @@ internal object BandwidthUpgradeOrchestrator {
                 transport = transport,
                 credentials = credentials,
                 endpointId = endpointId,
+                expectsClientIntroductionAck = expectsClientIntroductionAck,
                 logger = logger,
             )
         }.getOrElse { failure ->
@@ -181,19 +193,22 @@ internal object BandwidthUpgradeOrchestrator {
         transport: UpgradedTransport,
         credentials: UpgradePathCredentials,
         endpointId: String,
+        expectsClientIntroductionAck: Boolean,
         logger: (String) -> Unit,
     ): ActiveTransportChannel {
         val bufferedFrames = mutableListOf<OfflineFrame>()
-        val newChannel = oldChannel.withTransport(transport.asFramedConnection())
+        val newFramedConnection = transport.asFramedConnection()
+        newFramedConnection.sendFrame(BandwidthUpgradeFrames.clientIntroduction(endpointId).toByteArray())
+        if (expectsClientIntroductionAck) {
+            receiveRawUpgradeFrame(
+                framedConnection = newFramedConnection,
+                expected = BandwidthUpgradeNegotiationFrame.EventType.CLIENT_INTRODUCTION_ACK,
+                stage = "client raw introduction ack",
+            )
+            logger("medium-upgrade: client received raw CLIENT_INTRODUCTION_ACK")
+        }
+        val newChannel = oldChannel.withTransport(newFramedConnection)
         val reader = DualChannelFrameReader(oldChannel, newChannel, logger)
-        newChannel.sendOfflineFrame(BandwidthUpgradeFrames.clientIntroduction(endpointId))
-        receiveAndCheckUpgradeFrame(
-            reader = reader,
-            expected = BandwidthUpgradeNegotiationFrame.EventType.CLIENT_INTRODUCTION_ACK,
-            stage = "client introduction ack",
-            applicationFrames = bufferedFrames,
-            logger = logger,
-        )
         exchangeClientPriorChannelClose(
             oldChannel = oldChannel,
             reader = reader,
@@ -230,6 +245,7 @@ internal object BandwidthUpgradeOrchestrator {
             applicationFrames = bufferedFrames,
             logger = logger,
         )
+        closePriorChannelAfterUpgrade(oldChannel, consumedPeerSafe = true, logger = logger)
     }
 
     suspend fun receiveOfferProbe(channel: SecureChannel): UpgradeOfferProbe =
@@ -260,42 +276,81 @@ internal object BandwidthUpgradeOrchestrator {
         }
     }
 
-    private suspend fun exchangePriorChannelClose(
-        oldChannel: SecureChannel,
+    private suspend fun receiveServerPeerLastWrite(
         reader: DualChannelFrameReader,
         bufferedFrames: MutableList<OfflineFrame>,
         logger: (String) -> Unit,
-        stagePrefix: String,
     ) {
-        oldChannel.sendOfflineFrame(BandwidthUpgradeFrames.lastWriteToPriorChannel())
         val peerLast =
             receiveExpectedUpgradeFrame(
                 reader = reader,
                 expected = BandwidthUpgradeNegotiationFrame.EventType.LAST_WRITE_TO_PRIOR_CHANNEL,
-                stage = "$stagePrefix peer last-write",
+                stage = "server peer last-write",
                 applicationFrames = bufferedFrames,
                 logger = logger,
             )
         checkUpgradeEvent(
             frame = peerLast,
             expected = BandwidthUpgradeNegotiationFrame.EventType.LAST_WRITE_TO_PRIOR_CHANNEL,
-            stage = "$stagePrefix peer last-write",
+            stage = "server peer last-write",
         )
+    }
 
-        oldChannel.sendOfflineFrame(BandwidthUpgradeFrames.safeToClosePriorChannel())
-        val peerSafe =
-            receiveExpectedUpgradeFrame(
-                reader = reader,
-                expected = BandwidthUpgradeNegotiationFrame.EventType.SAFE_TO_CLOSE_PRIOR_CHANNEL,
-                stage = "$stagePrefix peer safe-to-close",
-                applicationFrames = bufferedFrames,
-                logger = logger,
-            )
-        checkUpgradeEvent(
-            frame = peerSafe,
-            expected = BandwidthUpgradeNegotiationFrame.EventType.SAFE_TO_CLOSE_PRIOR_CHANNEL,
-            stage = "$stagePrefix peer safe-to-close",
+    private suspend fun drainServerPostSafeFrames(
+        reader: DualChannelFrameReader,
+        bufferedFrames: MutableList<OfflineFrame>,
+        logger: (String) -> Unit,
+    ): Boolean {
+        val consumedPeerSafe =
+            withTimeoutOrNull(SERVER_PEER_SAFE_DRAIN_MILLIS) {
+                receiveOptionalPeerSafeToClose(
+                    reader = reader,
+                    bufferedFrames = bufferedFrames,
+                    logger = logger,
+                )
+            } == true
+        logger(
+            if (consumedPeerSafe) {
+                "medium-upgrade: server consumed peer SAFE_TO_CLOSE on prior channel"
+            } else {
+                "medium-upgrade: server treating peer LAST_WRITE as sufficient; peer SAFE_TO_CLOSE omitted"
+            },
         )
+        if (!consumedPeerSafe) {
+            reader.drainAvailableFrames(
+                stage = "server post-safe-to-close",
+                applicationFrames = bufferedFrames,
+            )
+        }
+        return consumedPeerSafe
+    }
+
+    private suspend fun receiveOptionalPeerSafeToClose(
+        reader: DualChannelFrameReader,
+        bufferedFrames: MutableList<OfflineFrame>,
+        logger: (String) -> Unit,
+    ): Boolean {
+        while (true) {
+            val frame = reader.receiveNextFrame("server optional peer safe-to-close")
+            when {
+                frame.isBandwidthUpgradeEvent(
+                    BandwidthUpgradeNegotiationFrame.EventType.SAFE_TO_CLOSE_PRIOR_CHANNEL,
+                ) -> return true
+                frame.isBandwidthUpgradeNegotiation() -> {
+                    logger(
+                        "medium-upgrade: ignored ${frame.describeUpgradeEvent()} " +
+                            "while draining optional peer SAFE_TO_CLOSE",
+                    )
+                }
+                else -> {
+                    logger(
+                        "medium-upgrade: buffered ${frame.describeFrameType()} " +
+                            "while draining optional peer SAFE_TO_CLOSE",
+                    )
+                    bufferedFrames += frame
+                }
+            }
+        }
     }
 
     private fun decodeOfferCredentials(frame: OfflineFrame): UpgradePathCredentials? {
@@ -304,6 +359,35 @@ internal object BandwidthUpgradeOrchestrator {
         }
         return BandwidthUpgradeFrames.decodeCredentials(frame.v1.bandwidthUpgradeNegotiation.upgradePathInfo)
     }
+
+    private suspend fun receiveRawUpgradeFrame(
+        framedConnection: FramedConnection,
+        expected: BandwidthUpgradeNegotiationFrame.EventType,
+        stage: String,
+    ): OfflineFrame {
+        val frame =
+            withTimeoutOrNull(UPGRADE_TIMEOUT_MILLIS) {
+                while (true) {
+                    if (framedConnection.hasBufferedInput()) {
+                        return@withTimeoutOrNull parseRawOfflineFrame(framedConnection, stage)
+                    }
+                    delay(DUAL_CHANNEL_POLL_DELAY_MILLIS)
+                }
+                error("unreachable")
+            } ?: error("Timed out waiting for $stage")
+        checkUpgradeEvent(frame = frame, expected = expected, stage = stage)
+        return frame
+    }
+
+    private suspend fun parseRawOfflineFrame(
+        framedConnection: FramedConnection,
+        stage: String,
+    ): OfflineFrame =
+        try {
+            OfflineFrame.parseFrom(framedConnection.receiveFrame())
+        } catch (e: com.google.protobuf.InvalidProtocolBufferException) {
+            error("Malformed raw OfflineFrame during $stage: ${e.message}")
+        }
 
     private suspend fun receiveExpectedUpgradeFrame(
         reader: DualChannelFrameReader,
@@ -346,6 +430,48 @@ internal object BandwidthUpgradeOrchestrator {
             )
         }
 
+    private suspend fun closePriorChannelAfterUpgrade(
+        oldChannel: SecureChannel,
+        consumedPeerSafe: Boolean,
+        logger: (String) -> Unit,
+    ) {
+        if (consumedPeerSafe) {
+            runCatching { oldChannel.sendRawOfflineFrame(OfflineFrames.disconnection()) }
+                .onSuccess { logger("medium-upgrade: sent raw prior-channel Disconnection") }
+                .onFailure {
+                    logger(
+                        "medium-upgrade: failed raw prior-channel Disconnection: " +
+                            (it.message ?: it::class.simpleName),
+                    )
+                }
+            drainRawPriorChannelDisconnect(oldChannel, logger)
+        }
+        runCatching { oldChannel.close() }
+    }
+
+    private suspend fun drainRawPriorChannelDisconnect(
+        oldChannel: SecureChannel,
+        logger: (String) -> Unit,
+    ) {
+        withTimeoutOrNull(PRIOR_CHANNEL_DISCONNECT_DRAIN_MILLIS) {
+            while (true) {
+                if (oldChannel.hasBufferedInput()) {
+                    runCatching { oldChannel.receiveRawOfflineFrame() }
+                        .onSuccess {
+                            logger("medium-upgrade: drained raw prior-channel frame after safe-to-close")
+                        }.onFailure {
+                            logger(
+                                "medium-upgrade: ignored prior-channel close drain failure: " +
+                                    (it.message ?: it::class.simpleName),
+                            )
+                        }
+                    return@withTimeoutOrNull
+                }
+                delay(DUAL_CHANNEL_POLL_DELAY_MILLIS)
+            }
+        }
+    }
+
     private fun checkUpgradeEvent(
         frame: OfflineFrame,
         expected: BandwidthUpgradeNegotiationFrame.EventType,
@@ -366,7 +492,13 @@ internal object BandwidthUpgradeOrchestrator {
 
     private fun OfflineFrame.describeFrameType(): String =
         if (hasV1()) {
-            v1.type.toString()
+            if (v1.type == V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION) {
+                "${v1.type}(${v1.bandwidthUpgradeNegotiation.eventType})"
+            } else if (v1.type == V1Frame.FrameType.BANDWIDTH_UPGRADE_RETRY) {
+                "${v1.type}(request=${v1.bandwidthUpgradeRetry.isRequest})"
+            } else {
+                v1.type.toString()
+            }
         } else {
             "NO_V1"
         }
@@ -494,6 +626,8 @@ internal object BandwidthUpgradeOrchestrator {
 
     private const val UPGRADE_TIMEOUT_MILLIS: Long = 30_000L
     private const val OFFER_WAIT_TIMEOUT_MILLIS: Long = 1_500L
+    private const val SERVER_PEER_SAFE_DRAIN_MILLIS: Long = 500L
+    private const val PRIOR_CHANNEL_DISCONNECT_DRAIN_MILLIS: Long = 200L
     private const val DUAL_CHANNEL_DRAIN_IDLE_ATTEMPTS: Int = 25
     private const val DUAL_CHANNEL_POLL_DELAY_MILLIS: Long = 10L
 }

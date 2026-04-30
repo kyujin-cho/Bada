@@ -8,6 +8,7 @@ package io.github.kyujincho.wvmg.discovery.ble
 import android.bluetooth.le.AdvertiseSettings
 import com.google.common.truth.Truth.assertThat
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
+import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import org.junit.jupiter.api.Test
@@ -53,6 +54,8 @@ class BleQuickShareAdvertiserTest {
                 override fun startAdvertising(
                     serviceData: ByteArray,
                     mode: Int,
+                    dctServiceData: ByteArray?,
+                    visibleServiceData: ByteArray?,
                 ): BleAdvertiserGate.Registration? = null
             }
         val advertiser =
@@ -83,15 +86,91 @@ class BleQuickShareAdvertiserTest {
         // The default mode is BALANCED until the lifecycle observer
         // upgrades it to LOW_LATENCY. Pinning it here catches drift.
         assertThat(mode).isEqualTo(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
+        assertThat(gate.startCalls.last().dctPayload).isNull()
 
-        // Byte 0 is the canonical 0x23 (version=1, PCP=3); byte 5 is
-        // the EndpointInfo length (17 for hidden); byte 6 is the
-        // EndpointInfo header (0x32 = hidden + version=1 + PHONE).
-        assertThat(payload).hasLength(BleServiceData.FIXED_HEADER_LEN + info.serialize().size)
-        assertThat(payload[0].toInt() and 0xFF).isEqualTo(0x23)
-        assertThat(payload.copyOfRange(1, 5)).isEqualTo(endpointId("Wvmg"))
-        assertThat(payload[5].toInt() and 0xFF).isEqualTo(0x11)
-        assertThat(payload[6].toInt() and 0xFF).isEqualTo(0x32)
+        // The service data is the stock BLE v2 frame wrapper followed
+        // by the canonical 0x23 (version=1, PCP=3) inner body.
+        val expectedPayloadSize =
+            BleServiceData.FRAME_HEADER_LEN +
+                BleServiceData.FIXED_HEADER_LEN +
+                info.serialize().size +
+                BleServiceData.DEVICE_TOKEN_LEN
+        assertThat(payload).hasLength(expectedPayloadSize)
+        assertThat(payload[0].toInt() and 0xFF).isEqualTo(BleServiceData.FRAME_TYPE_FAST_ADVERTISEMENT)
+        assertThat(payload[1].toInt() and 0xFF).isEqualTo(BleServiceData.FIXED_HEADER_LEN + info.serialize().size)
+        assertThat(payload[2].toInt() and 0xFF).isEqualTo(0x23)
+        assertThat(payload.copyOfRange(3, 7)).isEqualTo(endpointId("Wvmg"))
+        assertThat(payload[7].toInt() and 0xFF).isEqualTo(0x11)
+        assertThat(payload[8].toInt() and 0xFF).isEqualTo(0x32)
+    }
+
+    @Test
+    fun `start compacts visible EndpointInfo to hidden BLE payload`() {
+        val gate = RecordingGate(failOnStart = false)
+        val advertiser =
+            BleQuickShareAdvertiser.forTesting(
+                gate = gate,
+                permissionChecker = { true },
+            )
+        val info =
+            EndpointInfo(
+                version = 1,
+                hidden = false,
+                deviceType = DeviceType.PHONE,
+                reserved = false,
+                metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
+                deviceName = "WhenVivoMeetsGoogle",
+            )
+
+        val started = advertiser.start(info, endpointId("Wvmg"))
+
+        assertThat(started).isTrue()
+        val call = gate.startCalls.single()
+        val payload = call.payload
+        val dctPayload = call.dctPayload
+        val visiblePayload = call.visiblePayload
+        assertThat(payload).hasLength(27)
+        val parsedInfo = BleServiceData.parse(payload)!!.endpointInfo
+        assertThat(parsedInfo.hidden).isTrue()
+        assertThat(parsedInfo.deviceName).isNull()
+        assertThat(parsedInfo.deviceType).isEqualTo(info.deviceType)
+        assertThat(parsedInfo.metadata).isEqualTo(info.metadata)
+
+        assertThat(dctPayload).isNotNull()
+        val dct = DctAdvertisement.parse(dctPayload!!)!!
+        assertThat(dct.deviceName).isEqualTo("WhenViv")
+        assertThat(dct.isDeviceNameTruncated).isTrue()
+        assertThat(dct.psm).isEqualTo(DctAdvertisement.DEFAULT_PSM)
+
+        assertThat(visiblePayload).isNotNull()
+        val visibleInfo = BleServiceData.parse(visiblePayload!!)!!.endpointInfo
+        assertThat(visibleInfo.hidden).isFalse()
+        assertThat(visibleInfo.deviceName).isEqualTo("WhenVivoMeetsGoogle")
+        assertThat(BleServiceData.parsePsmExtraField(visiblePayload)).isNull()
+        assertThat(visiblePayload.size).isGreaterThan(27)
+    }
+
+    @Test
+    fun `DCT and visible fast payloads carry active L2CAP PSM when available`() {
+        BleDctPsmHolder.set(0x1234)
+        try {
+            val gate = RecordingGate(failOnStart = false)
+            val advertiser =
+                BleQuickShareAdvertiser.forTesting(
+                    gate = gate,
+                    permissionChecker = { true },
+                )
+
+            val started = advertiser.start(visiblePhone(), endpointId("Wvmg"))
+
+            assertThat(started).isTrue()
+            val call = gate.startCalls.single()
+            val dct = DctAdvertisement.parse(call.dctPayload!!)!!
+            assertThat(dct.psm).isEqualTo(0x1234)
+            assertThat(BleServiceData.parsePsmExtraField(call.visiblePayload!!)).isEqualTo(0x1234)
+        } finally {
+            BleDctPsmHolder.clear()
+        }
     }
 
     @Test
@@ -125,9 +204,9 @@ class BleQuickShareAdvertiserTest {
         assertThat(gate.firstRegistration?.closed).isTrue()
         assertThat(gate.lastRegistration?.closed).isFalse()
 
-        // Bytes 1..4 of the latest payload reflect the second endpoint_id.
+        // Bytes 3..6 of the latest payload reflect the second endpoint_id.
         val (payload, _) = gate.startCalls.last()
-        assertThat(payload.copyOfRange(1, 5)).isEqualTo(endpointId("BBBB"))
+        assertThat(payload.copyOfRange(3, 7)).isEqualTo(endpointId("BBBB"))
     }
 
     @Test
@@ -189,7 +268,7 @@ class BleQuickShareAdvertiserTest {
 
         // Subsequent start should use the pinned mode.
         advertiser.start(hiddenPhone(), endpointId("Wvmg"))
-        assertThat(gate.startCalls.last().second)
+        assertThat(gate.startCalls.last().mode)
             .isEqualTo(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
     }
 
@@ -221,7 +300,7 @@ class BleQuickShareAdvertiserTest {
         val ok = advertiser.setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
         assertThat(ok).isTrue()
         assertThat(gate.startCalls).hasSize(2)
-        assertThat(gate.startCalls.last().second)
+        assertThat(gate.startCalls.last().mode)
             .isEqualTo(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
         // First registration was torn down; second is still live.
         assertThat(gate.firstRegistration?.closed).isTrue()
@@ -292,6 +371,43 @@ class BleQuickShareAdvertiserTest {
         assertThat(gate.startCalls).isEmpty()
     }
 
+    @Test
+    fun `start keeps legacy advertisement when DCT payload factory throws`() {
+        val gate = RecordingGate(failOnStart = false)
+        val advertiser =
+            BleQuickShareAdvertiser.forTesting(
+                gate = gate,
+                permissionChecker = { true },
+                dctPayloadFactory = { _ -> error("synthetic DCT payload failure") },
+            )
+
+        val started = advertiser.start(hiddenPhone(), endpointId("Wvmg"))
+
+        assertThat(started).isTrue()
+        assertThat(advertiser.isAdvertising).isTrue()
+        assertThat(gate.startCalls).hasSize(1)
+        assertThat(gate.startCalls.single().dctPayload).isNull()
+        assertThat(gate.startCalls.single().visiblePayload).isNull()
+    }
+
+    @Test
+    fun `start keeps legacy advertisement when visible payload factory throws`() {
+        val gate = RecordingGate(failOnStart = false)
+        val advertiser =
+            BleQuickShareAdvertiser.forTesting(
+                gate = gate,
+                permissionChecker = { true },
+                visiblePayloadFactory = { _, _ -> error("synthetic visible payload failure") },
+            )
+
+        val started = advertiser.start(visiblePhone(), endpointId("Wvmg"))
+
+        assertThat(started).isTrue()
+        assertThat(advertiser.isAdvertising).isTrue()
+        assertThat(gate.startCalls).hasSize(1)
+        assertThat(gate.startCalls.single().visiblePayload).isNull()
+    }
+
     private fun hiddenPhone(): EndpointInfo =
         EndpointInfo(
             version = 1,
@@ -302,6 +418,16 @@ class BleQuickShareAdvertiserTest {
             deviceName = null,
         )
 
+    private fun visiblePhone(): EndpointInfo =
+        EndpointInfo(
+            version = 1,
+            hidden = false,
+            deviceType = DeviceType.PHONE,
+            reserved = false,
+            metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
+            deviceName = "WhenVivoMeetsGoogle",
+        )
+
     private fun endpointId(s: String): ByteArray {
         require(s.length == BleServiceData.ENDPOINT_ID_LEN)
         return s.toByteArray(Charsets.US_ASCII)
@@ -309,13 +435,13 @@ class BleQuickShareAdvertiserTest {
 
     /**
      * Test double for the platform [BleAdvertiserGate]. Records each
-     * `startAdvertising` call as a `(payload, mode)` pair and tracks
-     * whether the resulting registration was subsequently closed.
+     * `startAdvertising` call and tracks whether the resulting
+     * registration was subsequently closed.
      */
     private class RecordingGate(
         @Volatile var failOnStart: Boolean,
     ) : BleAdvertiserGate {
-        val startCalls: MutableList<Pair<ByteArray, Int>> = mutableListOf()
+        val startCalls: MutableList<StartCall> = mutableListOf()
         val registrations: MutableList<RecordingRegistration> = mutableListOf()
 
         val firstRegistration: RecordingRegistration?
@@ -326,14 +452,23 @@ class BleQuickShareAdvertiserTest {
         override fun startAdvertising(
             serviceData: ByteArray,
             mode: Int,
+            dctServiceData: ByteArray?,
+            visibleServiceData: ByteArray?,
         ): BleAdvertiserGate.Registration? {
-            startCalls += serviceData to mode
+            startCalls += StartCall(serviceData, mode, dctServiceData, visibleServiceData)
             if (failOnStart) return null
             val reg = RecordingRegistration()
             registrations += reg
             return reg
         }
     }
+
+    private data class StartCall(
+        val payload: ByteArray,
+        val mode: Int,
+        val dctPayload: ByteArray?,
+        val visiblePayload: ByteArray?,
+    )
 
     private class RecordingRegistration : BleAdvertiserGate.Registration {
         @Volatile

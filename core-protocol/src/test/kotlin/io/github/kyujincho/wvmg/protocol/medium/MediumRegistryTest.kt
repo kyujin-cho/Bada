@@ -65,6 +65,22 @@ class MediumRegistryTest {
     }
 
     @Test
+    fun `supportedMediumsForCurrentTransport excludes Wi-Fi LAN off the LAN transport`() {
+        val registry =
+            MediumRegistry(
+                listOf(
+                    FakeProvider(Medium.WIFI_LAN),
+                    FakeProvider(Medium.BLUETOOTH),
+                ),
+            )
+
+        assertThat(registry.supportedMediumsForCurrentTransport(Medium.BLUETOOTH))
+            .containsExactly(Medium.BLUETOOTH)
+        assertThat(registry.supportedMediumsForCurrentTransport(Medium.WIFI_LAN))
+            .containsExactly(Medium.WIFI_LAN, Medium.BLUETOOTH)
+    }
+
+    @Test
     fun `providerFor returns null for unregistered medium`() {
         val registry = MediumRegistry(listOf(FakeProvider(Medium.WIFI_LAN)))
         assertThat(registry.providerFor(Medium.BLE_L2CAP)).isNull()
@@ -139,6 +155,32 @@ class MediumRegistryTest {
                 ladderOverride = override,
             )
         assertThat(pick).isEqualTo(Medium.BLUETOOTH)
+    }
+
+    @Test
+    fun `selectBestUpgradeForCurrentTransport skips Wi-Fi LAN on Bluetooth bootstrap`() {
+        val registry =
+            MediumRegistry(
+                listOf(
+                    FakeProvider(Medium.WIFI_LAN),
+                    FakeProvider(Medium.BLE_L2CAP),
+                ),
+                ladder =
+                    MediumLadder(
+                        listOf(
+                            Medium.WIFI_LAN,
+                            Medium.BLE_L2CAP,
+                        ),
+                    ),
+            )
+
+        val pick =
+            registry.selectBestUpgradeForCurrentTransport(
+                peerSupported = setOf(Medium.WIFI_LAN, Medium.BLE_L2CAP),
+                currentMedium = Medium.BLUETOOTH,
+            )
+
+        assertThat(pick).isEqualTo(Medium.BLE_L2CAP)
     }
 
     @Test
@@ -237,5 +279,33 @@ class MediumRegistryTest {
             assertThat(prepared).isEqualTo(PreparedUpgradeSelection.StayOnCurrentMedium)
             assertThat(direct.prepareCalls).isEqualTo(1)
             assertThat(lan.prepareCalls).isEqualTo(0)
+        }
+
+    @Test
+    fun `prepareBestUpgradeForCurrentTransport skips Wi-Fi LAN on Bluetooth bootstrap`() =
+        runTest {
+            val lan = FakeProvider(Medium.WIFI_LAN)
+            val bleL2cap =
+                FakeProvider(
+                    medium = Medium.BLE_L2CAP,
+                    preparedCredentials = UpgradePathCredentials.Generic(Medium.BLE_L2CAP),
+                )
+            val registry =
+                MediumRegistry(
+                    providers = listOf(lan, bleL2cap),
+                    ladder = MediumLadder(listOf(Medium.WIFI_LAN, Medium.BLE_L2CAP)),
+                )
+
+            val prepared =
+                registry.prepareBestUpgradeForCurrentTransport(
+                    peerSupported = setOf(Medium.WIFI_LAN, Medium.BLE_L2CAP),
+                    currentMedium = Medium.BLUETOOTH,
+                )
+
+            assertThat(prepared).isInstanceOf(PreparedUpgradeSelection.Upgrade::class.java)
+            val upgrade = prepared as PreparedUpgradeSelection.Upgrade
+            assertThat(upgrade.medium).isEqualTo(Medium.BLE_L2CAP)
+            assertThat(lan.prepareCalls).isEqualTo(0)
+            assertThat(bleL2cap.prepareCalls).isEqualTo(1)
         }
 }

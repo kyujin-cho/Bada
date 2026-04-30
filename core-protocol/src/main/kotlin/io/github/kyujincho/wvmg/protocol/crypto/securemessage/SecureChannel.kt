@@ -161,6 +161,13 @@ public class SecureChannel internal constructor(
     internal suspend fun acceptSequencedOfflineFrame(frame: SequencedOfflineFrame): OfflineFrame =
         session.acceptSequencedOfflineFrame(frame)
 
+    internal suspend fun sendRawOfflineFrame(frame: OfflineFrame) {
+        framedConnection.sendFrame(frame.toByteArray())
+    }
+
+    internal suspend fun receiveRawOfflineFrame(): OfflineFrame =
+        OfflineFrame.parseFrom(framedConnection.receiveFrame())
+
     /**
      * The next outgoing sequence number that [sendOfflineFrame] WOULD use,
      * exposed for diagnostics and tests. The value increases by exactly

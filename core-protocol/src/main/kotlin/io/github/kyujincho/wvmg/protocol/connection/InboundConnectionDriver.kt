@@ -180,16 +180,25 @@ internal class InboundConnectionDriver(
                 ?.let { EndpointInfo.parse(it)?.deviceName }
 
         // Decode the peer's advertised mediums (Phase 4 framework). The
-        // intersection with our local registry's supportedMediums(),
-        // resolved by the registry's ladder, picks the upgrade target.
-        // The current driver records the choice for observability; the
-        // full BANDWIDTH_UPGRADE_NEGOTIATION transport swap is wired by
-        // a later orchestrator integration.
+        // intersection with our local registry's current-medium-aware
+        // supported set, resolved by the registry's ladder, picks the
+        // upgrade target. WIFI_LAN is only meaningful when the existing
+        // control channel is already LAN-backed; on a Bluetooth/BLE
+        // bootstrap we must ignore it or we would suppress real upgrade
+        // candidates by treating "stay on current socket" as if the
+        // current socket were LAN. The current driver records the
+        // choice for observability; the full
+        // BANDWIDTH_UPGRADE_NEGOTIATION transport swap is wired by a
+        // later orchestrator integration.
         peerSupportedMediums =
             initialFrame.v1.connectionRequest.mediumsList
                 .mapNotNull { Medium.fromConnectionRequestMedium(it) }
                 .toSet()
-        val chosen = mediumRegistry.selectBestUpgrade(peerSupportedMediums)
+        val chosen =
+            mediumRegistry.selectBestUpgradeForCurrentTransport(
+                peerSupported = peerSupportedMediums,
+                currentMedium = transport.medium,
+            )
         // WIFI_LAN is the discovery medium; selecting it means "stay on
         // the current transport". Treat that as `null` so callers do
         // not interpret it as an upgrade trigger.
@@ -255,6 +264,13 @@ internal class InboundConnectionDriver(
         // Step 8-10: drive the negotiation FSM through to consent.
         mutableState.value = InboundConnectionState.Negotiating
         val negotiationFsm = InboundSharingFsm(secureRandom = secureRandom).also { fsm = it }
+        if (activeTransport.medium != transport.medium) {
+            logger(
+                "medium-upgrade: delaying sharing negotiation " +
+                    "${POST_UPGRADE_SHARING_DELAY_MILLIS}ms after ${activeTransport.medium}",
+            )
+            delay(POST_UPGRADE_SHARING_DELAY_MILLIS)
+        }
         applyEffects(activeChannel, negotiationFsm.start())
 
         // Mark the handshake as complete so a racing UI-side cancel()
@@ -535,6 +551,10 @@ internal class InboundConnectionDriver(
         }
         // Otherwise it's a negotiation frame. Parse and feed the FSM.
         val sharingFrame = SharingFrames.parse(event.data)
+        logger(
+            "sharing: received ${sharingFrame.v1.type} payloadId=${event.payloadId} " +
+                "bytes=${event.data.size} state=${fsm.state}",
+        )
         // Disambiguate peer-cancel from local-cancel before applyEffects
         // sees the Cancelled effect — both code paths emit the same FSM
         // effect, so the driver has to set the cause itself based on the
@@ -699,6 +719,10 @@ internal class InboundConnectionDriver(
     ) {
         val payloadId = secureRandom.nextLong()
         val frames = PayloadTransferEncoder.encodeBytesPayload(payloadId, send.frame.toByteArray())
+        logger(
+            "sharing: sending ${send.frame.v1.type} payloadId=$payloadId " +
+                "frames=${frames.size} state=${fsm?.state}",
+        )
         for (frame in frames) {
             channel.sendOfflineFrame(frame)
         }
@@ -810,5 +834,6 @@ internal class InboundConnectionDriver(
     private companion object {
         private const val INITIAL_FRAME_PROBE_ATTEMPTS = 20
         private const val INITIAL_FRAME_PROBE_DELAY_MILLIS = 10L
+        private const val POST_UPGRADE_SHARING_DELAY_MILLIS = 750L
     }
 }

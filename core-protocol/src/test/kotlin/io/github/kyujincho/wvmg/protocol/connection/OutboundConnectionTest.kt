@@ -14,6 +14,7 @@ import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
+import io.github.kyujincho.wvmg.protocol.transport.asConnectedTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -159,8 +160,20 @@ class OutboundConnectionTest {
         return serverSocket.localPort to accept
     }
 
-    private class LoopbackUpgradePair {
-        private val credentials = UpgradePathCredentials.Generic(Medium.BLUETOOTH)
+    private suspend fun connectedSocketPair(): Pair<Socket, Socket> {
+        val listener = withContext(Dispatchers.IO) { ServerSocket(0, 0, InetAddress.getLoopbackAddress()) }
+        val client = withContext(Dispatchers.IO) { Socket(InetAddress.getLoopbackAddress(), listener.localPort) }
+        val server = withContext(Dispatchers.IO) { listener.accept() }
+        runCatching { listener.close() }
+        openedSockets += client
+        openedSockets += server
+        return client to server
+    }
+
+    private class LoopbackUpgradePair(
+        private val medium: Medium = Medium.BLUETOOTH,
+    ) {
+        private val credentials = UpgradePathCredentials.Generic(medium)
         private val clientSocket: Socket
         private val serverSocket: Socket
 
@@ -172,24 +185,24 @@ class OutboundConnectionTest {
 
         val clientProvider: MediumProvider =
             object : MediumProvider {
-                override val medium: Medium = Medium.BLUETOOTH
+                override val medium: Medium = this@LoopbackUpgradePair.medium
 
                 override fun isSupported(): Boolean = true
 
                 override suspend fun adoptUpgrade(credentials: UpgradePathCredentials): UpgradedTransport? =
-                    UpgradedTransport.SocketBacked(Medium.BLUETOOTH, clientSocket)
+                    UpgradedTransport.SocketBacked(medium, clientSocket)
             }
 
         val serverProvider: MediumProvider =
             object : MediumProvider {
-                override val medium: Medium = Medium.BLUETOOTH
+                override val medium: Medium = this@LoopbackUpgradePair.medium
 
                 override fun isSupported(): Boolean = true
 
                 override suspend fun prepareUpgrade(): UpgradePathCredentials = credentials
 
                 override suspend fun acceptUpgrade(): UpgradedTransport =
-                    UpgradedTransport.SocketBacked(Medium.BLUETOOTH, serverSocket)
+                    UpgradedTransport.SocketBacked(medium, serverSocket)
             }
 
         fun close() {
@@ -272,6 +285,47 @@ class OutboundConnectionTest {
         }
 
     @Test
+    fun `accept path - preconnected transport completes through full lifecycle`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val factory = InMemoryFactory()
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLUETOOTH),
+                        secureRandom = SecureRandom("outbound-preconnected".toByteArray()),
+                    )
+
+                val fileBytes = ByteArray(2048) { (it and 0xFF).toByte() }
+                val payloadId = 0x5152L
+                val files = listOf(bytesSource("preconnected.bin", fileBytes, payloadId))
+
+                coroutineScope {
+                    val outboundJob = async { outbound.run(files) }
+                    val inbound =
+                        InboundConnection(
+                            transport = server.asConnectedTransport(Medium.BLUETOOTH),
+                            secureRandom = SecureRandom("inbound-preconnected".toByteArray()),
+                        )
+
+                    launch {
+                        inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                        inbound.submitUserConsent(accepted = true)
+                    }
+
+                    val inboundResult = inbound.run(factory)
+                    val outboundResult = outboundJob.await()
+
+                    assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
+                    assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                }
+
+                assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
+                assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+            }
+        }
+
+    @Test
     fun `accept path - bandwidth upgrade swaps to provider transport before file payload`() =
         runBlocking {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {
@@ -327,6 +381,72 @@ class OutboundConnectionTest {
 
                         assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
                         assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                    }
+
+                    assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
+                    assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+                } finally {
+                    upgradePair.close()
+                }
+            }
+        }
+
+    @Test
+    fun `preconnected bluetooth bootstrap ignores Wi-Fi LAN placeholder and upgrades to WebRTC`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val factory = InMemoryFactory()
+                val upgradePair = LoopbackUpgradePair(Medium.WEB_RTC)
+                val registry =
+                    MediumRegistry(
+                        providers =
+                            listOf(
+                                MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                upgradePair.clientProvider,
+                            ),
+                        ladder = MediumLadder(listOf(Medium.WIFI_LAN, Medium.WEB_RTC)),
+                    )
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLUETOOTH),
+                        secureRandom = SecureRandom("outbound-bt-bootstrap-upgrade".toByteArray()),
+                        mediumRegistry = registry,
+                    )
+
+                val fileBytes = ByteArray(1024) { (it and 0x7F).toByte() }
+                val payloadId = 0x5153L
+                val files = listOf(bytesSource("bootstrap-upgrade.bin", fileBytes, payloadId))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(files) }
+                        val inbound =
+                            InboundConnection(
+                                transport = server.asConnectedTransport(Medium.BLUETOOTH),
+                                secureRandom = SecureRandom("inbound-bt-bootstrap-upgrade".toByteArray()),
+                                mediumRegistry =
+                                    MediumRegistry(
+                                        providers =
+                                            listOf(
+                                                MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                                upgradePair.serverProvider,
+                                            ),
+                                        ladder = MediumLadder(listOf(Medium.WIFI_LAN, Medium.WEB_RTC)),
+                                    ),
+                            )
+
+                        launch {
+                            inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                            inbound.submitUserConsent(accepted = true)
+                        }
+
+                        val inboundResult = inbound.run(factory)
+                        val outboundResult = outboundJob.await()
+
+                        assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
+                        assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                        assertThat(inbound.activeMedium.value).isEqualTo(Medium.WEB_RTC)
                     }
 
                     assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)

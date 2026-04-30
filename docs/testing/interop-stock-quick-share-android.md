@@ -9,16 +9,14 @@ This runbook tracks issue
 [#30](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/30) under
 the [Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1).
 
-> **Phase 1 scope reminder.** Phase 1 is Wi-Fi LAN parity with NearDrop.
-> BLE auto-trigger (the "ping nearby devices" pulse that lights up a
-> stock receiver's "Sharing nearby" sheet automatically) is **out of
-> scope** and is tracked under Phase 2. In Phase 1, the **only reliable
-> path** to start a transfer to a stock Android device is the **QR-code
-> path**: WVMG renders a QR code, the peer scans it with their camera,
-> and stock Quick Share opens with our endpoint pre-selected. Discovery
-> in the other direction (stock Android sends to WVMG) is also Wi-Fi-only
-> in Phase 1: WVMG must already be advertising on mDNS for the peer's
-> device picker to list us.
+> **Current scope note.** Phase 1 originally shipped as Wi-Fi LAN parity
+> with NearDrop, and the QR path below remains the lowest-risk fallback.
+> Issue #137 adds a sender-side non-LAN bootstrap path: WVMG can now
+> discover stock peers through Bluetooth-adjacent discovery surfaces and
+> start the initial control channel without requiring the same Wi-Fi LAN.
+> Shared-LAN mDNS is still the baseline regression path, and stock sender
+> -> WVMG receiver regression should still be exercised on a shared LAN
+> unless a future issue changes the receiver-side bootstrap story.
 
 ---
 
@@ -26,21 +24,31 @@ the [Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1).
 
 ### Networking requirements
 
-Phase 1 uses Wi-Fi LAN discovery (mDNS), so both devices **must** be on
-the same Wi-Fi network. BLE auto-discovery is Phase 2 and out of scope
-for this runbook. The receiver's persistent notification surfaces the
-current Wi-Fi SSID (`Receiving on "<SSID>"`) — use it to confirm both
-ends match before you start each test.
+Two network topologies matter now:
+
+- **Shared-LAN regression path:** both devices on the same Wi-Fi network
+  so mDNS discovery can work exactly as it did before issue #137.
+- **Off-LAN sender path:** WVMG sender and the stock receiver are on
+  different Wi-Fi networks, on a client-isolated Wi-Fi, or otherwise
+  unable to reach each other by LAN mDNS alone. Bluetooth must stay on
+  so the initial control channel can bootstrap, and the subsequent
+  bandwidth upgrade may or may not move to Wi-Fi depending on what the
+  peer offers.
 
 ### Network
 
-- [ ] Both devices are on the **same Wi-Fi SSID and the same VLAN** —
-      mDNS does not cross routed subnets.
+- [ ] For the **shared-LAN regression** cells below, both devices are on
+      the **same Wi-Fi SSID and the same VLAN** — mDNS does not cross
+      routed subnets.
+- [ ] For the **off-LAN sender** cells below, deliberately place the
+      devices on different Wi-Fi networks (or an AP with client
+      isolation) and record the topology in the test log.
 - [ ] The Wi-Fi network has **mDNS / multicast traffic enabled**. Many
       enterprise / guest networks block multicast and silently break
       Quick Share. Use a phone hotspot if in doubt.
-- [ ] Both devices have **Wi-Fi turned on**. Bluetooth is **not**
-      required in Phase 1 (BLE pulse is Phase 2).
+- [ ] Both devices have **Wi-Fi turned on**.
+- [ ] For the **off-LAN sender** cells, both devices also have
+      **Bluetooth turned on**.
 - [ ] Location permission is granted to Google Play Services on the
       stock device (Quick Share requires it for Wi-Fi scans).
 
@@ -95,12 +103,14 @@ each test, and record which:
 
 Every cell in the matrix must be exercised once per RC build.
 
-| # | Direction        | Peer    | Path used                | Visibility setting on peer | Result |
-|---|------------------|---------|--------------------------|----------------------------|--------|
-| 1 | WVMG -> Pixel    | Pixel   | QR code (Phase 1)        | Everyone                   |        |
-| 2 | WVMG -> Samsung  | Samsung | QR code (Phase 1)        | Everyone                   |        |
-| 3 | Pixel -> WVMG    | Pixel   | Pixel device picker      | n/a (sender side picks us) |        |
-| 4 | Samsung -> WVMG  | Samsung | Samsung Quick Share UI   | n/a                        |        |
+| # | Direction        | Peer    | Path used                                | Visibility setting on peer | Result |
+|---|------------------|---------|------------------------------------------|----------------------------|--------|
+| 1 | WVMG -> Pixel    | Pixel   | Shared-LAN picker / mDNS regression      | Everyone                   |        |
+| 2 | WVMG -> Pixel    | Pixel   | Off-LAN sender bootstrap (#137)          | Everyone                   |        |
+| 3 | WVMG -> Samsung  | Samsung | Shared-LAN picker / mDNS regression      | Everyone                   |        |
+| 4 | WVMG -> Samsung  | Samsung | Off-LAN sender bootstrap (#137)          | Everyone                   |        |
+| 5 | Pixel -> WVMG    | Pixel   | Pixel device picker                      | n/a (sender side picks us) |        |
+| 6 | Samsung -> WVMG  | Samsung | Samsung Quick Share UI                   | n/a                        |        |
 
 For each cell, run **both** a small file (≤ 1 MB, e.g. a JPEG) and a
 large file (≥ 200 MB, e.g. a video). The large-file run is what catches
@@ -114,11 +124,55 @@ that fit in one chunk, so it was invisible in large-file-only testing.
 
 ## Procedure
 
-### Test 1 / Test 2: Send file from WVMG to a stock Android phone (QR-code path)
+### Test 1 / Test 3: Send file from WVMG to a stock Android phone (shared-LAN regression)
 
-The QR path is the only Phase-1-supported path. Stock Android only
-implements QR scanning as the receiver-side entry point — there is no
-"manual IP entry" — so the flow below is mandatory.
+- [ ] Put both devices on the **same Wi-Fi SSID / VLAN**.
+- [ ] On the **WVMG device**: open the system share sheet for the file
+      under test and route into `SendActivity`.
+- [ ] Wait for the peer row to appear in the picker. Record the
+      `picked target:` log line from `adb logcat -s WvmgOutbound` after
+      selection; for the shared-LAN regression it should show
+      `route=lan=<ip>:<port>`.
+- [ ] Select the peer row, compare the 4-digit PIN on both sides, and
+      complete the transfer.
+- [ ] Verify the received file and SHA-256 hash on the peer.
+
+### Test 2 / Test 4: Send file from WVMG to a stock Android phone (off-LAN sender bootstrap)
+
+This is the issue #137 checklist. It validates that the sender can
+discover and start the session without relying on same-LAN mDNS.
+
+- [ ] Put the devices on **different Wi-Fi networks** (or on a network
+      with client isolation) so a pure LAN dial would fail.
+- [ ] On the **stock peer**: set Quick Share visibility to **Everyone**
+      and confirm **Bluetooth is on**.
+- [ ] On the **WVMG device**: open the system share sheet for the file
+      under test and route into `SendActivity`.
+- [ ] Wait for the peer row to appear in the picker. If the row appears
+      but is disabled, record that as a partial discovery result and
+      capture the discovery log before continuing.
+- [ ] Capture `adb logcat -s WvmgOutbound WvmgBtScan WvmgBleFastScan`
+      while the picker is open. Record the discovery surfaces reported
+      in the `picked target:` line's `mediums=[...]` field.
+- [ ] Select the peer row and record the initial control route from the
+      same `picked target:` line. For the off-LAN bootstrap path it
+      should show `route=bluetooth=<mac>` unless the devices happen to
+      regain LAN reachability.
+- [ ] Confirm the 4-digit PIN matches on both devices.
+- [ ] Wait for the transfer to complete and verify the received file's
+      SHA-256 hash on the peer.
+- [ ] Record whether the connection stayed on the initial medium or
+      upgraded. Look for `step 1: initial transport open medium=...`
+      and any `medium-upgrade:` lines in `WvmgOutbound`.
+- [ ] Immediately rerun the same peer pair on a **shared LAN** and
+      confirm the regression path still chooses `route=lan=<ip>:<port>`.
+
+### Legacy fallback: QR-code path
+
+Keep this path around as a manual fallback when the nearby-picker path is
+under active debugging. Stock Android still implements QR scanning as a
+receiver-side entry point, and it remains useful for isolating
+discovery/bootstrap failures from later protocol failures.
 
 - [ ] On the **stock peer**: open Settings → Connected devices →
       Connection preferences → Quick Share, and set visibility to

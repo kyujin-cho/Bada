@@ -232,6 +232,7 @@ public class WifiDirectMediumProvider internal constructor(
             // to call connect on this exact port. Close the listening socket
             // once accept returns to free the port.
             val socket = pending.serverSocket.use { listener -> listener.accept() }
+            Log.w(TAG, "Wi-Fi Direct ServerSocket accepted peer=${socket.remoteSocketAddress}")
             claimAcceptedServerTransport(pending, socket)
         } catch (e: IOException) {
             Log.w(TAG, "Wi-Fi Direct ServerSocket.accept threw", e)

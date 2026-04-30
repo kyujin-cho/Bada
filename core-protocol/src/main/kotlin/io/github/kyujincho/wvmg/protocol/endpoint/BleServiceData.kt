@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.protocol.endpoint
 
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 
 /**
  * Quick Share **fast advertisement** BLE service-data payload (issue #121).
@@ -21,8 +22,14 @@ import java.nio.charset.StandardCharsets
  *
  * ### Wire format
  *
- * Captured verbatim from a Galaxy peer's broadcast during the c0150be
- * triage (see commit message):
+ * Stock Nearby Connections wraps the fast-advertisement body in a BLE v2
+ * frame before placing it in the `0xFEF3` service-data value:
+ *
+ * ```text
+ * [ 0x4a | body_len | versPCP | endpoint_id | info_len | EndpointInfo | device_token[2] ]
+ * ```
+ *
+ * The inner body shape captured from a Galaxy peer is:
  *
  * ```text
  * +--------+-------------------+--------+----------------------+
@@ -33,30 +40,32 @@ import java.nio.charset.StandardCharsets
  * +--------+-------------------+--------+----------------------+
  * ```
  *
- * - **byte 0** packs `version (3 bits, MSB) | pcp (5 bits)`. Stock peers
+ * - **body byte 0** packs `version (3 bits, MSB) | pcp (5 bits)`. Stock peers
  *   emit `version = 1`, `pcp = 3` (`PCP_HIGH` in google/nearby's
  *   `connections/implementation/mediums/ble_v2/ble_advertisement.cc`),
  *   yielding `0x23`.
- * - **bytes 1..4** are an ASCII-printable, 4-byte endpoint identifier.
+ * - **body bytes 1..4** are an ASCII-printable, 4-byte endpoint identifier.
  *   The same string also surfaces as `mDNS instance name`'s 4-byte slug
  *   prefix and in the protocol-level `endpoint_id` of
  *   `ConnectionRequestFrame`. Stock peers use base64-url-style
  *   characters (uppercase + lowercase + digits + `-` / `_`); we accept
  *   any byte in ASCII printable range to stay forward-compatible.
- * - **byte 5** is an unsigned 8-bit length giving how many EndpointInfo
+ * - **body byte 5** is an unsigned 8-bit length giving how many EndpointInfo
  *   bytes follow. Same byte that gates the abbreviated 17-byte hidden
  *   form in NearDrop's BLE captures (`0x11`) and the longer
  *   "name-included" form on Pixel.
- * - **bytes 6..N** are the **raw** [EndpointInfo.serialize] output —
+ * - **body bytes 6..N** are the **raw** [EndpointInfo.serialize] output —
  *   the exact same byte sequence we already put under the mDNS TXT key
  *   `n`, sans the URL-safe base64 wrapper. That keeps the on-the-wire
  *   identity of a peer aligned across the two channels.
  *
  * The payload is intentionally compact: with a hidden EndpointInfo
- * (no inline name, no TLV records) the total is **23 bytes**
- * (1 + 4 + 1 + 17), which fits comfortably alongside the 16-bit
- * `service-data` AD header inside the legacy 31-byte advertising-PDU
- * budget without needing extended advertising.
+ * (no inline name, no TLV records) the inner body is **23 bytes**
+ * (1 + 4 + 1 + 17). Stock peers append a 2-byte device token after the
+ * length-delimited body, making the framed service-data value
+ * **27 bytes**. That still fits alongside the 16-bit `service-data` AD
+ * header inside the legacy 31-byte advertising-PDU budget without
+ * needing extended advertising.
  *
  * ### Why this lives in `:core-protocol`
  *
@@ -89,6 +98,27 @@ public object BleServiceData {
 
     /** Length of the version/PCP header byte. */
     public const val HEADER_LEN: Int = 1
+
+    /** BLE v2 frame type used by stock Nearby for fast advertisements. */
+    public const val FRAME_TYPE_FAST_ADVERTISEMENT: Int = 0x4A
+
+    /** Length of the BLE v2 frame type + frame-length prefix. */
+    public const val FRAME_HEADER_LEN: Int = 2
+
+    /** Length of the trailing Nearby Mediums device token. */
+    public const val DEVICE_TOKEN_LEN: Int = 2
+
+    /** One-byte extra-field mask appended by stock Nearby extended BLE advertisements. */
+    public const val EXTRA_FIELDS_MASK_LEN: Int = 1
+
+    /** Extra-field bit that indicates a following two-byte BLE L2CAP PSM value. */
+    public const val EXTRA_FIELD_PSM_MASK: Int = 0x01
+
+    /** Length of a PSM value in Nearby's BLE extra-field trailer. */
+    public const val PSM_LEN: Int = 2
+
+    /** Maximum unsigned 16-bit PSM value. */
+    public const val MAX_PSM: Int = 0xFFFF
 
     /** Length of the ASCII endpoint_id slug. */
     public const val ENDPOINT_ID_LEN: Int = 4
@@ -136,6 +166,9 @@ public object BleServiceData {
      * sub-field limits; this only constrains the BLE framing.
      */
     public const val MAX_ENDPOINT_INFO_LEN: Int = 0xFF
+
+    /** Maximum inner body length describable by the BLE v2 frame prefix. */
+    public const val MAX_FRAME_BODY_LEN: Int = 0xFF
 
     /**
      * Encodes the canonical fast-advertisement service-data payload.
@@ -186,6 +219,111 @@ public object BleServiceData {
     }
 
     /**
+     * Encodes the stock `0xFEF3` service-data value.
+     *
+     * This wraps [encode]'s fast-advertisement body in the two-byte BLE
+     * v2 frame prefix captured from stock peers:
+     *
+     * ```text
+     * [ FRAME_TYPE_FAST_ADVERTISEMENT (0x4a) | body_len | body... | device_token[2] ]
+     * ```
+     *
+     * The trailing two bytes are outside the length-delimited body.
+     * Stock Nearby Mediums surfaces them as `deviceToken`; leaving them
+     * absent still lets the lower Nearby Connections scanner report an
+     * endpoint, but Samsung's Quick Share UI does not promote that peer
+     * to a visible share target in off-LAN discovery.
+     */
+    @JvmOverloads
+    @JvmStatic
+    public fun encodeFramed(
+        endpointId: ByteArray,
+        endpointInfo: EndpointInfo,
+        version: Int = DEFAULT_VERSION,
+        pcp: Int = DEFAULT_PCP,
+    ): ByteArray {
+        val body = encode(endpointId, endpointInfo, version, pcp)
+        require(body.size <= MAX_FRAME_BODY_LEN) {
+            "fast-advertisement body must fit in 1 byte (0..$MAX_FRAME_BODY_LEN), got ${body.size}"
+        }
+        val deviceToken = deriveDeviceToken(body)
+        val out = ByteArray(FRAME_HEADER_LEN + body.size + DEVICE_TOKEN_LEN)
+        out[0] = FRAME_TYPE_FAST_ADVERTISEMENT.toByte()
+        out[1] = body.size.toByte()
+        body.copyInto(out, destinationOffset = FRAME_HEADER_LEN)
+        deviceToken.copyInto(out, destinationOffset = FRAME_HEADER_LEN + body.size)
+        return out
+    }
+
+    /**
+     * Encodes the extended-advertising form of [encodeFramed] with Nearby's
+     * extra-field trailer carrying the BLE L2CAP PSM:
+     *
+     * ```text
+     * [ framed_fast_advertisement | extra_mask(0x01) | psm_be16 ]
+     * ```
+     *
+     * Stock Nearby only appends these extra fields to extended advertisements;
+     * the compact legacy 27-byte shape has no remaining AD budget.
+     */
+    @JvmOverloads
+    @JvmStatic
+    public fun encodeFramedWithPsm(
+        endpointId: ByteArray,
+        endpointInfo: EndpointInfo,
+        psm: Int,
+        version: Int = DEFAULT_VERSION,
+        pcp: Int = DEFAULT_PCP,
+    ): ByteArray {
+        require(psm in 1..MAX_PSM) { "psm must fit in uint16 and be non-zero, got $psm" }
+        val framed = encodeFramed(endpointId, endpointInfo, version, pcp)
+        val out = ByteArray(framed.size + EXTRA_FIELDS_MASK_LEN + PSM_LEN)
+        framed.copyInto(out)
+        out[framed.size] = EXTRA_FIELD_PSM_MASK.toByte()
+        out[framed.size + 1] = ((psm ushr Byte.SIZE_BITS) and UNSIGNED_BYTE_MASK).toByte()
+        out[framed.size + 2] = (psm and UNSIGNED_BYTE_MASK).toByte()
+        return out
+    }
+
+    /**
+     * String overload of [encodeFramedWithPsm].
+     */
+    @JvmOverloads
+    @JvmStatic
+    public fun encodeFramedWithPsm(
+        endpointId: String,
+        endpointInfo: EndpointInfo,
+        psm: Int,
+        version: Int = DEFAULT_VERSION,
+        pcp: Int = DEFAULT_PCP,
+    ): ByteArray =
+        encodeFramedWithPsm(
+            endpointId = asciiEndpointId(endpointId),
+            endpointInfo = endpointInfo,
+            psm = psm,
+            version = version,
+            pcp = pcp,
+        )
+
+    /**
+     * String overload of [encodeFramed].
+     */
+    @JvmOverloads
+    @JvmStatic
+    public fun encodeFramed(
+        endpointId: String,
+        endpointInfo: EndpointInfo,
+        version: Int = DEFAULT_VERSION,
+        pcp: Int = DEFAULT_PCP,
+    ): ByteArray =
+        encodeFramed(
+            endpointId = asciiEndpointId(endpointId),
+            endpointInfo = endpointInfo,
+            version = version,
+            pcp = pcp,
+        )
+
+    /**
      * Convenience wrapper that accepts the endpoint_id as an ASCII
      * [String]. The string must be exactly [ENDPOINT_ID_LEN] code units
      * long and contain only ASCII bytes — all stock peers do.
@@ -197,19 +335,7 @@ public object BleServiceData {
         endpointInfo: EndpointInfo,
         version: Int = DEFAULT_VERSION,
         pcp: Int = DEFAULT_PCP,
-    ): ByteArray {
-        // String.toByteArray(US_ASCII) silently substitutes '?' for any
-        // non-ASCII code point, so length-equality alone misses the case
-        // where every non-ASCII char encodes to a single byte. Walk the
-        // string explicitly and reject any code unit outside ASCII range.
-        for (ch in endpointId) {
-            require(ch.code in 0..ASCII_MAX) {
-                "endpointId must be ASCII (got non-ASCII char in '$endpointId')"
-            }
-        }
-        val bytes = endpointId.toByteArray(StandardCharsets.US_ASCII)
-        return encode(bytes, endpointInfo, version, pcp)
-    }
+    ): ByteArray = encode(asciiEndpointId(endpointId), endpointInfo, version, pcp)
 
     /**
      * Parses a fast-advertisement service-data payload back into its
@@ -226,6 +352,31 @@ public object BleServiceData {
     @Suppress("ReturnCount")
     @JvmStatic
     public fun parse(bytes: ByteArray): Parsed? {
+        unwrapFrame(bytes)?.let { framed ->
+            return parseBody(framed)
+        }
+        return parseBody(bytes)
+    }
+
+    /**
+     * Returns the BLE L2CAP PSM from a framed fast-advertisement extra-field
+     * trailer, or `null` when the payload is legacy, malformed, or has no PSM.
+     */
+    @Suppress("ReturnCount")
+    @JvmStatic
+    public fun parsePsmExtraField(bytes: ByteArray): Int? {
+        val offset = extraFieldsOffset(bytes) ?: return null
+        if (offset >= bytes.size) return null
+        val mask = bytes[offset].toInt() and UNSIGNED_BYTE_MASK
+        if ((mask and EXTRA_FIELD_PSM_MASK) == 0) return null
+        val psmOffset = offset + EXTRA_FIELDS_MASK_LEN
+        if (psmOffset + PSM_LEN > bytes.size) return null
+        return ((bytes[psmOffset].toInt() and UNSIGNED_BYTE_MASK) shl Byte.SIZE_BITS) or
+            (bytes[psmOffset + 1].toInt() and UNSIGNED_BYTE_MASK)
+    }
+
+    @Suppress("ReturnCount")
+    private fun parseBody(bytes: ByteArray): Parsed? {
         if (bytes.size < FIXED_HEADER_LEN) return null
         val header = bytes[0].toInt() and UNSIGNED_BYTE_MASK
         val version = (header ushr VERSION_SHIFT) and VERSION_MASK
@@ -243,6 +394,38 @@ public object BleServiceData {
         )
     }
 
+    @Suppress("ReturnCount")
+    private fun unwrapFrame(bytes: ByteArray): ByteArray? {
+        if (bytes.size < FRAME_HEADER_LEN) return null
+        if ((bytes[0].toInt() and UNSIGNED_BYTE_MASK) != FRAME_TYPE_FAST_ADVERTISEMENT) return null
+        val len = bytes[1].toInt() and UNSIGNED_BYTE_MASK
+        if (FRAME_HEADER_LEN + len > bytes.size) return null
+        return bytes.copyOfRange(FRAME_HEADER_LEN, FRAME_HEADER_LEN + len)
+    }
+
+    @Suppress("ReturnCount")
+    private fun extraFieldsOffset(bytes: ByteArray): Int? {
+        if (bytes.size < FRAME_HEADER_LEN) return null
+        if ((bytes[0].toInt() and UNSIGNED_BYTE_MASK) != FRAME_TYPE_FAST_ADVERTISEMENT) return null
+        val len = bytes[1].toInt() and UNSIGNED_BYTE_MASK
+        val offset = FRAME_HEADER_LEN + len + DEVICE_TOKEN_LEN
+        if (offset > bytes.size) return null
+        return offset
+    }
+
+    private fun asciiEndpointId(endpointId: String): ByteArray {
+        // String.toByteArray(US_ASCII) silently substitutes '?' for any
+        // non-ASCII code point, so length-equality alone misses the case
+        // where every non-ASCII char encodes to a single byte. Walk the
+        // string explicitly and reject any code unit outside ASCII range.
+        for (ch in endpointId) {
+            require(ch.code in 0..ASCII_MAX) {
+                "endpointId must be ASCII (got non-ASCII char in '$endpointId')"
+            }
+        }
+        return endpointId.toByteArray(StandardCharsets.US_ASCII)
+    }
+
     /**
      * Pack the version (top 3 bits) and PCP (bottom 5 bits) into byte 0.
      * `version=1, pcp=3` yields `0x23`, matching the captured Galaxy
@@ -252,6 +435,12 @@ public object BleServiceData {
         version: Int,
         pcp: Int,
     ): Byte = (((version and VERSION_MASK) shl VERSION_SHIFT) or (pcp and PCP_MASK)).toByte()
+
+    private fun deriveDeviceToken(body: ByteArray): ByteArray =
+        MessageDigest
+            .getInstance("SHA-256")
+            .digest(body)
+            .copyOfRange(0, DEVICE_TOKEN_LEN)
 
     /**
      * Validate that [bytes] is exactly [ENDPOINT_ID_LEN] long. We do not
