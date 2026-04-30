@@ -168,6 +168,7 @@ private class PeerAggregator {
         state.endpointInfo = chooseEndpointInfo(state.endpointInfo, observation.endpointInfo)
         state.bleAddress = observation.advertiserAddress
         state.bleRssi = observation.rssi
+        state.bleL2capPsm = observation.l2capPsm
         observation.advertiserAddress?.let { bleIndex[it] = state.stableId }
 
         return changeEvents(before, state.toPeerOrNull())
@@ -251,6 +252,7 @@ private data class MutablePeer(
     var bluetoothAdvertisedName: String? = null,
     var bleAddress: String? = null,
     var bleRssi: Int? = null,
+    var bleL2capPsm: Int? = null,
 ) {
     fun toPeerOrNull(): NearbyPeer? {
         val lan =
@@ -273,6 +275,7 @@ private data class MutablePeer(
                 NearbyPeer.BleAdvertisement(
                     advertiserAddress = bleAddress,
                     rssi = bleRssi,
+                    l2capPsm = bleL2capPsm,
                 )
             } else {
                 null

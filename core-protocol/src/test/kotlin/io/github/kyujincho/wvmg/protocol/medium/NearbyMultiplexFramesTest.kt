@@ -41,4 +41,26 @@ class NearbyMultiplexFramesTest {
         assertThat(parsed.header.serviceIdHashSalt).isEqualTo(salt)
         assertThat(parsed.header.saltedServiceIdHash.toByteArray()).isEqualTo(saltedHash)
     }
+
+    @Test
+    fun `connection request roundtrips through parser`() {
+        val salt = "client-salt"
+        val saltedHash = NearbyMultiplexFrames.saltedServiceIdHash(salt = salt)
+        val payload = NearbyMultiplexFrames.encodeConnectionRequestFrame(saltedHash, salt)
+        val framed = NearbyMultiplexFrames.encodeLengthPrefixed(payload)
+        val parsed = NearbyMultiplexFrames.parseFrame(framed.copyOfRange(4, framed.size))
+
+        assertThat(NearbyMultiplexFrames.decodeLength(framed)).isEqualTo(payload.size)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.frameType)
+            .isEqualTo(MultiplexFramesProto.MultiplexFrame.MultiplexFrameType.CONTROL_FRAME)
+        assertThat(parsed.controlFrame.controlFrameType)
+            .isEqualTo(
+                MultiplexFramesProto.MultiplexControlFrame.MultiplexControlFrameType
+                    .CONNECTION_REQUEST,
+            )
+        assertThat(parsed.controlFrame.hasConnectionRequestFrame()).isTrue()
+        assertThat(parsed.header.serviceIdHashSalt).isEqualTo(salt)
+        assertThat(parsed.header.saltedServiceIdHash.toByteArray()).isEqualTo(saltedHash)
+    }
 }

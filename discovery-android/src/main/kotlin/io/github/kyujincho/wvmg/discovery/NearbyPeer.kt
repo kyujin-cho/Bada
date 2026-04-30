@@ -39,7 +39,10 @@ public data class NearbyPeer(
             buildSet {
                 if (lanEndpoint != null) add(Medium.WIFI_LAN)
                 if (bluetoothEndpoint != null) add(Medium.BLUETOOTH)
-                if (bleAdvertisement != null) add(Medium.BLE)
+                if (bleAdvertisement != null) {
+                    add(Medium.BLE)
+                    if (bleAdvertisement.l2capPsm != null) add(Medium.BLE_L2CAP)
+                }
             }
 
     /** True when the peer currently exposes at least one bootstrap route. */
@@ -50,8 +53,9 @@ public data class NearbyPeer(
      * Select the initial-control route.
      *
      * LAN remains first priority to preserve the pre-#137 behaviour when
-     * a peer is already reachable by mDNS + TCP. Bluetooth Classic
-     * bootstrap is the off-LAN fallback when no LAN socket target exists.
+     * a peer is already reachable by mDNS + TCP. BLE L2CAP is the preferred
+     * off-LAN bootstrap path when the receiver advertises a PSM; Bluetooth
+     * Classic remains only a fallback for peers that still expose it.
      */
     public fun preferredRoute(): NearbyPeerRoute? {
         val lan = lanEndpoint
@@ -61,6 +65,12 @@ public data class NearbyPeer(
                 address = primaryAddress,
                 port = lan.port,
             )
+        }
+        val ble = bleAdvertisement
+        val bleAddress = ble?.advertiserAddress
+        val l2capPsm = ble?.l2capPsm
+        if (bleAddress != null && l2capPsm != null) {
+            return NearbyPeerRoute.BleL2cap(macAddress = bleAddress, psm = l2capPsm)
         }
         val bluetooth = bluetoothEndpoint
         if (bluetooth != null) {
@@ -104,6 +114,7 @@ public data class NearbyPeer(
     public data class BleAdvertisement(
         val advertiserAddress: String?,
         val rssi: Int?,
+        val l2capPsm: Int?,
     )
 }
 
@@ -127,5 +138,10 @@ public sealed interface NearbyPeerRoute {
 
     public data class BluetoothClassic(
         val macAddress: String,
+    ) : NearbyPeerRoute
+
+    public data class BleL2cap(
+        val macAddress: String,
+        val psm: Int,
     ) : NearbyPeerRoute
 }

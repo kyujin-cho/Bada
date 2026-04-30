@@ -17,6 +17,7 @@ import io.github.kyujincho.wvmg.R
 import io.github.kyujincho.wvmg.databinding.ActivitySendBinding
 import io.github.kyujincho.wvmg.discovery.NearbyPeer
 import io.github.kyujincho.wvmg.discovery.NearbyPeerRoute
+import io.github.kyujincho.wvmg.discovery.bootstrap.BleL2capInitialControlClient
 import io.github.kyujincho.wvmg.discovery.bootstrap.BluetoothClassicBootstrapClient
 import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
 import io.github.kyujincho.wvmg.protocol.connection.CancelCause
@@ -75,6 +76,7 @@ public class SendActivity : AppCompatActivity() {
     private var connectionJob: Job? = null
     private var activeConnection: OutboundConnection? = null
     private var bluetoothBootstrapClient: BluetoothClassicBootstrapClient? = null
+    private var bleL2capBootstrapClient: BleL2capInitialControlClient? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -145,6 +147,7 @@ public class SendActivity : AppCompatActivity() {
         // possible (best-effort — already-terminal states are no-ops).
         activeConnection?.cancel()
         bluetoothBootstrapClient?.cancelPendingConnect()
+        bleL2capBootstrapClient?.cancelPendingConnect()
         peerPickerController.stop()
         connectionJob?.cancel()
         // Lift the gate veto so the receiver-side mDNS record can come
@@ -153,6 +156,7 @@ public class SendActivity : AppCompatActivity() {
         OutboundSessionActiveHolder.setOutboundSessionActive(false)
     }
 
+    @Suppress("ReturnCount")
     private suspend fun buildOutboundConnection(
         route: NearbyPeerRoute,
         endpointInfo: ByteArray,
@@ -175,6 +179,22 @@ public class SendActivity : AppCompatActivity() {
                         client.connect(route.macAddress)
                     } finally {
                         bluetoothBootstrapClient = null
+                    } ?: return null
+                OutboundConnection(
+                    transport = transport,
+                    endpointInfo = endpointInfo,
+                    mediumRegistry = mediumRegistry,
+                    logger = ::logOutboundWireMessage,
+                )
+            }
+            is NearbyPeerRoute.BleL2cap -> {
+                val client = BleL2capInitialControlClient(applicationContext)
+                bleL2capBootstrapClient = client
+                val transport =
+                    try {
+                        client.connect(route.macAddress, route.psm)
+                    } finally {
+                        bleL2capBootstrapClient = null
                     } ?: return null
                 OutboundConnection(
                     transport = transport,
@@ -263,6 +283,7 @@ public class SendActivity : AppCompatActivity() {
                     collector.cancel()
                     activeConnection = null
                     bluetoothBootstrapClient = null
+                    bleL2capBootstrapClient = null
                 }
             }
     }
@@ -393,6 +414,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
 
+    @Suppress("ReturnCount")
     private fun onCancelClicked() {
         // If a connection is mid-flight, ask it to cancel cleanly so a
         // CancelFrame goes out on the wire. The terminal state will
@@ -405,6 +427,16 @@ public class SendActivity : AppCompatActivity() {
         val bootstrapClient = bluetoothBootstrapClient
         if (bootstrapClient != null && binding.sendStatusPanel.isVisible) {
             bootstrapClient.cancelPendingConnect()
+            connectionJob?.cancel()
+            renderTerminal(
+                getString(R.string.send_phase_cancelled),
+                getString(R.string.send_status_failure_reason, CancelCause.LOCAL.toString()),
+            )
+            return
+        }
+        val bleBootstrapClient = bleL2capBootstrapClient
+        if (bleBootstrapClient != null && binding.sendStatusPanel.isVisible) {
+            bleBootstrapClient.cancelPendingConnect()
             connectionJob?.cancel()
             renderTerminal(
                 getString(R.string.send_phase_cancelled),

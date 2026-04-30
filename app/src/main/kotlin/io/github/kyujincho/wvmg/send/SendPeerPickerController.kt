@@ -99,6 +99,7 @@ internal class SendPeerPickerController(
         when (val route = peer.preferredRoute()) {
             is NearbyPeerRoute.Lan -> "Wi-Fi LAN ${route.address.hostAddress}:${route.port}"
             is NearbyPeerRoute.BluetoothClassic -> "Bluetooth Classic ${route.macAddress}"
+            is NearbyPeerRoute.BleL2cap -> "BLE L2CAP ${route.macAddress} psm=${route.psm}"
             null -> "Nearby via BLE advertisement"
         }
 
@@ -145,6 +146,7 @@ internal class SendPeerPickerController(
             when (chosenRoute) {
                 is NearbyPeerRoute.Lan -> "lan=${chosenRoute.address.hostAddress}:${chosenRoute.port}"
                 is NearbyPeerRoute.BluetoothClassic -> "bluetooth=${chosenRoute.macAddress}"
+                is NearbyPeerRoute.BleL2cap -> "ble-l2cap=${chosenRoute.macAddress}:${chosenRoute.psm}"
                 null -> "<none>"
             }
         return "peer=${peer.stableId} endpointId=$endpointId mediums=${peer.candidateMediums} " +
@@ -264,6 +266,7 @@ internal class SendPeerPickerController(
                     when (val preferredRoute = peer.preferredRoute()) {
                         is NearbyPeerRoute.Lan -> "${preferredRoute.address.hostAddress}:${preferredRoute.port}"
                         is NearbyPeerRoute.BluetoothClassic -> preferredRoute.macAddress
+                        is NearbyPeerRoute.BleL2cap -> "${preferredRoute.macAddress}:${preferredRoute.psm}"
                         null -> "<none>"
                     }
                 "${peer.stableId}/${peer.endpointId ?: "<none>"}/$route/${peer.displayName()}"

@@ -104,6 +104,36 @@ public object NearbyMultiplexFrames {
         return frame.toByteArray()
     }
 
+    /** Build a CONNECTION_REQUEST control frame for opening one virtual socket. */
+    @JvmStatic
+    public fun encodeConnectionRequestFrame(
+        saltedServiceIdHash: ByteArray,
+        serviceIdHashSalt: String,
+    ): ByteArray {
+        validateServiceIdHash(saltedServiceIdHash)
+        val header =
+            MultiplexFramesProto.MultiplexFrameHeader
+                .newBuilder()
+                .setSaltedServiceIdHash(ByteString.copyFrom(saltedServiceIdHash))
+                .setServiceIdHashSalt(serviceIdHashSalt)
+                .build()
+        val controlFrame =
+            MultiplexFramesProto.MultiplexControlFrame
+                .newBuilder()
+                .setControlFrameType(
+                    MultiplexFramesProto.MultiplexControlFrame.MultiplexControlFrameType.CONNECTION_REQUEST,
+                ).setConnectionRequestFrame(MultiplexFramesProto.ConnectionRequestFrame.getDefaultInstance())
+                .build()
+        val frame =
+            MultiplexFramesProto.MultiplexFrame
+                .newBuilder()
+                .setFrameType(MultiplexFramesProto.MultiplexFrame.MultiplexFrameType.CONTROL_FRAME)
+                .setHeader(header)
+                .setControlFrame(controlFrame)
+                .build()
+        return frame.toByteArray()
+    }
+
     /** Build a DATA_FRAME carrying [data] for a virtual socket. */
     @JvmStatic
     public fun encodeDataFrame(

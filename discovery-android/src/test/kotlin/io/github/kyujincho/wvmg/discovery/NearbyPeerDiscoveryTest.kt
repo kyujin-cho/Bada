@@ -153,6 +153,7 @@ class NearbyPeerDiscoveryTest {
                     endpointInfo = endpointInfo,
                     advertiserAddress = "77:88:99:AA:BB:CC",
                     rssi = -47,
+                    l2capPsm = null,
                 ),
             )
             bluetoothEvents.emit(
@@ -170,6 +171,50 @@ class NearbyPeerDiscoveryTest {
             assertThat(resolved.bleAdvertisement?.advertiserAddress).isEqualTo("77:88:99:AA:BB:CC")
             assertThat(resolved.preferredRoute()).isEqualTo(
                 NearbyPeerRoute.BluetoothClassic("66:55:44:33:22:11"),
+            )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `BLE fast advertisement with PSM is connectable over L2CAP`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            val endpointInfo = endpointInfo(name = "Galaxy")
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "RINE",
+                    endpointInfo = endpointInfo,
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -47,
+                    l2capPsm = 0x1234,
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
+            assertThat(resolved.isConnectable).isTrue()
+            assertThat(resolved.candidateMediums).containsExactly(Medium.BLE, Medium.BLE_L2CAP)
+            assertThat(resolved.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.BleL2cap(
+                    macAddress = "77:88:99:AA:BB:CC",
+                    psm = 0x1234,
+                ),
             )
 
             collector.cancel()

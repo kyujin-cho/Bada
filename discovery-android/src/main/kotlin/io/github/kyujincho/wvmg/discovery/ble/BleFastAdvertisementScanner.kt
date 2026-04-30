@@ -94,6 +94,7 @@ public class BleFastAdvertisementScanner(
         val endpointInfo: EndpointInfo,
         val advertiserAddress: String?,
         val rssi: Int?,
+        val l2capPsm: Int?,
     )
 
     private fun ScanResult.toObservation(): Observation? {
@@ -121,16 +122,18 @@ public class BleFastAdvertisementScanner(
                 return null
             }
         val endpointId = String(parsed.endpointId, Charsets.US_ASCII)
+        val l2capPsm = BleServiceData.parsePsmExtraField(serviceData)?.takeIf { it > 0 }
         Log.w(
             TAG,
             "BLE fast-advertisement observed endpointId=$endpointId " +
-                "address=${device?.address} rssi=$rssi bytes=${serviceData.toHex()}",
+                "address=${device?.address} rssi=$rssi psm=$l2capPsm bytes=${serviceData.toHex()}",
         )
         return Observation(
             endpointId = endpointId,
             endpointInfo = parsed.endpointInfo,
             advertiserAddress = device?.address,
             rssi = rssi,
+            l2capPsm = l2capPsm,
         )
     }
 
