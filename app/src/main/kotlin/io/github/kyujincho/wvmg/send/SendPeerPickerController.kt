@@ -293,13 +293,13 @@ internal class SendPeerPickerController(
     }
 }
 
-private fun String?.toQuotedLogValue(nullToken: String = "<none>"): String =
+internal fun String?.toQuotedLogValue(nullToken: String = "<none>"): String =
     this
         ?.toSanitizedLogValue()
         ?.let { "\"$it\"" }
         ?: nullToken
 
-private fun String.toSanitizedLogValue(): String =
+internal fun String.toSanitizedLogValue(): String =
     buildString(length) {
         this@toSanitizedLogValue.forEach { ch ->
             when (ch) {

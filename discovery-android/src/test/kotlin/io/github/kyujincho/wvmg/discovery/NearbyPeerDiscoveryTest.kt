@@ -11,6 +11,7 @@ import io.github.kyujincho.wvmg.discovery.classic.BluetoothClassicPeerScanner
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.protocol.medium.Medium
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -18,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import java.net.InetAddress
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class NearbyPeerDiscoveryTest {
     @Test
     fun `bluetooth and LAN sightings merge into one LAN-first peer`() =
