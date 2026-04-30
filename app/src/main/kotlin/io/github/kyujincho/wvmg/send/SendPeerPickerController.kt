@@ -60,7 +60,7 @@ internal class SendPeerPickerController(
                     logDiagnostic("discovery: receiver mDNS unpublish observed")
                 }
 
-                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.CREATED)) return@launch
+                if (lifecycle.currentState == Lifecycle.State.DESTROYED) return@launch
                 startDiscovery()
                 startEmptyPeerHintTimer()
                 startBleAdvertise()
