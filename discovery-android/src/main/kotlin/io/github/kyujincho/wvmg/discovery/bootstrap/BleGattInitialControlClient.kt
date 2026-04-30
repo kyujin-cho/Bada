@@ -31,13 +31,10 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.google.location.nearby.mediums.proto.BleFramesProto
-import com.google.location.nearby.mediums.proto.MultiplexFramesProto
 import io.github.kyujincho.wvmg.protocol.endpoint.NearbyServiceId
 import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.NearbyBleSocketFrames
-import io.github.kyujincho.wvmg.protocol.medium.NearbyMultiplexFrames
 import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
-import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +45,6 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
-import java.security.SecureRandom
 import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
@@ -65,7 +61,6 @@ import java.util.concurrent.atomic.AtomicReference
 public class BleGattInitialControlClient internal constructor(
     private val appContext: Context,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val saltFactory: () -> String = ::randomSalt,
 ) {
     public constructor(context: Context) : this(context.applicationContext, Dispatchers.IO)
 
@@ -93,7 +88,6 @@ public class BleGattInitialControlClient internal constructor(
                 BleGattClientTransport(
                     context = appContext,
                     device = device,
-                    salt = saltFactory(),
                     onClose = { activeTransport.compareAndSet(it, null) },
                 )
             activeTransport.getAndSet(transport)?.close()
@@ -140,7 +134,6 @@ public class BleGattInitialControlClient internal constructor(
 private class BleGattClientTransport(
     private val context: Context,
     private val device: BluetoothDevice,
-    private val salt: String,
     private val onClose: (BleGattClientTransport) -> Unit,
 ) : BluetoothGattCallback(),
     ConnectedTransport {
@@ -149,9 +142,7 @@ private class BleGattClientTransport(
     private val ready = CompletableDeferred<Boolean>()
     private val writeQueue: ArrayDeque<ByteArray> = ArrayDeque()
     private val incomingMessage = ArrayList<Byte>()
-    private val saltedHash: ByteArray = NearbyMultiplexFrames.saltedServiceIdHash(salt = salt)
 
-    private var pendingMultiplexBytes: ByteArray = ByteArray(0)
     private var gatt: BluetoothGatt? = null
     private var toPeripheral: BluetoothGattCharacteristic? = null
     private var fromPeripheral: BluetoothGattCharacteristic? = null
@@ -181,14 +172,7 @@ private class BleGattClientTransport(
                 len: Int,
             ) {
                 if (len == 0) return
-                sendMultiplexBytes(
-                    NearbyMultiplexFrames.encodeLengthPrefixed(
-                        NearbyMultiplexFrames.encodeDataFrame(
-                            saltedServiceIdHash = saltedHash,
-                            data = b.copyOfRange(off, off + len),
-                        ),
-                    ),
-                )
+                sendSocketServiceBytes(b.copyOfRange(off, off + len))
             }
 
             override fun flush() {
@@ -396,9 +380,9 @@ private class BleGattClientTransport(
                 ?.coerceAtMost(WeaveFrames.MAX_PACKET_SIZE)
                 ?: WeaveFrames.MIN_PACKET_SIZE
         weaveConnected = true
-        Log.i(TAG, "Weave connected packetSize=$negotiatedPacketSize device=${device.safeAddress()}")
+        Log.i(TAG, "Weave connected raw Nearby stream packetSize=$negotiatedPacketSize device=${device.safeAddress()}")
         sendWeaveMessage(NearbyBleSocketFrames.encodeIntroductionPacket())
-        sendConnectionRequest()
+        if (!ready.isCompleted) ready.complete(true)
     }
 
     private fun handleDataPacket(packet: WeavePacket.Data) {
@@ -423,7 +407,7 @@ private class BleGattClientTransport(
             prefix.contentEquals(NearbyServiceId.hashPrefix) -> {
                 val payload = message.copyOfRange(SERVICE_ID_HASH_LEN, message.size)
                 sendWeaveMessage(NearbyBleSocketFrames.encodePacketAcknowledgementPacket(payload.size))
-                receiveMultiplexBytes(payload)
+                feedIncoming(payload)
             }
             else -> {
                 Log.w(TAG, "discarded BLE GATT socket message for unexpected service hash")
@@ -445,74 +429,6 @@ private class BleGattClientTransport(
         }
     }
 
-    private fun sendConnectionRequest() {
-        sendMultiplexBytes(
-            NearbyMultiplexFrames.encodeLengthPrefixed(
-                NearbyMultiplexFrames.encodeConnectionRequestFrame(
-                    saltedServiceIdHash = saltedHash,
-                    serviceIdHashSalt = salt,
-                ),
-            ),
-        )
-    }
-
-    private fun receiveMultiplexBytes(bytes: ByteArray) {
-        pendingMultiplexBytes += bytes
-        var keepParsing = true
-        while (keepParsing && pendingMultiplexBytes.size >= NearbyMultiplexFrames.LENGTH_PREFIX_BYTES) {
-            val length = NearbyMultiplexFrames.decodeLength(pendingMultiplexBytes)
-            if (
-                length == null ||
-                length < 0 ||
-                length >= FramedConnection.SANE_FRAME_LENGTH ||
-                pendingMultiplexBytes.size < NearbyMultiplexFrames.LENGTH_PREFIX_BYTES + length
-            ) {
-                keepParsing = false
-            } else {
-                val frameBytes =
-                    pendingMultiplexBytes.copyOfRange(
-                        NearbyMultiplexFrames.LENGTH_PREFIX_BYTES,
-                        NearbyMultiplexFrames.LENGTH_PREFIX_BYTES + length,
-                    )
-                pendingMultiplexBytes =
-                    pendingMultiplexBytes.copyOfRange(
-                        NearbyMultiplexFrames.LENGTH_PREFIX_BYTES + length,
-                        pendingMultiplexBytes.size,
-                    )
-                handleMultiplexFrame(frameBytes)
-            }
-        }
-    }
-
-    private fun handleMultiplexFrame(frameBytes: ByteArray) {
-        val frame =
-            NearbyMultiplexFrames.parseFrame(frameBytes) ?: run {
-                Log.w(TAG, "discarded invalid multiplex frame=${frameBytes.toHex()}")
-                return
-            }
-        when (frame.frameType) {
-            MultiplexFramesProto.MultiplexFrame.MultiplexFrameType.CONTROL_FRAME -> handleMultiplexControlFrame(frame)
-            MultiplexFramesProto.MultiplexFrame.MultiplexFrameType.DATA_FRAME ->
-                feedIncoming(frame.dataFrame.data.toByteArray())
-            else -> Unit
-        }
-    }
-
-    private fun handleMultiplexControlFrame(frame: MultiplexFramesProto.MultiplexFrame) {
-        when (frame.controlFrame.controlFrameType) {
-            MultiplexFramesProto.MultiplexControlFrame.MultiplexControlFrameType.CONNECTION_RESPONSE -> {
-                val accepted =
-                    frame.controlFrame.connectionResponseFrame.connectionResponseCode ==
-                        MultiplexFramesProto.ConnectionResponseFrame.ConnectionResponseCode.CONNECTION_ACCEPTED
-                if (!ready.isCompleted) ready.complete(accepted)
-                if (!accepted) close()
-            }
-
-            MultiplexFramesProto.MultiplexControlFrame.MultiplexControlFrameType.DISCONNECTION -> close()
-            else -> Unit
-        }
-    }
-
     private fun feedIncoming(bytes: ByteArray) {
         if (closed) return
         try {
@@ -524,7 +440,7 @@ private class BleGattClientTransport(
         }
     }
 
-    private fun sendMultiplexBytes(bytes: ByteArray) {
+    private fun sendSocketServiceBytes(bytes: ByteArray) {
         if (bytes.isEmpty()) return
         sendWeaveMessage(NearbyServiceId.hashPrefix + bytes)
     }
@@ -601,9 +517,3 @@ private fun BluetoothDevice.safeAddress(): String = runCatching { address }.getO
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
 private fun ByteArray.firstByteHex(): String = firstOrNull()?.let { "%02x".format(it) } ?: "--"
-
-private fun randomSalt(): String {
-    val bytes = ByteArray(8)
-    SecureRandom().nextBytes(bytes)
-    return bytes.toHex()
-}

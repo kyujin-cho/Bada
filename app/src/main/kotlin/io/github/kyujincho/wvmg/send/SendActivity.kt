@@ -135,6 +135,7 @@ public class SendActivity : AppCompatActivity() {
                 }
             } ?: return
         files = resolvedFiles
+        logResolvedFiles(files)
 
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
@@ -481,6 +482,15 @@ public class SendActivity : AppCompatActivity() {
      * when [Build.MODEL] is empty (rare but happens on some emulators).
      */
     private fun senderDeviceLabel(): String = Build.MODEL?.takeIf { it.isNotBlank() } ?: "WhenVivoMeetsGoogle"
+
+    private fun logResolvedFiles(files: List<FileSource>) {
+        files.forEachIndexed { index, file ->
+            logOutboundDiagnostic(
+                "resolved file[$index]: name=${file.name} size=${file.size} " +
+                    "mime=${file.mimeType} payloadId=${file.payloadId} parent=${file.parentFolder}",
+            )
+        }
+    }
 
     /**
      * Append a line to a per-run log file under
