@@ -164,11 +164,12 @@ private class PeerAggregator {
         val before = state.toPeerOrNull()
 
         state.endpointId = state.endpointId ?: observation.endpointId
-        endpointIdIndex[observation.endpointId] = state.stableId
+        observation.endpointId?.let { endpointIdIndex[it] = state.stableId }
         state.endpointInfo = chooseEndpointInfo(state.endpointInfo, observation.endpointInfo)
         state.bleAddress = observation.advertiserAddress
         state.bleRssi = observation.rssi
         state.bleL2capPsm = observation.l2capPsm
+        state.bleGattConnectable = observation.gattConnectable
         observation.advertiserAddress?.let { bleIndex[it] = state.stableId }
 
         return changeEvents(before, state.toPeerOrNull())
@@ -253,6 +254,7 @@ private data class MutablePeer(
     var bleAddress: String? = null,
     var bleRssi: Int? = null,
     var bleL2capPsm: Int? = null,
+    var bleGattConnectable: Boolean = false,
 ) {
     fun toPeerOrNull(): NearbyPeer? {
         val lan =
@@ -276,6 +278,7 @@ private data class MutablePeer(
                     advertiserAddress = bleAddress,
                     rssi = bleRssi,
                     l2capPsm = bleL2capPsm,
+                    gattConnectable = bleGattConnectable,
                 )
             } else {
                 null

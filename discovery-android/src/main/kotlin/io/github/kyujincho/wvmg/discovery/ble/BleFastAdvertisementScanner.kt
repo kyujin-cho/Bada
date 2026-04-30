@@ -24,6 +24,7 @@ import android.os.ParcelUuid
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
+import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisementHeader
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
@@ -97,11 +98,12 @@ public class BleFastAdvertisementScanner(
         }
 
     public data class Observation(
-        val endpointId: String,
-        val endpointInfo: EndpointInfo,
+        val endpointId: String?,
+        val endpointInfo: EndpointInfo?,
         val advertiserAddress: String?,
         val rssi: Int?,
         val l2capPsm: Int?,
+        val gattConnectable: Boolean,
     )
 
     private fun ScanResult.toObservation(): Observation? {
@@ -132,9 +134,10 @@ public class BleFastAdvertisementScanner(
                     } else {
                         Log.w(
                             TAG,
-                            "BLE fast-advertisement observed endpointId=${observation.endpointId} " +
+                            "BLE fast-advertisement observed endpointId=${observation.endpointId ?: "<none>"} " +
                                 "address=${observation.advertiserAddress} rssi=${observation.rssi} " +
-                                "psm=${observation.l2capPsm} bytes=${serviceData.toHex()}",
+                                "psm=${observation.l2capPsm} gatt=${observation.gattConnectable} " +
+                                "bytes=${serviceData.toHex()}",
                         )
                     }
                 }
@@ -151,9 +154,10 @@ public class BleFastAdvertisementScanner(
                     } else {
                         Log.w(
                             TAG,
-                            "BLE DCT advertisement observed endpointId=${observation.endpointId} " +
+                            "BLE DCT advertisement observed endpointId=${observation.endpointId ?: "<none>"} " +
                                 "address=${observation.advertiserAddress} rssi=${observation.rssi} " +
-                                "psm=${observation.l2capPsm} name=${observation.endpointInfo.deviceName} " +
+                                "psm=${observation.l2capPsm} gatt=${observation.gattConnectable} " +
+                                "name=${observation.endpointInfo?.deviceName} " +
                                 "bytes=${serviceData.toHex()}",
                         )
                     }
@@ -229,6 +233,17 @@ public class BleFastAdvertisementScanner(
             advertiserAddress: String?,
             rssi: Int?,
         ): Observation? {
+            BleAdvertisementHeader.parse(serviceData)?.let { header ->
+                val l2capPsm = header.psm.takeIf { it > 0 }
+                return Observation(
+                    endpointId = null,
+                    endpointInfo = null,
+                    advertiserAddress = advertiserAddress,
+                    rssi = rssi,
+                    l2capPsm = l2capPsm,
+                    gattConnectable = advertiserAddress != null,
+                )
+            }
             val parsed = BleServiceData.parse(serviceData) ?: return null
             val endpointId = String(parsed.endpointId, Charsets.US_ASCII)
             val l2capPsm = BleServiceData.parsePsmExtraField(serviceData)?.takeIf { it > 0 }
@@ -238,6 +253,7 @@ public class BleFastAdvertisementScanner(
                 advertiserAddress = advertiserAddress,
                 rssi = rssi,
                 l2capPsm = l2capPsm,
+                gattConnectable = advertiserAddress != null,
             )
         }
 
@@ -257,6 +273,7 @@ public class BleFastAdvertisementScanner(
                 advertiserAddress = advertiserAddress,
                 rssi = rssi,
                 l2capPsm = l2capPsm,
+                gattConnectable = advertiserAddress != null,
             )
         }
 
@@ -268,7 +285,7 @@ public class BleFastAdvertisementScanner(
                 dctObservation == null -> fastObservation
                 fastObservation == null -> dctObservation
                 dctObservation.l2capPsm != null -> dctObservation
-                !dctObservation.endpointInfo.deviceName.isNullOrBlank() -> dctObservation
+                !dctObservation.endpointInfo?.deviceName.isNullOrBlank() -> dctObservation
                 else -> fastObservation
             }
     }

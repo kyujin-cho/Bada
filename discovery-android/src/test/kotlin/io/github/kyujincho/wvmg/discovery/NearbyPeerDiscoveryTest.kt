@@ -154,6 +154,7 @@ class NearbyPeerDiscoveryTest {
                     advertiserAddress = "77:88:99:AA:BB:CC",
                     rssi = -47,
                     l2capPsm = null,
+                    gattConnectable = false,
                 ),
             )
             bluetoothEvents.emit(
@@ -203,6 +204,7 @@ class NearbyPeerDiscoveryTest {
                     advertiserAddress = "77:88:99:AA:BB:CC",
                     rssi = -47,
                     l2capPsm = 0x1234,
+                    gattConnectable = true,
                 ),
             )
             runCurrent()
@@ -215,6 +217,48 @@ class NearbyPeerDiscoveryTest {
                     macAddress = "77:88:99:AA:BB:CC",
                     psm = 0x1234,
                 ),
+            )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `BLE GATT advertisement is connectable without Classic or L2CAP`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = null,
+                    endpointInfo = null,
+                    advertiserAddress = "28:1B:3E:BA:B1:1B",
+                    rssi = -41,
+                    l2capPsm = null,
+                    gattConnectable = true,
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
+            assertThat(resolved.isConnectable).isTrue()
+            assertThat(resolved.candidateMediums).containsExactly(Medium.BLE)
+            assertThat(resolved.displayName()).isEqualTo("Quick Share BLE device")
+            assertThat(resolved.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.BleGatt(macAddress = "28:1B:3E:BA:B1:1B"),
             )
 
             collector.cancel()

@@ -17,6 +17,7 @@ import io.github.kyujincho.wvmg.R
 import io.github.kyujincho.wvmg.databinding.ActivitySendBinding
 import io.github.kyujincho.wvmg.discovery.NearbyPeer
 import io.github.kyujincho.wvmg.discovery.NearbyPeerRoute
+import io.github.kyujincho.wvmg.discovery.bootstrap.BleGattInitialControlClient
 import io.github.kyujincho.wvmg.discovery.bootstrap.BleL2capInitialControlClient
 import io.github.kyujincho.wvmg.discovery.bootstrap.BluetoothClassicBootstrapClient
 import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
@@ -77,6 +78,7 @@ public class SendActivity : AppCompatActivity() {
     private var activeConnection: OutboundConnection? = null
     private var bluetoothBootstrapClient: BluetoothClassicBootstrapClient? = null
     private var bleL2capBootstrapClient: BleL2capInitialControlClient? = null
+    private var bleGattBootstrapClient: BleGattInitialControlClient? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -148,6 +150,7 @@ public class SendActivity : AppCompatActivity() {
         activeConnection?.cancel()
         bluetoothBootstrapClient?.cancelPendingConnect()
         bleL2capBootstrapClient?.cancelPendingConnect()
+        bleGattBootstrapClient?.cancelPendingConnect()
         peerPickerController.stop()
         connectionJob?.cancel()
         // Lift the gate veto so the receiver-side mDNS record can come
@@ -195,6 +198,22 @@ public class SendActivity : AppCompatActivity() {
                         client.connect(route.macAddress, route.psm)
                     } finally {
                         bleL2capBootstrapClient = null
+                    } ?: return null
+                OutboundConnection(
+                    transport = transport,
+                    endpointInfo = endpointInfo,
+                    mediumRegistry = mediumRegistry,
+                    logger = ::logOutboundWireMessage,
+                )
+            }
+            is NearbyPeerRoute.BleGatt -> {
+                val client = BleGattInitialControlClient(applicationContext)
+                bleGattBootstrapClient = client
+                val transport =
+                    try {
+                        client.connect(route.macAddress)
+                    } finally {
+                        bleGattBootstrapClient = null
                     } ?: return null
                 OutboundConnection(
                     transport = transport,

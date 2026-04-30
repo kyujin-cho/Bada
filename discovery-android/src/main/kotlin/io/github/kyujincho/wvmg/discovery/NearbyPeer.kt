@@ -54,8 +54,10 @@ public data class NearbyPeer(
      *
      * LAN remains first priority to preserve the pre-#137 behaviour when
      * a peer is already reachable by mDNS + TCP. BLE L2CAP is the preferred
-     * off-LAN bootstrap path when the receiver advertises a PSM; Bluetooth
-     * Classic remains only a fallback for peers that still expose it.
+     * off-LAN bootstrap path when the receiver advertises a PSM. BLE GATT is
+     * the stock off-LAN fallback when the receiver exposes only a GATT-backed
+     * advertisement header; Bluetooth Classic remains only a last fallback for
+     * peers that still expose it.
      */
     public fun preferredRoute(): NearbyPeerRoute? {
         val lan = lanEndpoint
@@ -72,6 +74,9 @@ public data class NearbyPeer(
         if (bleAddress != null && l2capPsm != null) {
             return NearbyPeerRoute.BleL2cap(macAddress = bleAddress, psm = l2capPsm)
         }
+        if (bleAddress != null && ble.gattConnectable) {
+            return NearbyPeerRoute.BleGatt(macAddress = bleAddress)
+        }
         val bluetooth = bluetoothEndpoint
         if (bluetooth != null) {
             return NearbyPeerRoute.BluetoothClassic(bluetooth.macAddress)
@@ -84,6 +89,7 @@ public data class NearbyPeer(
         val name = endpointInfo?.deviceName
         if (!name.isNullOrBlank()) return name
         if (!endpointId.isNullOrBlank()) return "Quick Share device ($endpointId)"
+        if (bleAdvertisement?.gattConnectable == true) return "Quick Share BLE device"
         return stableId
     }
 
@@ -115,6 +121,7 @@ public data class NearbyPeer(
         val advertiserAddress: String?,
         val rssi: Int?,
         val l2capPsm: Int?,
+        val gattConnectable: Boolean,
     )
 }
 
@@ -143,5 +150,9 @@ public sealed interface NearbyPeerRoute {
     public data class BleL2cap(
         val macAddress: String,
         val psm: Int,
+    ) : NearbyPeerRoute
+
+    public data class BleGatt(
+        val macAddress: String,
     ) : NearbyPeerRoute
 }

@@ -59,6 +59,7 @@ public object MediumRegistries {
             WifiAwareMediumProvider(context),
             WifiDirectMediumProvider(context),
             WifiHotspotMediumProviderFactory.create(context),
+            BleGattMediumProvider(context),
             BleL2capMediumProvider(context).asProvider(),
             // Bluetooth Classic RFCOMM is intentionally omitted from the
             // production ladder. Stock Quick Share's off-LAN tap path is

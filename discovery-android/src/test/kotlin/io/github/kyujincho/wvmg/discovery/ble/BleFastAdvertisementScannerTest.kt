@@ -6,6 +6,8 @@
 package io.github.kyujincho.wvmg.discovery.ble
 
 import com.google.common.truth.Truth.assertThat
+import io.github.kyujincho.wvmg.protocol.endpoint.Base64Url
+import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisementHeader
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
@@ -37,6 +39,47 @@ class BleFastAdvertisementScannerTest {
         assertThat(observed.advertiserAddress).isEqualTo("77:88:99:AA:BB:CC")
         assertThat(observed.rssi).isEqualTo(-47)
         assertThat(observed.l2capPsm).isEqualTo(0x1234)
+        assertThat(observed.gattConnectable).isTrue()
+    }
+
+    @Test
+    fun `GATT advertisement header becomes a connectable BLE observation`() {
+        val rawHeader =
+            byteArrayOf(
+                0x55,
+                0x20,
+                0x14,
+                0x01,
+                0x10,
+                0x02,
+                0x00,
+                0x00,
+                0x03,
+                0x00,
+                0x0a,
+                0x3c,
+                0x56,
+                0xee.toByte(),
+                0x2c,
+                0x00,
+                0x00,
+            )
+
+        val observed =
+            BleFastAdvertisementScanner.parseFastServiceData(
+                serviceData = Base64Url.encode(rawHeader).toByteArray(Charsets.US_ASCII),
+                advertiserAddress = "28:1B:3E:BA:B1:1B",
+                rssi = -41,
+            )
+
+        assertThat(observed).isNotNull()
+        assertThat(BleAdvertisementHeader.parse(Base64Url.encode(rawHeader).toByteArray(Charsets.US_ASCII))).isNotNull()
+        assertThat(observed!!.endpointId).isNull()
+        assertThat(observed.endpointInfo).isNull()
+        assertThat(observed.advertiserAddress).isEqualTo("28:1B:3E:BA:B1:1B")
+        assertThat(observed.rssi).isEqualTo(-41)
+        assertThat(observed.l2capPsm).isNull()
+        assertThat(observed.gattConnectable).isTrue()
     }
 
     @Test
@@ -60,12 +103,13 @@ class BleFastAdvertisementScannerTest {
         assertThat(observed).isNotNull()
         assertThat(observed!!.endpointId)
             .isEqualTo(DctAdvertisement.generateEndpointId(dct.dedup, dct.deviceName))
-        assertThat(observed.endpointInfo.hidden).isFalse()
+        assertThat(observed.endpointInfo!!.hidden).isFalse()
         assertThat(observed.endpointInfo.deviceType).isEqualTo(DeviceType.PHONE)
         assertThat(observed.endpointInfo.deviceName).isEqualTo(dct.deviceName)
         assertThat(observed.advertiserAddress).isEqualTo("28:1B:3E:BA:B1:1B")
         assertThat(observed.rssi).isEqualTo(-41)
         assertThat(observed.l2capPsm).isEqualTo(0x00C0)
+        assertThat(observed.gattConnectable).isTrue()
     }
 
     @Test
