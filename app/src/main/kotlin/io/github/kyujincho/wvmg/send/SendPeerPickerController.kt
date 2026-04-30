@@ -151,8 +151,18 @@ internal class SendPeerPickerController(
                 is NearbyPeerRoute.BleGatt -> "ble-gatt=${chosenRoute.macAddress}"
                 null -> "<none>"
             }
+        val bleIdentitySummary =
+            formatBleIdentitySnapshot(peer)
         return "peer=${peer.stableId} endpointId=$endpointId mediums=${peer.candidateMediums} " +
-            "addrs=[$addressList] route=$routeSummary endpointInfo={$infoSummary}"
+            "addrs=[$addressList] route=$routeSummary displayName=\"${peer.displayName()}\" " +
+            "displayNameSource=${peer.displayNameSource()}$bleIdentitySummary endpointInfo={$infoSummary}"
+    }
+
+    private fun formatBleIdentitySnapshot(peer: NearbyPeer): String {
+        val ble = peer.bleAdvertisement ?: return ""
+        val displayName = ble.displayName?.let { "\"$it\"" } ?: "<none>"
+        val displayNameSource = ble.displayNameSource ?: "<none>"
+        return " bleName=$displayName bleNameSource=$displayNameSource"
     }
 
     private fun startDiscovery() {
@@ -272,7 +282,8 @@ internal class SendPeerPickerController(
                         is NearbyPeerRoute.BleGatt -> preferredRoute.macAddress
                         null -> "<none>"
                     }
-                "${peer.stableId}/${peer.endpointId ?: "<none>"}/$route/${peer.displayName()}"
+                "${peer.stableId}/${peer.endpointId ?: "<none>"}/$route/" +
+                    "${peer.displayName()}(${peer.displayNameSource()})"
             }
         }
 

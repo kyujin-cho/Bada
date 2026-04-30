@@ -40,6 +40,9 @@ class BleFastAdvertisementScannerTest {
         assertThat(observed.rssi).isEqualTo(-47)
         assertThat(observed.l2capPsm).isEqualTo(0x1234)
         assertThat(observed.gattConnectable).isTrue()
+        assertThat(observed.displayName).isEqualTo("Galaxy")
+        assertThat(observed.displayNameSource)
+            .isEqualTo(BleFastAdvertisementScanner.DisplayNameSource.FAST_ADVERTISEMENT_ENDPOINT_INFO)
     }
 
     @Test
@@ -80,6 +83,27 @@ class BleFastAdvertisementScannerTest {
         assertThat(observed.rssi).isEqualTo(-41)
         assertThat(observed.l2capPsm).isNull()
         assertThat(observed.gattConnectable).isTrue()
+        assertThat(observed.displayName).isNull()
+        assertThat(observed.displayNameSource).isNull()
+    }
+
+    @Test
+    fun `GATT advertisement header keeps BLE local name fallback`() {
+        val observed =
+            BleFastAdvertisementScanner.parseFastServiceData(
+                serviceData = "VSAUARACAAADAAo8Vu4sAAA".toByteArray(Charsets.US_ASCII),
+                advertiserAddress = "28:1B:3E:BA:B1:1B",
+                rssi = -41,
+                fallbackDisplayName = " Galaxy S26 ",
+                fallbackDisplayNameSource = BleFastAdvertisementScanner.DisplayNameSource.BLE_LOCAL_NAME,
+            )
+
+        assertThat(observed).isNotNull()
+        assertThat(observed!!.endpointId).isNull()
+        assertThat(observed.endpointInfo).isNull()
+        assertThat(observed.displayName).isEqualTo("Galaxy S26")
+        assertThat(observed.displayNameSource)
+            .isEqualTo(BleFastAdvertisementScanner.DisplayNameSource.BLE_LOCAL_NAME)
     }
 
     @Test
@@ -124,6 +148,9 @@ class BleFastAdvertisementScannerTest {
         assertThat(observed.rssi).isEqualTo(-41)
         assertThat(observed.l2capPsm).isEqualTo(0x00C0)
         assertThat(observed.gattConnectable).isTrue()
+        assertThat(observed.displayName).isEqualTo("Galaxy")
+        assertThat(observed.displayNameSource)
+            .isEqualTo(BleFastAdvertisementScanner.DisplayNameSource.DCT_ADVERTISEMENT)
     }
 
     @Test

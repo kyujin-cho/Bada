@@ -44,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap
 public class BleFastAdvertisementScanner(
     private val context: Context,
 ) {
+    @Suppress("CyclomaticComplexMethod")
     public fun scan(): Flow<Observation> =
         callbackFlow {
             val gattAdvertisementReader = BleGattAdvertisementReader(context.applicationContext)
@@ -77,6 +78,17 @@ public class BleFastAdvertisementScanner(
                             gattReadSucceeded.add(key)
                         }
                         slotAdvertisements.forEach { slot ->
+                            val slotDisplayName = slot.endpointInfo.deviceName.toDisplayNameOrNull()
+                            val slotDisplayNameSource =
+                                slotDisplayName?.let { DisplayNameSource.GATT_SLOT_ENDPOINT_INFO }
+                            Log.w(
+                                TAG,
+                                "BLE GATT slot advertisement observed endpointId=${slot.endpointId} " +
+                                    "address=$advertiserAddress rssi=$rssi " +
+                                    "psm=${slot.l2capPsm ?: header.psm.takeIf { it > 0 }} " +
+                                    "name=${slotDisplayName ?: "<none>"} " +
+                                    "nameSource=${slotDisplayNameSource?.logLabel ?: "<none>"}",
+                            )
                             trySend(
                                 Observation(
                                     endpointId = slot.endpointId,
@@ -85,6 +97,8 @@ public class BleFastAdvertisementScanner(
                                     rssi = rssi,
                                     l2capPsm = slot.l2capPsm ?: header.psm.takeIf { it > 0 },
                                     gattConnectable = true,
+                                    displayName = slotDisplayName,
+                                    displayNameSource = slotDisplayNameSource,
                                 ),
                             ).isSuccess
                         }
@@ -155,9 +169,21 @@ public class BleFastAdvertisementScanner(
         val rssi: Int?,
         val l2capPsm: Int?,
         val gattConnectable: Boolean,
+        val displayName: String? = null,
+        val displayNameSource: DisplayNameSource? = null,
     )
 
-    @Suppress("CyclomaticComplexMethod", "NestedBlockDepth")
+    public enum class DisplayNameSource(
+        public val logLabel: String,
+    ) {
+        FAST_ADVERTISEMENT_ENDPOINT_INFO("fast-advertisement-endpoint-info"),
+        DCT_ADVERTISEMENT("dct-advertisement"),
+        GATT_SLOT_ENDPOINT_INFO("gatt-slot-endpoint-info"),
+        BLE_LOCAL_NAME("ble-local-name"),
+        BLUETOOTH_DEVICE_NAME("bluetooth-device-name"),
+    }
+
+    @Suppress("CyclomaticComplexMethod", "NestedBlockDepth", "LongMethod")
     private fun ScanResult.toObservation(
         scheduleGattAdvertisementRead: (BleAdvertisementHeader, String, Int?) -> Unit,
     ): Observation? {
@@ -177,6 +203,7 @@ public class BleFastAdvertisementScanner(
             )
             return null
         }
+        val localDisplayName = displayNameFromScanResult()
         val fastObservation =
             fastData?.let { serviceData ->
                 BleAdvertisementHeader.parse(serviceData)?.let { header ->
@@ -186,7 +213,14 @@ public class BleFastAdvertisementScanner(
                         }
                     }
                 }
-                parseFastServiceData(serviceData, device?.address, rssi, gattConnectable).also { observation ->
+                parseFastServiceData(
+                    serviceData = serviceData,
+                    advertiserAddress = device?.address,
+                    rssi = rssi,
+                    gattConnectable = gattConnectable,
+                    fallbackDisplayName = localDisplayName?.value,
+                    fallbackDisplayNameSource = localDisplayName?.source,
+                ).also { observation ->
                     if (observation == null) {
                         Log.w(
                             TAG,
@@ -199,6 +233,8 @@ public class BleFastAdvertisementScanner(
                             "BLE fast-advertisement observed endpointId=${observation.endpointId ?: "<none>"} " +
                                 "address=${observation.advertiserAddress} rssi=${observation.rssi} " +
                                 "psm=${observation.l2capPsm} gatt=${observation.gattConnectable} " +
+                                "name=${observation.displayName ?: "<none>"} " +
+                                "nameSource=${observation.displayNameSource?.logLabel ?: "<none>"} " +
                                 "bytes=${serviceData.toHex()}",
                         )
                     }
@@ -206,7 +242,14 @@ public class BleFastAdvertisementScanner(
             }
         val dctObservation =
             dctData?.let { serviceData ->
-                parseDctServiceData(serviceData, device?.address, rssi, gattConnectable).also { observation ->
+                parseDctServiceData(
+                    serviceData = serviceData,
+                    advertiserAddress = device?.address,
+                    rssi = rssi,
+                    gattConnectable = gattConnectable,
+                    fallbackDisplayName = localDisplayName?.value,
+                    fallbackDisplayNameSource = localDisplayName?.source,
+                ).also { observation ->
                     if (observation == null) {
                         Log.w(
                             TAG,
@@ -219,7 +262,8 @@ public class BleFastAdvertisementScanner(
                             "BLE DCT advertisement observed endpointId=${observation.endpointId ?: "<none>"} " +
                                 "address=${observation.advertiserAddress} rssi=${observation.rssi} " +
                                 "psm=${observation.l2capPsm} gatt=${observation.gattConnectable} " +
-                                "name=${observation.endpointInfo?.deviceName} " +
+                                "name=${observation.displayName ?: "<none>"} " +
+                                "nameSource=${observation.displayNameSource?.logLabel ?: "<none>"} " +
                                 "bytes=${serviceData.toHex()}",
                         )
                     }
@@ -229,6 +273,17 @@ public class BleFastAdvertisementScanner(
             fastObservation = fastObservation,
             dctObservation = dctObservation,
         )
+    }
+
+    private fun ScanResult.displayNameFromScanResult(): DisplayNameCandidate? {
+        scanRecord?.deviceName.toDisplayNameOrNull()?.let { name ->
+            return DisplayNameCandidate(name, DisplayNameSource.BLE_LOCAL_NAME)
+        }
+        val bluetoothName =
+            runCatching { device?.name }
+                .getOrNull()
+                .toDisplayNameOrNull()
+        return bluetoothName?.let { DisplayNameCandidate(it, DisplayNameSource.BLUETOOTH_DEVICE_NAME) }
     }
 
     private fun resolveScanner(): BluetoothLeScanner? {
@@ -303,7 +358,10 @@ public class BleFastAdvertisementScanner(
             advertiserAddress: String?,
             rssi: Int?,
             gattConnectable: Boolean = advertiserAddress != null,
+            fallbackDisplayName: String? = null,
+            fallbackDisplayNameSource: DisplayNameSource? = null,
         ): Observation? {
+            val fallbackName = fallbackDisplayName.toDisplayNameOrNull()
             BleAdvertisementHeader.parse(serviceData)?.let { header ->
                 val l2capPsm = header.psm.takeIf { it > 0 }
                 return Observation(
@@ -313,11 +371,15 @@ public class BleFastAdvertisementScanner(
                     rssi = rssi,
                     l2capPsm = l2capPsm,
                     gattConnectable = gattConnectable && advertiserAddress != null,
+                    displayName = fallbackName,
+                    displayNameSource = fallbackName?.let { fallbackDisplayNameSource },
                 )
             }
             val parsed = BleServiceData.parse(serviceData) ?: return null
             val endpointId = String(parsed.endpointId, Charsets.US_ASCII)
             val l2capPsm = BleServiceData.parsePsmExtraField(serviceData)?.takeIf { it > 0 }
+            val endpointName = parsed.endpointInfo.deviceName.toDisplayNameOrNull()
+            val displayName = endpointName ?: fallbackName
             return Observation(
                 endpointId = endpointId,
                 endpointInfo = parsed.endpointInfo,
@@ -325,6 +387,13 @@ public class BleFastAdvertisementScanner(
                 rssi = rssi,
                 l2capPsm = l2capPsm,
                 gattConnectable = gattConnectable && advertiserAddress != null,
+                displayName = displayName,
+                displayNameSource =
+                    when {
+                        endpointName != null -> DisplayNameSource.FAST_ADVERTISEMENT_ENDPOINT_INFO
+                        displayName != null -> fallbackDisplayNameSource
+                        else -> null
+                    },
             )
         }
 
@@ -333,12 +402,17 @@ public class BleFastAdvertisementScanner(
             advertiserAddress: String?,
             rssi: Int?,
             gattConnectable: Boolean = advertiserAddress != null,
+            fallbackDisplayName: String? = null,
+            fallbackDisplayNameSource: DisplayNameSource? = null,
         ): Observation? {
             val parsed = DctAdvertisement.parse(serviceData) ?: return null
             if (!parsed.serviceIdHash.contentEquals(EXPECTED_DCT_SERVICE_ID_HASH)) return null
             val endpointId =
                 DctAdvertisement.generateEndpointId(parsed.dedup, parsed.deviceName) ?: return null
             val l2capPsm = parsed.psm.takeIf { it > 0 }
+            val dctName = parsed.deviceName.toDisplayNameOrNull()
+            val fallbackName = fallbackDisplayName.toDisplayNameOrNull()
+            val displayName = dctName ?: fallbackName
             return Observation(
                 endpointId = endpointId,
                 endpointInfo = parsed.toEndpointInfo(),
@@ -346,6 +420,13 @@ public class BleFastAdvertisementScanner(
                 rssi = rssi,
                 l2capPsm = l2capPsm,
                 gattConnectable = gattConnectable && advertiserAddress != null,
+                displayName = displayName,
+                displayNameSource =
+                    when {
+                        dctName != null -> DisplayNameSource.DCT_ADVERTISEMENT
+                        displayName != null -> fallbackDisplayNameSource
+                        else -> null
+                    },
             )
         }
 
@@ -374,3 +455,13 @@ private fun DctAdvertisement.Parsed.toEndpointInfo(): EndpointInfo =
     )
 
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+private data class DisplayNameCandidate(
+    val value: String,
+    val source: BleFastAdvertisementScanner.DisplayNameSource,
+)
+
+private fun String?.toDisplayNameOrNull(): String? =
+    this
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
