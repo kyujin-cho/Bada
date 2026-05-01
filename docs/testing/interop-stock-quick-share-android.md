@@ -148,16 +148,17 @@ discover and start the session without relying on same-LAN mDNS.
       and confirm **Bluetooth is on**.
 - [ ] On the **WVMG device**: open the system share sheet for the file
       under test and route into `SendActivity`.
-- [ ] Wait for the peer row to appear in the picker. If the row appears
-      but is disabled, record that as a partial discovery result and
-      capture the discovery log before continuing.
-- [ ] Capture `adb logcat -s WvmgOutbound WvmgBtScan WvmgBleFastScan`
+- [ ] Wait for the peer row to appear in the picker. A BLE-only stock
+      receiver with no L2CAP PSM should stay disabled until WVMG verifies
+      the Nearby GATT socket service, then surface as a direct
+      `BLE GATT <mac>` route.
+- [ ] Capture `adb logcat -s WvmgOutbound WvmgBtScan WvmgBleFastScan WvmgBleGattClient`
       while the picker is open. Record the discovery surfaces reported
       in the `picked target:` line's `mediums=[...]` field.
 - [ ] Select the peer row and record the initial control route from the
-      same `picked target:` line. For the off-LAN bootstrap path it
-      should show `route=bluetooth=<mac>` unless the devices happen to
-      regain LAN reachability.
+      same `picked target:` line. For the stock BLE-only bootstrap path it
+      should show `route=ble-gatt=<mac>` and
+      `bootstrap={selected=ble-gatt rejected=[wifi-lan=missing, ble-l2cap=peer-psm-missing]}`.
 - [ ] Confirm the 4-digit PIN matches on both devices.
 - [ ] Wait for the transfer to complete and verify the received file's
       SHA-256 hash on the peer.
@@ -166,6 +167,39 @@ discover and start the session without relying on same-LAN mDNS.
       and any `medium-upgrade:` lines in `WvmgOutbound`.
 - [ ] Immediately rerun the same peer pair on a **shared LAN** and
       confirm the regression path still chooses `route=lan=<ip>:<port>`.
+
+#### BLE-only / no-shared-LAN sender repro (#143)
+
+Use this focused checklist when the stock receiver is visible only
+through BLE advertisements and does not expose a direct LAN or peer-PSM
+route.
+
+- [ ] Connect two adb devices and export serials:
+      `export VIVO_SERIAL=<wvmg-sender-serial>`
+      `export STOCK_SERIAL=<stock-receiver-serial>`
+- [ ] Confirm the devices do **not** share a usable LAN route:
+      `adb -s "$VIVO_SERIAL" shell ip route`
+      `adb -s "$STOCK_SERIAL" shell ip route`
+- [ ] Open the stock Quick Share receive UI on the receiver and keep it
+      visible.
+- [ ] Start `adb -s "$VIVO_SERIAL" logcat -c` and then capture:
+      `adb -s "$VIVO_SERIAL" logcat -s WvmgOutbound WvmgDiscovery WvmgBleFastScan WvmgBleGattClient WvmgBleL2cap`
+- [ ] Launch WVMG's send flow on the vivo and wait for the receiver row.
+      The discovery log should first show an observation-only BLE peer,
+      then either `slot-read service discovered socket=true ...` or
+      `BLE GATT socket service verified ...` once the stock receiver's
+      Nearby GATT socket service is confirmed.
+- [ ] Tap the receiver row. Record:
+      `picked target: ... route=ble-gatt=<mac> ... bootstrap={selected=ble-gatt ...}`
+- [ ] Confirm WVMG then logs `BLE GATT initial connect ready`, followed by
+      `step 1: initial transport open medium=BLE` and
+      `step 2: UKEY2 client handshake complete`.
+- [ ] Verify there is **no** `ConnectionRequest` / UKEY2 hang on a
+      dead header-only path. Header-only BLE/GATT observations must stay
+      disabled unless the slot probe yields an advertisement or verifies
+      the socket service for a visible receiver.
+- [ ] Continue through PIN confirmation and verify the received file hash
+      on the stock receiver.
 
 ### Legacy fallback: QR-code path
 

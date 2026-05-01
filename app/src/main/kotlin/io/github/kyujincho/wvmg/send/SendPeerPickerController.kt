@@ -95,26 +95,15 @@ internal class SendPeerPickerController(
 
     fun peerLabel(peer: NearbyPeer): String = peer.displayName()
 
-    fun peerSubtitle(peer: NearbyPeer): String =
-        when (val route = peer.preferredRoute()) {
-            is NearbyPeerRoute.Lan -> "Wi-Fi LAN ${route.address.hostAddress}:${route.port}"
-            is NearbyPeerRoute.BluetoothClassic -> "Bluetooth Classic ${route.macAddress}"
-            is NearbyPeerRoute.BleL2cap -> "BLE L2CAP ${route.macAddress} psm=${route.psm}"
-            is NearbyPeerRoute.BleGatt -> "BLE GATT ${route.macAddress}"
-            null -> "Nearby via BLE advertisement"
-        }
+    fun peerSubtitle(peer: NearbyPeer): String = planFor(peer).subtitle
 
-    fun peerFailureReason(peer: NearbyPeer): String =
-        when {
-            peer.bluetoothEndpoint == null && peer.bleAdvertisement != null ->
-                "BLE advertisement observed but no initial bootstrap route is available yet"
-            else -> "no usable initial route"
-        }
+    fun peerFailureReason(peer: NearbyPeer): String = planFor(peer).failureReason ?: "no usable initial route"
 
     fun formatPeerSnapshot(
         peer: NearbyPeer,
         chosenRoute: NearbyPeerRoute? = null,
     ): String {
+        val plan = planFor(peer)
         val endpointId = peer.endpointId ?: "<none>"
         val addressList =
             peer.lanEndpoint
@@ -149,13 +138,14 @@ internal class SendPeerPickerController(
                 is NearbyPeerRoute.BluetoothClassic -> "bluetooth=${chosenRoute.macAddress}"
                 is NearbyPeerRoute.BleL2cap -> "ble-l2cap=${chosenRoute.macAddress}:${chosenRoute.psm}"
                 is NearbyPeerRoute.BleGatt -> "ble-gatt=${chosenRoute.macAddress}"
-                null -> "<none>"
+                null -> plan.action.diagnosticLabel
             }
         val bleIdentitySummary =
             formatBleIdentitySnapshot(peer)
         return "peer=${peer.stableId} endpointId=$endpointId mediums=${peer.candidateMediums} " +
             "addrs=[$addressList] route=$routeSummary displayName=${peer.displayName().toQuotedLogValue()} " +
-            "displayNameSource=${peer.displayNameSource()}$bleIdentitySummary endpointInfo={$infoSummary}"
+            "displayNameSource=${peer.displayNameSource()} bootstrap={${plan.diagnosticSummary()}}" +
+            "$bleIdentitySummary endpointInfo={$infoSummary}"
     }
 
     private fun formatBleIdentitySnapshot(peer: NearbyPeer): String {
@@ -210,7 +200,7 @@ internal class SendPeerPickerController(
             peers.add(incoming)
         }
         peers.sortWith(
-            compareByDescending<NearbyPeer> { it.isConnectable }
+            compareByDescending<NearbyPeer> { planFor(it).isConnectable }
                 .thenBy { it.displayName().lowercase() },
         )
     }
@@ -219,20 +209,26 @@ internal class SendPeerPickerController(
         val container = binding.sendPeerList
         container.removeAllViews()
         val inflater = LayoutInflater.from(context)
+        val hasConnectablePeer = peers.any { planFor(it).isConnectable }
         for (peer in peers) {
+            val plan = planFor(peer)
             val row = ItemPeerRowBinding.inflate(inflater, container, false)
             row.peerRowTitle.text = peerLabel(peer)
-            row.peerRowSubtitle.text = peerSubtitle(peer)
-            row.root.isEnabled = peer.isConnectable
-            row.root.alpha = if (peer.isConnectable) 1f else DISABLED_PEER_ALPHA
+            row.peerRowSubtitle.text = plan.subtitle
+            row.root.isEnabled = plan.isConnectable
+            row.root.alpha = if (plan.isConnectable) 1f else DISABLED_PEER_ALPHA
             row.root.setOnClickListener {
-                if (peer.isConnectable) onPeerSelected(peer)
+                if (plan.isConnectable) onPeerSelected(peer)
             }
             container.addView(row.root)
         }
         binding.sendEmptyState.visibility = if (peers.isEmpty()) View.VISIBLE else View.GONE
         binding.sendSubtitle.setText(
-            if (peers.isEmpty()) R.string.send_subtitle_discovering else R.string.send_subtitle_pick_peer,
+            when {
+                peers.isEmpty() -> R.string.send_subtitle_discovering
+                hasConnectablePeer -> R.string.send_subtitle_pick_peer
+                else -> R.string.send_subtitle_no_usable_route
+            },
         )
         updateEmptyPeerHintVisibility()
     }
@@ -247,11 +243,13 @@ internal class SendPeerPickerController(
     }
 
     private fun updateEmptyPeerHintVisibility() {
+        val onlyUnroutablePeers = peers.isNotEmpty() && peers.none { planFor(it).isConnectable }
         val show =
-            emptyPeerHintTimer.shouldShowHint(
-                nowMillis = System.currentTimeMillis(),
-                peerListEmpty = peers.isEmpty(),
-            )
+            (!emptyPeerHintTimer.isDismissed() && onlyUnroutablePeers) ||
+                emptyPeerHintTimer.shouldShowHint(
+                    nowMillis = System.currentTimeMillis(),
+                    peerListEmpty = peers.isEmpty(),
+                )
         binding.sendNetworkHint.visibility = if (show) View.VISIBLE else View.GONE
     }
 
@@ -274,18 +272,24 @@ internal class SendPeerPickerController(
             "<empty>"
         } else {
             peers.joinToString(";") { peer ->
+                val plan = planFor(peer)
                 val route =
-                    when (val preferredRoute = peer.preferredRoute()) {
-                        is NearbyPeerRoute.Lan -> "${preferredRoute.address.hostAddress}:${preferredRoute.port}"
-                        is NearbyPeerRoute.BluetoothClassic -> preferredRoute.macAddress
-                        is NearbyPeerRoute.BleL2cap -> "${preferredRoute.macAddress}:${preferredRoute.psm}"
-                        is NearbyPeerRoute.BleGatt -> preferredRoute.macAddress
-                        null -> "<none>"
+                    when (val action = plan.action) {
+                        is SendBootstrapPlan.Action.Direct ->
+                            when (val route = action.route) {
+                                is NearbyPeerRoute.Lan -> "${route.address.hostAddress}:${route.port}"
+                                is NearbyPeerRoute.BluetoothClassic -> route.macAddress
+                                is NearbyPeerRoute.BleL2cap -> "${route.macAddress}:${route.psm}"
+                                is NearbyPeerRoute.BleGatt -> route.macAddress
+                            }
+                        SendBootstrapPlan.Action.Unavailable -> "<none>"
                     }
                 "${peer.stableId}/${peer.endpointId ?: "<none>"}/$route/" +
                     "${peer.displayName().toSanitizedLogValue()}(${peer.displayNameSource()})"
             }
         }
+
+    private fun planFor(peer: NearbyPeer): SendBootstrapPlan = SendBootstrapPlan.resolve(peer = peer)
 
     private companion object {
         private const val BLE_TAG: String = "WvmgDiscovery"

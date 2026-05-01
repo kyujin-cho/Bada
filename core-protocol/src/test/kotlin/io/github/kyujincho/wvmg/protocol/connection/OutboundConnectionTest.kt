@@ -14,6 +14,7 @@ import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
+import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
 import io.github.kyujincho.wvmg.protocol.transport.asConnectedTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -27,6 +28,8 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -234,6 +237,47 @@ class OutboundConnectionTest {
             payloadId = payloadId,
             open = { Channels.newChannel(ByteArrayInputStream(bytes)) as ReadableByteChannel },
         )
+
+    private class CloseAwareBlockingInputStream : InputStream() {
+        private val lock = Object()
+        private var closed: Boolean = false
+
+        override fun read(): Int {
+            synchronized(lock) {
+                while (!closed) {
+                    lock.wait()
+                }
+            }
+            return -1
+        }
+
+        override fun read(
+            b: ByteArray,
+            off: Int,
+            len: Int,
+        ): Int = read()
+
+        override fun close() {
+            synchronized(lock) {
+                closed = true
+                lock.notifyAll()
+            }
+        }
+    }
+
+    private class HangingConnectedTransport : ConnectedTransport {
+        override val medium: Medium = Medium.BLE
+        override val inputStream: CloseAwareBlockingInputStream = CloseAwareBlockingInputStream()
+        override val outputStream: ByteArrayOutputStream = ByteArrayOutputStream()
+        var closed: Boolean = false
+            private set
+
+        override fun close() {
+            closed = true
+            inputStream.close()
+            outputStream.close()
+        }
+    }
 
     @Test
     fun `accept path - file payload completes through full lifecycle`() =
@@ -776,6 +820,30 @@ class OutboundConnectionTest {
         }
 
     @Test
+    fun `initial handshake timeout closes a silent preconnected transport`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val transport = HangingConnectedTransport()
+                val logs = mutableListOf<String>()
+                val outbound =
+                    OutboundConnection(
+                        transport = transport,
+                        initialHandshakeTimeoutMillis = SHORT_INITIAL_HANDSHAKE_TIMEOUT_MS,
+                        secureRandom = SecureRandom("outbound-initial-timeout".toByteArray()),
+                        logger = logs::add,
+                    )
+
+                val result = outbound.run(emptyList())
+                val failedState = outbound.state.value as OutboundConnectionState.Failed
+
+                assertThat(result).isInstanceOf(OutboundResult.Failed::class.java)
+                assertThat(failedState.reason).contains("Initial handshake timed out")
+                assertThat(transport.closed).isTrue()
+                assertThat(logs.any { it.contains("initial handshake timed out") }).isTrue()
+            }
+        }
+
+    @Test
     fun `double run throws IllegalStateException`() =
         runBlocking {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {
@@ -837,6 +905,8 @@ class OutboundConnectionTest {
         // 1.5 MiB scenario is still expected to complete in a couple seconds
         // on a modern dev machine.
         private const val LONG_WALLCLOCK_TIMEOUT_MS: Long = 60_000L
+
+        private const val SHORT_INITIAL_HANDSHAKE_TIMEOUT_MS: Long = 50L
 
         private val MediumLadderForBluetoothFirst: MediumLadder =
             MediumLadder(listOf(Medium.BLUETOOTH, Medium.WIFI_LAN))

@@ -108,6 +108,9 @@ public object BleServiceData {
     /** Length of the trailing Nearby Mediums device token. */
     public const val DEVICE_TOKEN_LEN: Int = 2
 
+    /** Length of the service-id hash prefix in regular BLE advertisements. */
+    public const val SERVICE_ID_HASH_LEN: Int = 3
+
     /** One-byte extra-field mask appended by stock Nearby extended BLE advertisements. */
     public const val EXTRA_FIELDS_MASK_LEN: Int = 1
 
@@ -128,6 +131,13 @@ public object BleServiceData {
 
     /** Total fixed overhead before the EndpointInfo bytes. */
     public const val FIXED_HEADER_LEN: Int = HEADER_LEN + ENDPOINT_ID_LEN + ENDPOINT_INFO_LEN_BYTES
+
+    /** Total fixed overhead before EndpointInfo in the regular non-fast body. */
+    public const val REGULAR_FIXED_HEADER_LEN: Int =
+        HEADER_LEN + SERVICE_ID_HASH_LEN + ENDPOINT_ID_LEN + ENDPOINT_INFO_LEN_BYTES
+
+    /** Bluetooth MAC bytes carried after EndpointInfo in regular BLE advertisements. */
+    public const val BLUETOOTH_MAC_LEN: Int = 6
 
     /**
      * Default protocol version stock Quick Share emits in the high
@@ -353,9 +363,9 @@ public object BleServiceData {
     @JvmStatic
     public fun parse(bytes: ByteArray): Parsed? {
         unwrapFrame(bytes)?.let { framed ->
-            return parseBody(framed)
+            return parseFastBody(framed) ?: parseRegularBody(framed)
         }
-        return parseBody(bytes)
+        return parseFastBody(bytes) ?: parseRegularBody(bytes)
     }
 
     /**
@@ -376,7 +386,7 @@ public object BleServiceData {
     }
 
     @Suppress("ReturnCount")
-    private fun parseBody(bytes: ByteArray): Parsed? {
+    private fun parseFastBody(bytes: ByteArray): Parsed? {
         if (bytes.size < FIXED_HEADER_LEN) return null
         val header = bytes[0].toInt() and UNSIGNED_BYTE_MASK
         val version = (header ushr VERSION_SHIFT) and VERSION_MASK
@@ -385,6 +395,32 @@ public object BleServiceData {
         val len = bytes[HEADER_LEN + ENDPOINT_ID_LEN].toInt() and UNSIGNED_BYTE_MASK
         if (FIXED_HEADER_LEN + len > bytes.size) return null
         val infoBytes = bytes.copyOfRange(FIXED_HEADER_LEN, FIXED_HEADER_LEN + len)
+        val info = EndpointInfo.parse(infoBytes) ?: return null
+        return Parsed(
+            version = version,
+            pcp = pcp,
+            endpointId = endpointId,
+            endpointInfo = info,
+        )
+    }
+
+    @Suppress("ReturnCount")
+    private fun parseRegularBody(bytes: ByteArray): Parsed? {
+        if (bytes.size < REGULAR_FIXED_HEADER_LEN + BLUETOOTH_MAC_LEN) return null
+        val header = bytes[0].toInt() and UNSIGNED_BYTE_MASK
+        val version = (header ushr VERSION_SHIFT) and VERSION_MASK
+        val pcp = header and PCP_MASK
+
+        var offset = HEADER_LEN
+        val serviceIdHash = bytes.copyOfRange(offset, offset + SERVICE_ID_HASH_LEN)
+        offset += SERVICE_ID_HASH_LEN
+        if (!serviceIdHash.contentEquals(NearbyServiceId.hashPrefix)) return null
+
+        val endpointId = bytes.copyOfRange(offset, offset + ENDPOINT_ID_LEN)
+        offset += ENDPOINT_ID_LEN
+        val len = bytes[offset++].toInt() and UNSIGNED_BYTE_MASK
+        if (offset + len + BLUETOOTH_MAC_LEN > bytes.size) return null
+        val infoBytes = bytes.copyOfRange(offset, offset + len)
         val info = EndpointInfo.parse(infoBytes) ?: return null
         return Parsed(
             version = version,

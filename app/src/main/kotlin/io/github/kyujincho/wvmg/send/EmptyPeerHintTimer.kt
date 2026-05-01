@@ -90,9 +90,10 @@ internal class EmptyPeerHintTimer(
     }
 
     /**
-     * Test/debug accessor for the dismissed latch. Not part of the
-     * public contract — exists so unit tests can verify the latch is
-     * sticky without going through [shouldShowHint].
+     * Accessor for the dismissed latch. The picker uses this when it
+     * surfaces the same hint immediately for visible but unroutable
+     * peers, while tests use it to verify the latch is sticky without
+     * going through [shouldShowHint].
      */
     internal fun isDismissed(): Boolean = dismissed
 

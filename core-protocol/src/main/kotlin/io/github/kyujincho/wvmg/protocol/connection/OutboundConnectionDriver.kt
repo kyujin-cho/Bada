@@ -12,6 +12,7 @@ import io.github.kyujincho.wvmg.protocol.crypto.D2DKeyDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.D2DRole
 import io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
+import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
@@ -30,16 +31,21 @@ import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
 import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2Client
+import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2HandshakeResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Internal lifecycle driver for [OutboundConnection].
@@ -58,6 +64,7 @@ import java.security.SecureRandom
  * `select`s between that channel and [externalEvents].
  */
 @Suppress(
+    "LargeClass", // The driver intentionally keeps the full wire lifecycle in one state-owning type.
     "TooManyFunctions", // The lifecycle inherently has many phases; each is one function for readability.
     "LongParameterList", // Constructor takes the connection's collaborators verbatim.
 )
@@ -73,6 +80,10 @@ internal class OutboundConnectionDriver(
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
     private val logger: (String) -> Unit = {},
+    private val initialHandshakeTimeoutMillis: Long =
+        OutboundConnection.DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
+    private val remoteAcceptanceTimeoutMillis: Long =
+        OutboundConnection.DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS,
     /**
      * Wall-clock source for the rate estimator. Defaults to
      * [System.currentTimeMillis]; tests inject deterministic
@@ -125,7 +136,15 @@ internal class OutboundConnectionDriver(
         // provider this is functionally identical to the previous
         // hard-coded `[WIFI_LAN]` on the legacy LAN path.
         val advertisedMediums =
-            mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
+            mediumRegistry
+                .supportedMediumsForCurrentTransport(initialTransport.medium)
+                .let { supportedMediums ->
+                    if (initialTransport.medium == Medium.BLE && Medium.BLE in supportedMediums) {
+                        linkedSetOf(Medium.BLE)
+                    } else {
+                        supportedMediums
+                    }
+                }
         logger("step 1: advertising mediums=$advertisedMediums")
         transport.sendFrame(
             OutboundFrames
@@ -137,9 +156,9 @@ internal class OutboundConnectionDriver(
         )
         logger("step 1: sent ConnectionRequest, awaiting Ukey2ServerInit")
 
-        // Step 2: UKEY2 client handshake (ClientInit, ServerInit, ClientFinish).
-        val handshake = Ukey2Client.performHandshake(transport, secureRandom)
-        logger("step 2: UKEY2 client handshake complete (dhs.size=${handshake.dhs.size})")
+        val (handshake, peerResponse) =
+            runInitialHandshakeWithTimeout(transport)
+                ?: return initialHandshakeTimedOut()
 
         // Step 3: send our unencrypted ConnectionResponse{ACCEPT}.
         //
@@ -149,14 +168,8 @@ internal class OutboundConnectionDriver(
         // if we read instead, both sides deadlock and the peer eventually
         // times out and closes (surfacing here as EndOfFrameStream right
         // after the UKEY2 handshake).
-        val responseBytes = OutboundFrames.connectionResponse().toByteArray()
-        logger("step 3: sending our ConnectionResponse, size=${responseBytes.size}")
-        transport.sendFrame(responseBytes)
-        logger("step 3: sent our ConnectionResponse{ACCEPT}")
 
         // Step 4: read receiver's unencrypted ConnectionResponse.
-        logger("step 4: awaiting peer ConnectionResponse...")
-        val peerResponse = readOfflineFrameUnencrypted(transport)
         val hasResp = peerResponse.v1.hasConnectionResponse()
         logger("step 4: received peer ConnectionResponse type=${peerResponse.v1.type} hasConnectionResponse=$hasResp")
         if (peerResponse.v1.hasConnectionResponse()) {
@@ -259,6 +272,68 @@ internal class OutboundConnectionDriver(
         runCatching { secureChannel?.close() }
         runCatching { framedConnection?.close() }
         runCatching { initialTransport.close() }
+    }
+
+    /**
+     * Run the pre-secure handshake under a wall-clock guard. Blocking
+     * reads inside [FramedConnection] do not wake up on coroutine
+     * cancellation alone; the timeout job closes the underlying
+     * transport first, which unblocks sockets and the BLE virtual
+     * streams used by non-LAN bootstrap paths.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun runInitialHandshakeWithTimeout(
+        transport: FramedConnection,
+    ): Pair<Ukey2HandshakeResult, OfflineFrame>? =
+        coroutineScope {
+            val timedOut = AtomicBoolean(false)
+            val timeoutJob =
+                launch {
+                    delay(initialHandshakeTimeoutMillis)
+                    timedOut.set(true)
+                    logger(
+                        "step 2: initial handshake timed out after " +
+                            "${initialHandshakeTimeoutMillis}ms; closing transport",
+                    )
+                    runCatching { transport.close() }
+                    runCatching { initialTransport.close() }
+                }
+            try {
+                val handshake = Ukey2Client.performHandshake(transport, secureRandom)
+
+                if (timedOut.get()) {
+                    null
+                } else {
+                    logger("step 2: UKEY2 client handshake complete (dhs.size=${handshake.dhs.size})")
+
+                    val responseBytes = OutboundFrames.connectionResponse().toByteArray()
+                    logger("step 3: sending our ConnectionResponse, size=${responseBytes.size}")
+                    transport.sendFrame(responseBytes)
+                    logger("step 3: sent our ConnectionResponse{ACCEPT}")
+
+                    logger("step 4: awaiting peer ConnectionResponse...")
+                    val peerResponse = readOfflineFrameUnencrypted(transport)
+                    if (timedOut.get()) {
+                        null
+                    } else {
+                        handshake to peerResponse
+                    }
+                }
+            } catch (e: Throwable) {
+                if (timedOut.get()) {
+                    null
+                } else {
+                    throw e
+                }
+            } finally {
+                timeoutJob.cancelAndJoin()
+            }
+        }
+
+    private fun initialHandshakeTimedOut(): OutboundResult.Failed {
+        val reason = "Initial handshake timed out after ${initialHandshakeTimeoutMillis}ms"
+        mutableState.value = OutboundConnectionState.Failed(reason)
+        return OutboundResult.Failed(reason)
     }
 
     /**
@@ -510,6 +585,7 @@ internal class OutboundConnectionDriver(
     /**
      * Dispatch loop — runs until a terminal state is reached.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Suppress("ReturnCount", "CyclomaticComplexMethod")
     private suspend fun dispatchLoop(
         channel: SecureChannel,
@@ -521,10 +597,21 @@ internal class OutboundConnectionDriver(
             ArrayDeque<OfflineFrame>().apply {
                 addAll(initialWireFrames)
             }
+        var remoteAcceptanceDeadlineMillis: Long? = null
         while (true) {
             // Terminal state? Resolve and return.
             if (fsm.state == OutboundSharingState.Disconnected) {
                 return terminalResultFromState()
+            }
+
+            remoteAcceptanceDeadlineMillis =
+                updateRemoteAcceptanceDeadline(
+                    fsm = fsm,
+                    currentDeadlineMillis = remoteAcceptanceDeadlineMillis,
+                )
+            val remoteAcceptanceRemainingMillis = remoteAcceptanceRemainingMillis(remoteAcceptanceDeadlineMillis)
+            if (remoteAcceptanceRemainingMillis == 0L) {
+                return remoteAcceptanceTimedOut()
             }
 
             val event: OutboundDriverEvent =
@@ -540,6 +627,11 @@ internal class OutboundConnectionDriver(
                                 is OutboundWireMessage.Frame -> OutboundDriverEvent.Wire(msg.frame)
                                 OutboundWireMessage.Closed -> OutboundDriverEvent.PeerClosed
                                 is OutboundWireMessage.Error -> OutboundDriverEvent.PumpError(msg.cause)
+                            }
+                        }
+                        remoteAcceptanceRemainingMillis?.let { remainingMillis ->
+                            onTimeout(remainingMillis) {
+                                OutboundDriverEvent.RemoteAcceptanceTimedOut
                             }
                         }
                     }
@@ -563,6 +655,7 @@ internal class OutboundConnectionDriver(
                 "Wire($v1Type)"
             }
             OutboundDriverEvent.PeerClosed -> "PeerClosed"
+            OutboundDriverEvent.RemoteAcceptanceTimedOut -> "RemoteAcceptanceTimedOut"
             is OutboundDriverEvent.PumpError ->
                 "PumpError(${event.cause::class.simpleName}: ${event.cause.message ?: "null"})"
         }
@@ -580,12 +673,38 @@ internal class OutboundConnectionDriver(
             }
             is OutboundDriverEvent.Wire -> handleInboundOfflineFrame(channel, fsm, event.frame)
             OutboundDriverEvent.PeerClosed -> handlePeerClosed()
+            OutboundDriverEvent.RemoteAcceptanceTimedOut -> remoteAcceptanceTimedOut()
             is OutboundDriverEvent.PumpError -> {
                 val reason = "Inbound pump error: ${event.cause::class.simpleName}: ${event.cause.message}"
                 mutableState.value = OutboundConnectionState.Failed(reason)
                 OutboundResult.Failed(reason)
             }
         }
+
+    private fun updateRemoteAcceptanceDeadline(
+        fsm: OutboundSharingFsm,
+        currentDeadlineMillis: Long?,
+    ): Long? =
+        when {
+            fsm.state != OutboundSharingState.SentIntroduction -> null
+            currentDeadlineMillis != null -> currentDeadlineMillis
+            else -> {
+                logger("fsm: awaiting receiver acceptance timeout=${remoteAcceptanceTimeoutMillis}ms")
+                nowMillisSource() + remoteAcceptanceTimeoutMillis
+            }
+        }
+
+    private fun remoteAcceptanceRemainingMillis(deadlineMillis: Long?): Long? =
+        deadlineMillis?.let { deadline ->
+            (deadline - nowMillisSource()).coerceAtLeast(0L)
+        }
+
+    private fun remoteAcceptanceTimedOut(): OutboundResult.Failed {
+        val reason = "Timed out waiting for receiver acceptance after ${remoteAcceptanceTimeoutMillis}ms"
+        logger("fsm: $reason")
+        mutableState.value = OutboundConnectionState.Failed(reason)
+        return OutboundResult.Failed(reason)
+    }
 
     /**
      * Handle one inbound `OfflineFrame` from the SecureChannel.

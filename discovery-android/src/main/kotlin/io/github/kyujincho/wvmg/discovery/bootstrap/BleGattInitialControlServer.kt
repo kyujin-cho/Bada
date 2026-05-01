@@ -27,6 +27,7 @@ import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.google.location.nearby.mediums.proto.BleFramesProto
 import com.google.location.nearby.mediums.proto.MultiplexFramesProto
+import io.github.kyujincho.wvmg.discovery.ble.BleDctPsmHolder
 import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
@@ -328,8 +329,9 @@ public class BleGattInitialControlServer(
                 endpointInfo: EndpointInfo,
                 endpointId: ByteArray,
             ): List<BluetoothGattCharacteristic> {
+                val psm = BleDctPsmHolder.currentPsm ?: 0
                 val visibleAdvertisement =
-                    runCatching { BleAdvertisement.encodeGattAdvertisement(endpointId, endpointInfo) }
+                    runCatching { BleAdvertisement.encodeGattAdvertisement(endpointId, endpointInfo, psm = psm) }
                         .getOrDefault(ByteArray(0))
 
                 return (0 until GATT_ADVERTISEMENT_SLOT_COUNT).map { slot ->

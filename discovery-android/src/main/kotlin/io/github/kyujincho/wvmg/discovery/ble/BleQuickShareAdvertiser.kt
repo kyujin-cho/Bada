@@ -23,6 +23,8 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
+import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisement
+import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisementHeader
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
@@ -632,7 +634,23 @@ public object DefaultPayloadFactory : PayloadFactory {
     override fun build(
         endpointId: ByteArray,
         endpointInfo: EndpointInfo,
-    ): ByteArray = BleServiceData.encodeFramed(endpointId, endpointInfo.compactForFastAdvertisement())
+    ): ByteArray {
+        val psm = BleDctPsmHolder.currentPsm
+        if (psm != null && psm != DctAdvertisement.DEFAULT_PSM) {
+            val gattAdvertisement =
+                BleAdvertisement.encodeGattAdvertisement(
+                    endpointId = endpointId,
+                    endpointInfo = endpointInfo,
+                    psm = psm,
+                )
+            return BleAdvertisementHeader.encodeSingleSlot(
+                serviceId = NearbyServiceId.VALUE,
+                gattAdvertisement = gattAdvertisement,
+                psm = psm,
+            )
+        }
+        return BleServiceData.encodeFramed(endpointId, endpointInfo.compactForFastAdvertisement())
+    }
 
     private fun EndpointInfo.compactForFastAdvertisement(): EndpointInfo =
         EndpointInfo(
@@ -779,20 +797,11 @@ internal class AndroidBleAdvertiserGate(
                 mode = mode,
             )
         val callback =
-            if (visibleRegistration == null) {
-                val settings = BleQuickShareAdvertiser.buildSettings(mode)
-                val data = BleQuickShareAdvertiser.buildAdvertiseData()
-                val scanResponse = BleQuickShareAdvertiser.buildScanResponseData(serviceData)
-                AdvertiseCallbackImpl(label = "advertise").also { primaryCallback ->
-                    advertiser.startAdvertising(settings, data, scanResponse, primaryCallback)
-                }
-            } else {
-                Log.w(
-                    BleQuickShareAdvertiser.TAG,
-                    "advertise: hidden legacy 0xFEF3 suppressed while visible extended set is active",
-                )
-                null
-            }
+            startHiddenLegacyAdvertising(
+                advertiser = advertiser,
+                serviceData = serviceData,
+                mode = mode,
+            )
         val dctRegistration =
             startDctAdvertisingIfAvailable(
                 advertiser = advertiser,
@@ -801,6 +810,55 @@ internal class AndroidBleAdvertiserGate(
                 mode = mode,
             )
         return Registration(advertiser, callback, visibleRegistration, dctRegistration)
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
+    private fun startHiddenLegacyAdvertising(
+        advertiser: BluetoothLeAdvertiser,
+        serviceData: ByteArray,
+        mode: Int,
+    ): AdvertiseCallbackImpl? {
+        val settings = BleQuickShareAdvertiser.buildSettings(mode)
+        val (data, scanResponse, placement) =
+            if (serviceData.fitsPrimaryLegacyAdvertisement()) {
+                Triple(BleQuickShareAdvertiser.buildScanResponseData(serviceData), null, "primary")
+            } else {
+                Triple(
+                    BleQuickShareAdvertiser.buildAdvertiseData(),
+                    BleQuickShareAdvertiser.buildScanResponseData(serviceData),
+                    "scan-response",
+                )
+            }
+        return try {
+            AdvertiseCallbackImpl(label = "advertise").also { primaryCallback ->
+                advertiser.startAdvertising(settings, data, scanResponse, primaryCallback)
+                Log.w(
+                    BleQuickShareAdvertiser.TAG,
+                    "advertise: submitted legacy $placement bytes=${serviceData.size} " +
+                        "uuid=${BleServiceData.SERVICE_UUID_128_STRING}",
+                )
+            }
+        } catch (e: SecurityException) {
+            logHiddenLegacyStartFailure(e)
+            null
+        } catch (e: IllegalArgumentException) {
+            logHiddenLegacyStartFailure(e)
+            null
+        } catch (e: IllegalStateException) {
+            logHiddenLegacyStartFailure(e)
+            null
+        }
+    }
+
+    private fun ByteArray.fitsPrimaryLegacyAdvertisement(): Boolean =
+        size + SERVICE_DATA_AD_OVERHEAD_BYTES + FLAGS_AD_OVERHEAD_BYTES <= LEGACY_ADVERTISING_DATA_BYTES
+
+    private fun logHiddenLegacyStartFailure(e: RuntimeException) {
+        Log.w(
+            BleQuickShareAdvertiser.TAG,
+            "advertise: hidden legacy startAdvertising failed; continuing with secondary advertisements",
+            e,
+        )
     }
 
     @Suppress("ReturnCount")
@@ -1135,6 +1193,7 @@ internal class AndroidBleAdvertiserGate(
     }
 
     private companion object {
+        private const val FLAGS_AD_OVERHEAD_BYTES: Int = 3
         private const val SERVICE_DATA_AD_OVERHEAD_BYTES: Int = 4
         private const val LEGACY_ADVERTISING_DATA_BYTES: Int = 31
     }

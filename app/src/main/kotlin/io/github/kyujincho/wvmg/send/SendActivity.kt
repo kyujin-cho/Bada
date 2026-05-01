@@ -79,6 +79,8 @@ public class SendActivity : AppCompatActivity() {
     private var bluetoothBootstrapClient: BluetoothClassicBootstrapClient? = null
     private var bleL2capBootstrapClient: BleL2capInitialControlClient? = null
     private var bleGattBootstrapClient: BleGattInitialControlClient? = null
+    private lateinit var senderEndpointId: String
+    private lateinit var senderEndpointInfoBytes: ByteArray
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -135,6 +137,7 @@ public class SendActivity : AppCompatActivity() {
                 }
             } ?: return
         files = resolvedFiles
+        prepareSenderIdentity()
         logResolvedFiles(files)
 
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
@@ -171,6 +174,7 @@ public class SendActivity : AppCompatActivity() {
                 OutboundConnection(
                     targetAddress = route.address,
                     port = route.port,
+                    endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
@@ -186,6 +190,7 @@ public class SendActivity : AppCompatActivity() {
                     } ?: return null
                 OutboundConnection(
                     transport = transport,
+                    endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
@@ -202,6 +207,7 @@ public class SendActivity : AppCompatActivity() {
                     } ?: return null
                 OutboundConnection(
                     transport = transport,
+                    endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
@@ -218,6 +224,7 @@ public class SendActivity : AppCompatActivity() {
                     } ?: return null
                 OutboundConnection(
                     transport = transport,
+                    endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
@@ -226,19 +233,47 @@ public class SendActivity : AppCompatActivity() {
         }
     }
 
+    private suspend fun buildOutboundConnection(
+        plan: SendBootstrapPlan,
+        endpointInfo: ByteArray,
+    ): PreparedConnection =
+        when (val action = plan.action) {
+            is SendBootstrapPlan.Action.Direct -> {
+                val connection = buildOutboundConnection(action.route, endpointInfo)
+                if (connection != null) {
+                    PreparedConnection.Ready(connection)
+                } else {
+                    logOutboundDiagnostic("bootstrap: initial direct connect failed route=${action.route}")
+                    PreparedConnection.Failed("initial bootstrap connect failed")
+                }
+            }
+
+            SendBootstrapPlan.Action.Unavailable ->
+                PreparedConnection.Failed(plan.failureReason ?: "no usable initial route").also {
+                    logOutboundDiagnostic(
+                        "bootstrap: unavailable ${plan.diagnosticSummary()}",
+                    )
+                }
+        }
+
     // -----------------------------------------------------------------
     // Outbound connection
     // -----------------------------------------------------------------
 
     private fun onPeerSelected(peer: NearbyPeer) {
-        val route =
-            peer.preferredRoute() ?: run {
-                renderTerminal(
-                    getString(R.string.send_phase_failed),
-                    getString(R.string.send_status_failure_reason, peerPickerController.peerFailureReason(peer)),
-                )
-                return
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+        val chosenRoute =
+            when (val action = plan.action) {
+                is SendBootstrapPlan.Action.Direct -> action.route
+                SendBootstrapPlan.Action.Unavailable -> null
             }
+        if (!plan.isConnectable) {
+            renderTerminal(
+                getString(R.string.send_phase_failed),
+                getString(R.string.send_status_failure_reason, peerPickerController.peerFailureReason(peer)),
+            )
+            return
+        }
         // Verbose target snapshot at the moment of pick. Routed through
         // Log.e (and the on-disk outbound log) because Funtouch filters
         // Log.i for non-system apps — without this a Galaxy "peer
@@ -247,7 +282,7 @@ public class SendActivity : AppCompatActivity() {
         // aggregated mediums, the chosen initial route, the full LAN
         // address list (so we can spot IPv6 vs IPv4 selection bugs),
         // and the parsed EndpointInfo header byte / device name.
-        val targetSnapshot = peerPickerController.formatPeerSnapshot(peer, route)
+        val targetSnapshot = peerPickerController.formatPeerSnapshot(peer, chosenRoute)
         Log.e(OUTBOUND_TAG, "picked target: $targetSnapshot")
         appendOutboundLog("picked target: $targetSnapshot")
         // Stop discovery once we've made our pick.
@@ -262,7 +297,7 @@ public class SendActivity : AppCompatActivity() {
 
         binding.sendStatusTarget.text = getString(R.string.send_status_target, peerPickerController.peerLabel(peer))
         binding.sendStatusPhase.setText(R.string.send_phase_connecting)
-        binding.sendStatusMessage.text = peerPickerController.peerSubtitle(peer)
+        binding.sendStatusMessage.text = plan.subtitle
 
         // Build a valid sender EndpointInfo. Stock Quick Share rejects a
         // ConnectionRequestFrame with an empty `endpoint_info` field by
@@ -270,42 +305,46 @@ public class SendActivity : AppCompatActivity() {
         // EndOfFrameStream while the client is awaiting Ukey2ServerInit.
         // Visibility=0 (everyone) is fine — we are the sender, this is
         // not advertised on mDNS.
-        val senderEndpointInfoBytes =
-            EndpointInfo(
-                version = 1,
-                hidden = false,
-                deviceType = DeviceType.PHONE,
-                reserved = false,
-                metadata = ByteArray(EndpointInfo.METADATA_LEN).also { SecureRandom().nextBytes(it) },
-                deviceName = senderDeviceLabel(),
-            ).serialize()
-
         connectionJob =
             lifecycleScope.launch {
-                val connection = buildOutboundConnection(route, senderEndpointInfoBytes)
-                if (connection == null) {
-                    renderTerminal(
-                        getString(R.string.send_phase_failed),
-                        getString(R.string.send_status_failure_reason, "initial bootstrap connect failed"),
-                    )
-                    return@launch
-                }
-                activeConnection = connection
-                val collector =
-                    launch {
-                        connection.state.collect { state ->
-                            renderConnectionState(state, peer)
+                when (val prepared = buildOutboundConnection(plan, senderEndpointInfoBytes)) {
+                    is PreparedConnection.Failed -> {
+                        renderTerminal(
+                            getString(R.string.send_phase_failed),
+                            getString(R.string.send_status_failure_reason, prepared.reason),
+                        )
+                        return@launch
+                    }
+                    is PreparedConnection.Ready -> {
+                        val connection = prepared.connection
+                        activeConnection = connection
+                        val collector =
+                            launch {
+                                connection.state.collect { state ->
+                                    renderConnectionState(state, peer)
+                                }
+                            }
+                        try {
+                            connection.run(files)
+                        } finally {
+                            collector.cancel()
+                            activeConnection = null
+                            bluetoothBootstrapClient = null
+                            bleL2capBootstrapClient = null
                         }
                     }
-                try {
-                    connection.run(files)
-                } finally {
-                    collector.cancel()
-                    activeConnection = null
-                    bluetoothBootstrapClient = null
-                    bleL2capBootstrapClient = null
                 }
             }
+    }
+
+    private sealed interface PreparedConnection {
+        data class Ready(
+            val connection: OutboundConnection,
+        ) : PreparedConnection
+
+        data class Failed(
+            val reason: String,
+        ) : PreparedConnection
     }
 
     private fun renderConnectionState(
@@ -464,6 +503,14 @@ public class SendActivity : AppCompatActivity() {
             )
             return
         }
+        if (connectionJob?.isActive == true && binding.sendStatusPanel.isVisible) {
+            connectionJob?.cancel()
+            renderTerminal(
+                getString(R.string.send_phase_cancelled),
+                getString(R.string.send_status_failure_reason, CancelCause.LOCAL.toString()),
+            )
+            return
+        }
         // Cancel before any peer was selected: stop the BLE pulse now
         // so we don't waste the radio while finish() tears the activity
         // down. onDestroy would also catch this, but stopping here keeps
@@ -482,6 +529,21 @@ public class SendActivity : AppCompatActivity() {
      * when [Build.MODEL] is empty (rare but happens on some emulators).
      */
     private fun senderDeviceLabel(): String = Build.MODEL?.takeIf { it.isNotBlank() } ?: "WhenVivoMeetsGoogle"
+
+    private fun prepareSenderIdentity() {
+        senderEndpointId = OutboundConnection.generateEndpointId()
+        val senderEndpointInfo =
+            EndpointInfo(
+                version = 1,
+                hidden = false,
+                deviceType = DeviceType.PHONE,
+                reserved = false,
+                metadata = ByteArray(EndpointInfo.METADATA_LEN).also { SecureRandom().nextBytes(it) },
+                deviceName = senderDeviceLabel(),
+            )
+        senderEndpointInfoBytes = senderEndpointInfo.serialize()
+        logOutboundDiagnostic("sender identity: endpointId=$senderEndpointId name=${senderDeviceLabel()}")
+    }
 
     private fun logResolvedFiles(files: List<FileSource>) {
         files.forEachIndexed { index, file ->

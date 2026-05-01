@@ -166,10 +166,13 @@ private class PeerAggregator {
         state.endpointId = state.endpointId ?: observation.endpointId
         observation.endpointId?.let { endpointIdIndex[it] = state.stableId }
         state.endpointInfo = chooseEndpointInfo(state.endpointInfo, observation.endpointInfo)
+        if (state.bleAddress != observation.advertiserAddress) {
+            state.bleGattConnectable = false
+        }
         state.bleAddress = observation.advertiserAddress
         state.bleRssi = observation.rssi
         state.bleL2capPsm = observation.l2capPsm
-        state.bleGattConnectable = observation.gattConnectable
+        state.bleGattConnectable = state.bleGattConnectable || observation.gattConnectable
         observation.displayName?.toDisplayNameOrNull()?.let { displayName ->
             state.bleDisplayName = displayName
             state.bleDisplayNameSource = observation.displayNameSource?.logLabel

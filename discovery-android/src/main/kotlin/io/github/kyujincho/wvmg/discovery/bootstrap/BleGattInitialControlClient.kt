@@ -97,7 +97,7 @@ public class BleGattInitialControlClient internal constructor(
             }
             val ready = transport.awaitReady(CONNECTION_READY_TIMEOUT_MILLIS)
             if (!ready) {
-                Log.w(TAG, "BLE GATT initial connect timed out waiting for multiplex accept")
+                Log.w(TAG, "BLE GATT initial connect timed out waiting for socket ready")
                 transport.close()
                 return@withContext null
             }
@@ -283,6 +283,7 @@ private class BleGattClientTransport(
                 close()
                 return
             }
+            Log.i(TAG, "characteristic write complete device=${device.safeAddress()}")
             drainWritesLocked()
         }
     }
@@ -423,7 +424,9 @@ private class BleGattClientTransport(
             return
         }
         when (control.type) {
-            BleFramesProto.SocketControlFrame.ControlFrameType.PACKET_ACKNOWLEDGEMENT -> Unit
+            BleFramesProto.SocketControlFrame.ControlFrameType.PACKET_ACKNOWLEDGEMENT -> {
+                Log.i(TAG, "BLE GATT packet ack size=${control.packetAcknowledgement.receivedSize}")
+            }
             BleFramesProto.SocketControlFrame.ControlFrameType.DISCONNECTION -> close()
             else -> Log.i(TAG, "BLE GATT control frame type=${control.type}")
         }
@@ -442,6 +445,7 @@ private class BleGattClientTransport(
 
     private fun sendSocketServiceBytes(bytes: ByteArray) {
         if (bytes.isEmpty()) return
+        Log.i(TAG, "BLE GATT service write bytes=${bytes.size} preview=${bytes.previewHex()}")
         sendWeaveMessage(NearbyServiceId.hashPrefix + bytes)
     }
 
@@ -480,6 +484,11 @@ private class BleGattClientTransport(
         val outgoing = toPeripheral ?: return close()
         outgoing.writeType = writeTypeFor(outgoing)
         outgoing.value = packet
+        Log.i(
+            TAG,
+            "write characteristic len=${packet.size} header=${packet.firstByteHex()} " +
+                "type=${outgoing.writeType} properties=${outgoing.properties} device=${device.safeAddress()}",
+        )
         writeInFlight = openGatt.writeCharacteristic(outgoing)
         if (!writeInFlight) {
             Log.w(TAG, "writeCharacteristic returned false")
@@ -500,10 +509,10 @@ private class BleGattClientTransport(
 }
 
 private fun writeTypeFor(characteristic: BluetoothGattCharacteristic): Int =
-    if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
-        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-    } else {
+    if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
         BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+    } else {
+        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
     }
 
 private fun ArrayList<Byte>.toByteArray(): ByteArray {
@@ -517,3 +526,5 @@ private fun BluetoothDevice.safeAddress(): String = runCatching { address }.getO
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
 private fun ByteArray.firstByteHex(): String = firstOrNull()?.let { "%02x".format(it) } ?: "--"
+
+private fun ByteArray.previewHex(limit: Int = 16): String = copyOfRange(0, size.coerceAtMost(limit)).toHex()

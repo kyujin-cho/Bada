@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.discovery.ble
 
 import android.bluetooth.le.AdvertiseSettings
 import com.google.common.truth.Truth.assertThat
+import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisementHeader
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.DeviceType
@@ -165,6 +166,10 @@ class BleQuickShareAdvertiserTest {
 
             assertThat(started).isTrue()
             val call = gate.startCalls.single()
+            val header = BleAdvertisementHeader.parse(call.payload)
+            assertThat(header).isNotNull()
+            assertThat(header!!.psm).isEqualTo(0x1234)
+            assertThat(header.numSlots).isEqualTo(1)
             val dct = DctAdvertisement.parse(call.dctPayload!!)!!
             assertThat(dct.psm).isEqualTo(0x1234)
             assertThat(BleServiceData.parsePsmExtraField(call.visiblePayload!!)).isEqualTo(0x1234)
