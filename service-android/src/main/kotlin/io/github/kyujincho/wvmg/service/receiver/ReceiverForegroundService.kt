@@ -423,15 +423,33 @@ public class ReceiverForegroundService : Service() {
         val refreshed = AdvertisedDeviceNames.createEndpointInfo(applicationContext, current)
         if (current == refreshed) return
 
-        if (current?.deviceName != refreshed.deviceName) {
-            BleEndpointIdHolder.clear()
-        }
-        EndpointIdentityHolder.snapshot.set(refreshed)
         val activeSession = session
-        if (activeSession != null) {
-            activeSession.replaceEndpointInfo(refreshed)
-            if (activeSession.isAdvertising) {
-                buildBleBroadcaster().start()
+        val nameChanged = current?.deviceName != refreshed.deviceName
+        if (activeSession == null) {
+            if (nameChanged) {
+                BleEndpointIdHolder.clear()
+            }
+            EndpointIdentityHolder.snapshot.set(refreshed)
+        } else {
+            if (nameChanged) {
+                BleEndpointIdHolder.clear()
+            }
+            EndpointIdentityHolder.snapshot.set(refreshed)
+            val wasAdvertising = activeSession.isAdvertising
+            val applied = activeSession.replaceEndpointInfo(refreshed)
+            if (applied) {
+                if (activeSession.isAdvertising) {
+                    buildBleBroadcaster().start()
+                }
+            } else if (current != null) {
+                if (nameChanged) {
+                    BleEndpointIdHolder.clear()
+                }
+                EndpointIdentityHolder.snapshot.set(current)
+                activeSession.replaceEndpointInfo(current)
+                if (wasAdvertising) {
+                    runCatching { activeSession.publishAdvertisement() }
+                }
             }
         }
     }

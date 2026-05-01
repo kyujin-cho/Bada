@@ -343,21 +343,27 @@ public class ReceiverSession(
      * so active inbound connections keep running under the same session.
      */
     @Suppress("TooGenericExceptionCaught")
-    internal fun replaceEndpointInfo(endpointInfo: EndpointInfo) {
+    internal fun replaceEndpointInfo(endpointInfo: EndpointInfo): Boolean =
         synchronized(advertiseLock) {
             this.endpointInfo = endpointInfo
 
-            val tcpServer = server ?: return
+            val tcpServer = server
             val wasPublished = advertiseHandle != null || initialControlServers.any { it.isActive }
-            if (!wasPublished || stopped.get()) return
-
-            runCatching { advertiseHandle?.close() }
-            advertiseHandle = null
-            stopInitialControlServersLocked()
-            ReceiverAdvertisementStateHolder.setAdvertising(false)
-            publishAdvertisementLocked(tcpServer, tcpServer.boundPort)
+            if (tcpServer == null || !wasPublished || stopped.get()) {
+                true
+            } else {
+                runCatching { advertiseHandle?.close() }
+                advertiseHandle = null
+                stopInitialControlServersLocked()
+                ReceiverAdvertisementStateHolder.setAdvertising(false)
+                runCatching {
+                    publishAdvertisementLocked(tcpServer, tcpServer.boundPort)
+                    true
+                }.getOrElse {
+                    false
+                }
+            }
         }
-    }
 
     private val advertiseLock: Any = Any()
 

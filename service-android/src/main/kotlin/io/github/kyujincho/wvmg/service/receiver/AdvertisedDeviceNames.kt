@@ -91,13 +91,15 @@ internal class AndroidAdvertisedDeviceNamePolicy(
     private val appLabel: () -> String?,
 ) {
     fun resolve(): String =
-        AdvertisedDeviceNameResolver(
-            customName = preferences.getCustomName(),
-            systemDeviceName = readSystemDeviceName(),
-            bluetoothName = readBluetoothName(),
-            modelName = modelName(),
-            appLabel = appLabel(),
-        ).resolve()
+        sequenceOf<() -> String?>(
+            { preferences.getCustomName() },
+            { AdvertisedDeviceNameSanitizer.sanitize(readSystemDeviceName()) },
+            { AdvertisedDeviceNameSanitizer.sanitize(readBluetoothName()) },
+            { AdvertisedDeviceNameSanitizer.sanitize(modelName()) },
+            { AdvertisedDeviceNameSanitizer.sanitize(appLabel()) },
+        ).mapNotNull { reader -> reader() }
+            .firstOrNull()
+            ?: AdvertisedDeviceNames.DEFAULT_DEVICE_NAME
 
     fun createEndpointInfo(previous: EndpointInfo?): EndpointInfo =
         EndpointInfo(

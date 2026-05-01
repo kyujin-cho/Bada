@@ -42,6 +42,45 @@ class AdvertisedDeviceNamesTest {
     }
 
     @Test
+    fun `policy short-circuits platform reads when a custom name is stored`() {
+        val prefs =
+            AdvertisedDeviceNamePreferences(FakeSharedPreferences()).apply {
+                setCustomName("Custom Pixel")
+            }
+        var systemReads = 0
+        var modelReads = 0
+        var appLabelReads = 0
+        val bluetooth = FakeBluetoothNameGateway(readValue = "Nearby BT")
+        val policy =
+            AndroidAdvertisedDeviceNamePolicy(
+                preferences = prefs,
+                sdkInt = 36,
+                globalDeviceNameReader =
+                    GlobalDeviceNameReader {
+                        systemReads += 1
+                        "System Pixel"
+                    },
+                bluetoothNameGateway = bluetooth,
+                modelName = {
+                    modelReads += 1
+                    "Pixel Model"
+                },
+                appLabel = {
+                    appLabelReads += 1
+                    "WhenVivoMeetsGoogle"
+                },
+            )
+
+        val resolved = policy.resolve()
+
+        assertThat(resolved).isEqualTo("Custom Pixel")
+        assertThat(systemReads).isEqualTo(0)
+        assertThat(bluetooth.readCalls).isEqualTo(0)
+        assertThat(modelReads).isEqualTo(0)
+        assertThat(appLabelReads).isEqualTo(0)
+    }
+
+    @Test
     fun `policy does not query Settings Global below API 25`() {
         val prefs = AdvertisedDeviceNamePreferences(FakeSharedPreferences())
         var systemReads = 0
@@ -64,6 +103,36 @@ class AdvertisedDeviceNamesTest {
 
         assertThat(resolved).isEqualTo("Nearby BT")
         assertThat(systemReads).isEqualTo(0)
+    }
+
+    @Test
+    fun `policy does not read bluetooth fallback when system device name resolves`() {
+        val prefs = AdvertisedDeviceNamePreferences(FakeSharedPreferences())
+        var modelReads = 0
+        var appLabelReads = 0
+        val bluetooth = FakeBluetoothNameGateway(readValue = "Nearby BT")
+        val policy =
+            AndroidAdvertisedDeviceNamePolicy(
+                preferences = prefs,
+                sdkInt = 36,
+                globalDeviceNameReader = GlobalDeviceNameReader { "  Pixel 9 Pro  " },
+                bluetoothNameGateway = bluetooth,
+                modelName = {
+                    modelReads += 1
+                    "Pixel Model"
+                },
+                appLabel = {
+                    appLabelReads += 1
+                    "WhenVivoMeetsGoogle"
+                },
+            )
+
+        val resolved = policy.resolve()
+
+        assertThat(resolved).isEqualTo("Pixel 9 Pro")
+        assertThat(bluetooth.readCalls).isEqualTo(0)
+        assertThat(modelReads).isEqualTo(0)
+        assertThat(appLabelReads).isEqualTo(0)
     }
 
     @Test
