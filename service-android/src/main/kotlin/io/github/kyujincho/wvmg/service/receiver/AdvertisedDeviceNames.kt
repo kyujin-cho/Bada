@@ -6,6 +6,7 @@
 package io.github.kyujincho.wvmg.service.receiver
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -227,7 +228,11 @@ internal class AndroidBluetoothNameGateway(
             Manifest.permission.BLUETOOTH_CONNECT,
         ) == PackageManager.PERMISSION_GRANTED
 
+    @SuppressLint("MissingPermission")
     override fun read(): String? =
+        // The policy calls this only after checking BLUETOOTH_CONNECT on
+        // Android 12+, and wraps the read so a late permission revocation
+        // falls through to the next name candidate instead of crashing.
         context
             .getSystemService(BluetoothManager::class.java)
             ?.adapter
