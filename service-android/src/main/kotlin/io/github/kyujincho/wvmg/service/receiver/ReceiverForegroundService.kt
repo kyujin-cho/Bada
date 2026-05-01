@@ -154,6 +154,9 @@ public class ReceiverForegroundService : Service() {
     @Volatile
     private var mdnsGate: MdnsAdvertisementGate? = null
 
+    @Volatile
+    private var discoveryDiagnosticsJob: Job? = null
+
     /**
      * Observer attached to [ProcessLifecycleOwner] that switches the
      * BLE scan mode based on whether the user has the app foregrounded.
@@ -219,9 +222,15 @@ public class ReceiverForegroundService : Service() {
             },
         )
 
+        // Reconcile the receiver identity on every start request so a
+        // newly-saved advertised name takes effect without waiting for
+        // a full process restart. If the identity changed while the
+        // session was already running, we tear the active receiver
+        // stack down and bring it back up with the new EndpointInfo.
+        reconcileReceiverIdentityIfNeeded()
+
         // Bring up the receiver session if it isn't already running.
-        // Multiple startService calls are idempotent — the second one
-        // just keeps the existing session alive.
+        // Multiple startService calls are otherwise idempotent.
         if (session == null) {
             startBleScanner()
             startReceiverSession()
@@ -402,6 +411,32 @@ public class ReceiverForegroundService : Service() {
     }
 
     /**
+     * Refresh the canonical receiver [EndpointInfo] from the current
+     * advertised-name setting and platform defaults.
+     *
+     * The receiver keeps its metadata blob stable across refreshes so
+     * peers still see the same logical device, but a changed device
+     * name requires a new endpoint id and a restarted advertise stack.
+     */
+    private fun reconcileReceiverIdentityIfNeeded() {
+        val current = EndpointIdentityHolder.snapshot.get()
+        val refreshed = AdvertisedDeviceNames.createEndpointInfo(applicationContext, current)
+        if (current == refreshed) return
+
+        val shouldRestartSession = session != null
+        if (shouldRestartSession) {
+            stopActiveReceiverSession()
+        }
+        if (current?.deviceName != refreshed.deviceName) {
+            BleEndpointIdHolder.clear()
+        }
+        EndpointIdentityHolder.snapshot.set(refreshed)
+        if (shouldRestartSession) {
+            startReceiverSession()
+        }
+    }
+
+    /**
      * Construct and launch the [MdnsAdvertisementGate] that drives
      * [ReceiverSession.publishAdvertisement] / `unpublishAdvertisement`
      * from BLE pulse activity (#34). Called after [ReceiverSession.start]
@@ -488,24 +523,26 @@ public class ReceiverForegroundService : Service() {
      * factory) the loop simply skips logging and idles.
      */
     private fun startDiscoveryDiagnosticsLogger() {
-        serviceScope.launch {
-            while (isActive) {
-                val discovery = ActiveDiscoveryHolder.current()
-                if (discovery != null) {
-                    val snap = discovery.snapshot()
-                    Log.i(
-                        DIAGNOSTICS_TAG,
-                        "discovery snapshot: " +
-                            "advertising=${snap.advertising} browsing=${snap.browsing} " +
-                            "lockHeld=${snap.multicastLockHeld} " +
-                            "advBound=${snap.advertiseBoundAddress?.hostAddress ?: "-"} " +
-                            "browseBound=${snap.browseBoundAddress?.hostAddress ?: "-"} " +
-                            "events=${snap.recentEvents.size}",
-                    )
+        if (discoveryDiagnosticsJob != null) return
+        discoveryDiagnosticsJob =
+            serviceScope.launch {
+                while (isActive) {
+                    val discovery = ActiveDiscoveryHolder.current()
+                    if (discovery != null) {
+                        val snap = discovery.snapshot()
+                        Log.i(
+                            DIAGNOSTICS_TAG,
+                            "discovery snapshot: " +
+                                "advertising=${snap.advertising} browsing=${snap.browsing} " +
+                                "lockHeld=${snap.multicastLockHeld} " +
+                                "advBound=${snap.advertiseBoundAddress?.hostAddress ?: "-"} " +
+                                "browseBound=${snap.browseBoundAddress?.hostAddress ?: "-"} " +
+                                "events=${snap.recentEvents.size}",
+                        )
+                    }
+                    delay(DIAGNOSTICS_LOG_INTERVAL_MS)
                 }
-                delay(DIAGNOSTICS_LOG_INTERVAL_MS)
             }
-        }
     }
 
     private fun startInboundDiagnosticsLogger(session: ReceiverSession) {
@@ -674,7 +711,7 @@ public class ReceiverForegroundService : Service() {
         consentReceiver = null
     }
 
-    private fun stopReceiverAndExit() {
+    private fun stopActiveReceiverSession() {
         consentCoordinator?.stop()
         consentCoordinator = null
         progressCoordinator?.stop()
@@ -696,7 +733,6 @@ public class ReceiverForegroundService : Service() {
             TransferCancelRegistry.instance.unregister(id)
             TransferProgressNotification.dismiss(ctx, id)
         }
-        unregisterConsentReceiverIfNeeded()
 
         // Stop the gate before the session so its delayed unpublish
         // coroutine can no longer fire after `session.stop()` has
@@ -707,6 +743,18 @@ public class ReceiverForegroundService : Service() {
         session?.stop()
         session = null
         ActiveDiscoveryHolder.clear()
+        discoveryDiagnosticsJob?.cancel()
+        discoveryDiagnosticsJob = null
+
+        // Stop the receiver-side BLE pulse advertiser after the mDNS
+        // gate and session are down so a stale registration never
+        // outlives the old identity while a new session is starting.
+        bleAdvertiser?.stop()
+    }
+
+    private fun stopReceiverAndExit() {
+        stopActiveReceiverSession()
+        unregisterConsentReceiverIfNeeded()
 
         // Detach the ProcessLifecycleOwner observer first — once the
         // scanner is stopped, any late foreground/background callback
@@ -726,13 +774,6 @@ public class ReceiverForegroundService : Service() {
         bleScanner?.stop()
         bleScanner = null
         ActiveBleScannerHolder.clear()
-
-        // Tear the receiver-side BLE pulse advertiser down (#121). The
-        // gate's stop above already issued a final `stop()` on the
-        // broadcaster as part of its outbound-veto / debounce path,
-        // but we re-stop unconditionally here in case the gate teardown
-        // raced with a fresh "should publish" decision.
-        bleAdvertiser?.stop()
         bleAdvertiser = null
 
         serviceJob.cancel()
@@ -810,8 +851,11 @@ public class ReceiverForegroundService : Service() {
          */
         private val defaultSessionFactory: SessionFactory =
             SessionFactory { context ->
-                val identity = EndpointIdentityHolder.snapshot.get() ?: defaultEndpointInfo(context)
-                EndpointIdentityHolder.snapshot.compareAndSet(null, identity)
+                val identity =
+                    EndpointIdentityHolder.snapshot.get()
+                        ?: AdvertisedDeviceNames.createEndpointInfo(context).also {
+                            EndpointIdentityHolder.snapshot.compareAndSet(null, it)
+                        }
                 // Keep one Discovery per session so the periodic
                 // diagnostic snapshot in [startReceiverSession] reflects
                 // the same instance the advertise lambda is using.
@@ -881,55 +925,6 @@ public class ReceiverForegroundService : Service() {
             context.startService(intent)
         }
 
-        /**
-         * Build the default [EndpointInfo] for this device.
-         *
-         * **Visibility bit = 0 (visible) + inline UTF-8 device name.**
-         * This is the canonical "Everyone" shape that stock Samsung
-         * Quick Share's send sheet renders.
-         *
-         * History: an earlier commit (`c0150be`) flipped this to
-         * `hidden=true, deviceName=null` based on observing a Galaxy
-         * peer's BLE service-data byte (`0x32`) and assuming the same
-         * shape applied to the mDNS `n=` TXT payload. That assumption
-         * was wrong — the BLE pulse and the mDNS TXT carry independent
-         * advertisements with different framing, and `hidden=true` puts
-         * us in **Contacts-only** mode at the mDNS layer. Samsung's
-         * picker then tries to match our 16 random metadata bytes
-         * against its cached contact certificates, fails silently, and
-         * filters us out of the share sheet. Reverting to `hidden=false`
-         * with an inline name restored visibility against a Galaxy S26
-         * sender on One UI 8.x.
-         *
-         * Random salt + encrypted-metadata-key bytes are
-         * indistinguishable to peers from real GMS-issued ones for the
-         * GMS-free use case targeted by this project.
-         *
-         * Receiver-side BLE pulse advertising (the planned follow-up to
-         * `c0150be`) would let us also broadcast the friendly name
-         * through the BLE channel and stay compatible if Samsung's
-         * picker ever tightens its mDNS-acceptance rules; that work is
-         * tracked separately.
-         */
-        private fun defaultEndpointInfo(context: Context): EndpointInfo {
-            val applicationLabel =
-                context.applicationInfo
-                    .loadLabel(context.packageManager)
-                    .toString()
-                    .ifBlank { DEFAULT_DEVICE_NAME }
-                    .take(MAX_DEFAULT_NAME_BYTES)
-            return EndpointInfo(
-                version = 1,
-                hidden = false,
-                deviceType =
-                    io.github.kyujincho.wvmg.protocol.endpoint.DeviceType.PHONE,
-                reserved = false,
-                metadata = ByteArray(EndpointInfo.METADATA_LEN).also { java.security.SecureRandom().nextBytes(it) },
-                deviceName = applicationLabel,
-                tlvRecords = emptyList(),
-            )
-        }
-
         private fun logInboundDiagnostic(
             context: Context,
             line: String,
@@ -941,13 +936,6 @@ public class ReceiverForegroundService : Service() {
                 file.appendText("${System.currentTimeMillis()} $line\n")
             }
         }
-
-        private const val DEFAULT_DEVICE_NAME = "Quick Share"
-
-        // 64 bytes leaves comfortable headroom under the 255-byte
-        // single-byte length limit and is more than enough for typical
-        // app-label names ("Quick Share" is 11).
-        private const val MAX_DEFAULT_NAME_BYTES = 64
 
         /**
          * Cadence for the discovery diagnostics logger spawned in
@@ -1213,6 +1201,10 @@ internal object BleEndpointIdHolder {
         return ByteArray(BleServiceData.ENDPOINT_ID_LEN) {
             alphabet[random.nextInt(alphabet.length)].code.toByte()
         }
+    }
+
+    fun clear() {
+        cached.set(null)
     }
 }
 

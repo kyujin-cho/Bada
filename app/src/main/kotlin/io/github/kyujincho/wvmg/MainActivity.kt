@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
@@ -25,6 +26,7 @@ import io.github.kyujincho.wvmg.onboarding.PermissionsOnboardingActivity
 import io.github.kyujincho.wvmg.send.SendActivity
 import io.github.kyujincho.wvmg.service.downloads.SaveLocationDisplayName
 import io.github.kyujincho.wvmg.service.downloads.SaveLocationPreferences
+import io.github.kyujincho.wvmg.service.receiver.AdvertisedDeviceNames
 import io.github.kyujincho.wvmg.service.receiver.MdnsVisibilityOverrideHolder
 import io.github.kyujincho.wvmg.service.receiver.ReceiverForegroundService
 
@@ -48,6 +50,9 @@ import io.github.kyujincho.wvmg.service.receiver.ReceiverForegroundService
  *    the BLE-pulse gate. Useful on devices where BLE scan is
  *    unavailable (no permission, no LE hardware) or whenever the user
  *    wants to stay discoverable.
+ *  - Advertised Quick Share name (#141): a small settings block lets
+ *    the user persist a custom receiver name, or fall back to Android's
+ *    device-name chain when no override is set.
  *  - Battery-optimization banner (#47): a one-time, dismissible banner
  *    that detects the OEM family and routes the user to the right
  *    "exempt this app from background killing" Settings page. Hidden
@@ -183,6 +188,19 @@ class MainActivity : AppCompatActivity() {
             SaveLocationPreferences.from(this).clear()
             refreshSaveLocationLabel()
         }
+
+        findViewById<Button>(R.id.main_advertised_name_save).setOnClickListener {
+            val input = findViewById<EditText>(R.id.main_advertised_name_input)
+            val stored = AdvertisedDeviceNames.setCustomName(this, input.text?.toString())
+            input.setText(stored.orEmpty())
+            refreshAdvertisedNameSection()
+            ReceiverForegroundService.start(this)
+        }
+        findViewById<Button>(R.id.main_advertised_name_reset).setOnClickListener {
+            AdvertisedDeviceNames.clearCustomName(this)
+            refreshAdvertisedNameSection()
+            ReceiverForegroundService.start(this)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -228,6 +246,7 @@ class MainActivity : AppCompatActivity() {
         // the "Downloads (default)" label when the URI is unset or its
         // grant has been lost.
         refreshSaveLocationLabel()
+        refreshAdvertisedNameSection()
 
         // Bring up the receiver foreground service so the BLE pulse
         // scanner (#33), mDNS-publish gate (#34), and TCP listener are
@@ -330,6 +349,21 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.main_save_location_default)
             }
         label.text = displayText
+    }
+
+    private fun refreshAdvertisedNameSection() {
+        val input = findViewById<EditText>(R.id.main_advertised_name_input)
+        val custom = AdvertisedDeviceNames.getCustomName(this).orEmpty()
+        if (input.text?.toString() != custom) {
+            input.setText(custom)
+        }
+
+        val current = findViewById<TextView>(R.id.main_advertised_name_current)
+        current.text =
+            getString(
+                R.string.main_advertised_name_current,
+                AdvertisedDeviceNames.resolve(this),
+            )
     }
 
     private fun onBatteryBannerSkipClicked() {

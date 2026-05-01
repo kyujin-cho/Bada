@@ -20,6 +20,17 @@
     <string name="main_save_location_clear">Reset to Downloads</string>
     <string name="main_save_location_pick_failed">Could not save that folder. Please pick a different location.</string>
 
+    <!-- Advertised Quick Share device name (#141). The receiver uses
+         this custom name when set; otherwise it falls back to Android's
+         device-name chain (system device name, Bluetooth name, model,
+         then app label). -->
+    <string name="main_advertised_name_title">Advertised Quick Share name</string>
+    <string name="main_advertised_name_subtitle">Nearby Quick Share peers see this name when they discover this device. Leave it empty to use the Android device name fallback chain. WVMG trims the final name to 19 UTF-8 bytes to avoid interop issues with longer advertisements.</string>
+    <string name="main_advertised_name_hint">Device name</string>
+    <string name="main_advertised_name_current">Currently advertised: %1$s</string>
+    <string name="main_advertised_name_save">Save name</string>
+    <string name="main_advertised_name_reset">Use device default</string>
+
     <!-- Folder-send entry point (#38). Android's share sheet only routes
          individual files; to ship a directory tree (preserving the
          layout via Quick Share's `parent_folder` field) we surface a
