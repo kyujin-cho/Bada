@@ -23,7 +23,6 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
-import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisementHeader
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
@@ -48,23 +47,22 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * ### Wire format
  *
- * The service-data payload is built by [BleServiceData.encodeFramed] in
- * `:core-protocol` (pure-JVM, KAT-tested). The shape captured from a
- * Galaxy peer's broadcast is:
+ * The primary service-data payload is built as a BLE v2 GATT
+ * advertisement header in `:core-protocol` (pure-JVM, KAT-tested). Stock
+ * senders read the actual receiver identity from slot zero on the
+ * connectable GATT service before opening the same GATT socket. The slot
+ * value has the raw fast-body shape that Samsung GMS logs after a
+ * successful slot read:
  *
  * ```text
- * [ frameType(0x4a) | inner_len | versPCP | endpoint_id(4 ASCII) |
- *   endpoint_info_len | EndpointInfo(N) | device_token(2) ]
+ * [ versPCP | endpoint_id(4 ASCII) | endpoint_info_len |
+ *   EndpointInfo(N) ]
  * ```
  *
- * For our hidden, version=1, PHONE EndpointInfo the inner payload is
- * **23 bytes** and the stock BLE v2 framed service-data value is
- * **27 bytes**, which fits alongside the 16-bit service-data AD header
- * inside the legacy 31-byte advertising-PDU budget without needing
- * extended advertising. The receiver's mDNS path may carry a visible
- * name-bearing EndpointInfo for stock picker compatibility; the BLE
- * payload factory intentionally emits this compact hidden form so the
- * fast advertisement remains legal on legacy Android BLE advertisers.
+ * The compact header fits inside the legacy 31-byte scan-response budget
+ * while letting the GATT slot carry a visible name-bearing [EndpointInfo].
+ * This keeps the production receiver on the verified GATT socket path and
+ * avoids publishing an LE CoC PSM that One UI can prefer over GATT.
  *
  * WVMG also submits a second legacy DCT advertisement on `0xFC73`. Stock
  * Nearby uses DCT as the compact visible identity path: it carries a short
@@ -129,9 +127,9 @@ import java.util.concurrent.atomic.AtomicReference
  * @param gate platform-advertiser abstraction; tests inject a fake.
  * @param permissionChecker checks `BLUETOOTH_ADVERTISE` at start time;
  *   defaults to a [ContextCompat]-backed implementation in production.
- * @param payloadFactory builds the compact framed service-data payload from
- *   the supplied [EndpointInfo] and the latest endpoint_id. Defaults to
- *   [BleServiceData.encode] over a hidden, no-name copy of the identity.
+ * @param payloadFactory builds the compact GATT advertisement header from
+ *   the supplied [EndpointInfo] and the latest endpoint_id. The hosted slot
+ *   carries the same visible identity that the GATT server exposes.
  * @param visiblePayloadFactory optionally builds an Android O+ extended
  *   `0xFEF3` payload carrying the visible [EndpointInfo]. This is the BLE-only
  *   path Samsung ShareLive was observed to promote into the share sheet when
@@ -615,8 +613,8 @@ internal class AndroidAdvertisePermissionChecker(
 }
 
 /**
- * Builder for the compact framed service-data payload. The default implementation
- * delegates to [BleServiceData.encodeFramed] in `:core-protocol`; tests can
+ * Builder for the compact primary service-data payload. The default implementation
+ * emits a BLE v2 GATT advertisement header in `:core-protocol`; tests can
  * substitute a fake to drive specific failure paths.
  */
 public fun interface PayloadFactory {
@@ -635,33 +633,18 @@ public object DefaultPayloadFactory : PayloadFactory {
         endpointId: ByteArray,
         endpointInfo: EndpointInfo,
     ): ByteArray {
-        val psm = BleDctPsmHolder.currentPsm
-        if (psm != null && psm != DctAdvertisement.DEFAULT_PSM) {
-            val gattAdvertisement =
-                BleAdvertisement.encodeGattAdvertisement(
-                    endpointId = endpointId,
-                    endpointInfo = endpointInfo,
-                    psm = psm,
-                )
-            return BleAdvertisementHeader.encodeSingleSlot(
-                serviceId = NearbyServiceId.VALUE,
-                gattAdvertisement = gattAdvertisement,
-                psm = psm,
-            )
-        }
-        return BleServiceData.encodeFramed(endpointId, endpointInfo.compactForFastAdvertisement())
+        val gattAdvertisement = buildSlotPayload(endpointId, endpointInfo)
+        return BleAdvertisementHeader.encodeSingleSlot(
+            serviceId = NearbyServiceId.VALUE,
+            gattAdvertisement = gattAdvertisement,
+            psm = 0,
+        )
     }
 
-    private fun EndpointInfo.compactForFastAdvertisement(): EndpointInfo =
-        EndpointInfo(
-            version = version,
-            hidden = true,
-            deviceType = deviceType,
-            reserved = reserved,
-            metadata = metadata.copyOf(),
-            deviceName = null,
-            tlvRecords = emptyList(),
-        )
+    internal fun buildSlotPayload(
+        endpointId: ByteArray,
+        endpointInfo: EndpointInfo,
+    ): ByteArray = BleServiceData.encode(endpointId, endpointInfo)
 }
 
 /** Optional payload builder for secondary extended advertisements. */

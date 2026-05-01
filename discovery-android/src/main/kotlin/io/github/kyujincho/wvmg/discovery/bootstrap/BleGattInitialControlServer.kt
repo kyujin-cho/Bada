@@ -27,8 +27,6 @@ import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.google.location.nearby.mediums.proto.BleFramesProto
 import com.google.location.nearby.mediums.proto.MultiplexFramesProto
-import io.github.kyujincho.wvmg.discovery.ble.BleDctPsmHolder
-import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.protocol.endpoint.NearbyServiceId
@@ -248,13 +246,18 @@ public class BleGattInitialControlServer(
                 "write descriptor=${descriptor.uuid} char=${descriptor.characteristic?.uuid} " +
                     "value=${value.toHex()} offset=$offset device=${device.safeAddress()}",
             )
-            val enablesNotifications =
-                value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ||
-                    value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
+            val subscriptionMode =
+                when {
+                    value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ->
+                        GattSubscriptionMode.NOTIFICATION
+                    value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE) ->
+                        GattSubscriptionMode.INDICATION
+                    else -> GattSubscriptionMode.DISABLED
+                }
             if (descriptor.uuid == CLIENT_CHARACTERISTIC_CONFIG_UUID &&
                 descriptor.characteristic?.uuid == FROM_PERIPHERAL_UUID
             ) {
-                sessionFor(device).setSubscribed(enablesNotifications)
+                sessionFor(device).setSubscription(subscriptionMode)
             }
             if (responseNeeded) {
                 server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
@@ -298,20 +301,11 @@ public class BleGattInitialControlServer(
                         SERVICE_UUID,
                         BluetoothGattService.SERVICE_TYPE_PRIMARY,
                     )
-                val toPeripheral =
-                    BluetoothGattCharacteristic(
-                        TO_PERIPHERAL_UUID,
-                        BluetoothGattCharacteristic.PROPERTY_WRITE or
-                            BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
-                        BluetoothGattCharacteristic.PERMISSION_WRITE,
-                    )
                 val fromPeripheral =
                     BluetoothGattCharacteristic(
                         FROM_PERIPHERAL_UUID,
-                        BluetoothGattCharacteristic.PROPERTY_READ or
-                            BluetoothGattCharacteristic.PROPERTY_NOTIFY or
-                            BluetoothGattCharacteristic.PROPERTY_INDICATE,
-                        BluetoothGattCharacteristic.PERMISSION_READ,
+                        BluetoothGattCharacteristic.PROPERTY_INDICATE,
+                        0,
                     )
                 fromPeripheral.addDescriptor(
                     BluetoothGattDescriptor(
@@ -319,8 +313,14 @@ public class BleGattInitialControlServer(
                         BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE,
                     ),
                 )
-                service.addCharacteristic(toPeripheral)
+                val toPeripheral =
+                    BluetoothGattCharacteristic(
+                        TO_PERIPHERAL_UUID,
+                        BluetoothGattCharacteristic.PROPERTY_WRITE,
+                        BluetoothGattCharacteristic.PERMISSION_WRITE,
+                    )
                 service.addCharacteristic(fromPeripheral)
+                service.addCharacteristic(toPeripheral)
                 buildAdvertisementSlots(endpointInfo, endpointId).forEach(service::addCharacteristic)
                 return service
             }
@@ -329,9 +329,11 @@ public class BleGattInitialControlServer(
                 endpointInfo: EndpointInfo,
                 endpointId: ByteArray,
             ): List<BluetoothGattCharacteristic> {
-                val psm = BleDctPsmHolder.currentPsm ?: 0
+                // Stock GMS expects GATT slots to host the raw Nearby BLE
+                // advertisement body (0x23 + endpoint_id + EndpointInfo),
+                // not the heavier non-fast wrapper used by some scanners.
                 val visibleAdvertisement =
-                    runCatching { BleAdvertisement.encodeGattAdvertisement(endpointId, endpointInfo, psm = psm) }
+                    runCatching { BleServiceData.encode(endpointId, endpointInfo) }
                         .getOrDefault(ByteArray(0))
 
                 return (0 until GATT_ADVERTISEMENT_SLOT_COUNT).map { slot ->
@@ -388,6 +390,7 @@ private class BleWeaveGattSession(
         )
     private val incomingMessage = ArrayList<Byte>()
     private var subscribed: Boolean = false
+    private var subscriptionMode: GattSubscriptionMode = GattSubscriptionMode.DISABLED
     private var sending: Boolean = false
     private var introReceived: Boolean = false
     private var mtuPayloadSize: Int = WeaveFrames.DEFAULT_ATT_PAYLOAD_SIZE
@@ -396,9 +399,13 @@ private class BleWeaveGattSession(
     private var closed: Boolean = false
 
     @Synchronized
-    fun setSubscribed(enabled: Boolean) {
-        subscribed = enabled
-        Log.i(BleGattInitialControlServer.TAG, "subscription enabled=$enabled device=${device.safeAddress()}")
+    fun setSubscription(mode: GattSubscriptionMode) {
+        subscriptionMode = mode
+        subscribed = mode != GattSubscriptionMode.DISABLED
+        Log.i(
+            BleGattInitialControlServer.TAG,
+            "subscription mode=$mode enabled=$subscribed device=${device.safeAddress()}",
+        )
         drainNotificationsLocked()
     }
 
@@ -558,17 +565,19 @@ private class BleWeaveGattSession(
     private fun drainNotificationsLocked() {
         if (!subscribed || sending || closed) return
         val packet = if (notificationQueue.isEmpty()) return else notificationQueue.removeFirst()
+        val confirm = subscriptionMode == GattSubscriptionMode.INDICATION
         Log.i(
             BleGattInitialControlServer.TAG,
-            "send notification len=${packet.size} header=${packet.firstByteHex()} device=${device.safeAddress()}",
+            "send notification len=${packet.size} header=${packet.firstByteHex()} " +
+                "confirm=$confirm device=${device.safeAddress()}",
         )
         outgoingCharacteristic.value = packet
         sending =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                server.notifyCharacteristicChanged(device, outgoingCharacteristic, false, packet) ==
+                server.notifyCharacteristicChanged(device, outgoingCharacteristic, confirm, packet) ==
                     android.bluetooth.BluetoothStatusCodes.SUCCESS
             } else {
-                server.notifyCharacteristicChanged(device, outgoingCharacteristic, false)
+                server.notifyCharacteristicChanged(device, outgoingCharacteristic, confirm)
             }
         if (!sending) {
             Log.w(BleGattInitialControlServer.TAG, "notifyCharacteristicChanged returned false")
@@ -578,6 +587,12 @@ private class BleWeaveGattSession(
     private companion object {
         private const val GATT_ATT_HEADER_BYTES: Int = 3
     }
+}
+
+private enum class GattSubscriptionMode {
+    DISABLED,
+    NOTIFICATION,
+    INDICATION,
 }
 
 internal class BleMultiplexBridge(

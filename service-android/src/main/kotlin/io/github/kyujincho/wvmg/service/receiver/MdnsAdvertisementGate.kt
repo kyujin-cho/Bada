@@ -118,6 +118,9 @@ public class MdnsAdvertisementGate(
     @Volatile
     private var debounceJob: Job? = null
 
+    @Volatile
+    private var bleAdvertising: Boolean = false
+
     /**
      * Serialises [apply] across the three child collectors so a racing
      * BLE/override/QR transition cannot interleave the
@@ -233,6 +236,11 @@ public class MdnsAdvertisementGate(
             // "should publish" half of the gate.
             debounceJob?.cancel()
             debounceJob = null
+            // Bring up BLE before the potentially slow mDNS path. Some
+            // vivo builds stall inside NsdManager registration; the
+            // receiver still needs to be BLE GATT connectible while that
+            // platform callback is pending.
+            startBleSafely(decision)
             if (!session.isAdvertising) {
                 try {
                     session.publishAdvertisement()
@@ -245,11 +253,6 @@ public class MdnsAdvertisementGate(
                     Log.w(TAG, "publish: failed (decision=$decision)", t)
                 }
             }
-            // Symmetric BLE advertise — start in lock-step with the
-            // mDNS publish. The broadcaster is itself idempotent, so
-            // re-issuing start() while it is already advertising is a
-            // no-op on the platform.
-            startBleSafely(decision)
             return
         }
 
@@ -260,7 +263,10 @@ public class MdnsAdvertisementGate(
         // the returning `if (shouldPublish)` block above push the
         // function past detekt's default of 2; suppressed inline since
         // the alternative (nested if/else) would be harder to read.
-        if (!session.isAdvertising) return
+        if (!session.isAdvertising) {
+            stopBleSafely(reason = "idle with no mDNS advertisement")
+            return
+        }
         if (debounceJob?.isActive == true) return
         debounceJob =
             scope.launch {
@@ -296,6 +302,7 @@ public class MdnsAdvertisementGate(
         try {
             val started = bleBroadcaster.start()
             if (started) {
+                bleAdvertising = true
                 Log.w(TAG, "publish: BLE pulse advertise started (decision=$decision)")
             } else {
                 Log.w(TAG, "publish: BLE pulse advertise unavailable (decision=$decision)")
@@ -312,8 +319,10 @@ public class MdnsAdvertisementGate(
      */
     @Suppress("TooGenericExceptionCaught")
     private fun stopBleSafely(reason: String) {
+        if (!bleAdvertising) return
         try {
             bleBroadcaster.stop()
+            bleAdvertising = false
             Log.w(TAG, "unpublish: BLE pulse advertise stopped ($reason)")
         } catch (t: Throwable) {
             Log.w(TAG, "unpublish: BLE pulse advertise stop threw ($reason)", t)
