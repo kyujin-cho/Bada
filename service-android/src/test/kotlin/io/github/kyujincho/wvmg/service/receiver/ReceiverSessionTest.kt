@@ -325,6 +325,61 @@ class ReceiverSessionTest {
         }
 
     @Test
+    fun `replaceEndpointInfo republishes active advertisement without rebinding tcp listener`() =
+        runBlocking {
+            val advertiser = RecordingAdvertiser()
+            val initialControlServer = RecordingInitialControlServer()
+            val original = sampleEndpointInfo(name = "Old Name")
+            val updated = sampleEndpointInfo(name = "New Name")
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    endpointInfo = original,
+                    advertiseGated = true,
+                    initialControlServers = listOf(initialControlServer),
+                )
+
+            session.start()
+            val originalPort = session.boundPort
+            session.publishAdvertisement()
+
+            session.replaceEndpointInfo(updated)
+
+            assertThat(session.boundPort).isEqualTo(originalPort)
+            assertThat(advertiser.calls).hasSize(2)
+            assertThat(advertiser.calls[0].endpointInfo).isEqualTo(original)
+            assertThat(advertiser.calls[0].handle.isActive).isFalse()
+            assertThat(advertiser.calls[1].endpointInfo).isEqualTo(updated)
+            assertThat(advertiser.calls[1].port).isEqualTo(originalPort)
+            assertThat(initialControlServer.stopCount).isEqualTo(1)
+            assertThat(initialControlServer.startCalls).hasSize(2)
+            assertThat(initialControlServer.startCalls[1].endpointInfo).isEqualTo(updated)
+
+            session.stop()
+        }
+
+    @Test
+    fun `replaceEndpointInfo updates a gated session before first publish`() =
+        runBlocking {
+            val advertiser = RecordingAdvertiser()
+            val updated = sampleEndpointInfo(name = "Renamed Device")
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    advertiseGated = true,
+                )
+
+            session.start()
+            session.replaceEndpointInfo(updated)
+            session.publishAdvertisement()
+
+            assertThat(advertiser.calls).hasSize(1)
+            assertThat(advertiser.calls[0].endpointInfo).isEqualTo(updated)
+
+            session.stop()
+        }
+
+    @Test
     fun `initial control transports are injected into active connection flow`() =
         runBlocking {
             val initialControlServer = RecordingInitialControlServer()

@@ -89,10 +89,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   factory. Production wires `DownloadsWriterFactory.create(context)`
  *   (which yields a fresh `MediaStoreDownloadsFactory` each time); tests
  *   inject a no-op or in-memory provider.
- * @property endpointInfo The receiver's identity. Stable for a service
- *   instance (random-generated on first start, persisted by the caller).
- *   Embedded in the mDNS TXT record so peers can render the device
- *   name and salt+key without a separate request.
+ * @property endpointInfo The receiver's identity. The caller seeds it on
+ *   construction and may replace it later via [replaceEndpointInfo] so the
+ *   advertised device name can change without tearing down the TCP listener or
+ *   aborting in-flight receives. Embedded in the mDNS TXT record so peers can
+ *   render the device name and salt+key without a separate request.
  * @property secureRandomProvider Supplies a fresh [SecureRandom] per
  *   accepted connection (UKEY2 keypairs / SecureMessage IVs). Tests
  *   inject a deterministic stub.
@@ -113,7 +114,7 @@ public class ReceiverSession(
     private val tcpServerFactory: TcpServerFactory,
     private val advertiser: DiscoveryAdvertiser,
     private val factoryProvider: () -> FileDestinationFactory,
-    private val endpointInfo: EndpointInfo,
+    private var endpointInfo: EndpointInfo,
     private val secureRandomProvider: () -> SecureRandom = { SecureRandom() },
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val advertiseGated: Boolean = false,
@@ -331,6 +332,30 @@ public class ReceiverSession(
             advertiseHandle = null
             stopInitialControlServersLocked()
             ReceiverAdvertisementStateHolder.setAdvertising(false)
+        }
+    }
+
+    /**
+     * Swap the identity used by future advertisement publishes.
+     *
+     * If an advertisement or initial-control server is already active, this
+     * method republishes them in place against the existing bound TCP listener
+     * so active inbound connections keep running under the same session.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    internal fun replaceEndpointInfo(endpointInfo: EndpointInfo) {
+        synchronized(advertiseLock) {
+            this.endpointInfo = endpointInfo
+
+            val tcpServer = server ?: return
+            val wasPublished = advertiseHandle != null || initialControlServers.any { it.isActive }
+            if (!wasPublished || stopped.get()) return
+
+            runCatching { advertiseHandle?.close() }
+            advertiseHandle = null
+            stopInitialControlServersLocked()
+            ReceiverAdvertisementStateHolder.setAdvertising(false)
+            publishAdvertisementLocked(tcpServer, tcpServer.boundPort)
         }
     }
 

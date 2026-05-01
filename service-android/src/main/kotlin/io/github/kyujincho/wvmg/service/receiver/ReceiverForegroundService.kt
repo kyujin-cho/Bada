@@ -225,8 +225,8 @@ public class ReceiverForegroundService : Service() {
         // Reconcile the receiver identity on every start request so a
         // newly-saved advertised name takes effect without waiting for
         // a full process restart. If the identity changed while the
-        // session was already running, we tear the active receiver
-        // stack down and bring it back up with the new EndpointInfo.
+        // session was already running, refresh only the advertise
+        // surfaces in place so active inbound transfers survive.
         reconcileReceiverIdentityIfNeeded()
 
         // Bring up the receiver session if it isn't already running.
@@ -416,23 +416,23 @@ public class ReceiverForegroundService : Service() {
      *
      * The receiver keeps its metadata blob stable across refreshes so
      * peers still see the same logical device, but a changed device
-     * name requires a new endpoint id and a restarted advertise stack.
+     * name requires a new endpoint id and refreshed advertise surfaces.
      */
     private fun reconcileReceiverIdentityIfNeeded() {
         val current = EndpointIdentityHolder.snapshot.get()
         val refreshed = AdvertisedDeviceNames.createEndpointInfo(applicationContext, current)
         if (current == refreshed) return
 
-        val shouldRestartSession = session != null
-        if (shouldRestartSession) {
-            stopActiveReceiverSession()
-        }
         if (current?.deviceName != refreshed.deviceName) {
             BleEndpointIdHolder.clear()
         }
         EndpointIdentityHolder.snapshot.set(refreshed)
-        if (shouldRestartSession) {
-            startReceiverSession()
+        val activeSession = session
+        if (activeSession != null) {
+            activeSession.replaceEndpointInfo(refreshed)
+            if (activeSession.isAdvertising) {
+                buildBleBroadcaster().start()
+            }
         }
     }
 
@@ -466,7 +466,7 @@ public class ReceiverForegroundService : Service() {
                 alwaysVisibleOverride = MdnsVisibilityOverrideHolder.activeFlow,
                 qrSessionActive = QrSessionActiveHolder.activeFlow,
                 outboundSessionActive = OutboundSessionActiveHolder.activeFlow,
-                bleBroadcaster = buildBleBroadcaster(activeSession),
+                bleBroadcaster = buildBleBroadcaster(),
             )
         gate.start(serviceScope)
         mdnsGate = gate
@@ -493,14 +493,14 @@ public class ReceiverForegroundService : Service() {
      * never-active BLE pulse: mDNS still publishes/unpublishes per the
      * other gating signals.
      */
-    @Suppress("UNUSED_PARAMETER", "ReturnCount")
-    private fun buildBleBroadcaster(session: ReceiverSession): BleVisibilityBroadcaster {
+    @Suppress("ReturnCount")
+    private fun buildBleBroadcaster(): BleVisibilityBroadcaster {
         val advertiser = bleAdvertiser ?: return BleVisibilityBroadcaster.Noop
-        val endpointInfo =
-            EndpointIdentityHolder.snapshot.get() ?: return BleVisibilityBroadcaster.Noop
-        val endpointId = BleEndpointIdHolder.bytesFor(endpointInfo)
         return object : BleVisibilityBroadcaster {
             override fun start(): Boolean {
+                val endpointInfo =
+                    EndpointIdentityHolder.snapshot.get() ?: return false
+                val endpointId = BleEndpointIdHolder.bytesFor(endpointInfo)
                 // BleQuickShareAdvertiser.start re-uses the existing
                 // platform registration when the identity is unchanged,
                 // so re-issuing start() while already advertising is
@@ -856,13 +856,14 @@ public class ReceiverForegroundService : Service() {
                         ?: AdvertisedDeviceNames.createEndpointInfo(context).also {
                             EndpointIdentityHolder.snapshot.compareAndSet(null, it)
                         }
+                val currentIdentity = { EndpointIdentityHolder.snapshot.get() ?: identity }
                 // Keep one Discovery per session so the periodic
                 // diagnostic snapshot in [startReceiverSession] reflects
                 // the same instance the advertise lambda is using.
                 val discovery =
                     Discovery(
                         context = context,
-                        instanceEndpointIdProvider = { BleEndpointIdHolder.bytesFor(identity) },
+                        instanceEndpointIdProvider = { BleEndpointIdHolder.bytesFor(currentIdentity()) },
                     )
                 ActiveDiscoveryHolder.set(discovery)
                 ReceiverSession(
@@ -884,7 +885,7 @@ public class ReceiverForegroundService : Service() {
                             ),
                             BleGattInitialControlServer(
                                 context = context.applicationContext,
-                                endpointIdProvider = { BleEndpointIdHolder.bytesFor(identity) },
+                                endpointIdProvider = { BleEndpointIdHolder.bytesFor(currentIdentity()) },
                             ),
                         ),
                     // Issue #34: defer mDNS publish to the
