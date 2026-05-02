@@ -46,6 +46,8 @@ package io.github.kyujincho.wvmg.protocol.sharing
  *
  *   ReceivedPairedKeyResult
  *     +-- Frame{INTRODUCTION}               ->  WaitingForUserConsent      (emit IntroductionReceived)
+ *     +-- Frame{RESPONSE, status=ACCEPT|UNKNOWN}
+ *                                            ->  ReceivedPairedKeyResult    (ignore sender pre-consent)
  *     ... (CANCEL / ProtocolError as above)
  *
  *   WaitingForUserConsent
