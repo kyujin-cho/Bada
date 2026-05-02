@@ -7,6 +7,7 @@ package io.github.kyujincho.wvmg.discovery.ble
 
 import android.bluetooth.le.AdvertiseSettings
 import com.google.common.truth.Truth.assertThat
+import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisementHeader
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
@@ -97,6 +98,9 @@ class BleQuickShareAdvertiserTest {
         assertThat(BleServiceData.parse(payload)).isNull()
 
         val slotPayload = DefaultPayloadFactory.buildSlotPayload(endpointId("Wvmg"), info)
+        val slotAdvertisement = BleAdvertisement.parse(slotPayload)
+        assertThat(slotAdvertisement).isNotNull()
+        assertThat(slotAdvertisement!!.secondProfile).isTrue()
         val slot = BleServiceData.parse(slotPayload)
         assertThat(slot).isNotNull()
         assertThat(String(slot!!.endpointId, Charsets.US_ASCII)).isEqualTo("Wvmg")
@@ -132,6 +136,7 @@ class BleQuickShareAdvertiserTest {
         assertThat(header).isNotNull()
         assertThat(header!!.numSlots).isEqualTo(1)
         assertThat(header.psm).isEqualTo(0)
+        assertThat(header.supportsExtendedAdvertisement).isTrue()
         assertThat(BleServiceData.parse(payload)).isNull()
 
         assertThat(dctPayload).isNotNull()
@@ -141,7 +146,8 @@ class BleQuickShareAdvertiserTest {
         assertThat(dct.psm).isEqualTo(DctAdvertisement.DEFAULT_PSM)
 
         assertThat(visiblePayload).isNotNull()
-        val visibleInfo = BleServiceData.parse(visiblePayload!!)!!.endpointInfo
+        assertThat(BleAdvertisement.parse(visiblePayload!!)!!.secondProfile).isTrue()
+        val visibleInfo = BleServiceData.parse(visiblePayload)!!.endpointInfo
         assertThat(visibleInfo.hidden).isFalse()
         assertThat(visibleInfo.deviceName).isEqualTo("WhenVivoMeetsGoogle")
         assertThat(BleServiceData.parsePsmExtraField(visiblePayload)).isNull()
@@ -167,6 +173,7 @@ class BleQuickShareAdvertiserTest {
             assertThat(header).isNotNull()
             assertThat(header!!.psm).isEqualTo(0)
             assertThat(header.numSlots).isEqualTo(1)
+            assertThat(header.supportsExtendedAdvertisement).isTrue()
             val dct = DctAdvertisement.parse(call.dctPayload!!)!!
             assertThat(dct.psm).isEqualTo(0x1234)
             assertThat(BleServiceData.parsePsmExtraField(call.visiblePayload!!)).isEqualTo(0x1234)

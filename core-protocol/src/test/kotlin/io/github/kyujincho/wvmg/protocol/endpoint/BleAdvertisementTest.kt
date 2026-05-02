@@ -47,6 +47,20 @@ class BleAdvertisementTest {
         assertThat(BleServiceData.parse(parsed.data)?.endpointInfo).isEqualTo(info)
     }
 
+    @Test
+    fun `parse exposes second-profile fast advertisement wrapper`() {
+        val info = endpointInfo("Pixel")
+        val bytes = BleServiceData.encodeFramed("ABCD", info, secondProfile = true)
+
+        val parsed = BleAdvertisement.parse(bytes)
+
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.fastAdvertisement).isTrue()
+        assertThat(parsed.secondProfile).isTrue()
+        assertThat(parsed.serviceIdHash).isNull()
+        assertThat(BleServiceData.parse(parsed.data)?.endpointInfo).isEqualTo(info)
+    }
+
     private fun endpointInfo(name: String): EndpointInfo =
         EndpointInfo(
             version = 1,

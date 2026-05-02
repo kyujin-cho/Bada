@@ -187,3 +187,11 @@ adb logcat -s WvmgOutbound | grep -E 'UPGRADE_FAILURE|UpgradeAborted'
   this is not an issue in practice; if you see missed broadcasts on a
   vivo device, double-check the receiver lifecycle isn't tied to an
   activity.
+* **vivo X300 Ultra / Funtouch OS** may leave Wi-Fi Direct in a disabled
+  state until a peer-discovery operation primes the P2P stack. The
+  receiver path now calls `discoverPeers`, waits briefly for
+  `WIFI_P2P_STATE_CHANGED state=2`, stops discovery, removes any stale
+  group, and only then calls `createGroup`. In a successful Galaxy ->
+  vivo BLE GATT handoff, `WvmgWifiDirect` should show
+  `discoverPeers onSuccess`, `stopPeerDiscovery onSuccess`, and
+  `createGroup onSuccess` before the group-ready line.

@@ -638,14 +638,22 @@ public object DefaultPayloadFactory : PayloadFactory {
             serviceId = NearbyServiceId.VALUE,
             gattAdvertisement = gattAdvertisement,
             psm = 0,
+            supportsExtendedAdvertisement = endpointInfo.supportsVisibleExtendedAdvertisement(),
         )
     }
 
     internal fun buildSlotPayload(
         endpointId: ByteArray,
         endpointInfo: EndpointInfo,
-    ): ByteArray = BleServiceData.encode(endpointId, endpointInfo)
+    ): ByteArray =
+        BleServiceData.encodeFramed(
+            endpointId = endpointId,
+            endpointInfo = endpointInfo,
+            secondProfile = true,
+        )
 }
+
+private fun EndpointInfo.supportsVisibleExtendedAdvertisement(): Boolean = !hidden && !deviceName.isNullOrBlank()
 
 /** Optional payload builder for secondary extended advertisements. */
 public fun interface OptionalPayloadFactory {
@@ -669,9 +677,18 @@ public object DefaultVisiblePayloadFactory : OptionalPayloadFactory {
         if (endpointInfo.hidden || endpointInfo.deviceName == null) return null
         val psm = BleDctPsmHolder.currentPsm
         return if (psm != null && psm != DctAdvertisement.DEFAULT_PSM) {
-            BleServiceData.encodeFramedWithPsm(endpointId, endpointInfo, psm)
+            BleServiceData.encodeFramedWithPsm(
+                endpointId = endpointId,
+                endpointInfo = endpointInfo,
+                psm = psm,
+                secondProfile = true,
+            )
         } else {
-            BleServiceData.encodeFramed(endpointId, endpointInfo)
+            BleServiceData.encodeFramed(
+                endpointId = endpointId,
+                endpointInfo = endpointInfo,
+                secondProfile = true,
+            )
         }
     }
 }
