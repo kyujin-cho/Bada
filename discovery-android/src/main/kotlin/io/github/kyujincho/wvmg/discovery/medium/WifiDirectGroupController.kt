@@ -26,7 +26,9 @@ import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.Closeable
 import java.io.IOException
@@ -304,10 +306,16 @@ internal class WifiDirectGroupController(
                 cancelConnectQuietly(channel)
             }
 
-        if (!WifiDirectCredentialShape.isValidNetworkName(credentials.ssid) ||
-            !WifiDirectCredentialShape.isValidPassphrase(credentials.passphrase)
-        ) {
-            Log.w(TAG, "Wi-Fi Direct credentials from peer are malformed; declining upgrade")
+        val validNetworkName = WifiDirectCredentialShape.isValidNetworkName(credentials.ssid)
+        val validPassphrase = WifiDirectCredentialShape.isValidPassphrase(credentials.passphrase)
+        if (!validNetworkName || !validPassphrase) {
+            Log.w(
+                TAG,
+                "Wi-Fi Direct credentials from peer are malformed; " +
+                    "ssid=${credentials.ssid} ssidLength=${credentials.ssid.length} " +
+                    "passphraseLength=${credentials.passphrase.length} port=${credentials.port}; " +
+                    "declining upgrade",
+            )
             teardown.close()
             return null
         }
@@ -360,9 +368,7 @@ internal class WifiDirectGroupController(
             }
         val socket =
             try {
-                Socket().also { s ->
-                    s.connect(java.net.InetSocketAddress(address, credentials.port), SOCKET_CONNECT_TIMEOUT_MS)
-                }
+                connectSocketToGroupOwner(address, credentials.port)
             } catch (e: IOException) {
                 Log.w(TAG, "TCP connect to Wi-Fi Direct group owner failed", e)
                 teardown.close()
@@ -370,6 +376,19 @@ internal class WifiDirectGroupController(
             }
         return WifiDirectTransport(socket = socket, teardown = teardown)
     }
+
+    private suspend fun connectSocketToGroupOwner(
+        address: InetAddress,
+        port: Int,
+    ): Socket =
+        withContext(Dispatchers.IO) {
+            Socket().also { socket ->
+                socket.connect(
+                    java.net.InetSocketAddress(address, port),
+                    SOCKET_CONNECT_TIMEOUT_MS,
+                )
+            }
+        }
 
     /**
      * Result of [createGroupAsServer]. The framework hands [credentials]
@@ -674,10 +693,11 @@ internal class WifiDirectGroupController(
 
 internal object WifiDirectCredentialShape {
     private val random = SecureRandom()
-    private val networkNameRegex = Regex("^DIRECT-[A-Za-z0-9]{2}-[A-Za-z0-9_-]+$")
+    private val networkNameRegex = Regex("^DIRECT-[A-Za-z0-9]{2}[A-Za-z0-9_-]*$")
     private const val NETWORK_NAME_RANDOM_CHARS = 2
     private const val NETWORK_NAME_SUFFIX = "WVMG"
     private const val NETWORK_NAME_SESSION_CHARS = 6
+    private const val NETWORK_NAME_MAX_LENGTH = 32
     private const val PASSPHRASE_LENGTH = 16
     private const val PASSPHRASE_MIN_LENGTH = 8
     private const val PASSPHRASE_MAX_LENGTH = 63
@@ -689,7 +709,8 @@ internal object WifiDirectCredentialShape {
 
     fun generatePassphrase(): String = randomToken(PASSPHRASE_LENGTH)
 
-    fun isValidNetworkName(value: String): Boolean = networkNameRegex.matches(value)
+    fun isValidNetworkName(value: String): Boolean =
+        value.length <= NETWORK_NAME_MAX_LENGTH && networkNameRegex.matches(value)
 
     fun isValidPassphrase(value: String): Boolean =
         value.length in PASSPHRASE_MIN_LENGTH..PASSPHRASE_MAX_LENGTH &&

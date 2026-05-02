@@ -457,6 +457,16 @@ message AutoReconnectFrame {
 }
 
 message MediumMetadata {
+  // Should always match
+  // cs/symbol:location.nearby.proto.connections.WifiDirectAuthType
+  enum WifiDirectAuthType {
+    WIFI_DIRECT_TYPE_UNKNOWN = 0;
+    // WifiDirect type that uses ssid/password for authentication.
+    WIFI_DIRECT_WITH_PASSWORD = 1;
+    // WifiDirect type that uses service_name/pin for authentication.
+    WIFI_DIRECT_WITH_PIN = 2;
+  }
+
   // True if local device supports 5GHz.
   optional bool supports_5_ghz = 1;
   // WiFi LAN BSSID, in the form of a six-byte MAC address: XX:XX:XX:XX:XX:XX
@@ -483,6 +493,9 @@ message MediumMetadata {
   optional WifiHotspotStaUsableChannels wifi_hotspot_sta_usable_channels = 11;
   // The supported medium roles.
   optional MediumRole medium_role = 12;
+  // The supported WifiDirect auth types.
+  repeated WifiDirectAuthType supported_wifi_direct_auth_types = 13
+      [packed = true];
 }
 
 // Available channels on the local device.

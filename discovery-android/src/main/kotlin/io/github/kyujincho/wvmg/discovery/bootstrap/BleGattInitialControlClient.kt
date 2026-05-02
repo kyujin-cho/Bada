@@ -313,6 +313,7 @@ private class BleGattClientTransport(
         runCatching { input.close() }
         val openGatt = gatt
         gatt = null
+        writeQueue.clear()
         runCatching { openGatt?.disconnect() }
         runCatching { openGatt?.close() }
         onClose(this)
@@ -383,6 +384,10 @@ private class BleGattClientTransport(
         weaveConnected = true
         Log.i(TAG, "Weave connected raw Nearby stream packetSize=$negotiatedPacketSize device=${device.safeAddress()}")
         sendWeaveMessage(NearbyBleSocketFrames.encodeIntroductionPacket())
+        // Samsung's GMS raw Nearby handler expects the first app payload
+        // immediately after the socket-introduction packet. Waiting after
+        // the intro write leaves the BLE Weave stream open, but the
+        // ConnectionRequestFrame is never dispatched to Nearby Connections.
         if (!ready.isCompleted) ready.complete(true)
     }
 
@@ -446,7 +451,11 @@ private class BleGattClientTransport(
     private fun sendSocketServiceBytes(bytes: ByteArray) {
         if (bytes.isEmpty()) return
         Log.i(TAG, "BLE GATT service write bytes=${bytes.size} preview=${bytes.previewHex()}")
-        sendWeaveMessage(NearbyServiceId.hashPrefix + bytes)
+        sendSocketServiceMessage(bytes)
+    }
+
+    private fun sendSocketServiceMessage(payload: ByteArray) {
+        sendWeaveMessage(NearbyServiceId.hashPrefix + payload)
     }
 
     @Synchronized
@@ -472,7 +481,10 @@ private class BleGattClientTransport(
 
     private fun enqueueWriteLocked(packet: ByteArray) {
         if (closed) return
-        Log.i(TAG, "enqueue write len=${packet.size} header=${packet.firstByteHex()} device=${device.safeAddress()}")
+        Log.i(
+            TAG,
+            "enqueue write len=${packet.size} header=${packet.firstByteHex()} device=${device.safeAddress()}",
+        )
         writeQueue.add(packet)
         drainWritesLocked()
     }
