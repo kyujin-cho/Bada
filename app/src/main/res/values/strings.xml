@@ -108,6 +108,20 @@
     <string name="send_done">Done</string>
     <string name="send_unsupported">This share could not be sent. The intent did not contain a file or text payload.</string>
 
+    <!--
+      Samsung BLE-GATT-only caveat (see docs/research/samsung-ble-gatt-cert-gate.md).
+      Samsung One UI rejects BLE GATT bootstrap from non-GMS senders at the
+      receiver-side per-peer Weave handler registration step (a Google-account-bound
+      sender_certificate lookup we cannot satisfy). Wi-Fi LAN works without that gate,
+      so we surface a confirmation dialog before letting the user wait through a
+      15s handshake timeout that is guaranteed to fail.
+    -->
+    <string name="send_samsung_ble_warning_title">Samsung devices need Wi-Fi</string>
+    <string name="send_samsung_ble_warning_body">%1$s is only reachable over Bluetooth right now. Samsung Quick Share rejects Bluetooth-only senders, so this attempt is very likely to time out after 15 seconds.\n\nConnect both devices to the same Wi-Fi network for a reliable transfer.</string>
+    <string name="send_samsung_ble_warning_open_wifi">Open Wi-Fi settings</string>
+    <string name="send_samsung_ble_warning_try_anyway">Try anyway</string>
+    <string name="send_samsung_ble_warning_cancel">Cancel</string>
+
     <!-- Payload summary templates. The %d arguments are item counts; %s is a formatted byte size. -->
     <string name="send_payload_text">Sharing text</string>
     <string name="send_payload_single_file">1 file</string>

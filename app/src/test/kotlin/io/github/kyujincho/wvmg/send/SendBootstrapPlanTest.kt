@@ -132,6 +132,51 @@ class SendBootstrapPlanTest {
     }
 
     @Test
+    fun `Samsung peer reachable only via BLE GATT carries the Samsung caveat`() {
+        // Reproduces the empirical case the cert-gate research doc
+        // captures: a Samsung Galaxy with no Wi-Fi LAN exposure, only
+        // a BLE GATT route, will time out at 15s on the Weave
+        // handshake. The picker uses `samsungBleGattCaveat` to surface
+        // a "Wi-Fi recommended" subtitle and a confirmation dialog so
+        // the user understands why before they tap.
+        val peer =
+            peer(
+                bleAddress = "AA:BB:CC:DD:EE:FF",
+                blePsm = null,
+                bleVisible = true,
+            )
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
+        assertTrue(plan.isConnectable)
+        assertEquals(
+            NearbyPeerRoute.BleGatt("AA:BB:CC:DD:EE:FF"),
+            (plan.action as SendBootstrapPlan.Action.Direct).route,
+        )
+        assertTrue(plan.samsungBleGattCaveat)
+        assertTrue(plan.subtitle.contains("Wi-Fi recommended for Samsung"))
+    }
+
+    @Test
+    fun `Samsung peer reachable via Wi-Fi LAN does not carry the caveat`() {
+        // The cert-gate is BLE-GATT-only. When Wi-Fi LAN is available,
+        // the picker picks LAN and Samsung's Wi-Fi LAN acceptance path
+        // works without the cert lookup. No caveat needed.
+        val peer =
+            peer(
+                lanAddress = "192.168.1.20",
+                lanPort = 7654,
+                bleAddress = "AA:BB:CC:DD:EE:FF",
+                bleVisible = true,
+            )
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
+        assertFalse(plan.samsungBleGattCaveat)
+        assertFalse(plan.subtitle.contains("Samsung"))
+    }
+
+    @Test
     fun `peer without any route stays unavailable`() {
         val peer = peer()
 

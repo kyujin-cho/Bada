@@ -5,11 +5,15 @@
  */
 package io.github.kyujincho.wvmg.send
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.View
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
@@ -18,6 +22,7 @@ import io.github.kyujincho.wvmg.databinding.ActivitySendBinding
 import io.github.kyujincho.wvmg.discovery.NearbyPeer
 import io.github.kyujincho.wvmg.discovery.NearbyPeerRoute
 import io.github.kyujincho.wvmg.discovery.bootstrap.BleGattInitialControlClient
+import io.github.kyujincho.wvmg.discovery.bootstrap.BleGattInitialControlServer
 import io.github.kyujincho.wvmg.discovery.bootstrap.BleL2capInitialControlClient
 import io.github.kyujincho.wvmg.discovery.bootstrap.BluetoothClassicBootstrapClient
 import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
@@ -79,7 +84,9 @@ public class SendActivity : AppCompatActivity() {
     private var bluetoothBootstrapClient: BluetoothClassicBootstrapClient? = null
     private var bleL2capBootstrapClient: BleL2capInitialControlClient? = null
     private var bleGattBootstrapClient: BleGattInitialControlClient? = null
+    private var senderGattServer: BleGattInitialControlServer? = null
     private lateinit var senderEndpointId: String
+    private lateinit var senderEndpointInfo: EndpointInfo
     private lateinit var senderEndpointInfoBytes: ByteArray
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,6 +107,18 @@ public class SendActivity : AppCompatActivity() {
         fileSourceFactory = UriFileSourceFactory(contentResolver)
         documentTreeFactory = DocumentTreeFileSourceFactory(contentResolver)
         payloadResolver = SendPayloadResolver(fileSourceFactory, documentTreeFactory)
+        // Generate the sender identity up front so the picker controller
+        // can thread the endpointId into the BLE FastInitiation pulse's
+        // `secret_id_hash`. Stock GMS receivers (Samsung One UI 8.x in
+        // particular) classify pulses with an all-zero hash as
+        // `type=SILENT`, which causes them to skip the per-peer Weave
+        // handler registration on their `0xFEF3` GATT server — every
+        // subsequent ATT write to `00000100-…-0101` then throws
+        // `No handler registered for characteristic …`. The endpointId
+        // bytes form the hash and lift Samsung's classification to
+        // `type=NORMAL`, unblocking the BLE GATT bootstrap.
+        prepareSenderIdentity()
+        startSenderGattServer()
         peerPickerController =
             SendPeerPickerController(
                 context = this,
@@ -108,6 +127,7 @@ public class SendActivity : AppCompatActivity() {
                 scope = lifecycleScope,
                 onPeerSelected = ::onPeerSelected,
                 logDiagnostic = ::logOutboundDiagnostic,
+                senderEndpointId = senderEndpointId,
             )
 
         binding.sendCancelButton.setOnClickListener { onCancelClicked() }
@@ -137,7 +157,6 @@ public class SendActivity : AppCompatActivity() {
                 }
             } ?: return
         files = resolvedFiles
-        prepareSenderIdentity()
         logResolvedFiles(files)
 
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
@@ -156,6 +175,8 @@ public class SendActivity : AppCompatActivity() {
         bleL2capBootstrapClient?.cancelPendingConnect()
         bleGattBootstrapClient?.cancelPendingConnect()
         peerPickerController.stop()
+        senderGattServer?.stop()
+        senderGattServer = null
         connectionJob?.cancel()
         // Lift the gate veto so the receiver-side mDNS record can come
         // back up if any of the gate's existing publish signals
@@ -274,6 +295,54 @@ public class SendActivity : AppCompatActivity() {
             )
             return
         }
+        // Pre-flight: BLE-GATT-only into a Samsung receiver is a known
+        // dead end (Google-account-bound sender_certificate gate on
+        // Samsung's Weave handler — see
+        // docs/research/samsung-ble-gatt-cert-gate.md). Surface a
+        // confirmation dialog instead of silently letting the user
+        // burn a 15s handshake timeout. Caller can still opt to "Try
+        // anyway" — leaves a door open if Samsung ever loosens the
+        // gate, and avoids a hard block on false-positive heuristic
+        // matches.
+        if (plan.samsungBleGattCaveat) {
+            confirmSamsungBleGattAttempt(peer, plan, chosenRoute)
+            return
+        }
+        proceedWithPeer(peer, plan, chosenRoute)
+    }
+
+    private fun confirmSamsungBleGattAttempt(
+        peer: NearbyPeer,
+        plan: SendBootstrapPlan,
+        chosenRoute: NearbyPeerRoute?,
+    ) {
+        val deviceName = peerPickerController.peerLabel(peer)
+        AlertDialog
+            .Builder(this)
+            .setTitle(R.string.send_samsung_ble_warning_title)
+            .setMessage(getString(R.string.send_samsung_ble_warning_body, deviceName))
+            .setPositiveButton(R.string.send_samsung_ble_warning_open_wifi) { _, _ ->
+                openWifiSettings()
+            }.setNegativeButton(R.string.send_samsung_ble_warning_try_anyway) { _, _ ->
+                proceedWithPeer(peer, plan, chosenRoute)
+            }.setNeutralButton(R.string.send_samsung_ble_warning_cancel) { dialog, _ -> dialog.dismiss() }
+            .show()
+    }
+
+    private fun openWifiSettings() {
+        val intent = Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.send_samsung_ble_warning_open_wifi, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun proceedWithPeer(
+        peer: NearbyPeer,
+        plan: SendBootstrapPlan,
+        chosenRoute: NearbyPeerRoute?,
+    ) {
         // Verbose target snapshot at the moment of pick. Routed through
         // Log.e (and the on-disk outbound log) because Funtouch filters
         // Log.i for non-system apps — without this a Galaxy "peer
@@ -532,7 +601,7 @@ public class SendActivity : AppCompatActivity() {
 
     private fun prepareSenderIdentity() {
         senderEndpointId = OutboundConnection.generateEndpointId()
-        val senderEndpointInfo =
+        senderEndpointInfo =
             EndpointInfo(
                 version = 1,
                 hidden = false,
@@ -543,6 +612,43 @@ public class SendActivity : AppCompatActivity() {
             )
         senderEndpointInfoBytes = senderEndpointInfo.serialize()
         logOutboundDiagnostic("sender identity: endpointId=$senderEndpointId name=${senderDeviceLabel()}")
+    }
+
+    /**
+     * Bring up a sender-side GATT server exposing the same `0xFEF3`
+     * service shape stock Quick Share peripherals advertise. We do not
+     * intend Samsung to actually open a Weave session into us — the
+     * server's only job is to expose the advertisement-slot
+     * characteristics so Samsung's GMS can read our `EndpointInfo`
+     * back when it correlates an inbound GATT-from-us connection
+     * against a known peer. Without our own GATT server, Samsung sees
+     * us as a "drive-by central" with no reciprocal identity surface,
+     * which appears to be one of the predicates gating its per-peer
+     * Weave handler registration on `gchu`/`gchk`.
+     */
+    @Suppress("MissingPermission")
+    private fun startSenderGattServer() {
+        val server =
+            BleGattInitialControlServer(
+                context = applicationContext,
+                endpointIdProvider = { senderEndpointId.toByteArray(Charsets.US_ASCII) },
+            )
+        // Sender-side server should never actually accept a real
+        // bootstrap from Samsung — log it and immediately close if it
+        // somehow does, so we don't leak a half-open transport.
+        val started =
+            server.start(senderEndpointInfo) { transport ->
+                logOutboundDiagnostic(
+                    "sender GATT server: unexpected inbound transport medium=${transport.medium}; closing",
+                )
+                runCatching { transport.close() }
+            }
+        if (started) {
+            senderGattServer = server
+            logOutboundDiagnostic("sender GATT server: started")
+        } else {
+            logOutboundDiagnostic("sender GATT server: not started (unavailable or addService failed)")
+        }
     }
 
     private fun logResolvedFiles(files: List<FileSource>) {

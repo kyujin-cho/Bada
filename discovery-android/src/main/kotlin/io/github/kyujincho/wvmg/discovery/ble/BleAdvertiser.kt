@@ -80,11 +80,17 @@ public class BleAdvertiser internal constructor(
 
     /**
      * Production constructor. Wires up the Android `BluetoothManager` and
-     * a fresh [SecureRandom] for the payload's random tail.
+     * a fresh [SecureRandom] for the payload's random salt byte.
+     *
+     * @param endpointId the sender's 4-byte ASCII slug. The pulse's
+     *   `secret_id_hash` is the truncated SHA-256 of this value, which is
+     *   what stock GMS receivers (notably Samsung One UI) inspect to
+     *   classify the pulse as `type=NORMAL` and wire their per-peer Weave
+     *   handler. Must be non-empty.
      */
-    public constructor(context: Context) : this(
+    public constructor(context: Context, endpointId: String) : this(
         provider = DefaultAdvertiserProvider(context.applicationContext),
-        payloadFactory = { BleAdvertisePayload.build(SecureRandom()) },
+        payloadFactory = { BleAdvertisePayload.build(endpointId, SecureRandom()) },
         now = System::currentTimeMillis,
     )
 
@@ -211,16 +217,23 @@ public class BleAdvertiser internal constructor(
      *   * `LOW_LATENCY` mode — receivers should see us within ~100ms.
      *   * `TX_POWER_HIGH` — best chance of a wake-up across a typical
      *     room.
-     *   * `connectable = false` — we never accept GATT connections; this
-     *     keeps the advertising-PDU budget free for the 24-byte service
-     *     data and tells the platform not to allocate a connection window.
+     *   * `connectable = true` — stock Quick Share senders advertise as
+     *     connectable, and Samsung One UI 8.x receivers appear to gate
+     *     their per-peer Weave handler registration on this bit (a
+     *     non-connectable pulse is treated as a passive scan / discovery
+     *     beacon, not a real share-intent peer). We do not actually host
+     *     a GATT server on the sender side, so any connection attempt
+     *     from a receiver will be NACKed at the application layer — but
+     *     the connectable bit on the wire is a strong "real peer" signal
+     *     that, paired with the `secret_id_hash` in the service data,
+     *     unblocks the receiver-side handler registration path.
      */
     private fun buildSettings(): AdvertiseSettings =
         AdvertiseSettings
             .Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(false)
+            .setConnectable(true)
             .build()
 
     /**

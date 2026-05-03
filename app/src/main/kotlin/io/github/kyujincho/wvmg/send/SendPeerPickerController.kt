@@ -33,6 +33,16 @@ internal class SendPeerPickerController(
     private val scope: CoroutineScope,
     private val onPeerSelected: (NearbyPeer) -> Unit,
     private val logDiagnostic: (String) -> Unit,
+    /**
+     * Sender's 4-byte endpoint slug. Threaded into the BLE FastInitiation
+     * pulse's `secret_id_hash` so stock GMS receivers (Samsung One UI in
+     * particular) classify the pulse as `type=NORMAL` and wire their
+     * per-peer Weave handler — without this, the receiver drops every
+     * subsequent ATT write to the `00000100-…-0101` characteristic with
+     * `No handler registered for characteristic …` and the BLE GATT
+     * bootstrap stalls at the Weave handshake.
+     */
+    private val senderEndpointId: String,
 ) {
     private val peers: MutableList<NearbyPeer> = mutableListOf()
 
@@ -255,7 +265,7 @@ internal class SendPeerPickerController(
 
     @Suppress("MissingPermission")
     private fun startBleAdvertise() {
-        val advertiser = BleAdvertiser(context.applicationContext)
+        val advertiser = BleAdvertiser(context.applicationContext, senderEndpointId)
         bleAdvertiser = advertiser
         bleAdvertiseHandle = advertiser.start()
         if (bleAdvertiseHandle == null) {
