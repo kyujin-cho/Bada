@@ -209,9 +209,7 @@ private fun nsdServiceInfo(
         this.port = port
         @Suppress("DEPRECATION")
         host = InetAddress.getByName("192.0.2.44")
-        for ((key, value) in attributes) {
-            setAttribute(key, value)
-        }
+        AndroidNsdRegistrar.applyAttributes(this, attributes)
     }
 
 @Implements(NsdManager::class)
@@ -334,8 +332,6 @@ internal class TestShadowNsdManager {
             copy.port = port
             @Suppress("DEPRECATION")
             copy.host = host
-            for ((key, value) in attributes.orEmpty()) {
-                copy.setAttribute(key, value)
-            }
+            AndroidNsdRegistrar.applyAttributes(copy, attributes.orEmpty())
         }
 }
