@@ -235,7 +235,17 @@ internal class InboundConnectionDriver(
         // immediately after connection success, before it processes our
         // bandwidth-upgrade offer. Drain one already-buffered frame so the
         // SecureMessage receive sequence remains aligned across the upgrade.
+        // BLE/GATT senders may also send UPGRADE_PATH_REQUEST here when
+        // their opening ConnectionRequest had to omit higher-bandwidth
+        // mediums for receiver compatibility; consume that request and use
+        // it as the upgrade candidate set instead of buffering it into the
+        // later sharing loop.
         val initialWireFrame = pollBufferedInitialWireFrame(channel)
+        val requestedUpgradeMediums =
+            initialWireFrame?.let(BandwidthUpgradeFrames::decodeUpgradePathRequestMediums)
+        if (requestedUpgradeMediums != null) {
+            logger("medium-upgrade: peer requested upgrade mediums=$requestedUpgradeMediums")
+        }
 
         // Step 7: as the Nearby Connections server role, offer the best
         // prepared upgrade medium before the Nearby Share payload
@@ -249,7 +259,7 @@ internal class InboundConnectionDriver(
                     oldChannel = channel,
                     currentMedium = transport.medium,
                     mediumRegistry = mediumRegistry,
-                    peerSupportedMediums = peerSupportedMediums,
+                    peerSupportedMediums = requestedUpgradeMediums ?: peerSupportedMediums,
                     peerEndpointId = initialFrame.v1.connectionRequest.endpointId,
                     logger = logger,
                 )
@@ -257,7 +267,9 @@ internal class InboundConnectionDriver(
         mutableActiveMedium.value = activeTransport.medium
         val initialWireFrames =
             buildList {
-                initialWireFrame?.let(::add)
+                if (requestedUpgradeMediums == null) {
+                    initialWireFrame?.let(::add)
+                }
                 addAll(activeTransport.bufferedFrames)
             }
 

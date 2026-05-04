@@ -153,6 +153,17 @@ class BleServiceDataTest {
     }
 
     @Test
+    fun `encodeFramed can set the second-profile bit`() {
+        val info = hiddenPhoneEndpointInfo()
+        val payload = BleServiceData.encodeFramed("Wvmg", info, secondProfile = true)
+
+        assertThat(payload).hasLength(27)
+        assertThat(payload[0].toInt() and 0xFF)
+            .isEqualTo(BleServiceData.FRAME_TYPE_SECOND_PROFILE_FAST_ADVERTISEMENT)
+        assertThat(BleServiceData.parse(payload)?.endpointInfo).isEqualTo(info)
+    }
+
+    @Test
     fun `encodeFramedWithPsm rejects invalid PSM values`() {
         val info = hiddenPhoneEndpointInfo()
         assertThrows<IllegalArgumentException> {

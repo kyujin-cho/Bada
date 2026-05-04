@@ -255,6 +255,64 @@ class InboundSharingFsmTest {
     // alive; regressing any of these breaks Galaxy → WVMG sends.
 
     @Test
+    fun `preemptive RESPONSE ACCEPT before INTRODUCTION is ignored until introduction arrives`() {
+        val fsm = driveToReceivedPairedKeyResult()
+
+        val responseEffects =
+            fsm.onEvent(
+                SharingFsmEvent.FrameReceived(
+                    SharingFrames.connectionResponse(ConnectionResponseStatus.ACCEPT),
+                ),
+            )
+
+        assertThat(responseEffects).isEmpty()
+        assertThat(fsm.state).isEqualTo(InboundSharingState.ReceivedPairedKeyResult)
+
+        val intro = IntroductionFrame.newBuilder().build()
+        val introEffects =
+            fsm.onEvent(
+                SharingFsmEvent.FrameReceived(
+                    SharingFrames.introduction(intro),
+                ),
+            )
+
+        assertThat(introEffects).hasSize(1)
+        assertThat(introEffects[0]).isInstanceOf(SharingFsmEffect.IntroductionReceived::class.java)
+        assertThat(fsm.state).isEqualTo(InboundSharingState.WaitingForUserConsent)
+    }
+
+    @Test
+    fun `preemptive RESPONSE UNKNOWN before INTRODUCTION is ignored`() {
+        val fsm = driveToReceivedPairedKeyResult()
+
+        val effects =
+            fsm.onEvent(
+                SharingFsmEvent.FrameReceived(
+                    SharingFrames.connectionResponse(ConnectionResponseStatus.UNKNOWN),
+                ),
+            )
+
+        assertThat(effects).isEmpty()
+        assertThat(fsm.state).isEqualTo(InboundSharingState.ReceivedPairedKeyResult)
+    }
+
+    @Test
+    fun `preemptive RESPONSE REJECT before INTRODUCTION is treated as peer cancel`() {
+        val fsm = driveToReceivedPairedKeyResult()
+
+        val effects =
+            fsm.onEvent(
+                SharingFsmEvent.FrameReceived(
+                    SharingFrames.connectionResponse(ConnectionResponseStatus.REJECT),
+                ),
+            )
+
+        assertThat(effects).hasSize(1)
+        assertThat(effects[0]).isInstanceOf(SharingFsmEffect.Cancelled::class.java)
+        assertThat(fsm.state).isEqualTo(InboundSharingState.Disconnected)
+    }
+
+    @Test
     fun `preemptive RESPONSE ACCEPT in WaitingForUserConsent is ignored`() {
         // Samsung's stock Quick Share sends RESPONSE(status=ACCEPT) to
         // the receiver right after INTRODUCTION — the sender treats the
@@ -432,16 +490,24 @@ class InboundSharingFsmTest {
      * starts in [InboundSharingState.WaitingForUserConsent].
      */
     private fun driveToWaitingForUserConsent(): InboundSharingFsm {
-        val fsm = newFsm()
-        fsm.start()
-        fsm.onEvent(SharingFsmEvent.FrameReceived(SharingFrames.pairedKeyEncryption()))
-        fsm.onEvent(SharingFsmEvent.FrameReceived(SharingFrames.pairedKeyResult()))
+        val fsm = driveToReceivedPairedKeyResult()
         fsm.onEvent(
             SharingFsmEvent.FrameReceived(
                 SharingFrames.introduction(IntroductionFrame.newBuilder().build()),
             ),
         )
         check(fsm.state == InboundSharingState.WaitingForUserConsent) {
+            "fixture state setup failed: ${fsm.state}"
+        }
+        return fsm
+    }
+
+    private fun driveToReceivedPairedKeyResult(): InboundSharingFsm {
+        val fsm = newFsm()
+        fsm.start()
+        fsm.onEvent(SharingFsmEvent.FrameReceived(SharingFrames.pairedKeyEncryption()))
+        fsm.onEvent(SharingFsmEvent.FrameReceived(SharingFrames.pairedKeyResult()))
+        check(fsm.state == InboundSharingState.ReceivedPairedKeyResult) {
             "fixture state setup failed: ${fsm.state}"
         }
         return fsm

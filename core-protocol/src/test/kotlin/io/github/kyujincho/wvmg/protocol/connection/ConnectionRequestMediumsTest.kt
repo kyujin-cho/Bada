@@ -7,6 +7,8 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.common.truth.Truth.assertThat
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.ConnectionRequestFrame
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.EndpointType
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import io.github.kyujincho.wvmg.protocol.medium.Medium
 import org.junit.jupiter.api.Test
@@ -18,9 +20,10 @@ import org.junit.jupiter.api.Test
  *   1. Default behaviour (no mediums passed) advertises Wi-Fi LAN
  *      only — functionally identical to the project's pre-Phase-4
  *      hard-coded shape and to NearDrop.
- *   2. Multiple mediums survive the wire round-trip and Wi-Fi LAN is
- *      always present (it IS the discovery medium today; absence
- *      breaks Android 14+ Nearby Connections validation).
+ *   2. Multiple mediums survive the wire round-trip without hidden
+ *      expansion. Callers that own an off-LAN bootstrap must be able to
+ *      choose whether the legacy Wi-Fi LAN capability marker belongs in
+ *      that request shape.
  */
 class ConnectionRequestMediumsTest {
     @Test
@@ -48,11 +51,7 @@ class ConnectionRequestMediumsTest {
     }
 
     @Test
-    fun `Wi-Fi LAN is always implicitly present`() {
-        // Even a caller that forgets WIFI_LAN must end up advertising
-        // it because it IS the discovery medium for the current
-        // socket — Android 14+ Nearby Connections rejects absence of
-        // it as malformed.
+    fun `caller supplied off-LAN mediums can omit Wi-Fi LAN`() {
         val frame =
             OutboundFrames.connectionRequest(
                 endpointId = "ABCD",
@@ -60,8 +59,7 @@ class ConnectionRequestMediumsTest {
                 supportedMediums = setOf(Medium.BLUETOOTH),
             )
         val numbers = parseRequest(frame).mediumsList.map { it.number }.toSet()
-        assertThat(numbers).contains(Medium.WIFI_LAN.wireNumber)
-        assertThat(numbers).contains(Medium.BLUETOOTH.wireNumber)
+        assertThat(numbers).containsExactly(Medium.BLUETOOTH.wireNumber)
     }
 
     @Test
@@ -78,19 +76,39 @@ class ConnectionRequestMediumsTest {
     }
 
     @Test
-    fun `keep_alive fields and endpoint_id survive the change`() {
+    fun `keep_alive fields endpoint_id and connections_device survive the change`() {
         // Sanity: pinning the mediums field must not have regressed
-        // the four other fields ConnectionRequestFrame is expected to
+        // the other fields ConnectionRequestFrame is expected to
         // populate (One UI 8.0.5 silent-FIN guards live here).
-        val frame = OutboundFrames.connectionRequest("XYZW", ByteArray(0))
+        val endpointInfo = byteArrayOf(0x01, 0x02, 0x03)
+        val frame = OutboundFrames.connectionRequest("XYZW", endpointInfo)
         val req = parseRequest(frame)
         assertThat(req.endpointId).isEqualTo("XYZW")
         assertThat(req.endpointName).isEqualTo("")
+        assertThat(req.endpointInfo.toByteArray()).isEqualTo(endpointInfo)
         assertThat(req.keepAliveIntervalMillis).isEqualTo(10_000)
         assertThat(req.keepAliveTimeoutMillis).isEqualTo(600_000)
         assertThat(req.hasNonce()).isTrue()
         assertThat(req.hasMediumMetadata()).isTrue()
         assertThat(req.mediumMetadata.apFrequency).isEqualTo(-1)
+        assertThat(req.hasConnectionsDevice()).isTrue()
+        assertThat(req.connectionsDevice.endpointId).isEqualTo("XYZW")
+        assertThat(req.connectionsDevice.endpointType).isEqualTo(EndpointType.CONNECTIONS_ENDPOINT)
+        assertThat(req.connectionsDevice.endpointInfo.toByteArray()).isEqualTo(endpointInfo)
+    }
+
+    @Test
+    fun `Wi-Fi Direct requests advertise password auth support without opening role`() {
+        val frame =
+            OutboundFrames.connectionRequest(
+                endpointId = "ABCD",
+                endpointInfo = ByteArray(0),
+                supportedMediums = setOf(Medium.WIFI_DIRECT, Medium.BLE),
+            )
+        val metadata = parseRequest(frame).mediumMetadata
+        assertThat(metadata.supportedWifiDirectAuthTypesList)
+            .containsExactly(MediumMetadata.WifiDirectAuthType.WIFI_DIRECT_WITH_PASSWORD)
+        assertThat(metadata.hasMediumRole()).isFalse()
     }
 
     @Test

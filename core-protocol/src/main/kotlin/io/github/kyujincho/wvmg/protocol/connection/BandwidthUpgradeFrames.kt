@@ -9,6 +9,8 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame.UpgradePathInfo
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumRole
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import com.google.protobuf.ByteString
@@ -75,6 +77,38 @@ public object BandwidthUpgradeFrames {
                 .setEventType(BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_AVAILABLE)
                 .setUpgradePathInfo(info)
                 .build(),
+        )
+    }
+
+    /**
+     * Build `OfflineFrame{BANDWIDTH_UPGRADE_NEGOTIATION{
+     * event_type=UPGRADE_PATH_REQUEST, upgrade_path_info{
+     * upgrade_path_request{mediums=...}}}}`.
+     *
+     * Sent by a BLE/GATT sender after the encrypted channel is ready
+     * when the opening `ConnectionRequest.mediums` cannot safely include
+     * Wi-Fi Direct. The receiver remains the Nearby Connections server
+     * role and answers with `UPGRADE_PATH_AVAILABLE` if it can stand up
+     * one of the requested mediums.
+     */
+    public fun upgradePathRequest(requestedMediums: Set<Medium>): OfflineFrame {
+        val request =
+            UpgradePathInfo.UpgradePathRequest
+                .newBuilder()
+                .setMediumMetaData(defaultUpgradeRequestMetadata(requestedMediums))
+        requestedMediums
+            .map { it.toUpgradePathMedium() }
+            .sortedBy { it.number }
+            .forEach(request::addMediums)
+        return wrap(
+            BandwidthUpgradeNegotiationFrame
+                .newBuilder()
+                .setEventType(BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_REQUEST)
+                .setUpgradePathInfo(
+                    UpgradePathInfo
+                        .newBuilder()
+                        .setUpgradePathRequest(request),
+                ).build(),
         )
     }
 
@@ -364,6 +398,30 @@ public object BandwidthUpgradeFrames {
     }
 
     /**
+     * Decode the medium set from an inbound `UPGRADE_PATH_REQUEST`.
+     * Returns `null` for any other frame shape.
+     */
+    @Suppress("ReturnCount")
+    public fun decodeUpgradePathRequestMediums(frame: OfflineFrame): Set<Medium>? {
+        if (!frame.hasV1() || frame.v1.type != V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION) {
+            return null
+        }
+        val negotiation = frame.v1.bandwidthUpgradeNegotiation
+        if (negotiation.eventType != BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_REQUEST) {
+            return null
+        }
+        if (!negotiation.hasUpgradePathInfo() || !negotiation.upgradePathInfo.hasUpgradePathRequest()) {
+            return emptySet()
+        }
+        return negotiation
+            .upgradePathInfo
+            .upgradePathRequest
+            .mediumsList
+            .mapNotNull { Medium.fromUpgradePathMedium(it) }
+            .toSet()
+    }
+
+    /**
      * Parse a BLE-L2CAP-shaped `BluetoothCredentials` payload back into
      * [UpgradePathCredentials.BleL2cap]. Returns `null` when the proto
      * does not carry the `L2CAP:<psm>` discriminator (i.e. it really is
@@ -537,6 +595,23 @@ public object BandwidthUpgradeFrames {
         }
         return builder.build()
     }
+
+    private fun defaultUpgradeRequestMetadata(requestedMediums: Set<Medium>): MediumMetadata =
+        MediumMetadata
+            .newBuilder()
+            .also { builder ->
+                if (Medium.WIFI_DIRECT in requestedMediums) {
+                    builder.addSupportedWifiDirectAuthTypes(
+                        MediumMetadata.WifiDirectAuthType.WIFI_DIRECT_WITH_PASSWORD,
+                    )
+                    builder.setMediumRole(
+                        MediumRole
+                            .newBuilder()
+                            .setSupportWifiDirectGroupClient(true)
+                            .setSupportWifiDirectGroupOwner(true),
+                    )
+                }
+            }.build()
 
     /**
      * Serialize the publisher-side IPv6 + port pair into the byte layout

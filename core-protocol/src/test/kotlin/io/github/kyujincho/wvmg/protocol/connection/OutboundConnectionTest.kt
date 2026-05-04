@@ -6,6 +6,8 @@
 package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.common.truth.Truth.assertThat
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
 import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumLadder
@@ -15,6 +17,7 @@ import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import io.github.kyujincho.wvmg.protocol.medium.UpgradedTransport
 import io.github.kyujincho.wvmg.protocol.payload.FileDestinationFactory
 import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
+import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import io.github.kyujincho.wvmg.protocol.transport.asConnectedTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -63,6 +66,7 @@ import java.util.concurrent.TimeUnit
  *    → Completed) including a non-empty PIN.
  */
 @Timeout(value = 30, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+@Suppress("LargeClass")
 class OutboundConnectionTest {
     private lateinit var serverSocket: ServerSocket
     private val openedSockets: MutableList<Socket> = mutableListOf()
@@ -220,6 +224,12 @@ class OutboundConnectionTest {
             listener.close()
             return client to server
         }
+    }
+
+    private class SupportedProvider(
+        override val medium: Medium,
+    ) : MediumProvider {
+        override fun isSupported(): Boolean = true
     }
 
     /** Build a [FileSource] backed by an in-memory byte array. */
@@ -497,6 +507,141 @@ class OutboundConnectionTest {
                     assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
                 } finally {
                     upgradePair.close()
+                }
+            }
+        }
+
+    @Test
+    fun `preconnected BLE bootstrap upgrades to Wi-Fi Direct from initial medium advertisement`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val factory = InMemoryFactory()
+                val directUpgradePair = LoopbackUpgradePair(Medium.WIFI_DIRECT)
+                val hotspotUpgradePair = LoopbackUpgradePair(Medium.WIFI_HOTSPOT)
+                val ladder =
+                    MediumLadder(
+                        listOf(
+                            Medium.WIFI_HOTSPOT,
+                            Medium.WIFI_DIRECT,
+                            Medium.WIFI_LAN,
+                            Medium.BLE,
+                        ),
+                    )
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLE),
+                        secureRandom = SecureRandom("outbound-ble-bootstrap-direct".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        hotspotUpgradePair.clientProvider,
+                                        directUpgradePair.clientProvider,
+                                        SupportedProvider(Medium.BLE),
+                                        SupportedProvider(Medium.BLE_L2CAP),
+                                    ),
+                                ladder = ladder,
+                            ),
+                    )
+
+                val fileBytes = ByteArray(1024) { (it and 0x7F).toByte() }
+                val payloadId = 0x5154L
+                val files = listOf(bytesSource("ble-bootstrap-direct.bin", fileBytes, payloadId))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(files) }
+                        val inbound =
+                            InboundConnection(
+                                transport = server.asConnectedTransport(Medium.BLE),
+                                secureRandom = SecureRandom("inbound-ble-bootstrap-direct".toByteArray()),
+                                mediumRegistry =
+                                    MediumRegistry(
+                                        providers =
+                                            listOf(
+                                                MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                                hotspotUpgradePair.serverProvider,
+                                                directUpgradePair.serverProvider,
+                                                SupportedProvider(Medium.BLE),
+                                                SupportedProvider(Medium.BLE_L2CAP),
+                                            ),
+                                        ladder = ladder,
+                                    ),
+                            )
+
+                        launch {
+                            inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                            inbound.submitUserConsent(accepted = true)
+                        }
+
+                        val inboundResult = inbound.run(factory)
+                        val outboundResult = outboundJob.await()
+
+                        assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
+                        assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                        assertThat(inbound.activeMedium.value).isEqualTo(Medium.WIFI_DIRECT)
+                    }
+
+                    assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
+                    assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+                } finally {
+                    directUpgradePair.close()
+                    hotspotUpgradePair.close()
+                }
+            }
+        }
+
+    @Test
+    fun `preconnected BLE bootstrap request advertises LAN marker BLE and Wi-Fi Direct`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val directUpgradePair = LoopbackUpgradePair(Medium.WIFI_DIRECT)
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLE),
+                        secureRandom = SecureRandom("outbound-ble-bootstrap-request".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        directUpgradePair.clientProvider,
+                                        SupportedProvider(Medium.BLE),
+                                    ),
+                                ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLE)),
+                            ),
+                        initialHandshakeTimeoutMillis = SHORT_INITIAL_HANDSHAKE_TIMEOUT_MS,
+                    )
+                val wire = FramedConnection(server.asConnectedTransport(Medium.BLE))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(emptyList()) }
+                        val request =
+                            OfflineFrame
+                                .parseFrom(wire.receiveFrame())
+                                .v1
+                                .connectionRequest
+
+                        assertThat(request.mediumsList.map { it.number })
+                            .containsExactly(
+                                Medium.BLE.wireNumber,
+                                Medium.WIFI_LAN.wireNumber,
+                                Medium.WIFI_DIRECT.wireNumber,
+                            ).inOrder()
+                        assertThat(request.mediumMetadata.supportedWifiDirectAuthTypesList)
+                            .containsExactly(MediumMetadata.WifiDirectAuthType.WIFI_DIRECT_WITH_PASSWORD)
+                        assertThat(request.mediumMetadata.hasMediumRole()).isFalse()
+
+                        wire.close()
+                        assertThat(outboundJob.await()).isInstanceOf(OutboundResult.Failed::class.java)
+                    }
+                } finally {
+                    runCatching { wire.close() }
+                    directUpgradePair.close()
                 }
             }
         }

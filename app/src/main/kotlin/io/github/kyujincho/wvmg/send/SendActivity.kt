@@ -354,8 +354,12 @@ public class SendActivity : AppCompatActivity() {
         val targetSnapshot = peerPickerController.formatPeerSnapshot(peer, chosenRoute)
         Log.e(OUTBOUND_TAG, "picked target: $targetSnapshot")
         appendOutboundLog("picked target: $targetSnapshot")
-        // Stop discovery once we've made our pick.
+        // Stop discovery and the wake-up pulse once we've made our pick.
+        // BLE GATT bootstrap reuses the Bluetooth controller immediately;
+        // leaving the pulse active during the dial adds avoidable role
+        // churn on stock Quick Share receivers.
         peerPickerController.suspendPicker()
+        peerPickerController.stopBleAdvertise()
 
         // Hide the picker chrome.
         binding.sendPeerList.isVisible = false
@@ -431,9 +435,9 @@ public class SendActivity : AppCompatActivity() {
                 binding.sendStatusMessage.text = peerPickerController.peerSubtitle(peer)
             }
             OutboundConnectionState.Handshaking -> {
-                // TCP socket is up — the BLE wake-up pulse has done its
-                // job, stop broadcasting (#32 acceptance: stops as soon
-                // as the TCP connection to a recipient is established).
+                // The transport is up. The wake-up pulse is already
+                // stopped on selection; keep this idempotent call for any
+                // older path that reaches Handshaking without a picker tap.
                 peerPickerController.stopBleAdvertise()
                 binding.sendStatusPhase.setText(R.string.send_phase_handshaking)
                 binding.sendPin.visibility = View.GONE

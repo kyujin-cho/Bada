@@ -7,6 +7,8 @@ package io.github.kyujincho.wvmg.protocol.connection
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.ConnectionRequestFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.ConnectionResponseFrame
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.ConnectionsDevice
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.EndpointType
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OsInfo
@@ -61,14 +63,11 @@ internal object OutboundFrames {
         // Match NearDrop's ConnectionRequestFrame shape. Stock Quick Share
         // closes the socket immediately if these fields are absent — only
         // endpoint_id and endpoint_info is not enough on Android 14+:
-        //   * mediums = [WIFI_LAN, ...] tells the receiver which transports
-        //     this device can negotiate up to. WIFI_LAN is mandatory because
-        //     it IS the discovery medium for every Quick Share connection
-        //     today; absence of any medium hits a validation in Nearby
-        //     Connections that rejects the request. Phase 4 (#48–#54) adds
-        //     the BANDWIDTH_UPGRADE_NEGOTIATION machinery that lets us
-        //     advertise more than just WIFI_LAN here — the orchestrator
-        //     populates this set from the MediumRegistry's supportedMediums().
+        //   * mediums tells the receiver which transports this device can
+        //     negotiate up to. The default keeps the historical LAN-only
+        //     shape, while off-LAN bootstraps pass their exact medium set so
+        //     a BLE GATT + Wi-Fi Direct handoff does not silently advertise
+        //     Wi-Fi LAN as an available upgrade path.
         //   * keep_alive_interval / timeout are read by the receiver to
         //     decide its own KEEP_ALIVE cadence. We advertise 10 s / 10 min
         //     — PROTOCOL.md documents stock Android emitting KEEP_ALIVE
@@ -79,13 +78,10 @@ internal object OutboundFrames {
         //     empty string keeps modern peers happy and gives legacy peers
         //     a defined value to read.
         //
-        // Always include WIFI_LAN even if the caller forgot — it is the
-        // current connection's medium. Sort the proto-side enum values so
-        // the wire encoding is deterministic for tests and for KAT-style
-        // regression detection.
-        val withWifiLan = supportedMediums + Medium.WIFI_LAN
+        // Sort the proto-side enum values so the wire encoding is
+        // deterministic for tests and for KAT-style regression detection.
         val mediumProtoValues =
-            withWifiLan
+            supportedMediums
                 .map { it.toConnectionRequestMedium() }
                 .sortedBy { it.number }
         val builder =
@@ -95,9 +91,16 @@ internal object OutboundFrames {
                 .setEndpointName("")
                 .setEndpointInfo(ByteString.copyFrom(endpointInfo))
                 .setNonce(nonce)
-                .setMediumMetadata(defaultMediumMetadata())
+                .setMediumMetadata(defaultMediumMetadata(supportedMediums))
                 .setKeepAliveIntervalMillis(KEEP_ALIVE_INTERVAL_MILLIS)
                 .setKeepAliveTimeoutMillis(KEEP_ALIVE_TIMEOUT_MILLIS)
+                .setConnectionsDevice(
+                    ConnectionsDevice
+                        .newBuilder()
+                        .setEndpointId(endpointId)
+                        .setEndpointType(EndpointType.CONNECTIONS_ENDPOINT)
+                        .setEndpointInfo(ByteString.copyFrom(endpointInfo)),
+                )
         for (m in mediumProtoValues) builder.addMediums(m)
         val request = builder.build()
         return OfflineFrame
@@ -147,14 +150,20 @@ internal object OutboundFrames {
      * here keeps the field-shape compatible without introducing
      * `android.*` dependencies into `:core-protocol`.
      */
-    private fun defaultMediumMetadata(): MediumMetadata =
+    private fun defaultMediumMetadata(supportedMediums: Set<Medium>): MediumMetadata =
         MediumMetadata
             .newBuilder()
             .setSupports5Ghz(false)
             .setSupports6Ghz(false)
             .setMobileRadio(false)
             .setApFrequency(-1)
-            .build()
+            .also { builder ->
+                if (Medium.WIFI_DIRECT in supportedMediums) {
+                    builder.addSupportedWifiDirectAuthTypes(
+                        MediumMetadata.WifiDirectAuthType.WIFI_DIRECT_WITH_PASSWORD,
+                    )
+                }
+            }.build()
 
     /** Legacy `status` field value for "STATUS_OK". 0 in the proto enum. */
     private const val STATUS_OK: Int = 0

@@ -219,6 +219,14 @@ public class InboundSharingFsm(
             return protocolError("non-frame event in ReceivedPairedKeyResult: ${event::class.simpleName}")
         }
         val frame = event.frame
+        if (frame.v1.type == SharingFrameType.RESPONSE) {
+            // On One UI 8.x the sender's local acceptance can race with
+            // INTRODUCTION after the channel moves from BLE to Wi-Fi
+            // Direct. Treat it the same as the documented
+            // INTRODUCTION-then-RESPONSE ordering below: non-terminal
+            // accept/unknown is only the sender declaring readiness.
+            return handlePreemptiveConnectionResponse(frame)
+        }
         if (frame.v1.type != SharingFrameType.INTRODUCTION) {
             return protocolError("expected INTRODUCTION, got ${frame.v1.type}")
         }
@@ -254,13 +262,7 @@ public class InboundSharingFsm(
             //    TIMED_OUT: treat as a peer-side cancel — the sender has
             //    already abandoned the transfer, so our consent UI is
             //    moot.
-            val status = event.frame.v1.connectionResponse.status
-            return when (status) {
-                ConnectionResponseStatus.ACCEPT,
-                ConnectionResponseStatus.UNKNOWN,
-                -> emptyList()
-                else -> handlePeerCancel()
-            }
+            return handlePreemptiveConnectionResponse(event.frame)
         }
         if (event !is SharingFsmEvent.UserConsent) {
             // The peer is not supposed to push a frame at us while we are
@@ -345,6 +347,16 @@ public class InboundSharingFsm(
     private fun handlePeerCancel(): List<SharingFsmEffect> {
         state = InboundSharingState.Disconnected
         return listOf(SharingFsmEffect.Cancelled)
+    }
+
+    private fun handlePreemptiveConnectionResponse(frame: SharingFrame): List<SharingFsmEffect> {
+        val status = frame.v1.connectionResponse.status
+        return when (status) {
+            ConnectionResponseStatus.ACCEPT,
+            ConnectionResponseStatus.UNKNOWN,
+            -> emptyList()
+            else -> handlePeerCancel()
+        }
     }
 
     private fun protocolError(reason: String): List<SharingFsmEffect> {
