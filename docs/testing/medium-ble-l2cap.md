@@ -28,7 +28,7 @@ medium added by `BleL2capMediumProvider`.
 On each device, with a debug build that includes `:discovery-android`:
 
 ```bash
-adb logcat -s WvmgMedium WvmgDiscovery
+adb logcat -s LibreDropMedium LibreDropDiscovery
 ```
 
 When the app launches and the medium registry is constructed, the
@@ -51,12 +51,12 @@ encoder/decoder round-trip.
 1. On the receiver, start a Quick Share file-receive session as you
    would for a Wi-Fi-LAN transfer. The foreground notification should
    appear with the standard "Ready to receive" copy.
-2. With `adb logcat -s WvmgMedium`, look for a line containing
+2. With `adb logcat -s LibreDropMedium`, look for a line containing
    `BleL2capMediumProvider.prepareUpgrade()` followed by a non-zero
    PSM (decimal), for example:
 
    ```
-   I/WvmgMedium: prepareUpgrade -> BleL2cap(psm=0x1080, mac=02:00:00:00:00:00)
+   I/LibreDropMedium: prepareUpgrade -> BleL2cap(psm=0x1080, mac=02:00:00:00:00:00)
    ```
 
    The MAC will read back as the system sandbox sentinel
@@ -87,7 +87,7 @@ encoder/decoder round-trip.
    logcat line to look for:
 
    ```
-   I/WvmgMedium: adoptUpgrade BleL2cap psm=0x1080 mac=02:00:00:... -> connected
+   I/LibreDropMedium: adoptUpgrade BleL2cap psm=0x1080 mac=02:00:00:... -> connected
    ```
 
 4. Subsequent payload bytes flow over the L2CAP CoC channel until

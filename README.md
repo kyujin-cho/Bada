@@ -1,4 +1,4 @@
-# WhenVivoMeetsGoogle
+# LibreDrop
 
 A standalone Android port of the **Google Quick Share / Nearby Share** protocol,
 modeled on [NearDrop](https://github.com/grishka/NearDrop) by @grishka. The
@@ -79,7 +79,7 @@ lifecycle logic lives in a pure-JVM `ReceiverSession` helper that the
 exhaustively unit-testable without Robolectric.
 
 The launcher also exposes a persisted "Advertised Quick Share name"
-override for the receiver. When unset, WVMG resolves the advertised
+override for the receiver. When unset, LibreDrop resolves the advertised
 name from Android's device-name chain (`Settings.Global.DEVICE_NAME` on
 API 25+, then the Bluetooth adapter name when it is safely readable,
 then `Build.MODEL`, then the app label) and clamps the final
@@ -135,7 +135,7 @@ Manual interop runbooks (markdown checklists) live under
 ## Status
 
 Phase 1 is complete. Track the
-[Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1)
+[Phase 1 epic](https://github.com/kyujin-cho/LibreDrop/issues/1)
 for the full sub-issue list and merged PRs.
 
 ## Networking requirements
@@ -143,11 +143,11 @@ for the full sub-issue list and merged PRs.
 Shared Wi-Fi remains the baseline Quick Share path, but sender-side
 bootstrap is no longer limited to pure LAN discovery:
 
-- **WVMG sender -> stock Quick Share receiver** can start either from the
+- **LibreDrop sender -> stock Quick Share receiver** can start either from the
   shared-LAN mDNS path or from a nearby Bluetooth-assisted bootstrap path
   when the devices are off-LAN. For the off-LAN path, keep Bluetooth on
   at both ends and use the stock peer's visible-to-everyone mode.
-- **Stock Quick Share sender -> WVMG receiver** still depends on the
+- **Stock Quick Share sender -> LibreDrop receiver** still depends on the
   shared-LAN receiver discovery path today, so keep the devices on the
   same Wi-Fi network for that direction.
 - For the shared-LAN regression path, both devices must be on the same

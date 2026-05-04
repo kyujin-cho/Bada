@@ -9,14 +9,14 @@ plugins {
 }
 
 android {
-    namespace = "io.github.kyujincho.wvmg"
+    namespace = "dev.bluehouse.libredrop"
     compileSdk =
         libs.versions.compileSdk
             .get()
             .toInt()
 
     defaultConfig {
-        applicationId = "io.github.kyujincho.wvmg"
+        applicationId = "dev.bluehouse.libredrop"
         minSdk =
             libs.versions.minSdk
                 .get()

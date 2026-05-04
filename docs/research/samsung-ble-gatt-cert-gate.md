@@ -4,17 +4,17 @@
 **Subject:** Samsung One UI 8.x Quick Share BLE GATT acceptance gate (per-peer Weave handler registration)
 **Status:** GMS APK decompilation + on-device empirical verification (18 test rounds against Galaxy S26 Ultra running stock Quick Share / `com.samsung.android.app.sharelive`). Cross-checked against an independent parallel investigation on the same project on 2026-05-01..02 that arrived at the same `No handler registered` symptom from the protocol-timing angle but did not pivot to APK decompilation; this document's cert-gate analysis is unique to it.
 **GMS version analyzed:** `com.google.android.gms@261731035@26.17.31 (260400-906420463)`
-**Companion code:** `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/bootstrap/BleGattInitialControlClient.kt`, `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/ble/BleAdvertisePayload.kt`, `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/SamsungQuickShareHeuristic.kt`, `app/src/main/kotlin/io/github/kyujincho/wvmg/send/SendBootstrapPlan.kt`, `app/src/main/kotlin/io/github/kyujincho/wvmg/send/SendActivity.kt`
+**Companion code:** `discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/bootstrap/BleGattInitialControlClient.kt`, `discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/ble/BleAdvertisePayload.kt`, `discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/SamsungQuickShareHeuristic.kt`, `app/src/main/kotlin/dev/bluehouse/libredrop/send/SendBootstrapPlan.kt`, `app/src/main/kotlin/dev/bluehouse/libredrop/send/SendActivity.kt`
 **Last verified:** 2026-05-04 (post-#142/#144/#146 merge to `main`)
-**Audience:** Future contributors who would otherwise re-walk this loop trying to make WVMG's BLE GATT bootstrap reach a stock Samsung receiver.
+**Audience:** Future contributors who would otherwise re-walk this loop trying to make LibreDrop's BLE GATT bootstrap reach a stock Samsung receiver.
 
-> **TL;DR.** WVMG (or any non-GMS app) cannot complete a BLE GATT bootstrap into Samsung One UI's Quick Share receiver. The block is a Google-account-bound `SenderCertificate` lookup that gates per-peer Weave handler registration on the receiver. Without a certificate that Samsung's GMS already has in its `nearby_sharing_sender_certificate_book_*` files, every ATT write to characteristic `00000100-0004-1000-8000-001A11000101` is rejected with `BluetoothGattException: No handler registered for characteristic …`. The gate is cryptographic, not behavioral; protocol-level workarounds do not exist. The same finding is what `rquickshare`/`NearDrop` ran into and bailed on. Samsung is reachable from WVMG via Wi-Fi LAN (mDNS) without this restriction; that is the supported path.
+> **TL;DR.** LibreDrop (or any non-GMS app) cannot complete a BLE GATT bootstrap into Samsung One UI's Quick Share receiver. The block is a Google-account-bound `SenderCertificate` lookup that gates per-peer Weave handler registration on the receiver. Without a certificate that Samsung's GMS already has in its `nearby_sharing_sender_certificate_book_*` files, every ATT write to characteristic `00000100-0004-1000-8000-001A11000101` is rejected with `BluetoothGattException: No handler registered for characteristic …`. The gate is cryptographic, not behavioral; protocol-level workarounds do not exist. The same finding is what `rquickshare`/`NearDrop` ran into and bailed on. Samsung is reachable from LibreDrop via Wi-Fi LAN (mDNS) without this restriction; that is the supported path.
 
 ---
 
 ## 1. Symptom
 
-Sender (WVMG on a non-Samsung Android, e.g., vivo X300) detects a stock Galaxy S26 receiver by its BLE FastInitiation pulse on `0xFE2C`, picks a `route=ble-gatt` bootstrap, opens a GATT connection to the FEF3 service, and is rejected at the Weave layer. Concretely (timestamps from a single representative Round 16 capture):
+Sender (LibreDrop on a non-Samsung Android, e.g., vivo X300) detects a stock Galaxy S26 receiver by its BLE FastInitiation pulse on `0xFE2C`, picks a `route=ble-gatt` bootstrap, opens a GATT connection to the FEF3 service, and is rejected at the Weave layer. Concretely (timestamps from a single representative Round 16 capture):
 
 ```
 [vivo  ] 01:02:29.385 enqueue write len=7 header=80           (Weave CONNECTION_REQUEST)
@@ -204,21 +204,21 @@ We considered five paths and ruled each out:
 - Outcome: spoofable hash, unreachable private key. Gets us past `gchi.a` but dies at PairedKeyEncryption.
 
 ### 6.2 Be in the user's Google Contacts — same as above
-Mechanically identical: contact's GMS uploads, B's GMS syncs, WVMG would need *contact's* cert id + private key. Same dead-end.
+Mechanically identical: contact's GMS uploads, B's GMS syncs, LibreDrop would need *contact's* cert id + private key. Same dead-end.
 
-### 6.3 Reverse-engineer Google's Nearby Sharing API and call it from WVMG
+### 6.3 Reverse-engineer Google's Nearby Sharing API and call it from LibreDrop
 - gRPC service: `nearbysharing-pa.googleapis.com` (`location.nearby.sharing.v1.NearbySharingService`)
 - Companion service for presence/contacts: `nearbypresence-pa.googleapis.com` (`location.nearby.presence.v1.NearbyPresenceService`)
 - OAuth scopes:
   - `https://www.googleapis.com/auth/nearbysharing-pa`
   - `https://www.googleapis.com/auth/nearbypresence-pa`
-- Methods we'd need: `UpdateDevice` (register WVMG's device under user's account), `RegisterReceiver`, `ListSenderCertificates`, plus our own keypair generation and cert upload.
+- Methods we'd need: `UpdateDevice` (register LibreDrop's device under user's account), `RegisterReceiver`, `ListSenderCertificates`, plus our own keypair generation and cert upload.
 - **The OAuth scopes are first-party-restricted.** `AccountManager.getAuthToken(account, "oauth2:https://…/nearbysharing-pa", …)` from a non-Google-signed app returns `INVALID_SCOPE` / consent denied. The whitelist is an internal Google list of GMS + a handful of OEM partner apps; there is no public application form.
 - Outcome: cleanest design, completely closed off in practice.
 
 ### 6.4 Bind to GMS as a service via signature-restricted permission
 - The relevant permission is `com.google.android.gms.permission.ACCESS_NEARBY_SHARE_API` declared in GMS's manifest with `protectionLevel="signature"`.
-- Only apps signed with Google's platform signature can hold it. WVMG cannot.
+- Only apps signed with Google's platform signature can hold it. LibreDrop cannot.
 - Outcome: closed.
 
 ### 6.5 Delegate to GMS Quick Share via `Intent.ACTION_SEND` / `com.google.android.gms.SHARE_NEARBY`
@@ -235,7 +235,7 @@ Mechanically identical: contact's GMS uploads, B's GMS syncs, WVMG would need *c
   `pm query-activities -a android.intent.action.SEND -t image/*` on vivo returns 56 hits, **none** of them Quick Share. The system share sheet has nothing to offer.
 - Outcome: cannot delegate to GMS Quick Share on vivo because GMS never installs/enables the UI on this device class.
 
-This is a Google-side gatekeeping decision (Chimera config), not something WVMG can route around at app level.
+This is a Google-side gatekeeping decision (Chimera config), not something LibreDrop can route around at app level.
 
 ---
 
@@ -268,10 +268,10 @@ Both of those are kept in `BleAdvertisePayload`. They are real interop wins that
 
 | Direction | Wi-Fi LAN (mDNS) | BLE GATT |
 |---|---|---|
-| Galaxy → WVMG (vivo as receiver) | ✅ works | ✅ works as of PR #146 (`fix: complete Galaxy to vivo BLE GATT handoff`) — WVMG-as-receiver doesn't enforce a cert gate on incoming peers; the Galaxy-side sender stack completes Weave handshake into our `BleGattInitialControlServer`, then upgrades to Wi-Fi Direct via the `BandwidthUpgrade*` flow. The cert-gate is a Samsung-*receiver* policy, not a Samsung-sender one. |
-| WVMG (vivo) → Galaxy | ✅ works (Galaxy's Wi-Fi LAN acceptance path doesn't enforce the cert gate; mDNS-discovered peers complete the Sharing.Nearby handshake without certificate match) | ❌ blocked by §3–§4 above |
+| Galaxy → LibreDrop (vivo as receiver) | ✅ works | ✅ works as of PR #146 (`fix: complete Galaxy to vivo BLE GATT handoff`) — LibreDrop-as-receiver doesn't enforce a cert gate on incoming peers; the Galaxy-side sender stack completes Weave handshake into our `BleGattInitialControlServer`, then upgrades to Wi-Fi Direct via the `BandwidthUpgrade*` flow. The cert-gate is a Samsung-*receiver* policy, not a Samsung-sender one. |
+| LibreDrop (vivo) → Galaxy | ✅ works (Galaxy's Wi-Fi LAN acceptance path doesn't enforce the cert gate; mDNS-discovered peers complete the Sharing.Nearby handshake without certificate match) | ❌ blocked by §3–§4 above |
 
-So for the user's sending-from-non-Samsung-to-Samsung case, **Wi-Fi LAN is the supported route**. WVMG's existing implementation handles it. No additional certificate or GMS dependency is required.
+So for the user's sending-from-non-Samsung-to-Samsung case, **Wi-Fi LAN is the supported route**. LibreDrop's existing implementation handles it. No additional certificate or GMS dependency is required.
 
 ---
 
@@ -279,7 +279,7 @@ So for the user's sending-from-non-Samsung-to-Samsung case, **Wi-Fi LAN is the s
 
 ### Shipped
 
-WVMG's peer picker classifies Samsung-class peers via
+LibreDrop's peer picker classifies Samsung-class peers via
 `SamsungQuickShareHeuristic.isLikelySamsungReceiver(peer)` — a
 word-boundary-anchored matcher over `EndpointInfo.deviceName` and the
 BLE fast-advertisement display name covering `Galaxy`, `S20`–`S29`,
@@ -324,7 +324,7 @@ L2CAP → BLE GATT → Bluetooth Classic).
 
 - `discovery-android/.../discovery/ble/BleAdvertisePayload.kt` — the 23-byte FastInitiation pulse format with the byte-3 fix and `secret_id_hash`. Kdoc on that file documents *why* each byte matters (which Samsung empirics it preserves).
 - `discovery-android/.../discovery/bootstrap/BleGattInitialControlClient.kt` — the central-side BLE GATT bootstrap (writes Weave CONNECTION_REQUEST, expects CONFIRM). The `WEAVE_REQUEST_MAX_RETRIES` and post-connect / post-slot grace constants are residue from rounds 1–18 trying to find a timing window; they're harmless for Pixel and the rare working Samsung-edge cases, but they do not help against the Samsung cert gate. Documented in this file for context.
-- `discovery-android/.../discovery/bootstrap/BleGattInitialControlServer.kt` — the receiver-side server. WVMG **does not** enforce a cert gate on incoming peers; this is intentional — WVMG-as-receiver wants to accept anyone, including Samsung senders that *do* have a valid cert chain in their own GMS. PR #146 completes the Galaxy → vivo Weave handshake into this server, plus the Wi-Fi Direct upgrade flow that follows.
+- `discovery-android/.../discovery/bootstrap/BleGattInitialControlServer.kt` — the receiver-side server. LibreDrop **does not** enforce a cert gate on incoming peers; this is intentional — LibreDrop-as-receiver wants to accept anyone, including Samsung senders that *do* have a valid cert chain in their own GMS. PR #146 completes the Galaxy → vivo Weave handshake into this server, plus the Wi-Fi Direct upgrade flow that follows.
 - `discovery-android/.../discovery/SamsungQuickShareHeuristic.kt` (+ `SamsungQuickShareHeuristicTest.kt`) — the model-name pattern matcher used to detect Samsung-class peers. The patterns and false-positive guards are defended by tests; update both together when Samsung adds a new model line.
 - `app/.../send/SendBootstrapPlan.kt` — the `samsungBleGattCaveat: Boolean` field on the plan, set when `route is BleGatt && SamsungQuickShareHeuristic.isLikelySamsungReceiver(peer)`. Drives both the picker subtitle and the dialog gate in `SendActivity`.
 - `app/.../send/SendActivity.kt` (`confirmSamsungBleGattAttempt`, `openWifiSettings`, `proceedWithPeer`) — the `AlertDialog` that intercepts taps on Samsung BLE-GATT-only peers, plus the `Settings.ACTION_WIFI_SETTINGS` deeplink.

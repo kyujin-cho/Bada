@@ -34,7 +34,7 @@ Run the device-gated support-probe smoke tests on each candidate device:
 
 The suite class is:
 
-- `io.github.kyujincho.wvmg.discovery.medium.RealDeviceMediumSupportIntegrationTest`
+- `dev.bluehouse.libredrop.discovery.medium.RealDeviceMediumSupportIntegrationTest`
 
 Each test skips unless the device actually supports the medium and the app
 holds the required runtime permission:
@@ -79,7 +79,7 @@ adb -s <device-b> install -r app/build/outputs/apk/debug/app-debug.apk
 ## Upgraded-medium success vs fallback
 
 Issue #133 adds a dual-channel receive handoff: while a stock sender is
-switching to a direct medium, WVMG can keep draining the original Wi-Fi
+switching to a direct medium, LibreDrop can keep draining the original Wi-Fi
 LAN channel and the upgraded channel, then deliver SecureMessage frames
 to the sharing FSM in sequence-number order.
 
@@ -89,7 +89,7 @@ result as **upgraded-medium success** only if logs show both:
 - `medium-upgrade: delivered ... from prior`
 - `medium-upgrade: delivered ... from upgraded`
 
-If the transfer completes but `WvmgMedium` / `WvmgInbound` only reports
+If the transfer completes but `LibreDropMedium` / `LibreDropInbound` only reports
 Wi-Fi LAN as the active medium, record it as **Wi-Fi LAN fallback
 success**. That is still a pass for basic transfer stability, but it is
 not evidence that the direct-medium handoff worked.

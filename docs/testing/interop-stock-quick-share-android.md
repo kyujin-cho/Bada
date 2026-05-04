@@ -1,24 +1,24 @@
 # Interop test runbook: stock Quick Share on Android
 
 This is the manual interoperability test runbook for verifying that
-WhenVivoMeetsGoogle (WVMG) can send to and receive from stock **Google
+LibreDrop (LibreDrop) can send to and receive from stock **Google
 Quick Share** on Android, both on a clean Pixel (GMS) device and on a
 Samsung One UI device with Samsung's forked Quick Share UI.
 
 This runbook tracks issue
-[#30](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/30) under
-the [Phase 1 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/1).
+[#30](https://github.com/kyujin-cho/LibreDrop/issues/30) under
+the [Phase 1 epic](https://github.com/kyujin-cho/LibreDrop/issues/1).
 
 > **Current scope note.** Phase 1 originally shipped as Wi-Fi LAN parity
 > with NearDrop, and the QR path below remains the lowest-risk fallback.
-> Issue #137 adds a sender-side non-LAN bootstrap path: WVMG can now
+> Issue #137 adds a sender-side non-LAN bootstrap path: LibreDrop can now
 > discover stock peers through Bluetooth-adjacent discovery surfaces and
 > start the initial control channel without requiring the same Wi-Fi LAN.
 > Issue #145 adds the reciprocal receiver path for stock Samsung senders:
-> WVMG can be discovered through the stock Quick Share picker, accept the
+> LibreDrop can be discovered through the stock Quick Share picker, accept the
 > initial BLE GATT socket, and hand the transfer off to Wi-Fi Direct.
 > Shared-LAN mDNS is still the baseline regression path, and stock sender
-> -> WVMG receiver regression should now be exercised both on a shared
+> -> LibreDrop receiver regression should now be exercised both on a shared
 > LAN and on the BLE GATT -> Wi-Fi Direct path when hardware supports it.
 
 ---
@@ -31,7 +31,7 @@ Two network topologies matter now:
 
 - **Shared-LAN regression path:** both devices on the same Wi-Fi network
   so mDNS discovery can work exactly as it did before issue #137.
-- **Off-LAN sender path:** WVMG sender and the stock receiver are on
+- **Off-LAN sender path:** LibreDrop sender and the stock receiver are on
   different Wi-Fi networks, on a client-isolated Wi-Fi, or otherwise
   unable to reach each other by LAN mDNS alone. Bluetooth must stay on
   so the initial control channel can bootstrap, and the subsequent
@@ -52,7 +52,7 @@ Two network topologies matter now:
 - [ ] Both devices have **Wi-Fi turned on**.
 - [ ] For the **off-LAN sender** cells, both devices also have
       **Bluetooth turned on**.
-- [ ] For the **stock sender -> WVMG receiver BLE GATT** cells, Bluetooth
+- [ ] For the **stock sender -> LibreDrop receiver BLE GATT** cells, Bluetooth
       is on for discovery/bootstrap, and Wi-Fi Direct is available on
       both devices for the bandwidth upgrade. The sender's infrastructure
       Wi-Fi may be off; the transfer should still complete after the
@@ -62,7 +62,7 @@ Two network topologies matter now:
 
 ### Devices under test (DUTs)
 
-- [ ] **WVMG device:** Android device running the WVMG debug APK from
+- [ ] **LibreDrop device:** Android device running the LibreDrop debug APK from
       `./gradlew :app:assembleDebug`. `minSdk = 24`, but for this
       runbook prefer Android 12+ to match common test devices.
 - [ ] **Stock Pixel peer:** A Pixel device with **clean GMS**, on a
@@ -81,13 +81,13 @@ Two network topologies matter now:
 
 ### Receiver name under test
 
-- [ ] Record which receiver-name mode WVMG is using for this run:
+- [ ] Record which receiver-name mode LibreDrop is using for this run:
       **custom advertised name** from the launcher settings, or the
       **default fallback chain** (`Settings.Global.DEVICE_NAME` on
       API 25+, then Bluetooth adapter name when safely readable, then
       `Build.MODEL`, then the app label).
 - [ ] If you are exercising the custom-name path, keep the configured
-      value within WVMG's documented 19-byte UTF-8 budget and note the
+      value within LibreDrop's documented 19-byte UTF-8 budget and note the
       exact string in the test log.
 
 ### Quick Share visibility on the stock peer
@@ -98,23 +98,23 @@ each test, and record which:
 - [ ] **"Everyone" / "Visible to everyone"** — easiest mode for testing.
       On Pixel: Settings → Connected devices → Connection preferences →
       Quick Share → "Everyone" (or the 10-minute toggle).
-- [ ] **"Contacts"** — only works if the WVMG endpoint is treated as a
+- [ ] **"Contacts"** — only works if the LibreDrop endpoint is treated as a
       contact, which it is **not** in Phase 1. Skip.
 - [ ] **"Your devices"** — only works if both devices are signed in to
-      the same Google account, which WVMG is not. Skip.
+      the same Google account, which LibreDrop is not. Skip.
 
-### WVMG configuration
+### LibreDrop configuration
 
 - [ ] Receiver `ForegroundService` (`ReceiverForegroundService`) is
-      running on the WVMG device — confirm via the persistent receiver
+      running on the LibreDrop device — confirm via the persistent receiver
       notification.
 - [ ] mDNS advertise is up. The TXT `n` record contains a valid packed
       `EndpointInfo` per
-      [`core-protocol/.../endpoint/EndpointInfo.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/endpoint/EndpointInfo.kt).
+      [`core-protocol/.../endpoint/EndpointInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/endpoint/EndpointInfo.kt).
 - [ ] Service type is `_FC9F5ED42C8A._tcp.local.` (see
-      [`core-protocol/.../ProtocolInfo.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/ProtocolInfo.kt)).
+      [`core-protocol/.../ProtocolInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/ProtocolInfo.kt)).
 - [ ] Wi-Fi `MulticastLock` is held (validated via `adb shell dumpsys
-      wifi | grep -i multicast` showing the WVMG package as a holder).
+      wifi | grep -i multicast` showing the LibreDrop package as a holder).
 
 ---
 
@@ -124,12 +124,12 @@ Every cell in the matrix must be exercised once per RC build.
 
 | # | Direction        | Peer    | Path used                                | Visibility setting on peer | Result |
 |---|------------------|---------|------------------------------------------|----------------------------|--------|
-| 1 | WVMG -> Pixel    | Pixel   | Shared-LAN picker / mDNS regression      | Everyone                   |        |
-| 2 | WVMG -> Pixel    | Pixel   | Off-LAN sender bootstrap (#137)          | Everyone                   |        |
-| 3 | WVMG -> Samsung  | Samsung | Shared-LAN picker / mDNS regression      | Everyone                   |        |
-| 4 | WVMG -> Samsung  | Samsung | Off-LAN sender bootstrap (#137)          | Everyone                   |        |
-| 5 | Pixel -> WVMG    | Pixel   | Pixel device picker                      | n/a (sender side picks us) |        |
-| 6 | Samsung -> WVMG  | Samsung | Samsung Quick Share UI / BLE GATT -> Wi-Fi Direct | n/a                        |        |
+| 1 | LibreDrop -> Pixel    | Pixel   | Shared-LAN picker / mDNS regression      | Everyone                   |        |
+| 2 | LibreDrop -> Pixel    | Pixel   | Off-LAN sender bootstrap (#137)          | Everyone                   |        |
+| 3 | LibreDrop -> Samsung  | Samsung | Shared-LAN picker / mDNS regression      | Everyone                   |        |
+| 4 | LibreDrop -> Samsung  | Samsung | Off-LAN sender bootstrap (#137)          | Everyone                   |        |
+| 5 | Pixel -> LibreDrop    | Pixel   | Pixel device picker                      | n/a (sender side picks us) |        |
+| 6 | Samsung -> LibreDrop  | Samsung | Samsung Quick Share UI / BLE GATT -> Wi-Fi Direct | n/a                        |        |
 
 For each cell, run **both** a small file (≤ 1 MB, e.g. a JPEG) and a
 large file (≥ 200 MB, e.g. a video). The large-file run is what catches
@@ -143,20 +143,20 @@ that fit in one chunk, so it was invisible in large-file-only testing.
 
 ## Procedure
 
-### Test 1 / Test 3: Send file from WVMG to a stock Android phone (shared-LAN regression)
+### Test 1 / Test 3: Send file from LibreDrop to a stock Android phone (shared-LAN regression)
 
 - [ ] Put both devices on the **same Wi-Fi SSID / VLAN**.
-- [ ] On the **WVMG device**: open the system share sheet for the file
+- [ ] On the **LibreDrop device**: open the system share sheet for the file
       under test and route into `SendActivity`.
 - [ ] Wait for the peer row to appear in the picker. Record the
-      `picked target:` log line from `adb logcat -s WvmgOutbound` after
+      `picked target:` log line from `adb logcat -s LibreDropOutbound` after
       selection; for the shared-LAN regression it should show
       `route=lan=<ip>:<port>`.
 - [ ] Select the peer row, compare the 4-digit PIN on both sides, and
       complete the transfer.
 - [ ] Verify the received file and SHA-256 hash on the peer.
 
-### Test 2 / Test 4: Send file from WVMG to a stock Android phone (off-LAN sender bootstrap)
+### Test 2 / Test 4: Send file from LibreDrop to a stock Android phone (off-LAN sender bootstrap)
 
 This is the issue #137 checklist. It validates that the sender can
 discover and start the session without relying on same-LAN mDNS.
@@ -165,13 +165,13 @@ discover and start the session without relying on same-LAN mDNS.
       with client isolation) so a pure LAN dial would fail.
 - [ ] On the **stock peer**: set Quick Share visibility to **Everyone**
       and confirm **Bluetooth is on**.
-- [ ] On the **WVMG device**: open the system share sheet for the file
+- [ ] On the **LibreDrop device**: open the system share sheet for the file
       under test and route into `SendActivity`.
 - [ ] Wait for the peer row to appear in the picker. A BLE-only stock
-      receiver with no L2CAP PSM should stay disabled until WVMG verifies
+      receiver with no L2CAP PSM should stay disabled until LibreDrop verifies
       the Nearby GATT socket service, then surface as a direct
       `BLE GATT <mac>` route.
-- [ ] Capture `adb logcat -s WvmgOutbound WvmgBtScan WvmgBleFastScan WvmgBleGattClient`
+- [ ] Capture `adb logcat -s LibreDropOutbound LibreDropBtScan LibreDropBleFastScan LibreDropBleGattClient`
       while the picker is open. Record the discovery surfaces reported
       in the `picked target:` line's `mediums=[...]` field.
 - [ ] Select the peer row and record the initial control route from the
@@ -183,26 +183,26 @@ discover and start the session without relying on same-LAN mDNS.
       SHA-256 hash on the peer.
 - [ ] Record whether the connection stayed on the initial medium or
       upgraded. Look for `step 1: initial transport open medium=...`
-      and any `medium-upgrade:` lines in `WvmgOutbound`.
+      and any `medium-upgrade:` lines in `LibreDropOutbound`.
 - [ ] Immediately rerun the same peer pair on a **shared LAN** and
       confirm the regression path still chooses `route=lan=<ip>:<port>`.
 
 ### Test 5 / Test 6: Receive file from a stock Android phone
 
-Use this checklist for the stock sender -> WVMG receiver path. It covers
+Use this checklist for the stock sender -> LibreDrop receiver path. It covers
 the shared-LAN regression and the BLE GATT -> Wi-Fi Direct receiver path.
 
-- [ ] Install the WVMG debug APK on the receiver and start the receiver
+- [ ] Install the LibreDrop debug APK on the receiver and start the receiver
       foreground service. If the install stalls on vivo for more than 5 s,
       clear the vendor Security Care consent prompt and continue.
-- [ ] Open WVMG on the receiver and enable **Always Visible**.
+- [ ] Open LibreDrop on the receiver and enable **Always Visible**.
 - [ ] Capture receiver logs:
-      `adb logcat -s WvmgBleGatt WvmgBleAdv WvmgMdnsGate WvmgDiscovery WvmgReceive WvmgInbound WvmgWifiDirect`
+      `adb logcat -s LibreDropBleGatt LibreDropBleAdv LibreDropMdnsGate LibreDropDiscovery LibreDropReceive LibreDropInbound LibreDropWifiDirect`
 - [ ] Capture Samsung sender logs:
       `adb logcat -s NearbySharing ShareLive NearbyConnections NearbyMediums BtGatt BluetoothGatt WifiP2pService WifiDirectController`
 - [ ] On the stock sender, share a small file through the Samsung Quick
-      Share UI and select the WVMG row.
-- [ ] Confirm the BLE GATT bootstrap reaches WVMG. Receiver logs should
+      Share UI and select the LibreDrop row.
+- [ ] Confirm the BLE GATT bootstrap reaches LibreDrop. Receiver logs should
       show a CCCD write on `00000100-0004-1000-8000-001a11000102`, a
       write on `00000100-0004-1000-8000-001a11000101`, and
       `BLE socket introduction accepted`.
@@ -221,19 +221,19 @@ the shared-LAN regression and the BLE GATT -> Wi-Fi Direct receiver path.
 
 - **Sender:** Galaxy S26 Ultra (`SM-S948N`) using Samsung ShareLive /
   stock Quick Share.
-- **Receiver:** vivo X300 Ultra (`V2547A`) running WVMG debug.
+- **Receiver:** vivo X300 Ultra (`V2547A`) running LibreDrop debug.
 - **Topology:** Galaxy Wi-Fi disabled, Bluetooth on; receiver formed the
   Wi-Fi Direct group after BLE GATT bootstrap.
-- **Receiver evidence:** WVMG published the regular `0xFEF3` slot service
+- **Receiver evidence:** LibreDrop published the regular `0xFEF3` slot service
   and the Nearby second-profile socket service
   `0000fef3-0004-1000-8000-001a11000100`; Samsung wrote the socket CCCD
-  and TO-peripheral characteristic, WVMG logged
+  and TO-peripheral characteristic, LibreDrop logged
   `BLE socket using raw Nearby stream`, then completed `WIFI_DIRECT`.
 - **Sender evidence:** Samsung logged a successful connection to
-  `DIRECT-pX-WVMG-PlRuIQ` and replaced the endpoint channel from
+  `DIRECT-pX-LibreDrop-PlRuIQ` and replaced the endpoint channel from
   `ENCRYPTED_BLE` to `ENCRYPTED_WIFI_DIRECT`; ShareLive reported `Sent`.
 - **Payload evidence:** `issue-145-galaxy-to-vivo-repro.txt` was written
-  to `/sdcard/Download/WVMG/` with 52 bytes and SHA-256
+  to `/sdcard/Download/LibreDrop/` with 52 bytes and SHA-256
   `95e6c8f9462c24715a79e956b92956d7ce4f0677a0f8cf37284ce1a145e8e648`,
   matching the Galaxy source file.
 
@@ -244,7 +244,7 @@ through BLE advertisements and does not expose a direct LAN or peer-PSM
 route.
 
 - [ ] Connect two adb devices and export serials:
-      `export VIVO_SERIAL=<wvmg-sender-serial>`
+      `export VIVO_SERIAL=<libredrop-sender-serial>`
       `export STOCK_SERIAL=<stock-receiver-serial>`
 - [ ] Confirm the devices do **not** share a usable LAN route:
       `adb -s "$VIVO_SERIAL" shell ip route`
@@ -252,15 +252,15 @@ route.
 - [ ] Open the stock Quick Share receive UI on the receiver and keep it
       visible.
 - [ ] Start `adb -s "$VIVO_SERIAL" logcat -c` and then capture:
-      `adb -s "$VIVO_SERIAL" logcat -s WvmgOutbound WvmgDiscovery WvmgBleFastScan WvmgBleGattClient WvmgBleL2cap`
-- [ ] Launch WVMG's send flow on the vivo and wait for the receiver row.
+      `adb -s "$VIVO_SERIAL" logcat -s LibreDropOutbound LibreDropDiscovery LibreDropBleFastScan LibreDropBleGattClient LibreDropBleL2cap`
+- [ ] Launch LibreDrop's send flow on the vivo and wait for the receiver row.
       The discovery log should first show an observation-only BLE peer,
       then either `slot-read service discovered socket=true ...` or
       `BLE GATT socket service verified ...` once the stock receiver's
       Nearby GATT socket service is confirmed.
 - [ ] Tap the receiver row. Record:
       `picked target: ... route=ble-gatt=<mac> ... bootstrap={selected=ble-gatt ...}`
-- [ ] Confirm WVMG then logs `BLE GATT initial connect ready`, followed by
+- [ ] Confirm LibreDrop then logs `BLE GATT initial connect ready`, followed by
       `step 1: initial transport open medium=BLE` and
       `step 2: UKEY2 client handshake complete`.
 - [ ] Verify there is **no** `ConnectionRequest` / UKEY2 hang on a
@@ -282,25 +282,25 @@ discovery/bootstrap failures from later protocol failures.
       **Everyone** (or use the temporary "Everyone for 10 minutes"
       toggle if available). Pull down the notification shade and
       confirm Quick Share is enabled.
-- [ ] On the **WVMG device**: open the system share sheet for the file
-      under test (e.g. long-press a photo in Files, share to WVMG).
-      WVMG's `ShareIntentRouter`
-      ([`app/.../send/ShareIntentRouter.kt`](../../app/src/main/kotlin/io/github/kyujincho/wvmg/send/ShareIntentRouter.kt))
+- [ ] On the **LibreDrop device**: open the system share sheet for the file
+      under test (e.g. long-press a photo in Files, share to LibreDrop).
+      LibreDrop's `ShareIntentRouter`
+      ([`app/.../send/ShareIntentRouter.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/ShareIntentRouter.kt))
       should route the intent into `SendActivity`.
-- [ ] In `SendActivity`, choose the **"Show QR code"** option. WVMG
+- [ ] In `SendActivity`, choose the **"Show QR code"** option. LibreDrop
       shows a QR rendered by `ShowQrActivity`
-      ([`app/.../send/ShowQrActivity.kt`](../../app/src/main/kotlin/io/github/kyujincho/wvmg/send/ShowQrActivity.kt)).
+      ([`app/.../send/ShowQrActivity.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/ShowQrActivity.kt)).
 - [ ] On the **stock peer**: open the **system camera app** (or Google
       Lens) and aim at the QR. Stock Quick Share intercepts the
       `https://qsr.gs/...` deep-link and opens the Quick Share receive
       sheet with our endpoint pre-selected.
 - [ ] The peer taps **Accept** on its sheet.
-- [ ] On the **WVMG device**: the consent / progress UI shows a
+- [ ] On the **LibreDrop device**: the consent / progress UI shows a
       4-digit PIN. The PIN must match what the peer displays.
 - [ ] Wait for the transfer to complete. Note total wall-clock seconds.
 - [ ] On the peer, locate the received file (typically in
       Downloads / "Quick Share" folder).
-- [ ] Compute `sha256sum` of the source file on WVMG and the received
+- [ ] Compute `sha256sum` of the source file on LibreDrop and the received
       file on the peer; **they must match**. Use `adb shell sha256sum
       /sdcard/Download/<file>` on each side, or `Termux` on the peer.
 
@@ -322,46 +322,46 @@ discovery/bootstrap failures from later protocol failures.
 - [ ] Run the test with a **small file (≤ 512 KiB, single chunk)** in
       addition to the large-file run. The single-chunk case is what
       catches a fused terminator.
-- [ ] In the WVMG logcat, confirm `fsm: safe-disconnect peer
+- [ ] In the LibreDrop logcat, confirm `fsm: safe-disconnect peer
       Disconnection ack=true` (or `fsm: safe-disconnect peer FIN
       observed`) appears after the transfer completes. Absence means
       the drain timed out and the socket may have closed before the
       receiver finished writing.
-- [ ] `adb logcat -s WvmgOutbound` on the WVMG device shows
+- [ ] `adb logcat -s LibreDropOutbound` on the LibreDrop device shows
       `fsm: streamOneFile DONE` for each file and
       `fsm: all files streamed, sending Disconnection` before the
       safe-disconnect drain line.
 
 ### Test 3 / Test 4: Receive file from stock Android (peer initiates)
 
-- [ ] On the **WVMG device**: confirm the receiver `ForegroundService`
+- [ ] On the **LibreDrop device**: confirm the receiver `ForegroundService`
       is running (persistent notification visible).
 - [ ] On the **stock peer**: open **Google Files** (or any app with a
       shareable item) → Share → **Quick Share**.
-- [ ] In the device picker, scroll until **the WVMG device's display
+- [ ] In the device picker, scroll until **the LibreDrop device's display
       name appears**. The name comes from the packed `EndpointInfo`
       (see preconditions). If the device does **not** appear within
       ~15 seconds, see the troubleshooting section below.
 - [ ] Verify the displayed name matches the selected receiver-name mode:
       the launcher's custom advertised name when one is set, otherwise
-      the resolved Android default name for the WVMG device.
-- [ ] Pick the WVMG device.
-- [ ] On the **WVMG device**: a consent notification appears (handled
+      the resolved Android default name for the LibreDrop device.
+- [ ] Pick the LibreDrop device.
+- [ ] On the **LibreDrop device**: a consent notification appears (handled
       by
-      [`service-android/.../consent/ConsentNotification.kt`](../../service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/receiver/consent/ConsentNotification.kt)).
+      [`service-android/.../consent/ConsentNotification.kt`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver/consent/ConsentNotification.kt)).
       Tap "Accept" — or open the consent activity for the in-app
       experience.
 - [ ] Confirm the 4-digit PIN matches between both devices.
 - [ ] Wait for the transfer to complete.
-- [ ] On the **WVMG device**, the file lands under **Downloads** via
+- [ ] On the **LibreDrop device**, the file lands under **Downloads** via
       `MediaStoreDownloadsFactory`
-      ([`service-android/.../downloads`](../../service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/downloads)).
+      ([`service-android/.../downloads`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/downloads)).
 - [ ] `sha256sum` the source on the peer and the received file on
-      WVMG. They **must match**.
+      LibreDrop. They **must match**.
 
 #### Things to record
 
-- Whether the WVMG device showed up in the picker on the **first**
+- Whether the LibreDrop device showed up in the picker on the **first**
   attempt (no need to toggle Wi-Fi, no need to restart Quick Share).
 - The `IS_PENDING` state of the received MediaStore entry: it must be
   cleared (`IS_PENDING = 0`) by the time the transfer completes.
@@ -371,8 +371,8 @@ discovery/bootstrap failures from later protocol failures.
 ## Common Quick Share quirks
 
 These are real-world quirks every tester should know about. None of
-them are bugs in WVMG; they are properties of the stock Quick Share
-UX. If a test step fails, walk this list before assuming a WVMG bug.
+them are bugs in LibreDrop; they are properties of the stock Quick Share
+UX. If a test step fails, walk this list before assuming a LibreDrop bug.
 
 ### Pixel / GMS quirks
 
@@ -407,8 +407,8 @@ UX. If a test step fails, walk this list before assuming a WVMG bug.
   (`com.google.android.gms` / `com.google.android.apps.nbu.files` flow,
   not `com.samsung.android.app.sharelive`).
 - Samsung devices aggressively kill background services. The receiver
-  side of WVMG is a foreground service, but the Samsung peer's Quick
-  Share may not be — if you can't see the WVMG device on Samsung's
+  side of LibreDrop is a foreground service, but the Samsung peer's Quick
+  Share may not be — if you can't see the LibreDrop device on Samsung's
   picker, **toggle Quick Share off and back on** to force a fresh
   scan.
 - Samsung Knox DeX or Secure Folder profiles may have a separate Quick
@@ -437,15 +437,15 @@ UX. If a test step fails, walk this list before assuming a WVMG bug.
 ### Both
 
 - Quick Share **caches the last-seen device list** for a few seconds.
-  If you change WVMG's display name, restart Quick Share on the peer
+  If you change LibreDrop's display name, restart Quick Share on the peer
   before re-checking.
 - Quick Share is **picky about EndpointInfo length**. Names longer
-  than WVMG's 19-byte UTF-8 receiver-name budget are now clamped before
+  than LibreDrop's 19-byte UTF-8 receiver-name budget are now clamped before
   advertisement. BLE DCT secondary hints may truncate even further to a
   shorter prefix, so keep test names short and compare against the
   canonical mDNS / share-sheet label.
 - Some peers close the connection if the consent dialog isn't
-  responded to within ~30 seconds. Don't let the WVMG device's screen
+  responded to within ~30 seconds. Don't let the LibreDrop device's screen
   lock during the consent step.
 
 ---
@@ -456,12 +456,12 @@ When any step above fails, capture **all** of the following before
 filing a follow-up issue. The combination of these logs is what makes
 Quick Share interop bugs reproducible.
 
-### From the WVMG device
+### From the LibreDrop device
 
 ```bash
-# Service + protocol logs from WVMG.
+# Service + protocol logs from LibreDrop.
 adb logcat -d \
-    'wvmg:V' \
+    'libredrop:V' \
     'ReceiverForegroundService:V' \
     'ReceiverSession:V' \
     'OutboundConnection:V' \
@@ -471,16 +471,16 @@ adb logcat -d \
     'JmDNS:V' \
     'NsdManager:V' \
     'AndroidRuntime:E' \
-    '*:S' > wvmg-logcat.txt
+    '*:S' > libredrop-logcat.txt
 
 # Bug report (system-wide). Useful for Wi-Fi state, multicast lock holders.
-adb bugreport wvmg-bugreport.zip
+adb bugreport libredrop-bugreport.zip
 
 # Live multicast lock holders.
-adb shell dumpsys wifi | grep -A2 -i multicast > wvmg-multicast.txt
+adb shell dumpsys wifi | grep -A2 -i multicast > libredrop-multicast.txt
 
 # mDNS state visible to the OS.
-adb shell dumpsys nsd > wvmg-nsd.txt
+adb shell dumpsys nsd > libredrop-nsd.txt
 ```
 
 ### From the stock peer
@@ -499,7 +499,7 @@ adb shell dumpsys nsd > wvmg-nsd.txt
       monitor mode, or a router with `tcpdump`) for the duration of
       the failed transfer. Save as `failed-transfer.pcap`. Filter for
       `mdns or port 8080-65535` once captured.
-- [ ] Note the timestamp of the failed step in the WVMG logcat to
+- [ ] Note the timestamp of the failed step in the LibreDrop logcat to
       correlate against the pcap.
 
 ### File integrity
@@ -524,20 +524,20 @@ adb shell dumpsys nsd > wvmg-nsd.txt
 ## Related project files
 
 - mDNS / discovery wrapper:
-  [`discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery`](../../discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery)
+  [`discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery)
 - Receiver foreground service + consent UI:
-  [`service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/receiver`](../../service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/receiver)
+  [`service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver)
 - MediaStore Downloads writer:
-  [`service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/downloads`](../../service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/downloads)
+  [`service-android/src/main/kotlin/dev/bluehouse/libredrop/service/downloads`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/downloads)
 - Outbound (sender) connection driver:
-  [`core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/connection/OutboundConnection.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/connection/OutboundConnection.kt)
+  [`core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/OutboundConnection.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/OutboundConnection.kt)
 - Inbound (receiver) connection:
-  [`core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/connection/InboundConnection.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/connection/InboundConnection.kt)
+  [`core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/InboundConnection.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/InboundConnection.kt)
 - `EndpointInfo` packed binary descriptor (interop-critical):
-  [`core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/endpoint/EndpointInfo.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/endpoint/EndpointInfo.kt)
+  [`core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/endpoint/EndpointInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/endpoint/EndpointInfo.kt)
 - QR-code generation (Phase 1 trigger):
-  [`app/src/main/kotlin/io/github/kyujincho/wvmg/send/ShowQrActivity.kt`](../../app/src/main/kotlin/io/github/kyujincho/wvmg/send/ShowQrActivity.kt)
+  [`app/src/main/kotlin/dev/bluehouse/libredrop/send/ShowQrActivity.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/ShowQrActivity.kt)
 - Share-intent router:
-  [`app/src/main/kotlin/io/github/kyujincho/wvmg/send/ShareIntentRouter.kt`](../../app/src/main/kotlin/io/github/kyujincho/wvmg/send/ShareIntentRouter.kt)
+  [`app/src/main/kotlin/dev/bluehouse/libredrop/send/ShareIntentRouter.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/ShareIntentRouter.kt)
 - Companion runbook for NearDrop / macOS interop (issue #29):
   [`docs/testing/interop-neardrop-macos.md`](./interop-neardrop-macos.md)

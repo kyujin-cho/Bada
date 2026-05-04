@@ -47,7 +47,7 @@ not a manual one.
 ### Test artifacts
 
 - [ ] An installable debug APK on both devices — `./gradlew :app:assembleDebug`.
-- [ ] `adb logcat -s WvmgWifiHotspot WvmgOutbound WvmgSend WvmgDiscovery`
+- [ ] `adb logcat -s LibreDropWifiHotspot LibreDropOutbound LibreDropSend LibreDropDiscovery`
       running on both devices in separate terminals.
 
 ## Sender: bring up the hotspot
@@ -58,7 +58,7 @@ not a manual one.
 > a test action). Update this section once the orchestrator is live.
 
 - [ ] Trigger `WifiHotspotMediumProvider.prepareUpgrade()`.
-- [ ] Logcat shows `WvmgWifiHotspot` lines describing the bring-up.
+- [ ] Logcat shows `LibreDropWifiHotspot` lines describing the bring-up.
 - [ ] No `onFailed` line appears in logcat.
 - [ ] The returned `UpgradePathCredentials.WifiHotspot` has:
   - [ ] non-empty `ssid` (typically `AndroidShare_xxxx` or `DIRECT-xx-xxx`).
@@ -74,7 +74,7 @@ not a manual one.
       from the sender to the receiver's debug entry point.
 - [ ] Trigger `WifiHotspotMediumProvider.adoptUpgrade(credentials)`.
 - [ ] OEM "Connect to ‹SSID›?" dialog appears on API 29+. **Tap CONNECT.**
-- [ ] Logcat on the receiver shows `WvmgWifiHotspot` `onAvailable` line
+- [ ] Logcat on the receiver shows `LibreDropWifiHotspot` `onAvailable` line
       within ~10 seconds of tapping CONNECT.
 - [ ] `adoptUpgrade` returns a non-null `WifiHotspotTransport` whose
       `socket.isConnected == true` and `socket.remoteSocketAddress`
@@ -92,7 +92,7 @@ not a manual one.
 - [ ] Receiver: call `WifiHotspotTransport.release()`. The platform
       drops the Wi-Fi association within ~3 seconds, the device
       reassociates with the user's previous Wi-Fi network if any, and
-      no `WvmgWifiHotspot` lines log during reassociation.
+      no `LibreDropWifiHotspot` lines log during reassociation.
 - [ ] Sender: invoke the `HotspotReservation.teardown` callback.
       `WifiManager` reports the AP stopped (logcat: `LOHS:onStopped`),
       the device's Wi-Fi STA reassociates, and `wlan1` (or whatever
@@ -126,7 +126,7 @@ network state changes immediately on retry and wire traces are gone:
 
 ```bash
 # Both devices:
-adb logcat -d -s WvmgWifiHotspot WvmgOutbound WvmgSend WvmgDiscovery > wvmg-hotspot-{role}.log
+adb logcat -d -s LibreDropWifiHotspot LibreDropOutbound LibreDropSend LibreDropDiscovery > libredrop-hotspot-{role}.log
 
 # Sender:
 adb shell ip addr show

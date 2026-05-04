@@ -1,6 +1,6 @@
 # Interop test: NearDrop on macOS
 
-This is a manual test runbook for verifying that the WhenVivoMeetsGoogle
+This is a manual test runbook for verifying that the LibreDrop
 Android app can send to and receive from
 [NearDrop](https://github.com/grishka/NearDrop) on macOS without errors.
 NearDrop is the open-source reference implementation of the Quick Share /
@@ -12,7 +12,7 @@ The goal is twofold:
 
 1. Exercise every path in the test matrix on at least one engineer's
    hardware before issue
-   [#29](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/29) is
+   [#29](https://github.com/kyujin-cho/LibreDrop/issues/29) is
    closed.
 2. Give a future engineer enough context to reproduce a failure and file
    a follow-up bug with the right code pointers attached.
@@ -83,7 +83,7 @@ Pre-stage these on both sides so each run is reproducible:
 - [ ] `large.bin` — 1 GiB random bytes
       (`head -c 1g </dev/urandom > large.bin`).
 - [ ] `clip.txt` — a known UTF-8 string ("Hello from
-      WhenVivoMeetsGoogle, run YYYY-MM-DD").
+      LibreDrop, run YYYY-MM-DD").
 - [ ] `link.url` — a stable HTTPS URL
       (e.g. `https://example.com/`).
 - [ ] Pre-computed SHA-256 hashes for `small.bin` and `large.bin`:
@@ -107,7 +107,7 @@ new issue linking back to #29.
       bar advances smoothly (no long stalls > 2 s) and that the final
       hash matches. This exercises multi-frame `PayloadTransferFrame`
       chunking on the encoder side; see
-      [`PayloadTransferEncoder.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/payload/PayloadTransferEncoder.kt).
+      [`PayloadTransferEncoder.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/payload/PayloadTransferEncoder.kt).
 - [ ] **Text.** Share `clip.txt`'s contents as a text payload (long-press
       and "Share text"). NearDrop's notification shows the exact string;
       copying it into a terminal yields a byte-for-byte match.
@@ -120,12 +120,12 @@ new issue linking back to #29.
       menubar item, pick the phone, and confirm the PIN matches on
       both screens before accepting. The file lands in `Downloads/` on
       the phone (via MediaStore — see
-      [`MediaStoreDownloadsFactory.kt`](../../service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/downloads/MediaStoreDownloadsFactory.kt))
+      [`MediaStoreDownloadsFactory.kt`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/downloads/MediaStoreDownloadsFactory.kt))
       and `shasum -a 256` matches.
 - [ ] **Large file.** Same with `large.bin`. Confirm the progress
       notification updates and hashes match. This exercises the
       receive-side reassembly in
-      [`PayloadAssembler.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/payload/PayloadAssembler.kt).
+      [`PayloadAssembler.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/payload/PayloadAssembler.kt).
 - [ ] **Text.** From the Mac, share text via NearDrop. The phone shows
       a notification with the exact string.
 - [ ] **URL.** From the Mac, share a URL. The phone treats it as a URL
@@ -139,7 +139,7 @@ new issue linking back to #29.
       within ~2 s, the foreground notification clears, and no partial
       file is left in `Downloads/` on the Mac. The disconnect path lives
       in
-      [`OutboundConnection.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/connection/OutboundConnection.kt)
+      [`OutboundConnection.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/OutboundConnection.kt)
       / `Disconnection` frame handling.
 - [ ] **Cancel from Phone mid-transfer.** Start a Phone -> Mac transfer
       of `large.bin`, then tap "Cancel" on the phone's progress
@@ -157,13 +157,13 @@ new issue linking back to #29.
       scanning, run a normal small-file transfer end-to-end to confirm
       the QR-derived endpoint info works through the rest of the stack.
       QR parsing logic lives under
-      [`core-protocol/.../qr/`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/qr/).
+      [`core-protocol/.../qr/`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/qr/).
 
 ### Invalid PIN (UX test)
 
 - [ ] Run a Phone -> Mac transfer. The phone displays a 4-digit PIN
       derived from the UKEY2 `authString`
-      (see [`PinDerivation.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/crypto/pin/PinDerivation.kt)).
+      (see [`PinDerivation.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/crypto/pin/PinDerivation.kt)).
       The Mac displays a 4-digit PIN derived the same way. **Visually
       verify the two PINs match** before tapping "Accept" on either
       side. If they ever differ on a clean run, that is a P0 bug —
@@ -201,9 +201,9 @@ adb shell sha256sum /storage/emulated/0/Download/path/to/file
 The hashes must match the pre-staged `fixtures.sha256` exactly. Any
 mismatch indicates a payload-layer bug; jump straight to capturing
 the secure-channel trace described below — the bug is most likely in
-[`SecureMessageCodec.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/crypto/securemessage/SecureMessageCodec.kt)
+[`SecureMessageCodec.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/crypto/securemessage/SecureMessageCodec.kt)
 or
-[`PayloadAssembler.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/payload/PayloadAssembler.kt).
+[`PayloadAssembler.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/payload/PayloadAssembler.kt).
 
 ## What to log if a step fails
 
@@ -226,7 +226,7 @@ Stop with Ctrl-C as soon as the failure manifests. For a richer view,
 open the same `.pcap` in [Wireshark](https://www.wireshark.org/) and
 filter on the phone's IP. Quick Share TCP frames are length-prefixed
 (see
-[`FramedConnection.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/transport/FramedConnection.kt));
+[`FramedConnection.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/transport/FramedConnection.kt));
 the first few frames before encryption kicks in are UKEY2 ClientInit /
 ServerInit / ClientFinished and are decodable as protobufs against the
 NearDrop `.proto` files
@@ -238,14 +238,14 @@ NearDrop `.proto` files
 # From a host with adb installed:
 adb logcat -c          # clear the buffer first
 # trigger the failing step on the phone, then immediately:
-adb logcat -d -v threadtime > /tmp/wvmg-failure.logcat
+adb logcat -d -v threadtime > /tmp/libredrop-failure.logcat
 ```
 
 Filter for the app's process and the protocol tags:
 
 ```bash
 adb logcat -d -v threadtime \
-  | grep -E '(io.github.kyujincho.wvmg|Ukey2|SecureChannel|Inbound|Outbound|TcpReceiver|Discovery)'
+  | grep -E '(dev.bluehouse.libredrop|Ukey2|SecureChannel|Inbound|Outbound|TcpReceiver|Discovery)'
 ```
 
 ### 3. NearDrop debug logs
@@ -283,14 +283,14 @@ Use the failure mode to point the bug report at the right module:
 
 | Failure mode | Likely module | Source pointer |
 |---|---|---|
-| Devices never see each other on same VLAN | discovery / mDNS | [`discovery-android/.../Discovery.kt`](../../discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/Discovery.kt) |
-| Connect succeeds, handshake fails before consent UI | UKEY2 handshake | [`core-protocol/.../ukey2/`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/ukey2/) |
-| PINs differ across devices on a clean run | UKEY2 `authString` -> PIN derivation | [`core-protocol/.../crypto/pin/PinDerivation.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/crypto/pin/PinDerivation.kt) |
-| Consent accepted but transfer aborts immediately | secure-channel framing | [`core-protocol/.../crypto/securemessage/`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/crypto/securemessage/) |
-| Mid-transfer corruption / hash mismatch | payload reassembly | [`core-protocol/.../payload/PayloadAssembler.kt`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/payload/PayloadAssembler.kt) |
-| Cancel doesn't propagate / partial file left behind | connection lifecycle | [`core-protocol/.../connection/`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/connection/) and [`service-android/.../receiver/ReceiverSession.kt`](../../service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/receiver/ReceiverSession.kt) |
-| QR-code scan succeeds but transfer never starts | QR endpoint info | [`core-protocol/.../qr/`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/qr/) |
-| Receive completes but file is missing from Downloads | MediaStore writer | [`service-android/.../downloads/`](../../service-android/src/main/kotlin/io/github/kyujincho/wvmg/service/downloads/) |
+| Devices never see each other on same VLAN | discovery / mDNS | [`discovery-android/.../Discovery.kt`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/Discovery.kt) |
+| Connect succeeds, handshake fails before consent UI | UKEY2 handshake | [`core-protocol/.../ukey2/`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/ukey2/) |
+| PINs differ across devices on a clean run | UKEY2 `authString` -> PIN derivation | [`core-protocol/.../crypto/pin/PinDerivation.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/crypto/pin/PinDerivation.kt) |
+| Consent accepted but transfer aborts immediately | secure-channel framing | [`core-protocol/.../crypto/securemessage/`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/crypto/securemessage/) |
+| Mid-transfer corruption / hash mismatch | payload reassembly | [`core-protocol/.../payload/PayloadAssembler.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/payload/PayloadAssembler.kt) |
+| Cancel doesn't propagate / partial file left behind | connection lifecycle | [`core-protocol/.../connection/`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/) and [`service-android/.../receiver/ReceiverSession.kt`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver/ReceiverSession.kt) |
+| QR-code scan succeeds but transfer never starts | QR endpoint info | [`core-protocol/.../qr/`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/qr/) |
+| Receive completes but file is missing from Downloads | MediaStore writer | [`service-android/.../downloads/`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/downloads/) |
 
 ## Sign-off
 

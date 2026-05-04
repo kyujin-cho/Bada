@@ -1,9 +1,9 @@
 # Interop test: Wi-Fi Aware (NAN) bandwidth-upgrade medium
 
 Manual on-device runbook for verifying the Wi-Fi Aware (`WIFI_AWARE`)
-[`MediumProvider`](../../discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/aware/WifiAwareMediumProvider.kt)
-added in [#53](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/53)
-under [Phase 4 — alternative bandwidth-upgrade mediums](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/4).
+[`MediumProvider`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/aware/WifiAwareMediumProvider.kt)
+added in [#53](https://github.com/kyujin-cho/LibreDrop/issues/53)
+under [Phase 4 — alternative bandwidth-upgrade mediums](https://github.com/kyujin-cho/LibreDrop/issues/4).
 
 > **Hardware coverage warning.** Wi-Fi Aware (NAN) requires both an SDK
 > floor of API 26 **and** a chipset that declares
@@ -70,7 +70,7 @@ the registry into `OutboundConnection` / `InboundConnection`.
 1. Two devices (A, B) that both have Wi-Fi Aware (see check above).
 2. Wi-Fi turned on on both. They do **not** need to be on the same SSID
    — that is the whole point of Wi-Fi Aware.
-3. Install the WVMG debug APK on both:
+3. Install the LibreDrop debug APK on both:
    ```bash
    ./gradlew :app:assembleDebug
    adb -s <A-serial> install -r app/build/outputs/apk/debug/app-debug.apk
@@ -84,14 +84,14 @@ the registry into `OutboundConnection` / `InboundConnection`.
 Open the app on each device and check logcat for the support flag:
 
 ```bash
-adb logcat -s WvmgWifiAware
+adb logcat -s LibreDropWifiAware
 # Expect on a supported device: nothing logged (clean path).
 # Expect on an unsupported device: a single warn at startup
 #   "prepareUpgrade: Wi-Fi Aware not available; refusing upgrade"
 ```
 
 A device whose `isSupported()` returns `false` MUST NOT appear in the
-peer's `WIFI_AWARE` ladder pick. Look for `WvmgWifiAware: refusing` in
+peer's `WIFI_AWARE` ladder pick. Look for `LibreDropWifiAware: refusing` in
 its logcat as a positive signal that the provider declined cleanly.
 
 ### Bring-up (steps 2–3)
@@ -105,7 +105,7 @@ then, drive the provider manually from the integration smoke test:
    device A as the peer.
 3. Watch logcat on both:
    ```bash
-   adb logcat -s WvmgWifiAware WvmgOutbound WvmgSend
+   adb logcat -s LibreDropWifiAware LibreDropOutbound LibreDropSend
    ```
 4. Acceptance:
    - Both sides log a successful publish/subscribe attach.
@@ -141,7 +141,7 @@ then, drive the provider manually from the integration smoke test:
 - **service_info layout.** Quick Share packs the publisher's IPv6 +
   port into `WifiAwareCredentials.service_info` as `[16 bytes IPv6]
   [2 zero bytes][2 BE bytes port]`. See
-  [`BandwidthUpgradeFrames.encodeWifiAwareServiceInfo`](../../core-protocol/src/main/kotlin/io/github/kyujincho/wvmg/protocol/connection/BandwidthUpgradeFrames.kt)
+  [`BandwidthUpgradeFrames.encodeWifiAwareServiceInfo`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/BandwidthUpgradeFrames.kt)
   for the exact byte layout.
 - **Coexistence with Wi-Fi STA.** Wi-Fi Aware on most chipsets shares
   the same radio as Wi-Fi STA, so the chipset cannot maintain a Wi-Fi
@@ -153,9 +153,9 @@ then, drive the provider manually from the integration smoke test:
 ## Reporting back
 
 If you successfully complete a Wi-Fi-Aware-upgraded transfer between
-two devices, attach the relevant `adb logcat -s WvmgWifiAware` excerpt
+two devices, attach the relevant `adb logcat -s LibreDropWifiAware` excerpt
 and the device model + Android version of both ends to the issue
-([#53](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/53)).
+([#53](https://github.com/kyujin-cho/LibreDrop/issues/53)).
 Hardware-coverage data is the most valuable thing this runbook can
 collect because the platform's `FEATURE_WIFI_AWARE` flag is the only
 ahead-of-time signal we have.
