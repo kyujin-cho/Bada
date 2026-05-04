@@ -225,7 +225,144 @@ class NearbyPeerDiscoveryTest {
         }
 
     @Test
-    fun `BLE GATT advertisement is connectable without Classic or L2CAP`() =
+    fun `verified visible BLE GATT advertisement without PSM is connectable over GATT`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            val endpointInfo = endpointInfo(name = "Galaxy")
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "RINE",
+                    endpointInfo = endpointInfo,
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -47,
+                    l2capPsm = null,
+                    gattConnectable = true,
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
+            assertThat(resolved.isConnectable).isTrue()
+            assertThat(resolved.candidateMediums).containsExactly(Medium.BLE)
+            assertThat(resolved.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.BleGatt(
+                    macAddress = "77:88:99:AA:BB:CC",
+                ),
+            )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `visible BLE advertisement without PSM waits for GATT verification`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            val endpointInfo = endpointInfo(name = "Galaxy")
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "RINE",
+                    endpointInfo = endpointInfo,
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -47,
+                    l2capPsm = null,
+                    gattConnectable = false,
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
+            assertThat(resolved.isConnectable).isFalse()
+            assertThat(resolved.candidateMediums).containsExactly(Medium.BLE)
+            assertThat(resolved.preferredRoute()).isNull()
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `verified BLE GATT route is kept across later raw scan observations`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            val endpointInfo = endpointInfo(name = "Galaxy")
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "RINE",
+                    endpointInfo = endpointInfo,
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -47,
+                    l2capPsm = null,
+                    gattConnectable = true,
+                ),
+            )
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "RINE",
+                    endpointInfo = endpointInfo,
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -48,
+                    l2capPsm = null,
+                    gattConnectable = false,
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
+            assertThat(resolved.isConnectable).isTrue()
+            assertThat(resolved.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.BleGatt(
+                    macAddress = "77:88:99:AA:BB:CC",
+                ),
+            )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `BLE advertisement without Classic or L2CAP is observation-only`() =
         runTest {
             val lanEvents = MutableSharedFlow<DiscoveryEvent>()
             val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
@@ -256,13 +393,11 @@ class NearbyPeerDiscoveryTest {
             runCurrent()
 
             val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
-            assertThat(resolved.isConnectable).isTrue()
+            assertThat(resolved.isConnectable).isFalse()
             assertThat(resolved.candidateMediums).containsExactly(Medium.BLE)
             assertThat(resolved.displayName()).isEqualTo("Quick Share BLE device")
-            assertThat(resolved.displayNameSource()).isEqualTo("ble-gatt-fallback")
-            assertThat(resolved.preferredRoute()).isEqualTo(
-                NearbyPeerRoute.BleGatt(macAddress = "28:1B:3E:BA:B1:1B"),
-            )
+            assertThat(resolved.displayNameSource()).isEqualTo("ble-advertisement")
+            assertThat(resolved.preferredRoute()).isNull()
 
             collector.cancel()
         }
@@ -305,9 +440,8 @@ class NearbyPeerDiscoveryTest {
             assertThat(resolved.displayName()).isEqualTo("Galaxy S26")
             assertThat(resolved.displayNameSource()).isEqualTo("ble-local-name")
             assertThat(resolved.bleAdvertisement?.displayName).isEqualTo("Galaxy S26")
-            assertThat(resolved.preferredRoute()).isEqualTo(
-                NearbyPeerRoute.BleGatt(macAddress = "28:1B:3E:BA:B1:1B"),
-            )
+            assertThat(resolved.isConnectable).isFalse()
+            assertThat(resolved.preferredRoute()).isNull()
 
             collector.cancel()
         }
@@ -346,6 +480,8 @@ class NearbyPeerDiscoveryTest {
             val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
             assertThat(resolved.displayName()).isEqualTo("Quick Share device (RINE)")
             assertThat(resolved.displayNameSource()).isEqualTo("endpoint-id")
+            assertThat(resolved.isConnectable).isFalse()
+            assertThat(resolved.preferredRoute()).isNull()
 
             collector.cancel()
         }

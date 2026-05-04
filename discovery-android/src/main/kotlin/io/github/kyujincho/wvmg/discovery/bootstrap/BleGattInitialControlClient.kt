@@ -27,6 +27,8 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
@@ -69,7 +71,7 @@ public class BleGattInitialControlClient internal constructor(
     public suspend fun connect(macAddress: String): ConnectedTransport? =
         withContext(dispatcher) {
             if (!isAvailable()) {
-                Log.i(TAG, "BLE GATT initial connect unavailable")
+                Log.w(TAG, "BLE GATT initial connect unavailable")
                 return@withContext null
             }
             val adapter =
@@ -97,11 +99,11 @@ public class BleGattInitialControlClient internal constructor(
             }
             val ready = transport.awaitReady(CONNECTION_READY_TIMEOUT_MILLIS)
             if (!ready) {
-                Log.w(TAG, "BLE GATT initial connect timed out waiting for multiplex accept")
+                Log.w(TAG, "BLE GATT initial connect timed out waiting for socket ready")
                 transport.close()
                 return@withContext null
             }
-            Log.i(TAG, "BLE GATT initial connect ready mac=$macAddress")
+            Log.w(TAG, "BLE GATT initial connect ready mac=$macAddress")
             transport
         }
 
@@ -143,10 +145,14 @@ private class BleGattClientTransport(
     private val writeQueue: ArrayDeque<ByteArray> = ArrayDeque()
     private val incomingMessage = ArrayList<Byte>()
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     private var gatt: BluetoothGatt? = null
     private var toPeripheral: BluetoothGattCharacteristic? = null
     private var fromPeripheral: BluetoothGattCharacteristic? = null
     private var serviceDiscoveryStarted: Boolean = false
+    private var slotCharacteristics: List<BluetoothGattCharacteristic> = emptyList()
+    private var slotReadIndex: Int = 0
     private var writeInFlight: Boolean = false
     private var mtuPayloadSize: Int = WeaveFrames.DEFAULT_ATT_PAYLOAD_SIZE
     private var negotiatedPacketSize: Int = WeaveFrames.MIN_PACKET_SIZE
@@ -185,14 +191,35 @@ private class BleGattClientTransport(
         }
 
     fun start(): Boolean {
+        val phyMask = BluetoothDevice.PHY_LE_2M_MASK or BluetoothDevice.PHY_LE_1M_MASK
         val opened =
             device.connectGatt(
                 context,
                 false,
                 this,
                 BluetoothDevice.TRANSPORT_LE,
+                phyMask,
+                mainHandler,
             )
         gatt = opened
+        // Force a GATT cache refresh as soon as the connection is
+        // available. Android's BLE stack caches discovered services
+        // per-MAC across connections; if a previous bootstrap to the
+        // same MAC populated the cache with stale handles (e.g. before
+        // Samsung published the slot characteristics), our subsequent
+        // service discovery will reuse those handles and the
+        // characteristic-handle that Samsung's `gchu` is keyed on may
+        // not match anymore — which would manifest as `No handler
+        // registered for characteristic …` even though the UUIDs all
+        // match. The `BluetoothGatt.refresh()` method is hidden but
+        // accessible via reflection.
+        if (opened != null) {
+            runCatching {
+                val refresh = BluetoothGatt::class.java.getMethod("refresh")
+                val ok = refresh.invoke(opened) as? Boolean
+                Log.w(TAG, "BluetoothGatt.refresh() invoked result=$ok")
+            }.onFailure { Log.w(TAG, "refresh() reflection failed", it) }
+        }
         return opened != null
     }
 
@@ -203,13 +230,42 @@ private class BleGattClientTransport(
         status: Int,
         newState: Int,
     ) {
-        Log.i(TAG, "gatt state device=${device.safeAddress()} status=$status newState=$newState")
+        Log.w(TAG, "gatt state device=${device.safeAddress()} status=$status newState=$newState")
         if (status != BluetoothGatt.GATT_SUCCESS || newState != BluetoothProfile.STATE_CONNECTED) {
             close()
             return
         }
-        val requested = gatt.requestMtu(REQUESTED_MTU)
-        if (!requested) discoverServicesOnce(gatt)
+        // Stock Quick Share receivers (notably Samsung One UI 8.x on
+        // Galaxy S22/S26 firmware) register their per-characteristic
+        // GATT handlers (`00000100-…-0101` / `…-0102`) lazily after the
+        // GATT connection comes up — typically ~1.5 s after
+        // `onServerConnectionState(connected=true)` on Samsung. If we
+        // start the MTU exchange / CCCD write / Weave CONNECTION_REQUEST
+        // immediately, our writes land on the wire before the handler
+        // is registered and Samsung logs
+        // `No handler registered for characteristic 00000100-…-0101`
+        // and silently drops them; the remote ATT layer still ACKs the
+        // write so our local stack reports success but Samsung's app
+        // never sees the bytes, and the Weave CONNECTION_CONFIRM never
+        // comes back. Hold the next step on a 1.5 s grace window so
+        // Samsung has enough time to wire its handler and accept the
+        // ATT writes when they finally arrive.
+        // Keep the connection in CONNECTION_PRIORITY_HIGH (interval=6)
+        // for the entire bootstrap. Without this, Samsung downgrades to
+        // interval=24 (~30 ms) right after the initial activity burst,
+        // which seems to coincide with the per-peer Weave handler not
+        // being wired in `gchk`. Stock GMS centrals stay in HIGH for
+        // the duration of the Weave + multiplex + Nearby ConnectionRequest
+        // exchange and only drop priority once they switch to the
+        // upgraded medium.
+        runCatching { gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
+            .onFailure { Log.w(TAG, "requestConnectionPriority(HIGH) threw", it) }
+        mainHandler.postDelayed({
+            if (closed) return@postDelayed
+            Log.w(TAG, "post-connect grace expired; requesting MTU device=${device.safeAddress()}")
+            val requested = gatt.requestMtu(REQUESTED_MTU)
+            if (!requested) discoverServicesOnce(gatt)
+        }, POST_CONNECT_DELAY_MILLIS)
     }
 
     override fun onMtuChanged(
@@ -217,7 +273,7 @@ private class BleGattClientTransport(
         mtu: Int,
         status: Int,
     ) {
-        Log.i(TAG, "mtu changed mtu=$mtu status=$status device=${device.safeAddress()}")
+        Log.w(TAG, "mtu changed mtu=$mtu status=$status device=${device.safeAddress()}")
         if (status == BluetoothGatt.GATT_SUCCESS) {
             mtuPayloadSize = (mtu - GATT_ATT_HEADER_BYTES).coerceAtLeast(WeaveFrames.DEFAULT_ATT_PAYLOAD_SIZE)
         }
@@ -233,12 +289,69 @@ private class BleGattClientTransport(
             close()
             return
         }
-        val service = gatt.getService(BleGattInitialControlServer.SERVICE_UUID)
-        if (service == null || !bindCharacteristics(service)) {
-            Log.w(TAG, "BLE GATT bootstrap service missing required characteristics")
+        // Dump every advertised service + characteristic so we can spot
+        // peer-side variations in the Weave UUID family. Samsung GMS
+        // sometimes exposes non-standard write/notify pairs alongside
+        // the canonical 00000100-…-0101 / -0102, and our writes silently
+        // fail with `No handler registered` if we picked the wrong pair.
+        for (s in gatt.services) {
+            val charDump =
+                s.characteristics.joinToString(",") { c ->
+                    "${c.uuid}(props=${c.properties})"
+                }
+            Log.w(TAG, "gatt service ${s.uuid} chars=[$charDump]")
+        }
+        if (!bindWeaveAndSlotsAcrossServices(gatt)) {
+            Log.w(TAG, "BLE GATT bootstrap missing Weave write/notify characteristics")
             close()
             return
         }
+        // Stock Quick Share centrals read the receiver's
+        // `0xFEF3` advertisement-slot characteristics
+        // (`00000000-0000-3000-8000-00000000000{0..4}`) BEFORE writing
+        // anything to the Weave write characteristic. On Samsung One UI
+        // 8.x this read sequence is what triggers the receiver-side
+        // GMS to register the per-peer Weave handler — without it our
+        // first CCCD/CONNECTION_REQUEST writes get
+        // `gchu.onCharacteristicWriteRequest → No handler registered`
+        // even though pulse classification is type=NOTIFY and the
+        // peer is in EVERYONE-visibility mode. Drain the slot reads
+        // in sequence, then proceed to CCCD subscribe + Weave
+        // CONNECTION_REQUEST in `onAllSlotsRead`.
+        if (slotCharacteristics.isEmpty()) {
+            Log.w(TAG, "no advertisement slot characteristics found; subscribing immediately")
+            subscribeAndConnect(gatt)
+            return
+        }
+        slotReadIndex = 0
+        readNextSlot(gatt)
+    }
+
+    private fun readNextSlot(gatt: BluetoothGatt) {
+        val slot = slotCharacteristics.getOrNull(slotReadIndex)
+        if (slot == null) {
+            Log.w(TAG, "all advertisement slots read; waiting before CCCD subscribe")
+            // Hold another grace window before CCCD: stock GMS receivers
+            // may take additional time after the slot reads to wire the
+            // per-peer Weave write handler in `gchi`. Without this
+            // second grace, our CCCD/CONNECTION_REQUEST writes still
+            // race the registration and get dropped with `No handler
+            // registered for characteristic …-0101`.
+            mainHandler.postDelayed({
+                if (closed) return@postDelayed
+                Log.w(TAG, "post-slot grace expired; subscribing CCCD")
+                subscribeAndConnect(gatt)
+            }, POST_SLOT_DELAY_MILLIS)
+            return
+        }
+        Log.w(TAG, "reading advertisement slot[$slotReadIndex] uuid=${slot.uuid}")
+        if (!gatt.readCharacteristic(slot)) {
+            Log.w(TAG, "readCharacteristic returned false for slot[$slotReadIndex]; skipping rest")
+            subscribeAndConnect(gatt)
+        }
+    }
+
+    private fun subscribeAndConnect(gatt: BluetoothGatt) {
         val outgoing = fromPeripheral ?: return close()
         if (!gatt.setCharacteristicNotification(outgoing, true)) {
             Log.w(TAG, "setCharacteristicNotification returned false")
@@ -256,6 +369,39 @@ private class BleGattClientTransport(
             Log.w(TAG, "write notification descriptor returned false")
             close()
         }
+    }
+
+    @Deprecated("Android calls this overload before API 33")
+    override fun onCharacteristicRead(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        status: Int,
+    ) {
+        handleSlotRead(gatt, characteristic, characteristic.value ?: ByteArray(0), status)
+    }
+
+    override fun onCharacteristicRead(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        value: ByteArray,
+        status: Int,
+    ) {
+        handleSlotRead(gatt, characteristic, value, status)
+    }
+
+    private fun handleSlotRead(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        value: ByteArray,
+        status: Int,
+    ) {
+        Log.w(
+            TAG,
+            "slot read uuid=${characteristic.uuid} status=$status " +
+                "len=${value.size} preview=${value.previewHex()}",
+        )
+        slotReadIndex++
+        readNextSlot(gatt)
     }
 
     override fun onDescriptorWrite(
@@ -283,6 +429,7 @@ private class BleGattClientTransport(
                 close()
                 return
             }
+            Log.w(TAG, "characteristic write complete device=${device.safeAddress()}")
             drainWritesLocked()
         }
     }
@@ -312,6 +459,7 @@ private class BleGattClientTransport(
         runCatching { input.close() }
         val openGatt = gatt
         gatt = null
+        writeQueue.clear()
         runCatching { openGatt?.disconnect() }
         runCatching { openGatt?.close() }
         onClose(this)
@@ -326,10 +474,45 @@ private class BleGattClientTransport(
         }
     }
 
-    private fun bindCharacteristics(service: BluetoothGattService): Boolean {
-        toPeripheral = service.getCharacteristic(BleGattInitialControlServer.TO_PERIPHERAL_UUID)
-        fromPeripheral = service.getCharacteristic(BleGattInitialControlServer.FROM_PERIPHERAL_UUID)
+    /**
+     * Stock Quick Share peripherals (Samsung One UI included) expose
+     * **two** services on `0xFEF3`: one carrying the Weave write/notify
+     * pair (`00000100-0004-1000-8000-001a11000101`/`-0102`) and a
+     * separate "advertisement slot" service carrying read-only
+     * characteristics under `00000000-0000-3000-8000-00000000000{0..4}`.
+     * `BluetoothGatt.getService(uuid)` only returns the first match, so
+     * iterate every service the peer published and pick the one that
+     * actually has the Weave UUIDs as Weave, then collect any other
+     * service's read-only chars as slots.
+     */
+    private fun bindWeaveAndSlotsAcrossServices(gatt: BluetoothGatt): Boolean {
+        val slots = mutableListOf<BluetoothGattCharacteristic>()
+        gatt.services
+            .filter { it.uuid == BleGattInitialControlServer.SERVICE_UUID }
+            .forEach { service -> bindServiceShape(service, slots) }
+        slotCharacteristics = slots
+        Log.w(TAG, "bound Weave chars=${toPeripheral != null}/${fromPeripheral != null} slots=${slots.size}")
         return toPeripheral != null && fromPeripheral != null
+    }
+
+    private fun bindServiceShape(
+        service: BluetoothGattService,
+        slots: MutableList<BluetoothGattCharacteristic>,
+    ) {
+        val toPer = service.getCharacteristic(BleGattInitialControlServer.TO_PERIPHERAL_UUID)
+        val fromPer = service.getCharacteristic(BleGattInitialControlServer.FROM_PERIPHERAL_UUID)
+        if (toPer != null && fromPer != null && toPeripheral == null) {
+            toPeripheral = toPer
+            fromPeripheral = fromPer
+            return
+        }
+        // Slot 0 (`00000000-0000-3000-8000-000000000000`) is the
+        // EndpointInfo slot every Quick Share peripheral populates.
+        // Slots 1-4 are present but typically empty. Stock GMS
+        // centrals appear to only read the populated slots; reading
+        // empty ones might confuse Samsung's per-peer state tracking.
+        val slot0 = service.getCharacteristic(SLOT_0_UUID)
+        if (slot0 != null) slots += slot0
     }
 
     private fun cccdValueFor(characteristic: BluetoothGattCharacteristic): ByteArray =
@@ -353,12 +536,52 @@ private class BleGattClientTransport(
             ),
         )
         sendPacketCounter = (sendPacketCounter + 1) % WeaveFrames.MAX_PACKET_COUNTER
+        // Stock Quick Share receivers (Samsung One UI 8.x) register
+        // their per-characteristic GATT handlers reactively when the
+        // first ATT write lands. The first 1-3 writes always fail
+        // silently from the receiver's app point of view (the BLE link
+        // ACKs them, but `gchu.onCharacteristicWriteRequest` throws
+        // `No handler registered for characteristic 00000100-…-0101`),
+        // and the receiver only registers the
+        // `BlockingQueueStream with size 10` after parsing one of these
+        // failed writes. By that time our CONNECTION_REQUEST is already
+        // lost and we sit waiting for a CONNECTION_CONFIRM that will
+        // never come. Schedule a retry so a second CONNECTION_REQUEST
+        // lands on the now-registered handler. We re-enqueue up to
+        // [WEAVE_REQUEST_MAX_RETRIES] times, gated on
+        // `weaveConnected`; the receive callback aborts the retry as
+        // soon as the real CONNECTION_CONFIRM lands.
+        scheduleWeaveConnectionRequestRetryLocked(attempt = 1)
+    }
+
+    private fun scheduleWeaveConnectionRequestRetryLocked(attempt: Int) {
+        if (attempt > WEAVE_REQUEST_MAX_RETRIES) return
+        mainHandler.postDelayed({
+            synchronized(this) {
+                if (closed || weaveConnected) return@synchronized
+                Log.w(
+                    TAG,
+                    "no Weave CONNECTION_CONFIRM after attempt=$attempt; " +
+                        "resending CONNECTION_REQUEST device=${device.safeAddress()}",
+                )
+                enqueueWriteLocked(
+                    WeaveFrames.connectionRequest(
+                        packetCounter = sendPacketCounter,
+                        minVersion = WeaveFrames.VERSION,
+                        maxVersion = WeaveFrames.VERSION,
+                        maxPacketSize = negotiatedPacketSize,
+                    ),
+                )
+                sendPacketCounter = (sendPacketCounter + 1) % WeaveFrames.MAX_PACKET_COUNTER
+                scheduleWeaveConnectionRequestRetryLocked(attempt + 1)
+            }
+        }, WEAVE_REQUEST_RETRY_DELAY_MILLIS)
     }
 
     @Synchronized
     private fun handleNotification(packetBytes: ByteArray) {
         if (closed) return
-        Log.i(TAG, "notification len=${packetBytes.size} header=${packetBytes.firstByteHex()}")
+        Log.w(TAG, "notification len=${packetBytes.size} header=${packetBytes.firstByteHex()}")
         when (val packet = WeaveFrames.parse(packetBytes)) {
             is WeavePacket.ConnectionConfirm -> handleConnectionConfirm(packet)
             is WeavePacket.Data -> handleDataPacket(packet)
@@ -380,8 +603,12 @@ private class BleGattClientTransport(
                 ?.coerceAtMost(WeaveFrames.MAX_PACKET_SIZE)
                 ?: WeaveFrames.MIN_PACKET_SIZE
         weaveConnected = true
-        Log.i(TAG, "Weave connected raw Nearby stream packetSize=$negotiatedPacketSize device=${device.safeAddress()}")
+        Log.w(TAG, "Weave connected raw Nearby stream packetSize=$negotiatedPacketSize device=${device.safeAddress()}")
         sendWeaveMessage(NearbyBleSocketFrames.encodeIntroductionPacket())
+        // Samsung's GMS raw Nearby handler expects the first app payload
+        // immediately after the socket-introduction packet. Waiting after
+        // the intro write leaves the BLE Weave stream open, but the
+        // ConnectionRequestFrame is never dispatched to Nearby Connections.
         if (!ready.isCompleted) ready.complete(true)
     }
 
@@ -423,9 +650,11 @@ private class BleGattClientTransport(
             return
         }
         when (control.type) {
-            BleFramesProto.SocketControlFrame.ControlFrameType.PACKET_ACKNOWLEDGEMENT -> Unit
+            BleFramesProto.SocketControlFrame.ControlFrameType.PACKET_ACKNOWLEDGEMENT -> {
+                Log.w(TAG, "BLE GATT packet ack size=${control.packetAcknowledgement.receivedSize}")
+            }
             BleFramesProto.SocketControlFrame.ControlFrameType.DISCONNECTION -> close()
-            else -> Log.i(TAG, "BLE GATT control frame type=${control.type}")
+            else -> Log.w(TAG, "BLE GATT control frame type=${control.type}")
         }
     }
 
@@ -442,7 +671,21 @@ private class BleGattClientTransport(
 
     private fun sendSocketServiceBytes(bytes: ByteArray) {
         if (bytes.isEmpty()) return
-        sendWeaveMessage(NearbyServiceId.hashPrefix + bytes)
+        // Log.w (not Log.i) here is the Funtouch OS / vivo workaround from PR #144:
+        // Funtouch filters Log.i for non-system apps, leaving us blind to the
+        // outbound write path during BLE GATT bootstrap diagnostics. Log.w
+        // also lands in `getExternalFilesDir(null)/wvmg-outbound.log` via
+        // OutboundConnection's logger so on-device logs survive a logcat
+        // flush. The function split (sendSocketServiceBytes vs.
+        // sendSocketServiceMessage) is from PR #146, where new callers send
+        // already-prefixed socket payloads and want the inner helper without
+        // the extra logging.
+        Log.w(TAG, "BLE GATT service write bytes=${bytes.size} preview=${bytes.previewHex()}")
+        sendSocketServiceMessage(bytes)
+    }
+
+    private fun sendSocketServiceMessage(payload: ByteArray) {
+        sendWeaveMessage(NearbyServiceId.hashPrefix + payload)
     }
 
     @Synchronized
@@ -468,7 +711,14 @@ private class BleGattClientTransport(
 
     private fun enqueueWriteLocked(packet: ByteArray) {
         if (closed) return
-        Log.i(TAG, "enqueue write len=${packet.size} header=${packet.firstByteHex()} device=${device.safeAddress()}")
+        // Log.w (not Log.i): same Funtouch OS / vivo workaround as
+        // sendSocketServiceBytes above — Log.i is filtered by Funtouch
+        // for non-system apps, leaving us blind to the per-packet
+        // enqueue path during BLE GATT bootstrap diagnostics.
+        Log.w(
+            TAG,
+            "enqueue write len=${packet.size} header=${packet.firstByteHex()} device=${device.safeAddress()}",
+        )
         writeQueue.add(packet)
         drainWritesLocked()
     }
@@ -480,6 +730,11 @@ private class BleGattClientTransport(
         val outgoing = toPeripheral ?: return close()
         outgoing.writeType = writeTypeFor(outgoing)
         outgoing.value = packet
+        Log.i(
+            TAG,
+            "write characteristic len=${packet.size} header=${packet.firstByteHex()} " +
+                "type=${outgoing.writeType} properties=${outgoing.properties} device=${device.safeAddress()}",
+        )
         writeInFlight = openGatt.writeCharacteristic(outgoing)
         if (!writeInFlight) {
             Log.w(TAG, "writeCharacteristic returned false")
@@ -493,17 +748,23 @@ private class BleGattClientTransport(
         private const val GATT_ATT_HEADER_BYTES: Int = 3
         private const val INPUT_PIPE_SIZE: Int = 1024 * 1024
         private const val SERVICE_ID_HASH_LEN: Int = 3
+        private const val POST_CONNECT_DELAY_MILLIS: Long = 600L
+        private const val POST_SLOT_DELAY_MILLIS: Long = 300L
+        private const val WEAVE_REQUEST_RETRY_DELAY_MILLIS: Long = 1000L
+        private const val WEAVE_REQUEST_MAX_RETRIES: Int = 10
         private val CONTROL_PACKET_PREFIX: ByteArray = ByteArray(SERVICE_ID_HASH_LEN)
         private val CLIENT_CHARACTERISTIC_CONFIG_UUID: UUID =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private val SLOT_0_UUID: UUID =
+            UUID.fromString("00000000-0000-3000-8000-000000000000")
     }
 }
 
 private fun writeTypeFor(characteristic: BluetoothGattCharacteristic): Int =
-    if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
-        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-    } else {
+    if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
         BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+    } else {
+        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
     }
 
 private fun ArrayList<Byte>.toByteArray(): ByteArray {
@@ -517,3 +778,5 @@ private fun BluetoothDevice.safeAddress(): String = runCatching { address }.getO
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
 private fun ByteArray.firstByteHex(): String = firstOrNull()?.let { "%02x".format(it) } ?: "--"
+
+private fun ByteArray.previewHex(limit: Int = 16): String = copyOfRange(0, size.coerceAtMost(limit)).toHex()

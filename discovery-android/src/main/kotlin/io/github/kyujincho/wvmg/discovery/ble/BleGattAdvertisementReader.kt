@@ -33,8 +33,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Reads Nearby BLE v2 GATT advertisement slots referenced by a `0x55`
- * advertisement header.
+ * Probes Nearby BLE v2 GATT bootstrap service and reads any
+ * advertisement slots referenced by a `0x55` advertisement header.
  */
 internal class BleGattAdvertisementReader(
     private val context: Context,
@@ -43,21 +43,22 @@ internal class BleGattAdvertisementReader(
     suspend fun read(
         macAddress: String,
         slotCount: Int,
-    ): List<SlotAdvertisement> =
+    ): ReadResult =
         withContext(dispatcher) {
-            if (!isAvailable() || slotCount <= 0) return@withContext emptyList()
+            if (!isAvailable()) return@withContext ReadResult.Empty
             val adapter =
                 context
                     .applicationContext
                     .getSystemService(BluetoothManager::class.java)
                     ?.adapter
-                    ?: return@withContext emptyList()
+                    ?: return@withContext ReadResult.Empty
+            cancelDiscoveryBeforeGattConnect(adapter, macAddress)
             val device =
                 try {
                     adapter.getRemoteDevice(macAddress)
                 } catch (badAddress: IllegalArgumentException) {
                     Log.w(TAG, "invalid BLE GATT advertisement address=$macAddress", badAddress)
-                    return@withContext emptyList()
+                    return@withContext ReadResult.Empty
                 }
             val callback = Callback(slotCount.coerceAtMost(MAX_SLOT_COUNT))
             val gatt =
@@ -66,15 +67,34 @@ internal class BleGattAdvertisementReader(
                     false,
                     callback,
                     BluetoothDevice.TRANSPORT_LE,
-                ) ?: return@withContext emptyList()
+                ) ?: return@withContext ReadResult.Empty
             callback.attach(gatt)
             try {
-                withTimeoutOrNull(READ_TIMEOUT_MILLIS) { callback.result.await() }.orEmpty()
+                val result = withTimeoutOrNull(READ_TIMEOUT_MILLIS) { callback.result.await() }
+                if (result == null) {
+                    Log.w(TAG, "slot-read timed out address=$macAddress slots=$slotCount")
+                    ReadResult.Empty
+                } else {
+                    result
+                }
             } finally {
                 runCatching { gatt.disconnect() }
                 runCatching { gatt.close() }
             }
         }
+
+    private fun cancelDiscoveryBeforeGattConnect(
+        adapter: android.bluetooth.BluetoothAdapter,
+        macAddress: String,
+    ) {
+        if (!adapter.isDiscovering) return
+        val cancelled =
+            runCatching { adapter.cancelDiscovery() }
+                .onFailure { e ->
+                    Log.w(TAG, "slot-read cancelDiscovery failed address=$macAddress", e)
+                }.getOrDefault(false)
+        Log.i(TAG, "slot-read cancelDiscovery before GATT connect address=$macAddress cancelled=$cancelled")
+    }
 
     private fun isAvailable(): Boolean {
         val appContext = context.applicationContext
@@ -95,11 +115,12 @@ internal class BleGattAdvertisementReader(
     private class Callback(
         private val slotCount: Int,
     ) : BluetoothGattCallback() {
-        val result = CompletableDeferred<List<SlotAdvertisement>>()
+        val result = CompletableDeferred<ReadResult>()
         private val rawSlots = mutableListOf<ByteArray>()
         private var gatt: BluetoothGatt? = null
         private var slots: List<BluetoothGattCharacteristic> = emptyList()
         private var nextSlotIndex: Int = 0
+        private var socketServiceAvailable: Boolean = false
 
         fun attach(gatt: BluetoothGatt) {
             this.gatt = gatt
@@ -112,7 +133,10 @@ internal class BleGattAdvertisementReader(
         ) {
             Log.i(TAG, "slot-read state status=$status newState=$newState device=${gatt.device.safeAddress()}")
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
-                if (!gatt.discoverServices()) complete()
+                if (!gatt.discoverServices()) {
+                    Log.w(TAG, "slot-read discoverServices returned false device=${gatt.device.safeAddress()}")
+                    complete()
+                }
             } else {
                 complete()
             }
@@ -129,15 +153,30 @@ internal class BleGattAdvertisementReader(
             }
             val service = gatt.getService(BleGattInitialControlServer.SERVICE_UUID)
             if (service == null) {
-                Log.w(TAG, "slot-read service missing")
+                Log.w(
+                    TAG,
+                    "slot-read service missing services=${gatt.describeServices()}",
+                )
                 complete()
                 return
             }
+            socketServiceAvailable =
+                service.getCharacteristic(BleGattInitialControlServer.TO_PERIPHERAL_UUID) != null &&
+                service.getCharacteristic(BleGattInitialControlServer.FROM_PERIPHERAL_UUID) != null
+            val characteristicUuids =
+                service.characteristics.joinToString(",") { characteristic ->
+                    characteristic.uuid.toString()
+                }
             slots =
                 (0 until slotCount)
                     .mapNotNull { slot ->
                         service.getCharacteristic(BleGattInitialControlServer.advertisementSlotUuid(slot))
                     }
+            Log.i(
+                TAG,
+                "slot-read service discovered socket=$socketServiceAvailable " +
+                    "slots=${slots.size}/$slotCount chars=$characteristicUuids",
+            )
             readNextSlot()
         }
 
@@ -188,7 +227,12 @@ internal class BleGattAdvertisementReader(
 
         private fun complete() {
             if (!result.isCompleted) {
-                result.complete(rawSlots.mapNotNull(::parseSlotAdvertisement))
+                result.complete(
+                    ReadResult(
+                        socketServiceAvailable = socketServiceAvailable,
+                        slotAdvertisements = rawSlots.mapNotNull(::parseSlotAdvertisement),
+                    ),
+                )
             }
         }
 
@@ -223,6 +267,19 @@ internal class BleGattAdvertisementReader(
         val l2capPsm: Int?,
     )
 
+    data class ReadResult(
+        val socketServiceAvailable: Boolean,
+        val slotAdvertisements: List<SlotAdvertisement>,
+    ) {
+        companion object {
+            val Empty: ReadResult =
+                ReadResult(
+                    socketServiceAvailable = false,
+                    slotAdvertisements = emptyList(),
+                )
+        }
+    }
+
     private companion object {
         private const val TAG: String = "WvmgBleFastScan"
         private const val MAX_SLOT_COUNT: Int = 16
@@ -231,5 +288,11 @@ internal class BleGattAdvertisementReader(
 }
 
 private fun BluetoothDevice.safeAddress(): String = runCatching { address }.getOrNull() ?: "<unknown>"
+
+private fun BluetoothGatt.describeServices(): String =
+    services.joinToString(",") { service ->
+        val characteristics = service.characteristics.joinToString("|") { it.uuid.toString() }
+        "${service.uuid}[$characteristics]"
+    }
 
 private fun ByteArray.firstByteHex(): String = firstOrNull()?.let { "%02x".format(it) } ?: "--"

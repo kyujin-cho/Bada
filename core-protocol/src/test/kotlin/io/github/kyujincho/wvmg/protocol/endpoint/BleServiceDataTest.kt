@@ -102,6 +102,27 @@ class BleServiceDataTest {
     }
 
     @Test
+    fun `parse accepts regular non-fast BLE advertisement body`() {
+        val info =
+            EndpointInfo(
+                version = 1,
+                hidden = false,
+                deviceType = DeviceType.PHONE,
+                reserved = false,
+                metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
+                deviceName = "Kyujin's S26 Ultra",
+            )
+        val payload = regularBleBody("LPPM", info)
+        val parsed = BleServiceData.parse(payload)
+
+        assertThat(parsed).isNotNull()
+        assertThat(String(parsed!!.endpointId, Charsets.US_ASCII)).isEqualTo("LPPM")
+        assertThat(parsed.version).isEqualTo(BleServiceData.DEFAULT_VERSION)
+        assertThat(parsed.pcp).isEqualTo(BleServiceData.DEFAULT_PCP)
+        assertThat(parsed.endpointInfo).isEqualTo(info)
+    }
+
+    @Test
     fun `encodeFramed wraps the fast-advertisement body like stock Nearby`() {
         val info = hiddenPhoneEndpointInfo()
         val payload = BleServiceData.encodeFramed("Wvmg", info)
@@ -128,6 +149,17 @@ class BleServiceDataTest {
         assertThat(payload[28].toInt() and 0xFF).isEqualTo(0x12)
         assertThat(payload[29].toInt() and 0xFF).isEqualTo(0x34)
         assertThat(BleServiceData.parsePsmExtraField(payload)).isEqualTo(0x1234)
+        assertThat(BleServiceData.parse(payload)?.endpointInfo).isEqualTo(info)
+    }
+
+    @Test
+    fun `encodeFramed can set the second-profile bit`() {
+        val info = hiddenPhoneEndpointInfo()
+        val payload = BleServiceData.encodeFramed("Wvmg", info, secondProfile = true)
+
+        assertThat(payload).hasLength(27)
+        assertThat(payload[0].toInt() and 0xFF)
+            .isEqualTo(BleServiceData.FRAME_TYPE_SECOND_PROFILE_FAST_ADVERTISEMENT)
         assertThat(BleServiceData.parse(payload)?.endpointInfo).isEqualTo(info)
     }
 
@@ -304,6 +336,38 @@ class BleServiceDataTest {
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { 0x00 },
             deviceName = null,
         )
+
+    private fun regularBleBody(
+        endpointId: String,
+        endpointInfo: EndpointInfo,
+    ): ByteArray {
+        val infoBytes = endpointInfo.serialize()
+        val payload =
+            ByteArray(
+                BleServiceData.REGULAR_FIXED_HEADER_LEN +
+                    infoBytes.size +
+                    BleServiceData.BLUETOOTH_MAC_LEN +
+                    2,
+            )
+        var offset = 0
+        payload[offset++] =
+            BleServiceData.packVersionPcp(BleServiceData.DEFAULT_VERSION, BleServiceData.DEFAULT_PCP)
+        NearbyServiceId.hashPrefix.copyInto(payload, destinationOffset = offset)
+        offset += BleServiceData.SERVICE_ID_HASH_LEN
+        endpointId.toByteArray(Charsets.US_ASCII).copyInto(payload, destinationOffset = offset)
+        offset += BleServiceData.ENDPOINT_ID_LEN
+        payload[offset++] = infoBytes.size.toByte()
+        infoBytes.copyInto(payload, destinationOffset = offset)
+        offset += infoBytes.size
+        byteArrayOf(0x70, 0x4E, 0xE0.toByte(), 0x12, 0xDE.toByte(), 0x3A).copyInto(
+            payload,
+            destinationOffset = offset,
+        )
+        offset += BleServiceData.BLUETOOTH_MAC_LEN
+        payload[offset++] = 0x00
+        payload[offset] = 0x01
+        return payload
+    }
 
     private fun sha256FirstTwo(bytes: ByteArray): ByteArray =
         MessageDigest

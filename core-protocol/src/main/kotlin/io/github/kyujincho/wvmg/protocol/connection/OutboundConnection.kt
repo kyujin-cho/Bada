@@ -134,6 +134,16 @@ import java.security.SecureRandom
  * @param connectTimeoutMillis TCP connect timeout. Default 5 seconds —
  *   matches NearDrop's default and is generous enough for Wi-Fi LAN
  *   without making "host is down" cases linger.
+ * @param initialHandshakeTimeoutMillis Maximum time to wait for the
+ *   unencrypted ConnectionRequest / UKEY2 / ConnectionResponse leg
+ *   after the initial transport is open. Closing the transport on this
+ *   timeout prevents non-LAN virtual streams from leaving the sender UI
+ *   stuck in the pairing state.
+ * @param remoteAcceptanceTimeoutMillis Maximum time to wait after the
+ *   IntroductionFrame is sent for the receiver's encrypted
+ *   ConnectionResponseFrame. Stock receivers normally answer only after
+ *   the user accepts/rejects the consent UI; this bounds peers that keep
+ *   the secure channel alive but never surface that UI.
  * @param secureRandom Source of randomness for the UKEY2 keypair, the
  *   PairedKeyEncryption fill bytes, the SecureChannel IVs, and the
  *   per-frame `payload_id` choices. Tests inject a deterministic
@@ -157,6 +167,8 @@ public class OutboundConnection private constructor(
     private val endpointInfo: ByteArray = ByteArray(0),
     private val qrCodeHandshakeData: ByteArray? = null,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
+    private val initialHandshakeTimeoutMillis: Long = DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
+    private val remoteAcceptanceTimeoutMillis: Long = DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS,
     private val secureRandom: SecureRandom = SecureRandom(),
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     /**
@@ -176,6 +188,8 @@ public class OutboundConnection private constructor(
         endpointInfo: ByteArray = ByteArray(0),
         qrCodeHandshakeData: ByteArray? = null,
         connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
+        initialHandshakeTimeoutMillis: Long = DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
+        remoteAcceptanceTimeoutMillis: Long = DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS,
         secureRandom: SecureRandom = SecureRandom(),
         mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
         logger: (String) -> Unit = {},
@@ -187,6 +201,8 @@ public class OutboundConnection private constructor(
         endpointInfo = endpointInfo,
         qrCodeHandshakeData = qrCodeHandshakeData,
         connectTimeoutMillis = connectTimeoutMillis,
+        initialHandshakeTimeoutMillis = initialHandshakeTimeoutMillis,
+        remoteAcceptanceTimeoutMillis = remoteAcceptanceTimeoutMillis,
         secureRandom = secureRandom,
         mediumRegistry = mediumRegistry,
         logger = logger,
@@ -198,6 +214,8 @@ public class OutboundConnection private constructor(
         endpointInfo: ByteArray = ByteArray(0),
         qrCodeHandshakeData: ByteArray? = null,
         connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
+        initialHandshakeTimeoutMillis: Long = DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
+        remoteAcceptanceTimeoutMillis: Long = DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS,
         secureRandom: SecureRandom = SecureRandom(),
         mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
         logger: (String) -> Unit = {},
@@ -209,6 +227,8 @@ public class OutboundConnection private constructor(
         endpointInfo = endpointInfo,
         qrCodeHandshakeData = qrCodeHandshakeData,
         connectTimeoutMillis = connectTimeoutMillis,
+        initialHandshakeTimeoutMillis = initialHandshakeTimeoutMillis,
+        remoteAcceptanceTimeoutMillis = remoteAcceptanceTimeoutMillis,
         secureRandom = secureRandom,
         mediumRegistry = mediumRegistry,
         logger = logger,
@@ -285,6 +305,12 @@ public class OutboundConnection private constructor(
         require(usingLanSocket.xor(usingPreconnectedTransport)) {
             "OutboundConnection requires either targetAddress+port or transport"
         }
+        require(initialHandshakeTimeoutMillis > 0L) {
+            "initialHandshakeTimeoutMillis must be positive"
+        }
+        require(remoteAcceptanceTimeoutMillis > 0L) {
+            "remoteAcceptanceTimeoutMillis must be positive"
+        }
     }
 
     /**
@@ -352,6 +378,8 @@ public class OutboundConnection private constructor(
                 mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,
                 logger = logger,
+                initialHandshakeTimeoutMillis = initialHandshakeTimeoutMillis,
+                remoteAcceptanceTimeoutMillis = remoteAcceptanceTimeoutMillis,
             )
 
         return try {
@@ -542,6 +570,18 @@ public class OutboundConnection private constructor(
          * unreachable" failures within human attention span.
          */
         public const val DEFAULT_CONNECT_TIMEOUT_MILLIS: Int = 5000
+
+        /**
+         * Default timeout for the unencrypted ConnectionRequest/UKEY2/
+         * ConnectionResponse leg after the transport is open.
+         */
+        public const val DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS: Long = 15_000L
+
+        /**
+         * Default timeout for the encrypted receiver consent response
+         * after our IntroductionFrame has been sent.
+         */
+        public const val DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS: Long = 30_000L
 
         /** Number of stack frames the diagnostic logger emits per failure. */
         private const val STACK_FRAMES_TO_LOG: Int = 8

@@ -27,7 +27,6 @@ import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.google.location.nearby.mediums.proto.BleFramesProto
 import com.google.location.nearby.mediums.proto.MultiplexFramesProto
-import io.github.kyujincho.wvmg.protocol.endpoint.BleAdvertisement
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.EndpointInfo
 import io.github.kyujincho.wvmg.protocol.endpoint.NearbyServiceId
@@ -44,6 +43,8 @@ import java.io.PipedOutputStream
 import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -90,9 +91,10 @@ public class BleGattInitialControlServer(
                         return false
                     }
             callback.attach(server)
-            if (!server.addService(callback.service)) {
-                Log.w(TAG, "BluetoothGattServer.addService failed")
+            if (!callback.startAddingServices() || !callback.awaitServicesReady()) {
+                runCatching { server.clearServices() }
                 server.close()
+                callback.close()
                 return false
             }
             val state = ActiveState(server = server, callback = callback)
@@ -101,7 +103,7 @@ public class BleGattInitialControlServer(
                 callback.close()
                 return true
             }
-            Log.i(TAG, "BLE GATT bootstrap active service=$SERVICE_UUID")
+            Log.i(TAG, "BLE GATT bootstrap active services=${callback.services.joinToString { it.uuid.toString() }}")
             true
         }
 
@@ -146,21 +148,40 @@ public class BleGattInitialControlServer(
         endpointId: ByteArray,
         private val acceptTransport: (ConnectedTransport) -> Unit,
     ) : BluetoothGattServerCallback() {
-        val service: BluetoothGattService = buildService(endpointInfo, endpointId)
+        val services: List<BluetoothGattService> =
+            buildServices(
+                endpointInfo = endpointInfo,
+                endpointId = endpointId,
+            )
 
         private val sessions: ConcurrentHashMap<String, BleWeaveGattSession> = ConcurrentHashMap()
         private val fromPeripheral: BluetoothGattCharacteristic =
-            requireNotNull(service.getCharacteristic(FROM_PERIPHERAL_UUID))
+            requireNotNull(services.firstNotNullOfOrNull { it.getCharacteristic(FROM_PERIPHERAL_UUID) })
         private var server: BluetoothGattServer? = null
+        private val serviceAddLock: Any = Any()
+        private val serviceAddLatch: CountDownLatch = CountDownLatch(services.size)
+        private var nextServiceIndex: Int = 0
+        private var serviceAddFailed: Boolean = false
 
         fun attach(server: BluetoothGattServer) {
             this.server = server
+        }
+
+        fun startAddingServices(): Boolean = addNextService()
+
+        fun awaitServicesReady(): Boolean {
+            val ready = serviceAddLatch.await(SERVICE_ADD_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            if (!ready) {
+                Log.w(TAG, "timed out adding BLE GATT services")
+            }
+            return ready && !serviceAddFailed
         }
 
         fun close() {
             sessions.values.forEach { it.close() }
             sessions.clear()
             server = null
+            markServiceAddFailed()
         }
 
         override fun onConnectionStateChange(
@@ -181,6 +202,12 @@ public class BleGattInitialControlServer(
             service: BluetoothGattService,
         ) {
             Log.i(TAG, "service added status=$status uuid=${service.uuid}")
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                markServiceAddFailed()
+                return
+            }
+            serviceAddLatch.countDown()
+            addNextService()
         }
 
         override fun onCharacteristicReadRequest(
@@ -247,17 +274,56 @@ public class BleGattInitialControlServer(
                 "write descriptor=${descriptor.uuid} char=${descriptor.characteristic?.uuid} " +
                     "value=${value.toHex()} offset=$offset device=${device.safeAddress()}",
             )
-            val enablesNotifications =
-                value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ||
-                    value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
+            val subscriptionMode =
+                when {
+                    value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ->
+                        GattSubscriptionMode.NOTIFICATION
+                    value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE) ->
+                        GattSubscriptionMode.INDICATION
+                    else -> GattSubscriptionMode.DISABLED
+                }
             if (descriptor.uuid == CLIENT_CHARACTERISTIC_CONFIG_UUID &&
                 descriptor.characteristic?.uuid == FROM_PERIPHERAL_UUID
             ) {
-                sessionFor(device).setSubscribed(enablesNotifications)
+                sessionFor(device).setSubscription(subscriptionMode)
             }
             if (responseNeeded) {
                 server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
             }
+        }
+
+        override fun onDescriptorReadRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            offset: Int,
+            descriptor: BluetoothGattDescriptor,
+        ) {
+            Log.i(
+                TAG,
+                "read descriptor=${descriptor.uuid} char=${descriptor.characteristic?.uuid} " +
+                    "offset=$offset device=${device.safeAddress()}",
+            )
+            val value =
+                if (descriptor.uuid == CLIENT_CHARACTERISTIC_CONFIG_UUID &&
+                    descriptor.characteristic?.uuid == FROM_PERIPHERAL_UUID
+                ) {
+                    sessionFor(device).cccdValue()
+                } else {
+                    ByteArray(0)
+                }
+            val response =
+                if (offset in 0..value.size) {
+                    value.copyOfRange(offset, value.size)
+                } else {
+                    ByteArray(0)
+                }
+            server?.sendResponse(
+                device,
+                requestId,
+                if (offset in 0..value.size) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_INVALID_OFFSET,
+                offset,
+                response,
+            )
         }
 
         override fun onMtuChanged(
@@ -287,60 +353,45 @@ public class BleGattInitialControlServer(
             }
         }
 
-        private companion object {
-            private fun buildService(
-                endpointInfo: EndpointInfo,
-                endpointId: ByteArray,
-            ): BluetoothGattService {
-                val service =
-                    BluetoothGattService(
-                        SERVICE_UUID,
-                        BluetoothGattService.SERVICE_TYPE_PRIMARY,
-                    )
-                val toPeripheral =
-                    BluetoothGattCharacteristic(
-                        TO_PERIPHERAL_UUID,
-                        BluetoothGattCharacteristic.PROPERTY_WRITE or
-                            BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
-                        BluetoothGattCharacteristic.PERMISSION_WRITE,
-                    )
-                val fromPeripheral =
-                    BluetoothGattCharacteristic(
-                        FROM_PERIPHERAL_UUID,
-                        BluetoothGattCharacteristic.PROPERTY_READ or
-                            BluetoothGattCharacteristic.PROPERTY_NOTIFY or
-                            BluetoothGattCharacteristic.PROPERTY_INDICATE,
-                        BluetoothGattCharacteristic.PERMISSION_READ,
-                    )
-                fromPeripheral.addDescriptor(
-                    BluetoothGattDescriptor(
-                        CLIENT_CHARACTERISTIC_CONFIG_UUID,
-                        BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE,
-                    ),
-                )
-                service.addCharacteristic(toPeripheral)
-                service.addCharacteristic(fromPeripheral)
-                buildAdvertisementSlots(endpointInfo, endpointId).forEach(service::addCharacteristic)
-                return service
-            }
-
-            private fun buildAdvertisementSlots(
-                endpointInfo: EndpointInfo,
-                endpointId: ByteArray,
-            ): List<BluetoothGattCharacteristic> {
-                val visibleAdvertisement =
-                    runCatching { BleAdvertisement.encodeGattAdvertisement(endpointId, endpointInfo) }
-                        .getOrDefault(ByteArray(0))
-
-                return (0 until GATT_ADVERTISEMENT_SLOT_COUNT).map { slot ->
-                    BluetoothGattCharacteristic(
-                        advertisementSlotUuid(slot),
-                        BluetoothGattCharacteristic.PROPERTY_READ,
-                        BluetoothGattCharacteristic.PERMISSION_READ,
-                    ).apply {
-                        value = if (slot == 0) visibleAdvertisement else ByteArray(0)
+        private fun addNextService(): Boolean {
+            val gattServer = server
+            val service =
+                synchronized(serviceAddLock) {
+                    if (serviceAddFailed || nextServiceIndex >= services.size) {
+                        null
+                    } else {
+                        services[nextServiceIndex++]
                     }
                 }
+
+            val accepted =
+                if (gattServer == null) {
+                    false
+                } else if (service == null) {
+                    true
+                } else {
+                    // Android's BluetoothGattServer keeps one mPendingService internally.
+                    // Queue services from onServiceAdded so descriptor handles are copied
+                    // back onto the right local service before the next add starts.
+                    gattServer.addService(service).also { serviceAccepted ->
+                        if (!serviceAccepted) {
+                            Log.w(TAG, "BluetoothGattServer.addService failed uuid=${service.uuid}")
+                            markServiceAddFailed()
+                        }
+                    }
+                }
+            if (gattServer == null) {
+                markServiceAddFailed()
+            }
+            return accepted
+        }
+
+        private fun markServiceAddFailed() {
+            synchronized(serviceAddLock) {
+                serviceAddFailed = true
+            }
+            while (serviceAddLatch.count > 0) {
+                serviceAddLatch.countDown()
             }
         }
     }
@@ -350,6 +401,10 @@ public class BleGattInitialControlServer(
 
         /** Copresence / Nearby BLE socket service UUID. */
         public val SERVICE_UUID: UUID = UUID.fromString(BleServiceData.SERVICE_UUID_128_STRING)
+
+        /** Nearby BLE second-profile socket service UUID used when GMS owns the first profile. */
+        public val SECOND_PROFILE_SERVICE_UUID: UUID =
+            UUID.fromString("0000fef3-0004-1000-8000-001a11000100")
 
         /** Central writes Weave packets here. */
         public val TO_PERIPHERAL_UUID: UUID = UUID.fromString("00000100-0004-1000-8000-001a11000101")
@@ -364,9 +419,134 @@ public class BleGattInitialControlServer(
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         private const val GATT_ADVERTISEMENT_SLOT_COUNT: Int = 16
+        private const val SERVICE_ADD_TIMEOUT_MILLIS: Long = 2_000L
+
+        internal data class GattServiceSpec(
+            val uuid: UUID,
+            val characteristics: List<GattCharacteristicSpec>,
+        )
+
+        internal data class GattCharacteristicSpec(
+            val uuid: UUID,
+            val properties: Int,
+            val permissions: Int,
+            val descriptors: List<GattDescriptorSpec> = emptyList(),
+            val value: ByteArray = ByteArray(0),
+        )
+
+        internal data class GattDescriptorSpec(
+            val uuid: UUID,
+            val permissions: Int,
+        )
+
+        internal fun buildServiceSpecs(
+            endpointInfo: EndpointInfo,
+            endpointId: ByteArray,
+        ): List<GattServiceSpec> {
+            val advertisementService = buildAdvertisementServiceSpec(endpointInfo, endpointId)
+            val socketService = buildSocketServiceSpec()
+            return listOf(advertisementService, socketService)
+        }
+
+        internal fun buildServices(
+            endpointInfo: EndpointInfo,
+            endpointId: ByteArray,
+        ): List<BluetoothGattService> = buildServiceSpecs(endpointInfo, endpointId).map { it.toBluetoothGattService() }
 
         internal fun advertisementSlotUuid(slot: Int): UUID =
             UUID.fromString("00000000-0000-3000-8000-${slot.toString(radix = 16).padStart(12, '0')}")
+
+        private fun buildAdvertisementServiceSpec(
+            endpointInfo: EndpointInfo,
+            endpointId: ByteArray,
+        ): GattServiceSpec =
+            GattServiceSpec(
+                uuid = SERVICE_UUID,
+                characteristics = buildAdvertisementSlots(endpointInfo, endpointId),
+            )
+
+        private fun buildSocketServiceSpec(): GattServiceSpec {
+            val fromPeripheral =
+                GattCharacteristicSpec(
+                    uuid = FROM_PERIPHERAL_UUID,
+                    properties = BluetoothGattCharacteristic.PROPERTY_INDICATE,
+                    permissions = 0,
+                    descriptors =
+                        listOf(
+                            GattDescriptorSpec(
+                                uuid = CLIENT_CHARACTERISTIC_CONFIG_UUID,
+                                permissions =
+                                    BluetoothGattDescriptor.PERMISSION_READ or
+                                        BluetoothGattDescriptor.PERMISSION_WRITE,
+                            ),
+                        ),
+                )
+            val toPeripheral =
+                GattCharacteristicSpec(
+                    uuid = TO_PERIPHERAL_UUID,
+                    properties = BluetoothGattCharacteristic.PROPERTY_WRITE,
+                    permissions = BluetoothGattCharacteristic.PERMISSION_WRITE,
+                )
+            return GattServiceSpec(
+                uuid = SECOND_PROFILE_SERVICE_UUID,
+                characteristics = listOf(fromPeripheral, toPeripheral),
+            )
+        }
+
+        private fun buildAdvertisementSlots(
+            endpointInfo: EndpointInfo,
+            endpointId: ByteArray,
+        ): List<GattCharacteristicSpec> {
+            // WVMG runs beside Google Play services on Android. GMS may
+            // already own the first 0xFEF3 GATT socket profile, so the
+            // regular service is read-only and advertises the second-profile
+            // bit. Stock senders can still fetch the endpoint from the normal
+            // slot path, then open the socket on the isolated second profile.
+            val visibleAdvertisement =
+                runCatching {
+                    BleServiceData.encodeFramed(
+                        endpointId = endpointId,
+                        endpointInfo = endpointInfo,
+                        secondProfile = true,
+                    )
+                }.getOrDefault(ByteArray(0))
+
+            return (0 until GATT_ADVERTISEMENT_SLOT_COUNT).map { slot ->
+                GattCharacteristicSpec(
+                    uuid = advertisementSlotUuid(slot),
+                    properties = BluetoothGattCharacteristic.PROPERTY_READ,
+                    permissions = BluetoothGattCharacteristic.PERMISSION_READ,
+                    value = if (slot == 0) visibleAdvertisement else ByteArray(0),
+                )
+            }
+        }
+
+        private fun GattServiceSpec.toBluetoothGattService(): BluetoothGattService {
+            val spec = this
+            return BluetoothGattService(
+                uuid,
+                BluetoothGattService.SERVICE_TYPE_PRIMARY,
+            ).apply {
+                spec.characteristics.forEach { addCharacteristic(it.toBluetoothGattCharacteristic()) }
+            }
+        }
+
+        private fun GattCharacteristicSpec.toBluetoothGattCharacteristic(): BluetoothGattCharacteristic =
+            BluetoothGattCharacteristic(
+                uuid,
+                properties,
+                permissions,
+            ).also { characteristic ->
+                characteristic.value = value
+                descriptors.forEach { descriptor ->
+                    characteristic.addDescriptor(
+                        BluetoothGattDescriptor(
+                            descriptor.uuid,
+                            descriptor.permissions,
+                        ),
+                    )
+                }
+            }
     }
 }
 
@@ -386,6 +566,7 @@ private class BleWeaveGattSession(
         )
     private val incomingMessage = ArrayList<Byte>()
     private var subscribed: Boolean = false
+    private var subscriptionMode: GattSubscriptionMode = GattSubscriptionMode.DISABLED
     private var sending: Boolean = false
     private var introReceived: Boolean = false
     private var mtuPayloadSize: Int = WeaveFrames.DEFAULT_ATT_PAYLOAD_SIZE
@@ -394,11 +575,23 @@ private class BleWeaveGattSession(
     private var closed: Boolean = false
 
     @Synchronized
-    fun setSubscribed(enabled: Boolean) {
-        subscribed = enabled
-        Log.i(BleGattInitialControlServer.TAG, "subscription enabled=$enabled device=${device.safeAddress()}")
+    fun setSubscription(mode: GattSubscriptionMode) {
+        subscriptionMode = mode
+        subscribed = mode != GattSubscriptionMode.DISABLED
+        Log.i(
+            BleGattInitialControlServer.TAG,
+            "subscription mode=$mode enabled=$subscribed device=${device.safeAddress()}",
+        )
         drainNotificationsLocked()
     }
+
+    @Synchronized
+    fun cccdValue(): ByteArray =
+        when (subscriptionMode) {
+            GattSubscriptionMode.NOTIFICATION -> BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            GattSubscriptionMode.INDICATION -> BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+            GattSubscriptionMode.DISABLED -> BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+        }
 
     @Synchronized
     fun setMtu(mtu: Int) {
@@ -556,17 +749,19 @@ private class BleWeaveGattSession(
     private fun drainNotificationsLocked() {
         if (!subscribed || sending || closed) return
         val packet = if (notificationQueue.isEmpty()) return else notificationQueue.removeFirst()
+        val confirm = subscriptionMode == GattSubscriptionMode.INDICATION
         Log.i(
             BleGattInitialControlServer.TAG,
-            "send notification len=${packet.size} header=${packet.firstByteHex()} device=${device.safeAddress()}",
+            "send notification len=${packet.size} header=${packet.firstByteHex()} " +
+                "confirm=$confirm device=${device.safeAddress()}",
         )
         outgoingCharacteristic.value = packet
         sending =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                server.notifyCharacteristicChanged(device, outgoingCharacteristic, false, packet) ==
+                server.notifyCharacteristicChanged(device, outgoingCharacteristic, confirm, packet) ==
                     android.bluetooth.BluetoothStatusCodes.SUCCESS
             } else {
-                server.notifyCharacteristicChanged(device, outgoingCharacteristic, false)
+                server.notifyCharacteristicChanged(device, outgoingCharacteristic, confirm)
             }
         if (!sending) {
             Log.w(BleGattInitialControlServer.TAG, "notifyCharacteristicChanged returned false")
@@ -576,6 +771,12 @@ private class BleWeaveGattSession(
     private companion object {
         private const val GATT_ATT_HEADER_BYTES: Int = 3
     }
+}
+
+private enum class GattSubscriptionMode {
+    DISABLED,
+    NOTIFICATION,
+    INDICATION,
 }
 
 internal class BleMultiplexBridge(

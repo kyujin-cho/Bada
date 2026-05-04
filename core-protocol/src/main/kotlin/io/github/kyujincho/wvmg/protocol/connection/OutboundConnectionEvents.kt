@@ -17,7 +17,8 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Offl
  *  2. External user-supplied events
  *     ([OutboundExternalEvent.UserCancel]) arriving on
  *     [OutboundConnection.cancel], wrapped here as [External].
- *  3. The peer closing the TCP half-channel cleanly ([PeerClosed]) or
+ *  3. Driver-owned timers such as [RemoteAcceptanceTimedOut].
+ *  4. The peer closing the TCP half-channel cleanly ([PeerClosed]) or
  *     an unexpected pump-side I/O failure ([PumpError]).
  *
  * Hoisted to its own file so [OutboundConnectionDriver] can stay under
@@ -36,6 +37,9 @@ internal sealed interface OutboundDriverEvent {
 
     /** The peer closed the TCP connection cleanly. */
     object PeerClosed : OutboundDriverEvent
+
+    /** The receiver did not answer the IntroductionFrame in time. */
+    object RemoteAcceptanceTimedOut : OutboundDriverEvent
 
     /** The inbound pump terminated due to an unexpected error. */
     data class PumpError(

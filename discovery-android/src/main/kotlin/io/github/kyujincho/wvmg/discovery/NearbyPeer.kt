@@ -54,10 +54,12 @@ public data class NearbyPeer(
      *
      * LAN remains first priority to preserve the pre-#137 behaviour when
      * a peer is already reachable by mDNS + TCP. BLE L2CAP is the preferred
-     * off-LAN bootstrap path when the receiver advertises a PSM. BLE GATT is
-     * the stock off-LAN fallback when the receiver exposes only a GATT-backed
-     * advertisement header; Bluetooth Classic remains only a last fallback for
-     * peers that still expose it.
+     * off-LAN bootstrap path when the receiver advertises a PSM. A visible
+     * BLE receiver without a PSM is only a GATT bootstrap candidate after
+     * the GATT advertisement-slot probe verifies the service; header-only,
+     * hidden, and raw scan-result-only BLE observations remain discovery
+     * metadata until another route confirms a transport. Bluetooth Classic
+     * remains only a last fallback for peers that still expose it.
      */
     public fun preferredRoute(): NearbyPeerRoute? {
         val lan = lanEndpoint
@@ -74,7 +76,7 @@ public data class NearbyPeer(
         if (bleAddress != null && l2capPsm != null) {
             return NearbyPeerRoute.BleL2cap(macAddress = bleAddress, psm = l2capPsm)
         }
-        if (bleAddress != null && ble.gattConnectable) {
+        if (bleAddress != null && ble.gattConnectable && endpointInfo?.hidden == false) {
             return NearbyPeerRoute.BleGatt(macAddress = bleAddress)
         }
         val bluetooth = bluetoothEndpoint
@@ -91,7 +93,7 @@ public data class NearbyPeer(
         val bleName = bleAdvertisement?.displayName.toDisplayNameOrNull()
         if (bleName != null) return bleName
         if (!endpointId.isNullOrBlank()) return "Quick Share device ($endpointId)"
-        if (bleAdvertisement?.gattConnectable == true) return "Quick Share BLE device"
+        if (bleAdvertisement != null) return "Quick Share BLE device"
         return stableId
     }
 
@@ -109,7 +111,7 @@ public data class NearbyPeer(
             bleName != null ->
                 bleAdvertisement?.displayNameSource ?: "ble-metadata"
             !endpointId.isNullOrBlank() -> "endpoint-id"
-            bleAdvertisement?.gattConnectable == true -> "ble-gatt-fallback"
+            bleAdvertisement != null -> "ble-advertisement"
             else -> "stable-id"
         }
     }

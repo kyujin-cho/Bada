@@ -5,6 +5,7 @@
  */
 package io.github.kyujincho.wvmg.protocol.connection
 
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import com.google.protobuf.ByteString
@@ -12,6 +13,7 @@ import io.github.kyujincho.wvmg.protocol.crypto.D2DKeyDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.D2DRole
 import io.github.kyujincho.wvmg.protocol.crypto.pin.PinDerivation
 import io.github.kyujincho.wvmg.protocol.crypto.securemessage.SecureChannel
+import io.github.kyujincho.wvmg.protocol.medium.Medium
 import io.github.kyujincho.wvmg.protocol.medium.MediumRegistry
 import io.github.kyujincho.wvmg.protocol.payload.PayloadAssembler
 import io.github.kyujincho.wvmg.protocol.payload.PayloadEvent
@@ -30,16 +32,21 @@ import io.github.kyujincho.wvmg.protocol.transport.ConnectedTransport
 import io.github.kyujincho.wvmg.protocol.transport.EndOfFrameStream
 import io.github.kyujincho.wvmg.protocol.transport.FramedConnection
 import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2Client
+import io.github.kyujincho.wvmg.protocol.ukey2.Ukey2HandshakeResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Internal lifecycle driver for [OutboundConnection].
@@ -58,6 +65,7 @@ import java.security.SecureRandom
  * `select`s between that channel and [externalEvents].
  */
 @Suppress(
+    "LargeClass", // The driver intentionally keeps the full wire lifecycle in one state-owning type.
     "TooManyFunctions", // The lifecycle inherently has many phases; each is one function for readability.
     "LongParameterList", // Constructor takes the connection's collaborators verbatim.
 )
@@ -73,6 +81,10 @@ internal class OutboundConnectionDriver(
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
     private val logger: (String) -> Unit = {},
+    private val initialHandshakeTimeoutMillis: Long =
+        OutboundConnection.DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
+    private val remoteAcceptanceTimeoutMillis: Long =
+        OutboundConnection.DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS,
     /**
      * Wall-clock source for the rate estimator. Defaults to
      * [System.currentTimeMillis]; tests inject deterministic
@@ -108,6 +120,7 @@ internal class OutboundConnectionDriver(
      * [OutboundResult]; throws on coroutine cancellation (handled by
      * the caller).
      */
+    @Suppress("ReturnCount")
     suspend fun runLifecycle(): OutboundResult {
         mutableState.value = OutboundConnectionState.Handshaking
         logger(
@@ -116,16 +129,15 @@ internal class OutboundConnectionDriver(
         )
         val transport = FramedConnection(initialTransport).also { framedConnection = it }
 
-        // Step 1: send unencrypted ConnectionRequest. The mediums set
-        // is sourced from the registry's current-medium-aware view:
-        // WIFI_LAN only means "stay on the already-open LAN socket", so
-        // a Bluetooth/BLE bootstrap must not advertise it as an
-        // off-LAN upgrade option. Phase 4's per-medium adapters extend
-        // the set by registering against the registry; absent any extra
-        // provider this is functionally identical to the previous
-        // hard-coded `[WIFI_LAN]` on the legacy LAN path.
-        val advertisedMediums =
-            mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
+        // Step 1: send unencrypted ConnectionRequest. BLE/GATT
+        // bootstraps still carry the legacy Wi-Fi LAN marker because
+        // stock Quick Share validates that shape before it dispatches
+        // the incoming connection. When a local Wi-Fi Direct provider
+        // is registered, advertise WFD in this opening request as well,
+        // then send a post-accept UPGRADE_PATH_REQUEST if the receiver
+        // does not proactively offer Wi-Fi Direct before payload
+        // streaming.
+        val advertisedMediums = advertisedMediumsForInitialTransport()
         logger("step 1: advertising mediums=$advertisedMediums")
         transport.sendFrame(
             OutboundFrames
@@ -137,9 +149,9 @@ internal class OutboundConnectionDriver(
         )
         logger("step 1: sent ConnectionRequest, awaiting Ukey2ServerInit")
 
-        // Step 2: UKEY2 client handshake (ClientInit, ServerInit, ClientFinish).
-        val handshake = Ukey2Client.performHandshake(transport, secureRandom)
-        logger("step 2: UKEY2 client handshake complete (dhs.size=${handshake.dhs.size})")
+        val (handshake, peerResponse) =
+            runInitialHandshakeWithTimeout(transport)
+                ?: return initialHandshakeTimedOut()
 
         // Step 3: send our unencrypted ConnectionResponse{ACCEPT}.
         //
@@ -149,14 +161,8 @@ internal class OutboundConnectionDriver(
         // if we read instead, both sides deadlock and the peer eventually
         // times out and closes (surfacing here as EndOfFrameStream right
         // after the UKEY2 handshake).
-        val responseBytes = OutboundFrames.connectionResponse().toByteArray()
-        logger("step 3: sending our ConnectionResponse, size=${responseBytes.size}")
-        transport.sendFrame(responseBytes)
-        logger("step 3: sent our ConnectionResponse{ACCEPT}")
 
         // Step 4: read receiver's unencrypted ConnectionResponse.
-        logger("step 4: awaiting peer ConnectionResponse...")
-        val peerResponse = readOfflineFrameUnencrypted(transport)
         val hasResp = peerResponse.v1.hasConnectionResponse()
         logger("step 4: received peer ConnectionResponse type=${peerResponse.v1.type} hasConnectionResponse=$hasResp")
         if (peerResponse.v1.hasConnectionResponse()) {
@@ -193,7 +199,16 @@ internal class OutboundConnectionDriver(
         // adopt it before the Nearby Share payload negotiation begins.
         // Peers that stay on Wi-Fi LAN send the first sharing payload;
         // buffer that frame so the existing receive loop sees it.
-        val (activeChannel, initialWireFrames) = negotiateBandwidthUpgrade(channel)
+        val negotiated =
+            when (val negotiation = negotiateBandwidthUpgrade(channel)) {
+                is BandwidthNegotiation.Ready -> negotiation
+                is BandwidthNegotiation.Failed -> {
+                    logger("medium-upgrade: ${negotiation.reason}")
+                    runCatching { sendTerminalDisconnection(channel) }
+                    mutableState.value = OutboundConnectionState.Failed(negotiation.reason)
+                    return OutboundResult.Failed(negotiation.reason)
+                }
+            }
 
         // Step 8: build the OutboundSharingFsm with our IntroductionFrame.
         val introduction = buildIntroductionFrame(files)
@@ -204,7 +219,7 @@ internal class OutboundConnectionDriver(
         // Step 9: drive the FSM's initial PKE frame onto the wire,
         // optionally attaching qr_code_handshake_data.
         logger("step 8: sending initial PKE frame")
-        applyEffects(activeChannel, rewriteForQrIfNeeded(negotiationFsm.start()))
+        applyEffects(negotiated.channel, rewriteForQrIfNeeded(negotiationFsm.start()))
 
         // Mark the handshake as complete so a racing UI-side cancel()
         // takes the cooperative FSM path (CANCEL + DISCONNECTION on the
@@ -220,35 +235,78 @@ internal class OutboundConnectionDriver(
         // cancel() in that race would crash the peer with Broken pipe.
         onHandshakeComplete()
 
-        return runReceiveLoop(activeChannel, negotiationFsm, initialWireFrames)
+        return if (requiresWifiDirectUpgradeForBle() && negotiated.medium != Medium.WIFI_DIRECT) {
+            runBleWifiDirectReceiveLoop(
+                channel = negotiated.channel,
+                fsm = negotiationFsm,
+                initialWireFrames = negotiated.initialWireFrames,
+            )
+        } else {
+            runReceiveLoop(negotiated.channel, negotiationFsm, negotiated.initialWireFrames)
+        }
     }
 
-    private suspend fun negotiateBandwidthUpgrade(channel: SecureChannel): Pair<SecureChannel, List<OfflineFrame>> {
+    private fun advertisedMediumsForInitialTransport(): Set<Medium> {
+        val supportedMediums =
+            mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
+        if (initialTransport.medium != Medium.BLE) return supportedMediums
+
+        return buildSet {
+            add(Medium.WIFI_LAN)
+            add(Medium.BLE)
+            if (Medium.WIFI_DIRECT in supportedMediums) {
+                add(Medium.WIFI_DIRECT)
+            }
+        }
+    }
+
+    private suspend fun negotiateBandwidthUpgrade(channel: SecureChannel): BandwidthNegotiation {
         val initialWireFrames = mutableListOf<OfflineFrame>()
-        val activeChannel =
-            when (val probe = BandwidthUpgradeOrchestrator.receiveOfferProbe(channel)) {
-                UpgradeOfferProbe.None -> channel
+        val requiresWifiDirect = requiresWifiDirectUpgradeForBle()
+        val activeTransport =
+            when (
+                val probe =
+                    BandwidthUpgradeOrchestrator.receiveOfferProbe(
+                        channel = channel,
+                        timeoutMillis =
+                            if (requiresWifiDirect) {
+                                BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS
+                            } else {
+                                BandwidthUpgradeOrchestrator.OFFER_WAIT_TIMEOUT_MILLIS
+                            },
+                    )
+            ) {
+                UpgradeOfferProbe.None -> ActiveTransportChannel(channel, initialTransport.medium)
                 is UpgradeOfferProbe.Other -> {
                     initialWireFrames += probe.frame
-                    channel
+                    ActiveTransportChannel(channel, initialTransport.medium)
                 }
                 is UpgradeOfferProbe.Offer -> {
-                    val activeTransport =
-                        BandwidthUpgradeOrchestrator
-                            .runClientUpgradeFromOffer(
-                                oldChannel = channel,
-                                currentMedium = initialTransport.medium,
-                                offer = probe.frame,
-                                mediumRegistry = mediumRegistry,
-                                endpointId = endpointId,
-                                logger = logger,
-                            )
-                    initialWireFrames += activeTransport.bufferedFrames
-                    activeTransport.channel.also { secureChannel = it }
+                    val transport =
+                        BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer(
+                            oldChannel = channel,
+                            currentMedium = initialTransport.medium,
+                            offer = probe.frame,
+                            mediumRegistry = mediumRegistry,
+                            endpointId = endpointId,
+                            logger = logger,
+                        )
+                    if (requiresWifiDirect && transport.medium != Medium.WIFI_DIRECT) {
+                        return BandwidthNegotiation.Failed(
+                            "Wi-Fi Direct upgrade failed after BLE pairing; " +
+                                "stayed on ${transport.medium}",
+                        )
+                    }
+                    initialWireFrames += transport.bufferedFrames
+                    transport.also { secureChannel = it.channel }
                 }
             }
-        return activeChannel to initialWireFrames
+        return BandwidthNegotiation.Ready(activeTransport.channel, activeTransport.medium, initialWireFrames)
     }
+
+    private fun requiresWifiDirectUpgradeForBle(): Boolean =
+        initialTransport.medium == Medium.BLE &&
+            Medium.WIFI_DIRECT in mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
 
     /**
      * Tear down all owned resources. Safe to call multiple times; each
@@ -259,6 +317,68 @@ internal class OutboundConnectionDriver(
         runCatching { secureChannel?.close() }
         runCatching { framedConnection?.close() }
         runCatching { initialTransport.close() }
+    }
+
+    /**
+     * Run the pre-secure handshake under a wall-clock guard. Blocking
+     * reads inside [FramedConnection] do not wake up on coroutine
+     * cancellation alone; the timeout job closes the underlying
+     * transport first, which unblocks sockets and the BLE virtual
+     * streams used by non-LAN bootstrap paths.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun runInitialHandshakeWithTimeout(
+        transport: FramedConnection,
+    ): Pair<Ukey2HandshakeResult, OfflineFrame>? =
+        coroutineScope {
+            val timedOut = AtomicBoolean(false)
+            val timeoutJob =
+                launch {
+                    delay(initialHandshakeTimeoutMillis)
+                    timedOut.set(true)
+                    logger(
+                        "step 2: initial handshake timed out after " +
+                            "${initialHandshakeTimeoutMillis}ms; closing transport",
+                    )
+                    runCatching { transport.close() }
+                    runCatching { initialTransport.close() }
+                }
+            try {
+                val handshake = Ukey2Client.performHandshake(transport, secureRandom)
+
+                if (timedOut.get()) {
+                    null
+                } else {
+                    logger("step 2: UKEY2 client handshake complete (dhs.size=${handshake.dhs.size})")
+
+                    val responseBytes = OutboundFrames.connectionResponse().toByteArray()
+                    logger("step 3: sending our ConnectionResponse, size=${responseBytes.size}")
+                    transport.sendFrame(responseBytes)
+                    logger("step 3: sent our ConnectionResponse{ACCEPT}")
+
+                    logger("step 4: awaiting peer ConnectionResponse...")
+                    val peerResponse = readOfflineFrameUnencrypted(transport)
+                    if (timedOut.get()) {
+                        null
+                    } else {
+                        handshake to peerResponse
+                    }
+                }
+            } catch (e: Throwable) {
+                if (timedOut.get()) {
+                    null
+                } else {
+                    throw e
+                }
+            } finally {
+                timeoutJob.cancelAndJoin()
+            }
+        }
+
+    private fun initialHandshakeTimedOut(): OutboundResult.Failed {
+        val reason = "Initial handshake timed out after ${initialHandshakeTimeoutMillis}ms"
+        mutableState.value = OutboundConnectionState.Failed(reason)
+        return OutboundResult.Failed(reason)
     }
 
     /**
@@ -375,7 +495,7 @@ internal class OutboundConnectionDriver(
                             "${SAFE_DISCONNECT_ACK_TIMEOUT_MS}ms",
                     )
                 }
-                result
+                publishCompletedIfNeeded(result)
             } finally {
                 // Cancel the KEEP_ALIVE ticker FIRST, before any socket
                 // close: the ticker spends almost all its life parked
@@ -429,6 +549,329 @@ internal class OutboundConnectionDriver(
                 logger("keep-alive: ticker stopped (${e::class.simpleName}: ${e.message ?: "null"})")
             },
         )
+    }
+
+    /**
+     * BLE/GATT sender path for stock Android receivers that advertise
+     * Wi-Fi Direct but do not auto-upgrade before the Nearby Share
+     * consent exchange. Keep the read side single-threaded here: the
+     * bandwidth-upgrade handshake needs to keep using the prior BLE
+     * channel, so the normal inbound pump must not be parked in a
+     * blocking read on that same channel when an offer arrives.
+     */
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "NestedBlockDepth", "ReturnCount")
+    private suspend fun runBleWifiDirectReceiveLoop(
+        channel: SecureChannel,
+        fsm: OutboundSharingFsm,
+        initialWireFrames: List<OfflineFrame> = emptyList(),
+    ): OutboundResult {
+        var activeChannel = channel
+        var activeMedium = initialTransport.medium
+        val bufferedFrames =
+            ArrayDeque<OfflineFrame>().apply {
+                addAll(initialWireFrames)
+            }
+        var remoteAcceptanceDeadlineMillis: Long? = null
+        try {
+            while (true) {
+                if (fsm.state == OutboundSharingState.Disconnected) {
+                    return terminalResultFromState()
+                }
+
+                remoteAcceptanceDeadlineMillis =
+                    updateRemoteAcceptanceDeadline(
+                        fsm = fsm,
+                        currentDeadlineMillis = remoteAcceptanceDeadlineMillis,
+                    )
+                val remoteAcceptanceRemainingMillis = remoteAcceptanceRemainingMillis(remoteAcceptanceDeadlineMillis)
+                if (remoteAcceptanceRemainingMillis == 0L) {
+                    return remoteAcceptanceTimedOut()
+                }
+
+                val event =
+                    nextBleWifiDirectEvent(
+                        channel = activeChannel,
+                        bufferedFrames = bufferedFrames,
+                        remoteAcceptanceRemainingMillis = remoteAcceptanceRemainingMillis,
+                    )
+                logger("fsm: dispatch event=${describeDriverEvent(event)} fsmState=${fsm.state::class.simpleName}")
+
+                if (event is OutboundDriverEvent.Wire &&
+                    event.frame.isBandwidthUpgradeEvent(
+                        BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_AVAILABLE,
+                    )
+                ) {
+                    val upgraded =
+                        adoptBleWifiDirectOffer(
+                            channel = activeChannel,
+                            currentMedium = activeMedium,
+                            offer = event.frame,
+                        )
+                    if (upgraded.medium != Medium.WIFI_DIRECT) {
+                        return failBleWifiDirect(
+                            "Wi-Fi Direct upgrade failed after BLE pairing; stayed on ${upgraded.medium}",
+                            activeChannel,
+                        )
+                    }
+                    activeChannel = upgraded.channel
+                    activeMedium = upgraded.medium
+                    bufferedFrames.addAll(upgraded.bufferedFrames)
+                    continue
+                }
+
+                when (val outcome = handleBleWifiDirectEvent(activeChannel, fsm, event)) {
+                    BleWifiDirectOutcome.Continue -> Unit
+                    is BleWifiDirectOutcome.Terminal -> {
+                        if (shouldDrainForSafeDisconnect(outcome.result)) {
+                            drainSafeDisconnectAckDirect(activeChannel)
+                        }
+                        return publishCompletedIfNeeded(outcome.result)
+                    }
+                    BleWifiDirectOutcome.ReadyToSendPayloads -> {
+                        val upgraded =
+                            ensureBleWifiDirectBeforePayloads(
+                                channel = activeChannel,
+                                currentMedium = activeMedium,
+                            )
+                        if (upgraded is PayloadChannelSelection.Failed) {
+                            return failBleWifiDirect(upgraded.reason, activeChannel)
+                        }
+                        val ready = upgraded as PayloadChannelSelection.Ready
+                        activeChannel = ready.channel
+                        activeMedium = ready.medium
+                        val result =
+                            coroutineScope {
+                                val keepAliveJob = launch { runKeepAliveTicker(activeChannel) }
+                                try {
+                                    val result = streamFilesAndComplete(activeChannel)
+                                    if (shouldDrainForSafeDisconnect(result)) {
+                                        drainSafeDisconnectAckDirect(activeChannel)
+                                    }
+                                    publishCompletedIfNeeded(result)
+                                } finally {
+                                    keepAliveJob.cancelAndJoin()
+                                }
+                            }
+                        return result
+                    }
+                }
+            }
+        } finally {
+            runCatching { activeChannel.close() }
+            runCatching { initialTransport.close() }
+        }
+    }
+
+    @Suppress("ReturnCount", "SwallowedException", "TooGenericExceptionCaught")
+    private suspend fun nextBleWifiDirectEvent(
+        channel: SecureChannel,
+        bufferedFrames: ArrayDeque<OfflineFrame>,
+        remoteAcceptanceRemainingMillis: Long?,
+    ): OutboundDriverEvent {
+        if (bufferedFrames.isNotEmpty()) {
+            return OutboundDriverEvent.Wire(bufferedFrames.removeFirst())
+        }
+        val deadlineMillis = remoteAcceptanceRemainingMillis?.let { nowMillisSource() + it }
+        while (true) {
+            externalEvents.tryReceive().getOrNull()?.let { return OutboundDriverEvent.External(it) }
+            if (channel.hasBufferedInput()) {
+                return try {
+                    OutboundDriverEvent.Wire(channel.receiveOfflineFrame())
+                } catch (e: EndOfFrameStream) {
+                    OutboundDriverEvent.PeerClosed
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    OutboundDriverEvent.PumpError(e)
+                }
+            }
+            if (deadlineMillis != null && nowMillisSource() >= deadlineMillis) {
+                return OutboundDriverEvent.RemoteAcceptanceTimedOut
+            }
+            delay(BLE_WIFI_DIRECT_POLL_DELAY_MILLIS)
+        }
+    }
+
+    private suspend fun handleBleWifiDirectEvent(
+        channel: SecureChannel,
+        fsm: OutboundSharingFsm,
+        event: OutboundDriverEvent,
+    ): BleWifiDirectOutcome =
+        when (event) {
+            is OutboundDriverEvent.External -> {
+                handleExternalEvent(channel, fsm, event.event)
+                BleWifiDirectOutcome.Continue
+            }
+            is OutboundDriverEvent.Wire -> handleBleWifiDirectInboundFrame(channel, fsm, event.frame)
+            OutboundDriverEvent.PeerClosed -> BleWifiDirectOutcome.Terminal(handlePeerClosed())
+            OutboundDriverEvent.RemoteAcceptanceTimedOut -> BleWifiDirectOutcome.Terminal(remoteAcceptanceTimedOut())
+            is OutboundDriverEvent.PumpError -> {
+                val reason = "Inbound pump error: ${event.cause::class.simpleName}: ${event.cause.message}"
+                mutableState.value = OutboundConnectionState.Failed(reason)
+                BleWifiDirectOutcome.Terminal(OutboundResult.Failed(reason))
+            }
+        }
+
+    @Suppress("ReturnCount")
+    private suspend fun handleBleWifiDirectInboundFrame(
+        channel: SecureChannel,
+        fsm: OutboundSharingFsm,
+        frame: OfflineFrame,
+    ): BleWifiDirectOutcome {
+        if (frame.isDisconnection()) {
+            return BleWifiDirectOutcome.Terminal(cancelFromPeer())
+        }
+        if (frame.hasV1() &&
+            frame.v1.type == V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION
+        ) {
+            logger(
+                "fsm: inbound BANDWIDTH_UPGRADE_NEGOTIATION event_type=" +
+                    frame.v1.bandwidthUpgradeNegotiation.eventType,
+            )
+            return BleWifiDirectOutcome.Continue
+        }
+        if (!frame.hasV1() || frame.v1.type != V1Frame.FrameType.PAYLOAD_TRANSFER) {
+            return BleWifiDirectOutcome.Continue
+        }
+        return when (val payloadEvent = inboundAssembler.onPayloadTransfer(frame.v1.payloadTransfer)) {
+            is PayloadEvent.BytesComplete -> handleBleWifiDirectBytesComplete(channel, fsm, payloadEvent)
+            is PayloadEvent.FileComplete,
+            is PayloadEvent.Progress,
+            is PayloadEvent.Ignored,
+            -> BleWifiDirectOutcome.Continue
+        }
+    }
+
+    private suspend fun handleBleWifiDirectBytesComplete(
+        channel: SecureChannel,
+        fsm: OutboundSharingFsm,
+        event: PayloadEvent.BytesComplete,
+    ): BleWifiDirectOutcome {
+        val sharingFrame = SharingFrames.parse(event.data)
+        logger("fsm: rx SharingFrame type=${sharingFrame.v1.type}")
+        val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(sharingFrame))
+        applyEffects(channel, effects)
+        return if (effects.any { it is SharingFsmEffect.ReadyToSendPayloads }) {
+            BleWifiDirectOutcome.ReadyToSendPayloads
+        } else {
+            BleWifiDirectOutcome.Continue
+        }
+    }
+
+    private suspend fun ensureBleWifiDirectBeforePayloads(
+        channel: SecureChannel,
+        currentMedium: Medium,
+    ): PayloadChannelSelection {
+        if (currentMedium == Medium.WIFI_DIRECT) {
+            return PayloadChannelSelection.Ready(channel, currentMedium)
+        }
+        channel.sendOfflineFrame(
+            BandwidthUpgradeFrames.upgradePathRequest(setOf(Medium.WIFI_DIRECT)),
+        )
+        logger("medium-upgrade: requested receiver Wi-Fi Direct upgrade before streaming payloads")
+        logger("medium-upgrade: waiting for receiver Wi-Fi Direct offer before streaming payloads")
+        return when (val probe = pollBleWifiDirectOffer(channel, BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS)) {
+            UpgradeOfferProbe.None ->
+                PayloadChannelSelection.Failed("Wi-Fi Direct upgrade was not offered before payload streaming")
+            is UpgradeOfferProbe.Other ->
+                PayloadChannelSelection.Failed(
+                    "Wi-Fi Direct upgrade was required before payload streaming, " +
+                        "but peer sent ${probe.frame.describeFrameType()} first",
+                )
+            is UpgradeOfferProbe.Offer -> {
+                val upgraded =
+                    adoptBleWifiDirectOffer(
+                        channel = channel,
+                        currentMedium = currentMedium,
+                        offer = probe.frame,
+                    )
+                if (upgraded.medium == Medium.WIFI_DIRECT) {
+                    PayloadChannelSelection.Ready(upgraded.channel, upgraded.medium)
+                } else {
+                    PayloadChannelSelection.Failed(
+                        "Wi-Fi Direct upgrade failed before payload streaming; stayed on ${upgraded.medium}",
+                    )
+                }
+            }
+        }
+    }
+
+    @Suppress("ReturnCount")
+    private suspend fun pollBleWifiDirectOffer(
+        channel: SecureChannel,
+        timeoutMillis: Long,
+    ): UpgradeOfferProbe {
+        val deadlineMillis = nowMillisSource() + timeoutMillis
+        while (nowMillisSource() < deadlineMillis) {
+            if (channel.hasBufferedInput()) {
+                val frame = channel.receiveOfflineFrame()
+                when {
+                    frame.isBandwidthUpgradeEvent(
+                        BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_AVAILABLE,
+                    ) -> return UpgradeOfferProbe.Offer(frame)
+                    frame.hasV1() && frame.v1.type == V1Frame.FrameType.KEEP_ALIVE -> {
+                        logger("medium-upgrade: ignoring KEEP_ALIVE while waiting for Wi-Fi Direct offer")
+                    }
+                    else -> return UpgradeOfferProbe.Other(frame)
+                }
+            }
+            delay(BLE_WIFI_DIRECT_POLL_DELAY_MILLIS)
+        }
+        return UpgradeOfferProbe.None
+    }
+
+    private suspend fun adoptBleWifiDirectOffer(
+        channel: SecureChannel,
+        currentMedium: Medium,
+        offer: OfflineFrame,
+    ): ActiveTransportChannel {
+        val upgraded =
+            BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer(
+                oldChannel = channel,
+                currentMedium = currentMedium,
+                offer = offer,
+                mediumRegistry = mediumRegistry,
+                endpointId = endpointId,
+                logger = logger,
+            )
+        secureChannel = upgraded.channel
+        return upgraded
+    }
+
+    private suspend fun failBleWifiDirect(
+        reason: String,
+        channel: SecureChannel,
+    ): OutboundResult.Failed {
+        logger("medium-upgrade: $reason")
+        mutableState.value = OutboundConnectionState.Failed(reason)
+        runCatching { sendTerminalDisconnection(channel) }
+        return OutboundResult.Failed(reason)
+    }
+
+    private suspend fun drainSafeDisconnectAckDirect(channel: SecureChannel) {
+        val acked =
+            withTimeoutOrNull(SAFE_DISCONNECT_ACK_TIMEOUT_MS) {
+                while (true) {
+                    if (channel.hasBufferedInput()) {
+                        val frame = channel.receiveOfflineFrame()
+                        if (frame.hasV1() && frame.v1.type == V1Frame.FrameType.DISCONNECTION) {
+                            logger(
+                                "fsm: safe-disconnect peer Disconnection ack=" +
+                                    frame.v1.disconnection.ackSafeToDisconnect,
+                            )
+                            return@withTimeoutOrNull true
+                        }
+                    }
+                    delay(BLE_WIFI_DIRECT_POLL_DELAY_MILLIS)
+                }
+                false
+            } == true
+        if (!acked) {
+            logger(
+                "fsm: safe-disconnect drain timed out after " +
+                    "${SAFE_DISCONNECT_ACK_TIMEOUT_MS}ms",
+            )
+        }
     }
 
     /**
@@ -510,6 +953,7 @@ internal class OutboundConnectionDriver(
     /**
      * Dispatch loop — runs until a terminal state is reached.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Suppress("ReturnCount", "CyclomaticComplexMethod")
     private suspend fun dispatchLoop(
         channel: SecureChannel,
@@ -521,10 +965,21 @@ internal class OutboundConnectionDriver(
             ArrayDeque<OfflineFrame>().apply {
                 addAll(initialWireFrames)
             }
+        var remoteAcceptanceDeadlineMillis: Long? = null
         while (true) {
             // Terminal state? Resolve and return.
             if (fsm.state == OutboundSharingState.Disconnected) {
                 return terminalResultFromState()
+            }
+
+            remoteAcceptanceDeadlineMillis =
+                updateRemoteAcceptanceDeadline(
+                    fsm = fsm,
+                    currentDeadlineMillis = remoteAcceptanceDeadlineMillis,
+                )
+            val remoteAcceptanceRemainingMillis = remoteAcceptanceRemainingMillis(remoteAcceptanceDeadlineMillis)
+            if (remoteAcceptanceRemainingMillis == 0L) {
+                return remoteAcceptanceTimedOut()
             }
 
             val event: OutboundDriverEvent =
@@ -540,6 +995,11 @@ internal class OutboundConnectionDriver(
                                 is OutboundWireMessage.Frame -> OutboundDriverEvent.Wire(msg.frame)
                                 OutboundWireMessage.Closed -> OutboundDriverEvent.PeerClosed
                                 is OutboundWireMessage.Error -> OutboundDriverEvent.PumpError(msg.cause)
+                            }
+                        }
+                        remoteAcceptanceRemainingMillis?.let { remainingMillis ->
+                            onTimeout(remainingMillis) {
+                                OutboundDriverEvent.RemoteAcceptanceTimedOut
                             }
                         }
                     }
@@ -563,6 +1023,7 @@ internal class OutboundConnectionDriver(
                 "Wire($v1Type)"
             }
             OutboundDriverEvent.PeerClosed -> "PeerClosed"
+            OutboundDriverEvent.RemoteAcceptanceTimedOut -> "RemoteAcceptanceTimedOut"
             is OutboundDriverEvent.PumpError ->
                 "PumpError(${event.cause::class.simpleName}: ${event.cause.message ?: "null"})"
         }
@@ -580,12 +1041,38 @@ internal class OutboundConnectionDriver(
             }
             is OutboundDriverEvent.Wire -> handleInboundOfflineFrame(channel, fsm, event.frame)
             OutboundDriverEvent.PeerClosed -> handlePeerClosed()
+            OutboundDriverEvent.RemoteAcceptanceTimedOut -> remoteAcceptanceTimedOut()
             is OutboundDriverEvent.PumpError -> {
                 val reason = "Inbound pump error: ${event.cause::class.simpleName}: ${event.cause.message}"
                 mutableState.value = OutboundConnectionState.Failed(reason)
                 OutboundResult.Failed(reason)
             }
         }
+
+    private fun updateRemoteAcceptanceDeadline(
+        fsm: OutboundSharingFsm,
+        currentDeadlineMillis: Long?,
+    ): Long? =
+        when {
+            fsm.state != OutboundSharingState.SentIntroduction -> null
+            currentDeadlineMillis != null -> currentDeadlineMillis
+            else -> {
+                logger("fsm: awaiting receiver acceptance timeout=${remoteAcceptanceTimeoutMillis}ms")
+                nowMillisSource() + remoteAcceptanceTimeoutMillis
+            }
+        }
+
+    private fun remoteAcceptanceRemainingMillis(deadlineMillis: Long?): Long? =
+        deadlineMillis?.let { deadline ->
+            (deadline - nowMillisSource()).coerceAtLeast(0L)
+        }
+
+    private fun remoteAcceptanceTimedOut(): OutboundResult.Failed {
+        val reason = "Timed out waiting for receiver acceptance after ${remoteAcceptanceTimeoutMillis}ms"
+        logger("fsm: $reason")
+        mutableState.value = OutboundConnectionState.Failed(reason)
+        return OutboundResult.Failed(reason)
+    }
 
     /**
      * Handle one inbound `OfflineFrame` from the SecureChannel.
@@ -727,8 +1214,14 @@ internal class OutboundConnectionDriver(
         // All files streamed. Emit Disconnection and complete.
         logger("fsm: all files streamed, sending Disconnection")
         runCatching { sendTerminalDisconnection(channel) }
-        mutableState.value = OutboundConnectionState.Completed
         return OutboundResult.Completed
+    }
+
+    private fun publishCompletedIfNeeded(result: OutboundResult): OutboundResult {
+        if (result == OutboundResult.Completed) {
+            mutableState.value = OutboundConnectionState.Completed
+        }
+        return result
     }
 
     /**
@@ -1015,17 +1508,71 @@ internal class OutboundConnectionDriver(
         channel.sendOfflineFrame(OfflineFrames.disconnection(requestSafeToDisconnect = true))
     }
 
+    private fun OfflineFrame.describeFrameType(): String =
+        if (hasV1()) {
+            when (v1.type) {
+                V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION ->
+                    "${v1.type}(${v1.bandwidthUpgradeNegotiation.eventType})"
+                V1Frame.FrameType.BANDWIDTH_UPGRADE_RETRY ->
+                    "${v1.type}(request=${v1.bandwidthUpgradeRetry.isRequest})"
+                else -> v1.type.toString()
+            }
+        } else {
+            "NO_V1"
+        }
+
+    private fun OfflineFrame.isBandwidthUpgradeEvent(expected: BandwidthUpgradeNegotiationFrame.EventType): Boolean =
+        hasV1() &&
+            v1.type == V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION &&
+            v1.bandwidthUpgradeNegotiation.eventType == expected
+
     private companion object {
+        private const val BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS: Long = 12_000L
+        private const val BLE_WIFI_DIRECT_POLL_DELAY_MILLIS: Long = 25L
+
         /**
          * Maximum time the orchestrator waits for the peer's
          * `DisconnectionFrame{ack_safe_to_disconnect=true}` (or peer
          * FIN) after sending its own request. 1500 ms covers Samsung
-         * One UI 8.0.5's observed drain time for an 87 KiB single-chunk
-         * file (~14 ms socket-to-FIN on a clean network plus headroom);
-         * larger payloads dominate over this timeout because the
-         * receiver only acks after writing all pending payloads to
-         * disk.
+         * One UI 8.0.5's observed drain time for small payloads, plus
+         * headroom for stock Quick Share builds that do not send an ack
+         * before their receive UI leaves "Preparing..."; larger payloads
+         * dominate over this timeout because the receiver only acks after
+         * writing all pending payloads to disk.
          */
-        const val SAFE_DISCONNECT_ACK_TIMEOUT_MS: Long = 1500L
+        const val SAFE_DISCONNECT_ACK_TIMEOUT_MS: Long = 5_000L
+    }
+
+    private sealed interface BandwidthNegotiation {
+        data class Ready(
+            val channel: SecureChannel,
+            val medium: Medium,
+            val initialWireFrames: List<OfflineFrame>,
+        ) : BandwidthNegotiation
+
+        data class Failed(
+            val reason: String,
+        ) : BandwidthNegotiation
+    }
+
+    private sealed interface BleWifiDirectOutcome {
+        data object Continue : BleWifiDirectOutcome
+
+        data object ReadyToSendPayloads : BleWifiDirectOutcome
+
+        data class Terminal(
+            val result: OutboundResult,
+        ) : BleWifiDirectOutcome
+    }
+
+    private sealed interface PayloadChannelSelection {
+        data class Ready(
+            val channel: SecureChannel,
+            val medium: Medium,
+        ) : PayloadChannelSelection
+
+        data class Failed(
+            val reason: String,
+        ) : PayloadChannelSelection
     }
 }
