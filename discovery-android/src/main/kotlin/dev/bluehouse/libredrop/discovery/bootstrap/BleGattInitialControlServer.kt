@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicReference
 public class BleGattInitialControlServer(
     context: Context,
     private val endpointIdProvider: () -> ByteArray,
+    private val publishAdvertisementSlotService: Boolean = true,
 ) : InitialControlServer {
     private val appContext: Context = context.applicationContext
     private val active: AtomicReference<ActiveState?> = AtomicReference(null)
@@ -82,6 +83,7 @@ public class BleGattInitialControlServer(
                 Callback(
                     endpointInfo = endpointInfo,
                     endpointId = endpointIdProvider(),
+                    publishAdvertisementSlotService = publishAdvertisementSlotService,
                     acceptTransport = acceptTransport,
                 )
             val server =
@@ -146,12 +148,14 @@ public class BleGattInitialControlServer(
     private class Callback(
         endpointInfo: EndpointInfo,
         endpointId: ByteArray,
+        publishAdvertisementSlotService: Boolean,
         private val acceptTransport: (ConnectedTransport) -> Unit,
     ) : BluetoothGattServerCallback() {
         val services: List<BluetoothGattService> =
             buildServices(
                 endpointInfo = endpointInfo,
                 endpointId = endpointId,
+                publishAdvertisementSlotService = publishAdvertisementSlotService,
             )
 
         private val sessions: ConcurrentHashMap<String, BleWeaveGattSession> = ConcurrentHashMap()
@@ -442,16 +446,24 @@ public class BleGattInitialControlServer(
         internal fun buildServiceSpecs(
             endpointInfo: EndpointInfo,
             endpointId: ByteArray,
+            publishAdvertisementSlotService: Boolean = true,
         ): List<GattServiceSpec> {
-            val advertisementService = buildAdvertisementServiceSpec(endpointInfo, endpointId)
             val socketService = buildSocketServiceSpec()
+            if (!publishAdvertisementSlotService) return listOf(socketService)
+            val advertisementService = buildAdvertisementServiceSpec(endpointInfo, endpointId)
             return listOf(advertisementService, socketService)
         }
 
         internal fun buildServices(
             endpointInfo: EndpointInfo,
             endpointId: ByteArray,
-        ): List<BluetoothGattService> = buildServiceSpecs(endpointInfo, endpointId).map { it.toBluetoothGattService() }
+            publishAdvertisementSlotService: Boolean = true,
+        ): List<BluetoothGattService> =
+            buildServiceSpecs(
+                endpointInfo = endpointInfo,
+                endpointId = endpointId,
+                publishAdvertisementSlotService = publishAdvertisementSlotService,
+            ).map { it.toBluetoothGattService() }
 
         internal fun advertisementSlotUuid(slot: Int): UUID =
             UUID.fromString("00000000-0000-3000-8000-${slot.toString(radix = 16).padStart(12, '0')}")

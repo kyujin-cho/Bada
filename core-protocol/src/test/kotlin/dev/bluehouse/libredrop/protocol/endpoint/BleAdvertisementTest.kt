@@ -35,6 +35,25 @@ class BleAdvertisementTest {
     }
 
     @Test
+    fun `GATT advertisement can point at the second socket profile`() {
+        val info = endpointInfo("Galaxy")
+        val bytes =
+            BleAdvertisement.encodeGattAdvertisement(
+                endpointId = "RINE".toByteArray(Charsets.US_ASCII),
+                endpointInfo = info,
+                secondProfile = true,
+            )
+
+        val parsed = BleAdvertisement.parse(bytes)
+
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.fastAdvertisement).isFalse()
+        assertThat(parsed.secondProfile).isTrue()
+        assertThat(parsed.serviceIdHash).isEqualTo(NearbyServiceId.hashPrefix)
+        assertThat(BleServiceData.parse(parsed.data)?.endpointInfo).isEqualTo(info)
+    }
+
+    @Test
     fun `parse accepts fast advertisement wrapper`() {
         val info = endpointInfo("Pixel")
         val bytes = BleServiceData.encodeFramed("ABCD", info)
@@ -59,6 +78,34 @@ class BleAdvertisementTest {
         assertThat(parsed.secondProfile).isTrue()
         assertThat(parsed.serviceIdHash).isNull()
         assertThat(BleServiceData.parse(parsed.data)?.endpointInfo).isEqualTo(info)
+    }
+
+    @Test
+    fun `parse exposes RX instant connection advertisement extra field`() {
+        val info = endpointInfo("Pixel")
+        val rxAdvertisement =
+            BleAdvertisement.encodeGattAdvertisement(
+                endpointId = "ABCD".toByteArray(Charsets.US_ASCII),
+                endpointInfo = info,
+                secondProfile = true,
+            )
+        val bytes =
+            BleServiceData.encodeFramedWithRxInstantConnection(
+                endpointId = "ABCD".toByteArray(Charsets.US_ASCII),
+                endpointInfo = info,
+                rxInstantConnectionAdvertisement = rxAdvertisement,
+                secondProfile = true,
+            )
+
+        val parsed = BleAdvertisement.parse(bytes)
+        val rx = BleAdvertisement.parse(parsed!!.rxInstantConnectionAdvertisement)
+
+        assertThat(parsed.fastAdvertisement).isTrue()
+        assertThat(parsed.secondProfile).isTrue()
+        assertThat(rx).isNotNull()
+        assertThat(rx!!.fastAdvertisement).isFalse()
+        assertThat(rx.secondProfile).isTrue()
+        assertThat(rx.serviceIdHash).isEqualTo(NearbyServiceId.hashPrefix)
     }
 
     private fun endpointInfo(name: String): EndpointInfo =

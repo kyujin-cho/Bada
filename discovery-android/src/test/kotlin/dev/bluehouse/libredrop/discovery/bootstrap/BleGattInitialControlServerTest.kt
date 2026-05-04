@@ -27,11 +27,12 @@ class BleGattInitialControlServerTest {
     }
 
     @Test
-    fun `regular slot service points stock sender at second-profile socket`() {
+    fun `regular slot service points stock sender at second-profile socket when enabled`() {
         val serviceSpecs =
             BleGattInitialControlServer.buildServiceSpecs(
                 endpointInfo = sampleEndpointInfo(),
                 endpointId = "P0ZK".toByteArray(StandardCharsets.US_ASCII),
+                publishAdvertisementSlotService = true,
             )
 
         assertThat(serviceSpecs.map { it.uuid })
@@ -67,6 +68,29 @@ class BleGattInitialControlServerTest {
             .isNotNull()
         assertThat(slotValue[0].toInt() and 0xFF)
             .isEqualTo(BleServiceData.FRAME_TYPE_SECOND_PROFILE_FAST_ADVERTISEMENT)
+    }
+
+    @Test
+    fun `receiver mode publishes only second-profile socket when slots are disabled`() {
+        val serviceSpecs =
+            BleGattInitialControlServer.buildServiceSpecs(
+                endpointInfo = sampleEndpointInfo(),
+                endpointId = "P0ZK".toByteArray(StandardCharsets.US_ASCII),
+                publishAdvertisementSlotService = false,
+            )
+
+        assertThat(serviceSpecs.map { it.uuid })
+            .containsExactly(BleGattInitialControlServer.SECOND_PROFILE_SERVICE_UUID)
+
+        val socketService = serviceSpecs.single()
+
+        assertThat(socketService.characteristicUuids())
+            .containsExactly(
+                BleGattInitialControlServer.FROM_PERIPHERAL_UUID,
+                BleGattInitialControlServer.TO_PERIPHERAL_UUID,
+            )
+        assertThat(socketService.characteristicUuids())
+            .doesNotContain(BleGattInitialControlServer.GATT_SLOT_0_UUID)
     }
 
     private fun BleGattInitialControlServer.Companion.GattServiceSpec.characteristicUuids() =

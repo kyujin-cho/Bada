@@ -30,7 +30,6 @@ import dev.bluehouse.libredrop.discovery.ble.BleQuickShareScanner
 import dev.bluehouse.libredrop.discovery.bootstrap.BleGattInitialControlServer
 import dev.bluehouse.libredrop.discovery.medium.MediumRegistries
 import dev.bluehouse.libredrop.protocol.endpoint.BleServiceData
-import dev.bluehouse.libredrop.protocol.endpoint.DctAdvertisement
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
 import dev.bluehouse.libredrop.service.downloads.DownloadsWriterFactory
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentBroadcastReceiver
@@ -122,6 +121,7 @@ import java.util.concurrent.atomic.AtomicReference
  * (see [ReceiverSession]) so the service body remains the only
  * Android-coupled surface.
  */
+@Suppress("TooManyFunctions") // Android service lifecycle and binder entry points stay local to this class.
 public class ReceiverForegroundService : Service() {
     private val serviceJob: Job = SupervisorJob()
     private val serviceScope: CoroutineScope = CoroutineScope(serviceJob + Dispatchers.IO)
@@ -393,6 +393,7 @@ public class ReceiverForegroundService : Service() {
         // transition produces a progress notification.
         startProgressCoordinator(newSession)
         startInboundDiagnosticsLogger(newSession)
+        startReceiverIdentityRotator(newSession)
 
         serviceScope.launch {
             try {
@@ -605,6 +606,66 @@ public class ReceiverForegroundService : Service() {
                 }
             }
         }
+    }
+
+    /**
+     * Rotate the receiver's advertised BLE/mDNS identity after an inbound
+     * transfer reaches a terminal state.
+     *
+     * Samsung ShareLive caches the off-LAN receiver by its BLE endpoint id /
+     * token after a successful BLE GATT + Wi-Fi Direct handoff. Reusing the
+     * same identity for the next tap can make ShareLive skip the fresh GATT
+     * path and attempt a stale `mosey0` TCP connection directly. Rotating the
+     * endpoint id and EndpointInfo metadata preserves the visible device name
+     * while making the next discovery look like a fresh receiver session.
+     */
+    private fun startReceiverIdentityRotator(session: ReceiverSession) {
+        serviceScope.launch {
+            session.completions.collect {
+                rotateReceiverIdentityAfterInbound(session)
+            }
+        }
+    }
+
+    private fun rotateReceiverIdentityAfterInbound(activeSession: ReceiverSession) {
+        if (!activeSession.isRunning) return
+
+        val previousIdentity = EndpointIdentityHolder.snapshot.get()
+        val previousEndpointId = BleEndpointIdHolder.snapshot()
+        val nextIdentity = AdvertisedDeviceNames.createEndpointInfo(applicationContext)
+
+        val nextEndpointId = BleEndpointIdHolder.rotate()
+        EndpointIdentityHolder.snapshot.set(nextIdentity)
+
+        val wasAdvertising = activeSession.isAdvertising
+        val applied = activeSession.replaceEndpointInfo(nextIdentity)
+        if (applied) {
+            if (activeSession.isAdvertising) {
+                buildBleBroadcaster().start()
+            }
+            Log.e(
+                INBOUND_DIAG_TAG,
+                "identity rotate: endpointId=${nextEndpointId.toAsciiLabel()} wasAdvertising=$wasAdvertising",
+            )
+            appendInboundLog(
+                "identity rotate: endpointId=${nextEndpointId.toAsciiLabel()} wasAdvertising=$wasAdvertising",
+            )
+            return
+        }
+
+        BleEndpointIdHolder.restore(previousEndpointId)
+        EndpointIdentityHolder.snapshot.set(previousIdentity)
+        if (previousIdentity != null) {
+            activeSession.replaceEndpointInfo(previousIdentity)
+            if (wasAdvertising) {
+                runCatching { activeSession.publishAdvertisement() }
+                if (activeSession.isAdvertising) {
+                    buildBleBroadcaster().start()
+                }
+            }
+        }
+        Log.e(INBOUND_DIAG_TAG, "identity rotate: failed, restored previous identity")
+        appendInboundLog("identity rotate: failed, restored previous identity")
     }
 
     private fun appendInboundLog(line: String) {
@@ -1018,6 +1079,7 @@ public class ReceiverForegroundService : Service() {
                             BleGattInitialControlServer(
                                 context = context.applicationContext,
                                 endpointIdProvider = { BleEndpointIdHolder.bytesFor(currentIdentity()) },
+                                publishAdvertisementSlotService = false,
                             ),
                         ),
                     // Issue #34: defer mDNS publish to the
@@ -1292,33 +1354,29 @@ internal object ActiveDiscoveryHolder {
 }
 
 /**
- * Process-singleton holder for the receiver's stable 4-byte ASCII
+ * Process-singleton holder for the receiver's current 4-byte ASCII
  * endpoint_id slug used by the BLE pulse advertiser (#121).
  *
  * The same slug is the natural primary key Quick Share peers use to
  * dedupe sightings of a device across BLE and mDNS. We cache it here so
- * a service restart (e.g. `START_STICKY` resurrection) keeps the
- * receiver's identity stable across both channels — flipping ids on
- * every restart would make the same physical device look like a fresh
- * peer to neighbors.
+ * every active advertise surface in the process uses the same value, then
+ * rotate it after an inbound transfer reaches a terminal state so stock
+ * senders do not reuse stale Wi-Fi Direct handoff state on the next tap.
  *
  * Production `Discovery` is configured to reuse this slug inside every
  * mDNS instance name, so BLE fast advertisements and mDNS service
  * records identify the same endpoint.
  */
 internal object BleEndpointIdHolder {
-    /**
-     * The cached 4-byte slug. Prefer the DCT-derived endpoint_id for
-     * name-bearing identities so stock Nearby's `0xFC73` parser, our
-     * `0xFEF3` fast advertisement, the GATT slot advertisement, and
-     * mDNS all describe the same logical endpoint. If the identity has
-     * no visible name, fall back to the historical random slug.
-     */
+    /** The cached 4-byte slug shared by BLE, GATT bootstrap, and mDNS. */
     private val cached: AtomicReference<ByteArray?> = AtomicReference(null)
 
-    fun bytesFor(endpointInfo: EndpointInfo): ByteArray {
+    fun bytesFor(
+        @Suppress("UNUSED_PARAMETER")
+        endpointInfo: EndpointInfo,
+    ): ByteArray {
         cached.get()?.let { return it.copyOf() }
-        val generated = generate(endpointInfo)
+        val generated = generate()
         return if (cached.compareAndSet(null, generated.copyOf())) {
             generated.copyOf()
         } else {
@@ -1326,12 +1384,19 @@ internal object BleEndpointIdHolder {
         }
     }
 
-    private fun generate(endpointInfo: EndpointInfo): ByteArray {
-        endpointInfo.deviceName
-            ?.takeIf { it.isNotBlank() }
-            ?.let { DctAdvertisement.generateEndpointId(DctAdvertisement.DEFAULT_DEDUP, it) }
-            ?.let { return it.toByteArray(Charsets.US_ASCII) }
+    fun snapshot(): ByteArray? = cached.get()?.copyOf()
 
+    fun rotate(): ByteArray {
+        val generated = generate()
+        cached.set(generated.copyOf())
+        return generated.copyOf()
+    }
+
+    fun restore(endpointId: ByteArray?) {
+        cached.set(endpointId?.copyOf())
+    }
+
+    private fun generate(): ByteArray {
         val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         val random = java.security.SecureRandom()
         return ByteArray(BleServiceData.ENDPOINT_ID_LEN) {
@@ -1343,6 +1408,8 @@ internal object BleEndpointIdHolder {
         cached.set(null)
     }
 }
+
+private fun ByteArray.toAsciiLabel(): String = String(this, Charsets.US_ASCII)
 
 /**
  * Process-singleton holder for the receiver's stable [EndpointInfo].

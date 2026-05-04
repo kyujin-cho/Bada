@@ -47,6 +47,7 @@ public object BleAdvertisement {
         endpointInfo: EndpointInfo,
         serviceIdHash: ByteArray = NearbyServiceId.hashPrefix,
         psm: Int = 0,
+        secondProfile: Boolean = false,
     ): ByteArray {
         require(serviceIdHash.size == SERVICE_ID_HASH_LEN) {
             "serviceIdHash must be $SERVICE_ID_HASH_LEN bytes"
@@ -55,7 +56,7 @@ public object BleAdvertisement {
         val data = BleServiceData.encode(endpointId, endpointInfo)
         val fixed = ByteArray(1 + SERVICE_ID_HASH_LEN + DATA_SIZE_LEN + data.size + DEVICE_TOKEN_LEN)
         var offset = 0
-        fixed[offset++] = packHeader(fastAdvertisement = false)
+        fixed[offset++] = packHeader(fastAdvertisement = false, secondProfile = secondProfile)
         serviceIdHash.copyInto(fixed, destinationOffset = offset)
         offset += SERVICE_ID_HASH_LEN
         writeUInt32(data.size, fixed, offset)
@@ -143,9 +144,13 @@ public object BleAdvertisement {
         )
     }
 
-    private fun packHeader(fastAdvertisement: Boolean): Byte {
+    private fun packHeader(
+        fastAdvertisement: Boolean,
+        secondProfile: Boolean = false,
+    ): Byte {
         var header = (VERSION shl VERSION_SHIFT) or (SOCKET_VERSION shl SOCKET_VERSION_SHIFT)
         if (fastAdvertisement) header = header or FAST_ADVERTISEMENT_MASK
+        if (secondProfile) header = header or SECOND_PROFILE_MASK
         return header.toByte()
     }
 

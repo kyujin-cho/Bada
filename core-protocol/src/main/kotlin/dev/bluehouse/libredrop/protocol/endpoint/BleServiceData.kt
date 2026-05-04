@@ -123,8 +123,14 @@ public object BleServiceData {
     /** Extra-field bit that indicates a following two-byte BLE L2CAP PSM value. */
     public const val EXTRA_FIELD_PSM_MASK: Int = 0x01
 
+    /** Extra-field bit that indicates an inline RX instant-connection advertisement. */
+    public const val EXTRA_FIELD_RX_INSTANT_CONNECTION_MASK: Int = 0x02
+
     /** Length of a PSM value in Nearby's BLE extra-field trailer. */
     public const val PSM_LEN: Int = 2
+
+    /** Length prefix for the RX instant-connection advertisement extra field. */
+    public const val RX_INSTANT_CONNECTION_LEN_BYTES: Int = 1
 
     /** Maximum unsigned 16-bit PSM value. */
     public const val MAX_PSM: Int = 0xFFFF
@@ -297,14 +303,94 @@ public object BleServiceData {
         version: Int = DEFAULT_VERSION,
         pcp: Int = DEFAULT_PCP,
         secondProfile: Boolean = false,
+    ): ByteArray =
+        encodeFramedWithExtraFields(
+            endpointId = endpointId,
+            endpointInfo = endpointInfo,
+            psm = psm,
+            rxInstantConnectionAdvertisement = null,
+            version = version,
+            pcp = pcp,
+            secondProfile = secondProfile,
+        )
+
+    /**
+     * Encodes the extended-advertising form of [encodeFramed] with Nearby's
+     * RX instant-connection extra field. The nested advertisement tells stock
+     * senders which GATT socket profile to open for the selected visible peer.
+     */
+    @JvmOverloads
+    @JvmStatic
+    public fun encodeFramedWithRxInstantConnection(
+        endpointId: ByteArray,
+        endpointInfo: EndpointInfo,
+        rxInstantConnectionAdvertisement: ByteArray,
+        version: Int = DEFAULT_VERSION,
+        pcp: Int = DEFAULT_PCP,
+        secondProfile: Boolean = false,
+    ): ByteArray =
+        encodeFramedWithExtraFields(
+            endpointId = endpointId,
+            endpointInfo = endpointInfo,
+            psm = null,
+            rxInstantConnectionAdvertisement = rxInstantConnectionAdvertisement,
+            version = version,
+            pcp = pcp,
+            secondProfile = secondProfile,
+        )
+
+    /**
+     * Encodes the extended-advertising form of [encodeFramed] with one or more
+     * Nearby BLE extra fields. Extra fields are emitted in the same order the
+     * parser consumes them: optional PSM, then optional RX instant connection.
+     */
+    @Suppress("LongParameterList") // Mirrors the fast-advertisement frame knobs without another wrapper type.
+    @JvmStatic
+    public fun encodeFramedWithExtraFields(
+        endpointId: ByteArray,
+        endpointInfo: EndpointInfo,
+        psm: Int?,
+        rxInstantConnectionAdvertisement: ByteArray?,
+        version: Int = DEFAULT_VERSION,
+        pcp: Int = DEFAULT_PCP,
+        secondProfile: Boolean = false,
     ): ByteArray {
-        require(psm in 1..MAX_PSM) { "psm must fit in uint16 and be non-zero, got $psm" }
+        require(psm == null || psm in 1..MAX_PSM) {
+            "psm must fit in uint16 and be non-zero, got $psm"
+        }
+        val rxAdvertisementTooLarge =
+            rxInstantConnectionAdvertisement != null &&
+                rxInstantConnectionAdvertisement.size > MAX_FRAME_BODY_LEN
+        require(!rxAdvertisementTooLarge) {
+            "rxInstantConnectionAdvertisement must fit in 1 byte (0..$MAX_FRAME_BODY_LEN), " +
+                "got ${rxInstantConnectionAdvertisement?.size}"
+        }
+
         val framed = encodeFramed(endpointId, endpointInfo, version, pcp, secondProfile)
-        val out = ByteArray(framed.size + EXTRA_FIELDS_MASK_LEN + PSM_LEN)
+        var mask = 0
+        var extraLen = EXTRA_FIELDS_MASK_LEN
+        if (psm != null) {
+            mask = mask or EXTRA_FIELD_PSM_MASK
+            extraLen += PSM_LEN
+        }
+        if (rxInstantConnectionAdvertisement != null) {
+            mask = mask or EXTRA_FIELD_RX_INSTANT_CONNECTION_MASK
+            extraLen += RX_INSTANT_CONNECTION_LEN_BYTES + rxInstantConnectionAdvertisement.size
+        }
+        if (mask == 0) return framed
+
+        val out = ByteArray(framed.size + extraLen)
         framed.copyInto(out)
-        out[framed.size] = EXTRA_FIELD_PSM_MASK.toByte()
-        out[framed.size + 1] = ((psm ushr Byte.SIZE_BITS) and UNSIGNED_BYTE_MASK).toByte()
-        out[framed.size + 2] = (psm and UNSIGNED_BYTE_MASK).toByte()
+        var offset = framed.size
+        out[offset++] = mask.toByte()
+        if (psm != null) {
+            out[offset++] = ((psm ushr Byte.SIZE_BITS) and UNSIGNED_BYTE_MASK).toByte()
+            out[offset++] = (psm and UNSIGNED_BYTE_MASK).toByte()
+        }
+        if (rxInstantConnectionAdvertisement != null) {
+            out[offset++] = rxInstantConnectionAdvertisement.size.toByte()
+            rxInstantConnectionAdvertisement.copyInto(out, destinationOffset = offset)
+        }
         return out
     }
 

@@ -8,9 +8,7 @@ package dev.bluehouse.libredrop.discovery.ble
 import android.bluetooth.le.AdvertiseSettings
 import com.google.common.truth.Truth.assertThat
 import dev.bluehouse.libredrop.protocol.endpoint.BleAdvertisement
-import dev.bluehouse.libredrop.protocol.endpoint.BleAdvertisementHeader
 import dev.bluehouse.libredrop.protocol.endpoint.BleServiceData
-import dev.bluehouse.libredrop.protocol.endpoint.DctAdvertisement
 import dev.bluehouse.libredrop.protocol.endpoint.DeviceType
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
 import org.junit.jupiter.api.Test
@@ -71,7 +69,7 @@ class BleQuickShareAdvertiserTest {
     }
 
     @Test
-    fun `start submits a GATT advertisement header payload`() {
+    fun `start submits a direct second-profile fast advertisement`() {
         val gate = RecordingGate(failOnStart = false)
         val advertiser =
             BleQuickShareAdvertiser.forTesting(
@@ -90,25 +88,18 @@ class BleQuickShareAdvertiserTest {
         assertThat(mode).isEqualTo(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
         assertThat(gate.startCalls.last().dctPayload).isNull()
 
-        val header = BleAdvertisementHeader.parse(payload)
-        assertThat(header).isNotNull()
-        assertThat(header!!.numSlots).isEqualTo(1)
-        assertThat(header.psm).isEqualTo(0)
-        assertThat(header.supportsExtendedAdvertisement).isFalse()
-        assertThat(BleServiceData.parse(payload)).isNull()
-
-        val slotPayload = DefaultPayloadFactory.buildSlotPayload(endpointId("DROP"), info)
-        val slotAdvertisement = BleAdvertisement.parse(slotPayload)
-        assertThat(slotAdvertisement).isNotNull()
-        assertThat(slotAdvertisement!!.secondProfile).isTrue()
-        val slot = BleServiceData.parse(slotPayload)
-        assertThat(slot).isNotNull()
-        assertThat(String(slot!!.endpointId, Charsets.US_ASCII)).isEqualTo("DROP")
-        assertThat(slot.endpointInfo).isEqualTo(info)
+        val advertisement = BleAdvertisement.parse(payload)
+        assertThat(advertisement).isNotNull()
+        assertThat(advertisement!!.fastAdvertisement).isTrue()
+        assertThat(advertisement.secondProfile).isTrue()
+        assertThat(advertisement.psm).isEqualTo(0)
+        val parsed = BleServiceData.parse(payload)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.endpointInfo.hidden).isTrue()
     }
 
     @Test
-    fun `start exposes visible EndpointInfo through GATT header and extended payload`() {
+    fun `start exposes visible EndpointInfo through direct and extended payloads`() {
         val gate = RecordingGate(failOnStart = false)
         val advertiser =
             BleQuickShareAdvertiser.forTesting(
@@ -132,30 +123,29 @@ class BleQuickShareAdvertiserTest {
         val payload = call.payload
         val dctPayload = call.dctPayload
         val visiblePayload = call.visiblePayload
-        val header = BleAdvertisementHeader.parse(payload)
-        assertThat(header).isNotNull()
-        assertThat(header!!.numSlots).isEqualTo(1)
-        assertThat(header.psm).isEqualTo(0)
-        assertThat(header.supportsExtendedAdvertisement).isTrue()
-        assertThat(BleServiceData.parse(payload)).isNull()
+        val primaryAdvertisement = BleAdvertisement.parse(payload)
+        assertThat(primaryAdvertisement).isNotNull()
+        assertThat(primaryAdvertisement!!.fastAdvertisement).isTrue()
+        assertThat(primaryAdvertisement.secondProfile).isTrue()
 
-        assertThat(dctPayload).isNotNull()
-        val dct = DctAdvertisement.parse(dctPayload!!)!!
-        assertThat(dct.deviceName).isEqualTo("LibreDr")
-        assertThat(dct.isDeviceNameTruncated).isTrue()
-        assertThat(dct.psm).isEqualTo(DctAdvertisement.DEFAULT_PSM)
+        assertThat(dctPayload).isNull()
 
         assertThat(visiblePayload).isNotNull()
-        assertThat(BleAdvertisement.parse(visiblePayload!!)!!.secondProfile).isTrue()
+        val visibleAdvertisement = BleAdvertisement.parse(visiblePayload!!)!!
+        assertThat(visibleAdvertisement.secondProfile).isTrue()
         val visibleInfo = BleServiceData.parse(visiblePayload)!!.endpointInfo
         assertThat(visibleInfo.hidden).isFalse()
         assertThat(visibleInfo.deviceName).isEqualTo("LibreDrop")
         assertThat(BleServiceData.parsePsmExtraField(visiblePayload)).isNull()
+        val rxAdvertisement = BleAdvertisement.parse(visibleAdvertisement.rxInstantConnectionAdvertisement)
+        assertThat(rxAdvertisement).isNotNull()
+        assertThat(rxAdvertisement!!.secondProfile).isTrue()
+        assertThat(rxAdvertisement.fastAdvertisement).isFalse()
         assertThat(visiblePayload.size).isGreaterThan(27)
     }
 
     @Test
-    fun `DCT and visible fast payloads carry active L2CAP PSM when available`() {
+    fun `visible fast payload carries active L2CAP PSM when available`() {
         BleDctPsmHolder.set(0x1234)
         try {
             val gate = RecordingGate(failOnStart = false)
@@ -169,14 +159,16 @@ class BleQuickShareAdvertiserTest {
 
             assertThat(started).isTrue()
             val call = gate.startCalls.single()
-            val header = BleAdvertisementHeader.parse(call.payload)
-            assertThat(header).isNotNull()
-            assertThat(header!!.psm).isEqualTo(0)
-            assertThat(header.numSlots).isEqualTo(1)
-            assertThat(header.supportsExtendedAdvertisement).isTrue()
-            val dct = DctAdvertisement.parse(call.dctPayload!!)!!
-            assertThat(dct.psm).isEqualTo(0x1234)
+            val primaryAdvertisement = BleAdvertisement.parse(call.payload)
+            assertThat(primaryAdvertisement).isNotNull()
+            assertThat(primaryAdvertisement!!.secondProfile).isTrue()
+            assertThat(primaryAdvertisement.psm).isEqualTo(0)
+            assertThat(call.dctPayload).isNull()
             assertThat(BleServiceData.parsePsmExtraField(call.visiblePayload!!)).isEqualTo(0x1234)
+            val visibleAdvertisement = BleAdvertisement.parse(call.visiblePayload!!)!!
+            val rxAdvertisement = BleAdvertisement.parse(visibleAdvertisement.rxInstantConnectionAdvertisement)
+            assertThat(rxAdvertisement!!.psm).isEqualTo(0x1234)
+            assertThat(rxAdvertisement.secondProfile).isTrue()
         } finally {
             BleDctPsmHolder.clear()
         }
@@ -213,10 +205,12 @@ class BleQuickShareAdvertiserTest {
         assertThat(gate.firstRegistration?.closed).isTrue()
         assertThat(gate.lastRegistration?.closed).isFalse()
 
-        // Header bytes include a random dummy service id; identity drift is
-        // covered by the replacement count and by the GATT-slot encoder tests.
+        // The primary bytes are compact direct advertisements; identity drift is covered by
+        // the replacement count and payload parser assertions above.
         val (payload, _) = gate.startCalls.last()
-        assertThat(BleAdvertisementHeader.parse(payload)).isNotNull()
+        val advertisement = BleAdvertisement.parse(payload)
+        assertThat(advertisement).isNotNull()
+        assertThat(advertisement!!.secondProfile).isTrue()
     }
 
     @Test
