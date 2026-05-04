@@ -336,10 +336,21 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // double-finish the activity.
         unregisterModal()
         val action = if (accepted) ConsentIntents.ACTION_ACCEPT else ConsentIntents.ACTION_REJECT
+        // Dispatch via setPackage + action only. ConsentBroadcastReceiver
+        // is registered dynamically by ReceiverForegroundService with
+        // RECEIVER_NOT_EXPORTED — there is no manifest entry, so an
+        // explicit setClass(receiver::class) component reference does
+        // not resolve at the BroadcastQueue and the broadcast is
+        // silently dropped (observed on Vivo Funtouch 16 during the
+        // #151 hardware loop). setPackage(packageName) is enough to
+        // guarantee delivery stays inside our process; the dynamic
+        // receiver's IntentFilter matches both ACCEPT and REJECT
+        // actions exclusively, and there is no other receiver in the
+        // package that listens for them.
+        ConsentDiagnostic.log(this, "trampoline.sendBroadcast id=$connectionId accepted=$accepted")
         sendBroadcast(
             Intent(action).apply {
                 setPackage(packageName)
-                setClass(this@ConsentTrampolineActivity, ConsentBroadcastReceiver::class.java)
                 putExtra(ConsentIntents.EXTRA_CONNECTION_ID, connectionId)
             },
         )
