@@ -48,8 +48,10 @@ moving on — once the network state changes, wire traces are gone.
 - [ ] All runtime permissions granted to the app: nearby Wi-Fi
       devices / location (depending on Android version), notifications,
       and storage for received files.
-- [ ] Notifications **not** silenced for this app — the receive consent
-      UI surfaces through the foreground-service notification.
+- [ ] Notifications **not** silenced for this app — when LibreDrop is in
+      the background, receive consent surfaces through the foreground-service
+      heads-up notification. When LibreDrop is foregrounded the coordinator
+      launches an in-app consent modal instead (#151).
 - [ ] Battery saver / data saver disabled. Aggressive Doze can break
       mDNS without producing a clear error.
 

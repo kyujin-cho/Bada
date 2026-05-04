@@ -346,11 +346,19 @@ discovery/bootstrap failures from later protocol failures.
       the launcher's custom advertised name when one is set, otherwise
       the resolved Android default name for the LibreDrop device.
 - [ ] Pick the LibreDrop device.
-- [ ] On the **LibreDrop device**: a consent notification appears (handled
-      by
-      [`service-android/.../consent/ConsentNotification.kt`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver/consent/ConsentNotification.kt)).
-      Tap "Accept" — or open the consent activity for the in-app
-      experience.
+- [ ] On the **LibreDrop device**: consent is surfaced in one of two ways
+      depending on whether LibreDrop is foregrounded (#151):
+      - **App in foreground** — the in-app consent modal opens automatically
+        over whichever LibreDrop activity is on screen. Tap "Accept" or
+        "Reject" directly in the modal.
+      - **App in background** — a heads-up notification appears (handled by
+        [`service-android/.../consent/ConsentNotification.kt`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver/consent/ConsentNotification.kt)).
+        Tap "Accept" in the notification, or open LibreDrop to have the
+        coordinator automatically switch to the in-app modal.
+      If you background the app while the modal is up, the coordinator
+      cancels the modal and raises the notification so you can resume from
+      the shade. Foregrounding while the notification is pending cancels the
+      notification and launches the modal.
 - [ ] Confirm the 4-digit PIN matches between both devices.
 - [ ] Wait for the transfer to complete.
 - [ ] On the **LibreDrop device**, the file lands under **Downloads** via
