@@ -34,18 +34,20 @@ import kotlin.coroutines.resumeWithException
  *     re-encode any byte >= 0x80 into two wire bytes and corrupt the
  *     payload.
  *
- *     `setAttribute(String, ByteArray)` became public API in
- *     `Build.VERSION_CODES.TIRAMISU` (API 33). On API 24-32 the same
- *     method exists in the platform with the same signature but is
- *     marked `@hide @UnsupportedAppUsage` (no `maxTargetSdk`), placing it
- *     on the unconditional greylist and therefore reflectively
- *     accessible from any target SDK. We reflect into it on those API
- *     levels rather than fall back to the lossy String overload.
- *
- *     The reflection target's signature was verified against AOSP
- *     `android/net/nsd/NsdServiceInfo.java` for API 35 and 36 — the
- *     method has existed unchanged since API 16, so the lookup is
- *     stable across every supported API level (24..32).
+ *     `setAttribute(String, ByteArray)` was made public in API 33
+ *     (`Build.VERSION_CODES.TIRAMISU`), but the compile-time stub jar
+ *     for that overload is not present in every Android SDK platform
+ *     install — the GitHub Actions Linux runner's `setup-android`
+ *     provisioning, for example, ships a platform-36 stub that only
+ *     exposes the String/String overload, which would silently route
+ *     the byte payload through `getBytes("UTF-8")`. To stay portable
+ *     across both stubs, we always invoke the byte[] method
+ *     reflectively. On every API level 24..36 the same underlying
+ *     method exists in the device's runtime framework (AOSP has
+ *     shipped `NsdServiceInfo.setAttribute(String, byte[])` unchanged
+ *     since API 16, marked `@hide @UnsupportedAppUsage` without a
+ *     `maxTargetSdk` on pre-33 platforms — i.e. on the unconditional
+ *     greylist), so the reflective lookup is stable everywhere.
  *
  *  2. **Auto-suffixed instance names.** When Android observes a name
  *     collision on the LAN it appends ` (1)`, ` (2)`, etc. The
@@ -268,13 +270,13 @@ internal class AndroidNsdRegistrar(
         /**
          * Apply [attributes] to [serviceInfo].
          *
-         * On API 33+ this calls the public byte[] overload of
-         * `NsdServiceInfo.setAttribute` directly. On API 24-32 the same
-         * underlying method is reflectively invoked because the public
-         * String overload UTF-8-re-encodes its value (see
-         * AOSP `NsdServiceInfo.setAttribute(String, String)` which calls
-         * `value.getBytes("UTF-8")`), which would corrupt any
-         * attribute byte >= 0x80.
+         * Reflectively invokes the byte[] overload of
+         * `NsdServiceInfo.setAttribute` on every API level — see the
+         * file-level KDoc for why we do not call it directly even on
+         * API 33+. The String overload is intentionally avoided because
+         * AOSP `NsdServiceInfo.setAttribute(String, String)` calls
+         * `value.getBytes("UTF-8")` internally, which would corrupt
+         * any attribute byte >= 0x80.
          *
          * The [setBytes] callback exists as a test seam so unit tests
          * can drive the lambda without instantiating the platform
@@ -295,9 +297,9 @@ internal class AndroidNsdRegistrar(
         /**
          * Test-friendly form of [applyAttributes]. The single setter
          * lambda always receives the raw [ByteArray] payload — there is
-         * no second branch on API level inside this helper because both
-         * API levels resolve to the same byte[]-based platform method
-         * (one publicly, one reflectively).
+         * no API-level branching inside this helper because every API
+         * level resolves to the same byte[]-based platform method via
+         * reflection.
          */
         @JvmStatic
         internal fun applyAttributes(
@@ -310,31 +312,39 @@ internal class AndroidNsdRegistrar(
         }
 
         /**
-         * Production binary-attribute setter. Picks the public byte[]
-         * overload on API 33+ and falls back to a reflective invoke of
-         * the same hidden method on API 24-32. Never delegates to the
-         * String overload — that path is lossy for any byte >= 0x80.
+         * Production binary-attribute setter. Always invokes the byte[]
+         * overload of `NsdServiceInfo.setAttribute` reflectively, even on
+         * API 33+ where it is also reachable as a public method.
+         *
+         * The compile-time stub for the public overload is not exposed
+         * uniformly across Android SDK platform jars — some platform 36
+         * stubs (notably the one provisioned by `setup-android` on the
+         * GitHub Actions Linux runner) only declare the String/String
+         * overload, which makes a direct call fail Kotlin's overload
+         * resolution. Reflection sidesteps that: the lookup binds at
+         * runtime against the device's framework, where the byte[]
+         * method has existed unchanged since API 16.
+         *
+         * Never delegates to the String overload — that path is lossy
+         * for any byte >= 0x80 because AOSP `setAttribute(String,
+         * String)` calls `value.getBytes("UTF-8")` internally.
          */
         private fun setBinaryAttribute(
             info: NsdServiceInfo,
             key: String,
             value: ByteArray,
         ) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                info.setAttribute(key, value)
-            } else {
-                try {
-                    reflectiveSetAttribute.invoke(info, key, value)
-                } catch (e: InvocationTargetException) {
-                    // Unwrap: the platform method threw; surface its own
-                    // message rather than wrapping it twice.
-                    throw IllegalStateException(
-                        "NsdServiceInfo.setAttribute(String, byte[]) reflective invoke failed " +
-                            "for key=$key (sdkInt=${Build.VERSION.SDK_INT}): " +
-                            "${e.targetException?.message ?: e.message}",
-                        e.targetException ?: e,
-                    )
-                }
+            try {
+                reflectiveSetAttribute.invoke(info, key, value)
+            } catch (e: InvocationTargetException) {
+                // Unwrap: the platform method threw; surface its own
+                // message rather than wrapping it twice.
+                throw IllegalStateException(
+                    "NsdServiceInfo.setAttribute(String, byte[]) reflective invoke failed " +
+                        "for key=$key (sdkInt=${Build.VERSION.SDK_INT}): " +
+                        "${e.targetException?.message ?: e.message}",
+                    e.targetException ?: e,
+                )
             }
         }
     }
