@@ -152,6 +152,7 @@ class WifiDirectMediumProviderTest {
         assertThat(
             WifiDirectCredentialShape.isValidNetworkName("DIRECT-O3-Kyujin's vivo X300 Ult"),
         ).isFalse()
+        assertThat(WifiDirectCredentialShape.isValidNetworkName("DIRECT-14F768FDC")).isTrue()
         assertThat(WifiDirectCredentialShape.isValidNetworkName("DIRECT-ab-WVMG")).isTrue()
     }
 

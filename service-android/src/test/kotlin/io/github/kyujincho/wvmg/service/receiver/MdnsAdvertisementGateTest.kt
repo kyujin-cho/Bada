@@ -527,6 +527,37 @@ class MdnsAdvertisementGateTest {
             session.stop()
         }
 
+    @Test
+    fun `BLE broadcaster starts even when mDNS publish fails`() =
+        runTest {
+            val session = startedGatedSession(advertiser = ThrowingAdvertiser())
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
+            val override = MutableStateFlow(true)
+            val qr = MutableStateFlow(false)
+            val broadcaster = RecordingBleBroadcaster()
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    bleBroadcaster = broadcaster,
+                )
+            gate.start(this)
+            advanceUntilIdle()
+
+            assertThat(session.isAdvertising).isFalse()
+            assertThat(broadcaster.startCount).isAtLeast(1)
+
+            override.value = false
+            advanceUntilIdle()
+            assertThat(broadcaster.stopCount).isEqualTo(1)
+
+            gate.stop()
+            session.stop()
+        }
+
     // --------------------------------------------------------------
     // Helpers
     // --------------------------------------------------------------
@@ -536,7 +567,7 @@ class MdnsAdvertisementGateTest {
      * start it (so the TCP listener binds), and return it ready for the
      * gate to drive publish/unpublish against.
      */
-    private fun startedGatedSession(advertiser: RecordingAdvertiser): ReceiverSession {
+    private fun startedGatedSession(advertiser: DiscoveryAdvertiser): ReceiverSession {
         val session =
             ReceiverSession(
                 tcpServerFactory =
@@ -599,6 +630,13 @@ class MdnsAdvertisementGateTest {
             calls += Call(endpointInfo, port, handle)
             return handle
         }
+    }
+
+    private class ThrowingAdvertiser : DiscoveryAdvertiser {
+        override fun advertise(
+            endpointInfo: EndpointInfo,
+            port: Int,
+        ): AdvertiseHandle = error("synthetic mDNS publish failure")
     }
 
     /**

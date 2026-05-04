@@ -248,8 +248,11 @@ internal object BandwidthUpgradeOrchestrator {
         closePriorChannelAfterUpgrade(oldChannel, consumedPeerSafe = true, logger = logger)
     }
 
-    suspend fun receiveOfferProbe(channel: SecureChannel): UpgradeOfferProbe =
-        withTimeoutOrNull(OFFER_WAIT_TIMEOUT_MILLIS) {
+    suspend fun receiveOfferProbe(
+        channel: SecureChannel,
+        timeoutMillis: Long = OFFER_WAIT_TIMEOUT_MILLIS,
+    ): UpgradeOfferProbe =
+        withTimeoutOrNull(timeoutMillis) {
             val frame = channel.receiveOfflineFrame()
             if (frame.isBandwidthUpgradeEvent(BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_AVAILABLE)) {
                 UpgradeOfferProbe.Offer(frame)
@@ -625,7 +628,7 @@ internal object BandwidthUpgradeOrchestrator {
     }
 
     private const val UPGRADE_TIMEOUT_MILLIS: Long = 30_000L
-    private const val OFFER_WAIT_TIMEOUT_MILLIS: Long = 1_500L
+    internal const val OFFER_WAIT_TIMEOUT_MILLIS: Long = 1_500L
     private const val SERVER_PEER_SAFE_DRAIN_MILLIS: Long = 500L
     private const val PRIOR_CHANNEL_DISCONNECT_DRAIN_MILLIS: Long = 200L
     private const val DUAL_CHANNEL_DRAIN_IDLE_ATTEMPTS: Int = 25

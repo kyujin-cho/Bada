@@ -26,7 +26,9 @@ import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import io.github.kyujincho.wvmg.protocol.medium.UpgradePathCredentials
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.Closeable
 import java.io.IOException
@@ -125,9 +127,10 @@ internal class WifiDirectGroupController(
         channel: WifiP2pManager.Channel,
         requested: RequestedWifiDirectCredentials,
     ): Boolean {
+        primeP2pChannel(channel)
         removeExistingGroupBeforeServerCreate(channel)
         val createOk =
-            awaitActionListener { listener ->
+            awaitActionListener("createGroup") { listener ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     manager.createGroup(channel, requested.toConfig(), listener)
                 } else {
@@ -140,9 +143,28 @@ internal class WifiDirectGroupController(
         return createOk
     }
 
+    @RequiresPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
+    private suspend fun primeP2pChannel(channel: WifiP2pManager.Channel) {
+        val stateChanged = registerStateChangedReceiver()
+        try {
+            val discoverStarted =
+                awaitActionListener("discoverPeers") { listener ->
+                    manager.discoverPeers(channel, listener)
+                }
+            if (discoverStarted) {
+                stateChanged.awaitEnabledOrTimeout(P2P_ENABLE_TIMEOUT_MS)
+            } else {
+                Log.w(TAG, "WifiP2pManager.discoverPeers failed while priming P2P channel")
+            }
+        } finally {
+            stateChanged.unregister()
+            stopPeerDiscoveryQuietly(channel)
+        }
+    }
+
     private suspend fun removeExistingGroupBeforeServerCreate(channel: WifiP2pManager.Channel) {
         val removedExisting =
-            awaitActionListener { listener ->
+            awaitActionListener("removeGroup") { listener ->
                 manager.removeGroup(channel, listener)
             }
         if (removedExisting) {
@@ -284,10 +306,16 @@ internal class WifiDirectGroupController(
                 cancelConnectQuietly(channel)
             }
 
-        if (!WifiDirectCredentialShape.isValidNetworkName(credentials.ssid) ||
-            !WifiDirectCredentialShape.isValidPassphrase(credentials.passphrase)
-        ) {
-            Log.w(TAG, "Wi-Fi Direct credentials from peer are malformed; declining upgrade")
+        val validNetworkName = WifiDirectCredentialShape.isValidNetworkName(credentials.ssid)
+        val validPassphrase = WifiDirectCredentialShape.isValidPassphrase(credentials.passphrase)
+        if (!validNetworkName || !validPassphrase) {
+            Log.w(
+                TAG,
+                "Wi-Fi Direct credentials from peer are malformed; " +
+                    "ssid=${credentials.ssid} ssidLength=${credentials.ssid.length} " +
+                    "passphraseLength=${credentials.passphrase.length} port=${credentials.port}; " +
+                    "declining upgrade",
+            )
             teardown.close()
             return null
         }
@@ -311,7 +339,7 @@ internal class WifiDirectGroupController(
                     wps.setup = WpsInfo.PBC
                 }
         val connectOk =
-            awaitActionListener { listener ->
+            awaitActionListener("connect") { listener ->
                 manager.connect(channel, config, listener)
             }
         if (!connectOk) {
@@ -340,9 +368,7 @@ internal class WifiDirectGroupController(
             }
         val socket =
             try {
-                Socket().also { s ->
-                    s.connect(java.net.InetSocketAddress(address, credentials.port), SOCKET_CONNECT_TIMEOUT_MS)
-                }
+                connectSocketToGroupOwner(address, credentials.port)
             } catch (e: IOException) {
                 Log.w(TAG, "TCP connect to Wi-Fi Direct group owner failed", e)
                 teardown.close()
@@ -350,6 +376,19 @@ internal class WifiDirectGroupController(
             }
         return WifiDirectTransport(socket = socket, teardown = teardown)
     }
+
+    private suspend fun connectSocketToGroupOwner(
+        address: InetAddress,
+        port: Int,
+    ): Socket =
+        withContext(Dispatchers.IO) {
+            Socket().also { socket ->
+                socket.connect(
+                    java.net.InetSocketAddress(address, port),
+                    SOCKET_CONNECT_TIMEOUT_MS,
+                )
+            }
+        }
 
     /**
      * Result of [createGroupAsServer]. The framework hands [credentials]
@@ -366,16 +405,20 @@ internal class WifiDirectGroupController(
     // suspend-able primitives so the call sites read top-to-bottom.
     // -----------------------------------------------------------------
 
-    private suspend fun awaitActionListener(call: (WifiP2pManager.ActionListener) -> Unit): Boolean {
+    private suspend fun awaitActionListener(
+        label: String,
+        call: (WifiP2pManager.ActionListener) -> Unit,
+    ): Boolean {
         val deferred = CompletableDeferred<Boolean>()
         val listener =
             object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
+                    Log.w(TAG, "WifiP2pManager.$label onSuccess")
                     deferred.complete(true)
                 }
 
                 override fun onFailure(reason: Int) {
-                    Log.w(TAG, "WifiP2pManager.ActionListener.onFailure reason=$reason")
+                    Log.w(TAG, "WifiP2pManager.$label onFailure reason=$reason")
                     deferred.complete(false)
                 }
             }
@@ -384,7 +427,7 @@ internal class WifiDirectGroupController(
         } catch (
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
-            Log.w(TAG, "WifiP2pManager call threw before listener invocation", t)
+            Log.w(TAG, "WifiP2pManager.$label threw before listener invocation", t)
             deferred.complete(false)
         }
         return deferred.await()
@@ -442,6 +485,27 @@ internal class WifiDirectGroupController(
         }
     }
 
+    private fun stopPeerDiscoveryQuietly(channel: WifiP2pManager.Channel) {
+        try {
+            manager.stopPeerDiscovery(
+                channel,
+                object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        Log.w(TAG, "WifiP2pManager.stopPeerDiscovery onSuccess")
+                    }
+
+                    override fun onFailure(reason: Int) {
+                        Log.w(TAG, "WifiP2pManager.stopPeerDiscovery reason=$reason")
+                    }
+                },
+            )
+        } catch (
+            @Suppress("TooGenericExceptionCaught") t: Throwable,
+        ) {
+            Log.w(TAG, "WifiP2pManager.stopPeerDiscovery threw during P2P prime", t)
+        }
+    }
+
     private fun registerConnectionChangedReceiver(): ConnectionChangedReceiver {
         val receiver = ConnectionChangedReceiver()
         val filter = IntentFilter(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
@@ -462,6 +526,25 @@ internal class WifiDirectGroupController(
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
             Log.w(TAG, "Failed to register P2P connection-changed receiver", t)
+        }
+        receiver.context = context
+        return receiver
+    }
+
+    private fun registerStateChangedReceiver(): StateChangedReceiver {
+        val receiver = StateChangedReceiver()
+        val filter = IntentFilter(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
+        try {
+            ContextCompat.registerReceiver(
+                context,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        } catch (
+            @Suppress("TooGenericExceptionCaught") t: Throwable,
+        ) {
+            Log.w(TAG, "Failed to register P2P state-changed receiver", t)
         }
         receiver.context = context
         return receiver
@@ -532,6 +615,50 @@ internal class WifiDirectGroupController(
         }
     }
 
+    private class StateChangedReceiver : BroadcastReceiver() {
+        var context: Context? = null
+        private val unregistered = AtomicReference(false)
+        private val enabled = CompletableDeferred<Unit>()
+
+        override fun onReceive(
+            context: Context?,
+            intent: Intent?,
+        ) {
+            if (intent?.action != WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION) return
+            val state =
+                intent.getIntExtra(
+                    WifiP2pManager.EXTRA_WIFI_STATE,
+                    WifiP2pManager.WIFI_P2P_STATE_DISABLED,
+                )
+            Log.w(TAG, "WIFI_P2P_STATE_CHANGED state=$state")
+            if (state == WifiP2pManager.WIFI_P2P_STATE_ENABLED && !enabled.isCompleted) {
+                enabled.complete(Unit)
+            }
+        }
+
+        suspend fun awaitEnabledOrTimeout(timeoutMillis: Long) {
+            try {
+                withTimeout(timeoutMillis) {
+                    enabled.await()
+                }
+            } catch (_: TimeoutCancellationException) {
+                Log.w(TAG, "Wi-Fi Direct state enable wait timed out after ${timeoutMillis}ms")
+            }
+        }
+
+        fun unregister() {
+            if (!unregistered.compareAndSet(false, true)) return
+            val ctx = context ?: return
+            try {
+                ctx.unregisterReceiver(this)
+            } catch (
+                @Suppress("TooGenericExceptionCaught") t: IllegalArgumentException,
+            ) {
+                Log.d(TAG, "P2P state-changed receiver not registered at unregister time", t)
+            }
+        }
+    }
+
     private fun closeable(action: () -> Unit): Closeable {
         val closed = AtomicReference(false)
         return Closeable {
@@ -553,6 +680,9 @@ internal class WifiDirectGroupController(
         /** Wait at most this long for the WIFI_P2P_CONNECTION_CHANGED broadcast. */
         const val GROUP_FORMATION_TIMEOUT_MS: Long = 30_000
 
+        /** Short preflight wait for OEMs that lazily enable P2P after discoverPeers. */
+        const val P2P_ENABLE_TIMEOUT_MS: Long = 2_000
+
         /** Sender-side equivalent of [GROUP_FORMATION_TIMEOUT_MS]. */
         const val CONNECT_TIMEOUT_MS: Long = 30_000
 
@@ -563,10 +693,11 @@ internal class WifiDirectGroupController(
 
 internal object WifiDirectCredentialShape {
     private val random = SecureRandom()
-    private val networkNameRegex = Regex("^DIRECT-[A-Za-z0-9]{2}-[A-Za-z0-9_-]+$")
+    private val networkNameRegex = Regex("^DIRECT-[A-Za-z0-9]{2}[A-Za-z0-9_-]*$")
     private const val NETWORK_NAME_RANDOM_CHARS = 2
     private const val NETWORK_NAME_SUFFIX = "WVMG"
     private const val NETWORK_NAME_SESSION_CHARS = 6
+    private const val NETWORK_NAME_MAX_LENGTH = 32
     private const val PASSPHRASE_LENGTH = 16
     private const val PASSPHRASE_MIN_LENGTH = 8
     private const val PASSPHRASE_MAX_LENGTH = 63
@@ -578,7 +709,8 @@ internal object WifiDirectCredentialShape {
 
     fun generatePassphrase(): String = randomToken(PASSPHRASE_LENGTH)
 
-    fun isValidNetworkName(value: String): Boolean = networkNameRegex.matches(value)
+    fun isValidNetworkName(value: String): Boolean =
+        value.length <= NETWORK_NAME_MAX_LENGTH && networkNameRegex.matches(value)
 
     fun isValidPassphrase(value: String): Boolean =
         value.length in PASSPHRASE_MIN_LENGTH..PASSPHRASE_MAX_LENGTH &&

@@ -5,23 +5,55 @@
  */
 package io.github.kyujincho.wvmg.discovery.ble
 
+import java.security.MessageDigest
 import java.security.SecureRandom
 
 /**
- * Composes the 24-byte BLE service-data payload that the sender broadcasts
- * to wake nearby Quick Share receivers (#32).
+ * Composes the BLE service-data payload that the sender broadcasts on the
+ * Quick Share `0xFE2C` FastInitiation service UUID to wake nearby
+ * receivers (#32).
  *
- * Wire format (per
- * [PROTOCOL.md](https://github.com/grishka/NearDrop/blob/master/PROTOCOL.md)):
+ * Wire format (per `google/nearby`'s
+ * `sharing/internal/api/fast_init_ble_beacon.h` and Chromium's
+ * `chrome/browser/nearby_sharing/fast_initiation/fast_initiation_advertiser.cc`):
  *
  * ```text
- *   fc 12 8e 01 42 00 00 00 00 00 00 00 00 00 || rand10
- *   |---------------- 14 fixed bytes ----------------|  |--10--|
+ *   fc 12 8e VV PP UU AA AA AA AA AA AA AA AA SS HH HH HH HH HH HH HH HH
+ *   |---- model id ---|        |--- uwb addr (8) ---| salt |---- secret_id_hash ----|
+ *                  metadata  uwb_meta
+ *                  byte 3
  * ```
  *
- * The 14-byte prefix is a literal Quick Share magic. The trailing 10 bytes
- * are session-scoped randomness — receivers use them to debounce
- * advertisements from a single sender across short BLE airtime windows.
+ * - `fc 12 8e` — `kFastInitModelId`, the magic bytes for Quick Share.
+ * - `VV` (byte 3) — packed metadata. Bitfield layout (high → low):
+ *   `version (3 bits) << 5 | type (3 bits) << 2 | uwb_supported (1 bit) << 1
+ *   | sender_cert_supported (1 bit)`.
+ *   Stock GMS senders that have an active share intent emit `version=0`,
+ *   `type=kNotify=0`, `uwb=0`, `sender_cert=0` → byte = `0x00`. Earlier
+ *   NearDrop captures (and prior versions of this file) had `0x01`, which
+ *   sets the deprecated/reinterpreted `sender_cert_supported` bit and
+ *   causes Samsung One UI to mis-classify the pulse as `type=SILENT` (see
+ *   `Detected fast init state changed: type=SILENT` in Galaxy logcat),
+ *   which in turn prevents Samsung's GMS from registering the per-peer
+ *   Weave-byte handler on its `0xFEF3` GATT server. Fix: emit `0x00`.
+ * - `PP` (byte 4) — `metadata[1]`, the unsigned negation of the adjusted Tx
+ *   power. `kAdjustedTxPower = -66 dBm` so the wire byte is `-(-66) = 66 = 0x42`.
+ * - `UU` (byte 5) — `uwb_metadata`. Zero when we do not advertise UWB.
+ * - `AA × 8` (bytes 6..13) — `uwb_address`. Zero unless UWB is in play.
+ * - `SS` (byte 14) — per-share-session salt so receivers can dedupe pulses.
+ * - `HH × 8` (bytes 15..22) — `secret_id_hash`. Truncated SHA-256 over the
+ *   sender's `endpointId`. Samsung GMS treats an all-zero hash as "no real
+ *   share intent" and demotes the pulse to `type=SILENT` regardless of the
+ *   metadata-byte type bits. A stable non-zero hash is the trigger that
+ *   makes the receiver's `shouldAcceptSocketHandler` return true and wire
+ *   the per-characteristic Weave handler so subsequent ATT writes to
+ *   `00000100-0004-1000-8000-001a11000101` are actually delivered to the
+ *   GMS application layer (instead of throwing
+ *   `BluetoothGattException: No handler registered for characteristic …`).
+ *
+ * Total payload = 14 fixed bytes + 1 salt + 8 hash = 23 bytes, comfortably
+ * inside the legacy 31-byte advertising-PDU budget alongside the 16-bit
+ * service-data AD wrapper.
  *
  * This object is pure-JVM (no `android.*` imports) so it is exhaustively
  * unit-testable. The Android-side advertiser ([BleAdvertiser]) consumes it
@@ -46,31 +78,39 @@ public object BleAdvertisePayload {
     public const val SERVICE_UUID_128: String = "0000fe2c-0000-1000-8000-00805f9b34fb"
 
     /**
-     * Total size of the service-data payload in bytes (14 fixed prefix +
-     * 10 random suffix). This must fit alongside the service-UUID field
-     * inside the legacy 31-byte advertising-PDU budget.
+     * Length of the 14-byte fixed prefix (model id + metadata + uwb stub).
+     * The first 14 bytes are constant for every share session; only the
+     * trailing 9 bytes (1 salt + 8 hash) carry per-session entropy.
      */
-    public const val PAYLOAD_LEN: Int = 24
+    public const val PREFIX_LEN: Int = 14
 
-    /** Length of the randomness tail. */
-    public const val RANDOM_LEN: Int = 10
+    /** Length of the per-share-session salt byte. */
+    public const val SALT_LEN: Int = 1
 
-    /**
-     * Length of the fixed Quick Share prefix that precedes the randomness.
-     */
-    public const val PREFIX_LEN: Int = PAYLOAD_LEN - RANDOM_LEN // 14
+    /** Length of the truncated SHA-256 secret-id-hash. */
+    public const val SECRET_ID_HASH_LEN: Int = 8
+
+    /** Total dynamic tail = salt + hash = 9 bytes. */
+    public const val DYNAMIC_TAIL_LEN: Int = SALT_LEN + SECRET_ID_HASH_LEN
+
+    /** Total service-data payload size = 14 fixed + 9 dynamic = 23 bytes. */
+    public const val PAYLOAD_LEN: Int = PREFIX_LEN + DYNAMIC_TAIL_LEN
 
     /**
      * The 14-byte literal prefix mandated by the protocol. Exposed as a
      * defensive copy via [prefixBytes] so callers cannot mutate the
      * canonical bytes.
+     *
+     * Byte 3 = `0x00` packs `version=0, type=kNotify (0), uwb=0,
+     * sender_cert=0`. **Do not change to `0x01`** — see the kdoc above for
+     * the Samsung-One-UI-classifies-as-SILENT regression that introduces.
      */
     private val PREFIX: ByteArray =
         byteArrayOf(
             0xFC.toByte(),
             0x12.toByte(),
             0x8E.toByte(),
-            0x01.toByte(),
+            0x00.toByte(),
             0x42.toByte(),
             0x00.toByte(),
             0x00.toByte(),
@@ -87,39 +127,60 @@ public object BleAdvertisePayload {
     public fun prefixBytes(): ByteArray = PREFIX.copyOf()
 
     /**
-     * Build a fresh 24-byte payload. The prefix is the canonical Quick
-     * Share magic; the trailing 10 bytes are drawn from [random].
+     * Build a fresh 23-byte payload bound to [endpointId]. The trailing
+     * 8-byte `secret_id_hash` is the truncated SHA-256 of `endpointId`'s
+     * UTF-8 bytes — any non-zero hash is sufficient for stock GMS
+     * receivers to classify the pulse as `type=NORMAL` (kNotify with
+     * intent) and wire their per-peer Weave handler. The single salt byte
+     * preceding the hash is drawn from [random] and lets receivers
+     * dedupe rapid back-to-back broadcasts within the same share session.
      *
-     * @param random source of the 10 trailing bytes. Defaults to a fresh
-     *   [SecureRandom]; tests may inject a deterministic [java.util.Random]
-     *   subclass to assert against fixed bytes.
+     * @param endpointId the sender's 4-byte ASCII slug (the same value
+     *   that appears in the OfflineFrame `ConnectionRequestFrame.endpoint_id`
+     *   and in our mDNS instance-name slug). Must be non-empty.
+     * @param random source of the salt byte. Defaults to a fresh
+     *   [SecureRandom]; tests inject deterministic [java.util.Random].
      */
     @JvmOverloads
-    public fun build(random: java.util.Random = SecureRandom()): ByteArray {
+    public fun build(
+        endpointId: String,
+        random: java.util.Random = SecureRandom(),
+    ): ByteArray {
+        require(endpointId.isNotEmpty()) { "endpointId must not be empty" }
         val out = ByteArray(PAYLOAD_LEN)
         System.arraycopy(PREFIX, 0, out, 0, PREFIX_LEN)
-        val tail = ByteArray(RANDOM_LEN)
-        random.nextBytes(tail)
-        System.arraycopy(tail, 0, out, PREFIX_LEN, RANDOM_LEN)
+        val saltBuf = ByteArray(SALT_LEN)
+        random.nextBytes(saltBuf)
+        out[PREFIX_LEN] = saltBuf[0]
+        val hash =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(endpointId.toByteArray(Charsets.UTF_8))
+                .copyOf(SECRET_ID_HASH_LEN)
+        System.arraycopy(hash, 0, out, PREFIX_LEN + SALT_LEN, SECRET_ID_HASH_LEN)
         return out
     }
 
     /**
-     * Build a payload with the supplied 10-byte randomness tail. Useful
-     * in tests and in scenarios where the caller needs the same random
-     * suffix to be reused (e.g. when re-emitting after a Bluetooth restart
-     * within the same share session).
+     * Build a payload with the supplied salt byte and `secret_id_hash`.
+     * Useful in tests and in scenarios where the caller needs reproducible
+     * bytes (e.g. when re-emitting after a Bluetooth restart within the
+     * same share session and the salt should stay stable).
      *
-     * @throws IllegalArgumentException if [randomTail] is not exactly
-     *   [RANDOM_LEN] bytes long.
+     * @throws IllegalArgumentException if [secretIdHash] is not exactly
+     *   [SECRET_ID_HASH_LEN] bytes long.
      */
-    public fun buildWith(randomTail: ByteArray): ByteArray {
-        require(randomTail.size == RANDOM_LEN) {
-            "randomTail must be exactly $RANDOM_LEN bytes, got ${randomTail.size}"
+    public fun buildWith(
+        salt: Byte,
+        secretIdHash: ByteArray,
+    ): ByteArray {
+        require(secretIdHash.size == SECRET_ID_HASH_LEN) {
+            "secretIdHash must be exactly $SECRET_ID_HASH_LEN bytes, got ${secretIdHash.size}"
         }
         val out = ByteArray(PAYLOAD_LEN)
         System.arraycopy(PREFIX, 0, out, 0, PREFIX_LEN)
-        System.arraycopy(randomTail, 0, out, PREFIX_LEN, RANDOM_LEN)
+        out[PREFIX_LEN] = salt
+        System.arraycopy(secretIdHash, 0, out, PREFIX_LEN + SALT_LEN, SECRET_ID_HASH_LEN)
         return out
     }
 }

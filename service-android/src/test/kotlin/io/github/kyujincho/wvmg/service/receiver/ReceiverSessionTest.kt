@@ -325,6 +325,72 @@ class ReceiverSessionTest {
         }
 
     @Test
+    fun `gated publish starts initial control servers before mDNS advertise`() =
+        runBlocking {
+            val order = mutableListOf<String>()
+            val advertiser =
+                object : DiscoveryAdvertiser {
+                    override fun advertise(
+                        endpointInfo: EndpointInfo,
+                        port: Int,
+                    ): AdvertiseHandle {
+                        order += "mdns"
+                        return FakeAdvertiseHandle(port = port)
+                    }
+                }
+            val initialControlServer =
+                object : RecordingInitialControlServer() {
+                    override fun start(
+                        endpointInfo: EndpointInfo,
+                        acceptTransport: (ConnectedTransport) -> Unit,
+                    ): Boolean {
+                        order += "initial-control"
+                        return super.start(endpointInfo, acceptTransport)
+                    }
+                }
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    advertiseGated = true,
+                    initialControlServers = listOf(initialControlServer),
+                )
+
+            session.start()
+            session.publishAdvertisement()
+
+            assertThat(order).containsExactly("initial-control", "mdns").inOrder()
+
+            session.stop()
+        }
+
+    @Test
+    fun `gated publish rolls back initial control servers when mDNS advertise fails`() =
+        runBlocking {
+            val initialControlServer = RecordingInitialControlServer()
+            val session =
+                makeSession(
+                    advertiser =
+                        object : DiscoveryAdvertiser {
+                            override fun advertise(
+                                endpointInfo: EndpointInfo,
+                                port: Int,
+                            ): AdvertiseHandle = error("synthetic mDNS publish failure")
+                        },
+                    advertiseGated = true,
+                    initialControlServers = listOf(initialControlServer),
+                )
+
+            session.start()
+
+            assertThrows<IllegalStateException> { session.publishAdvertisement() }
+            assertThat(session.isAdvertising).isFalse()
+            assertThat(initialControlServer.stopCount).isEqualTo(1)
+            assertThat(initialControlServer.isActive).isFalse()
+
+            session.stop()
+        }
+
+    @Test
     fun `replaceEndpointInfo republishes active advertisement without rebinding tcp listener`() =
         runBlocking {
             val advertiser = RecordingAdvertiser()
@@ -630,7 +696,7 @@ class ReceiverSessionTest {
         }
     }
 
-    private class RecordingInitialControlServer : InitialControlServer {
+    private open class RecordingInitialControlServer : InitialControlServer {
         data class StartCall(
             val endpointInfo: EndpointInfo,
         )

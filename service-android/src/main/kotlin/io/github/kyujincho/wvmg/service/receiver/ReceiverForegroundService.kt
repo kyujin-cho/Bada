@@ -28,7 +28,6 @@ import io.github.kyujincho.wvmg.discovery.Discovery
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareAdvertiser
 import io.github.kyujincho.wvmg.discovery.ble.BleQuickShareScanner
 import io.github.kyujincho.wvmg.discovery.bootstrap.BleGattInitialControlServer
-import io.github.kyujincho.wvmg.discovery.bootstrap.BleL2capInitialControlServer
 import io.github.kyujincho.wvmg.discovery.medium.MediumRegistries
 import io.github.kyujincho.wvmg.protocol.endpoint.BleServiceData
 import io.github.kyujincho.wvmg.protocol.endpoint.DctAdvertisement
@@ -898,9 +897,10 @@ public class ReceiverForegroundService : Service() {
                     mediumRegistry = MediumRegistries.defaultForContext(context.applicationContext),
                     initialControlServers =
                         listOf(
-                            BleL2capInitialControlServer(
-                                context = context.applicationContext,
-                            ),
+                            // Keep the production receiver bootstrap GATT-only for now.
+                            // Advertising an LE CoC PSM makes One UI prefer L2CAP over
+                            // the verified GATT socket path and fail before protocol
+                            // consent reaches the app.
                             BleGattInitialControlServer(
                                 context = context.applicationContext,
                                 endpointIdProvider = { BleEndpointIdHolder.bytesFor(currentIdentity()) },

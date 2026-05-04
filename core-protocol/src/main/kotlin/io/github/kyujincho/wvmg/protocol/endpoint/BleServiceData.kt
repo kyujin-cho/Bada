@@ -102,11 +102,20 @@ public object BleServiceData {
     /** BLE v2 frame type used by stock Nearby for fast advertisements. */
     public const val FRAME_TYPE_FAST_ADVERTISEMENT: Int = 0x4A
 
+    /**
+     * BLE v2 fast-advertisement frame type with the Nearby "second profile"
+     * bit set.
+     */
+    public const val FRAME_TYPE_SECOND_PROFILE_FAST_ADVERTISEMENT: Int = 0x4B
+
     /** Length of the BLE v2 frame type + frame-length prefix. */
     public const val FRAME_HEADER_LEN: Int = 2
 
     /** Length of the trailing Nearby Mediums device token. */
     public const val DEVICE_TOKEN_LEN: Int = 2
+
+    /** Length of the service-id hash prefix in regular BLE advertisements. */
+    public const val SERVICE_ID_HASH_LEN: Int = 3
 
     /** One-byte extra-field mask appended by stock Nearby extended BLE advertisements. */
     public const val EXTRA_FIELDS_MASK_LEN: Int = 1
@@ -128,6 +137,13 @@ public object BleServiceData {
 
     /** Total fixed overhead before the EndpointInfo bytes. */
     public const val FIXED_HEADER_LEN: Int = HEADER_LEN + ENDPOINT_ID_LEN + ENDPOINT_INFO_LEN_BYTES
+
+    /** Total fixed overhead before EndpointInfo in the regular non-fast body. */
+    public const val REGULAR_FIXED_HEADER_LEN: Int =
+        HEADER_LEN + SERVICE_ID_HASH_LEN + ENDPOINT_ID_LEN + ENDPOINT_INFO_LEN_BYTES
+
+    /** Bluetooth MAC bytes carried after EndpointInfo in regular BLE advertisements. */
+    public const val BLUETOOTH_MAC_LEN: Int = 6
 
     /**
      * Default protocol version stock Quick Share emits in the high
@@ -241,6 +257,7 @@ public object BleServiceData {
         endpointInfo: EndpointInfo,
         version: Int = DEFAULT_VERSION,
         pcp: Int = DEFAULT_PCP,
+        secondProfile: Boolean = false,
     ): ByteArray {
         val body = encode(endpointId, endpointInfo, version, pcp)
         require(body.size <= MAX_FRAME_BODY_LEN) {
@@ -248,7 +265,12 @@ public object BleServiceData {
         }
         val deviceToken = deriveDeviceToken(body)
         val out = ByteArray(FRAME_HEADER_LEN + body.size + DEVICE_TOKEN_LEN)
-        out[0] = FRAME_TYPE_FAST_ADVERTISEMENT.toByte()
+        out[0] =
+            if (secondProfile) {
+                FRAME_TYPE_SECOND_PROFILE_FAST_ADVERTISEMENT.toByte()
+            } else {
+                FRAME_TYPE_FAST_ADVERTISEMENT.toByte()
+            }
         out[1] = body.size.toByte()
         body.copyInto(out, destinationOffset = FRAME_HEADER_LEN)
         deviceToken.copyInto(out, destinationOffset = FRAME_HEADER_LEN + body.size)
@@ -274,9 +296,10 @@ public object BleServiceData {
         psm: Int,
         version: Int = DEFAULT_VERSION,
         pcp: Int = DEFAULT_PCP,
+        secondProfile: Boolean = false,
     ): ByteArray {
         require(psm in 1..MAX_PSM) { "psm must fit in uint16 and be non-zero, got $psm" }
-        val framed = encodeFramed(endpointId, endpointInfo, version, pcp)
+        val framed = encodeFramed(endpointId, endpointInfo, version, pcp, secondProfile)
         val out = ByteArray(framed.size + EXTRA_FIELDS_MASK_LEN + PSM_LEN)
         framed.copyInto(out)
         out[framed.size] = EXTRA_FIELD_PSM_MASK.toByte()
@@ -296,6 +319,7 @@ public object BleServiceData {
         psm: Int,
         version: Int = DEFAULT_VERSION,
         pcp: Int = DEFAULT_PCP,
+        secondProfile: Boolean = false,
     ): ByteArray =
         encodeFramedWithPsm(
             endpointId = asciiEndpointId(endpointId),
@@ -303,6 +327,7 @@ public object BleServiceData {
             psm = psm,
             version = version,
             pcp = pcp,
+            secondProfile = secondProfile,
         )
 
     /**
@@ -315,12 +340,14 @@ public object BleServiceData {
         endpointInfo: EndpointInfo,
         version: Int = DEFAULT_VERSION,
         pcp: Int = DEFAULT_PCP,
+        secondProfile: Boolean = false,
     ): ByteArray =
         encodeFramed(
             endpointId = asciiEndpointId(endpointId),
             endpointInfo = endpointInfo,
             version = version,
             pcp = pcp,
+            secondProfile = secondProfile,
         )
 
     /**
@@ -353,9 +380,9 @@ public object BleServiceData {
     @JvmStatic
     public fun parse(bytes: ByteArray): Parsed? {
         unwrapFrame(bytes)?.let { framed ->
-            return parseBody(framed)
+            return parseFastBody(framed) ?: parseRegularBody(framed)
         }
-        return parseBody(bytes)
+        return parseFastBody(bytes) ?: parseRegularBody(bytes)
     }
 
     /**
@@ -376,7 +403,7 @@ public object BleServiceData {
     }
 
     @Suppress("ReturnCount")
-    private fun parseBody(bytes: ByteArray): Parsed? {
+    private fun parseFastBody(bytes: ByteArray): Parsed? {
         if (bytes.size < FIXED_HEADER_LEN) return null
         val header = bytes[0].toInt() and UNSIGNED_BYTE_MASK
         val version = (header ushr VERSION_SHIFT) and VERSION_MASK
@@ -395,9 +422,35 @@ public object BleServiceData {
     }
 
     @Suppress("ReturnCount")
+    private fun parseRegularBody(bytes: ByteArray): Parsed? {
+        if (bytes.size < REGULAR_FIXED_HEADER_LEN + BLUETOOTH_MAC_LEN) return null
+        val header = bytes[0].toInt() and UNSIGNED_BYTE_MASK
+        val version = (header ushr VERSION_SHIFT) and VERSION_MASK
+        val pcp = header and PCP_MASK
+
+        var offset = HEADER_LEN
+        val serviceIdHash = bytes.copyOfRange(offset, offset + SERVICE_ID_HASH_LEN)
+        offset += SERVICE_ID_HASH_LEN
+        if (!serviceIdHash.contentEquals(NearbyServiceId.hashPrefix)) return null
+
+        val endpointId = bytes.copyOfRange(offset, offset + ENDPOINT_ID_LEN)
+        offset += ENDPOINT_ID_LEN
+        val len = bytes[offset++].toInt() and UNSIGNED_BYTE_MASK
+        if (offset + len + BLUETOOTH_MAC_LEN > bytes.size) return null
+        val infoBytes = bytes.copyOfRange(offset, offset + len)
+        val info = EndpointInfo.parse(infoBytes) ?: return null
+        return Parsed(
+            version = version,
+            pcp = pcp,
+            endpointId = endpointId,
+            endpointInfo = info,
+        )
+    }
+
+    @Suppress("ReturnCount")
     private fun unwrapFrame(bytes: ByteArray): ByteArray? {
         if (bytes.size < FRAME_HEADER_LEN) return null
-        if ((bytes[0].toInt() and UNSIGNED_BYTE_MASK) != FRAME_TYPE_FAST_ADVERTISEMENT) return null
+        if (!isFastFrameType(bytes[0].toInt() and UNSIGNED_BYTE_MASK)) return null
         val len = bytes[1].toInt() and UNSIGNED_BYTE_MASK
         if (FRAME_HEADER_LEN + len > bytes.size) return null
         return bytes.copyOfRange(FRAME_HEADER_LEN, FRAME_HEADER_LEN + len)
@@ -406,12 +459,16 @@ public object BleServiceData {
     @Suppress("ReturnCount")
     private fun extraFieldsOffset(bytes: ByteArray): Int? {
         if (bytes.size < FRAME_HEADER_LEN) return null
-        if ((bytes[0].toInt() and UNSIGNED_BYTE_MASK) != FRAME_TYPE_FAST_ADVERTISEMENT) return null
+        if (!isFastFrameType(bytes[0].toInt() and UNSIGNED_BYTE_MASK)) return null
         val len = bytes[1].toInt() and UNSIGNED_BYTE_MASK
         val offset = FRAME_HEADER_LEN + len + DEVICE_TOKEN_LEN
         if (offset > bytes.size) return null
         return offset
     }
+
+    private fun isFastFrameType(value: Int): Boolean =
+        value == FRAME_TYPE_FAST_ADVERTISEMENT ||
+            value == FRAME_TYPE_SECOND_PROFILE_FAST_ADVERTISEMENT
 
     private fun asciiEndpointId(endpointId: String): ByteArray {
         // String.toByteArray(US_ASCII) silently substitutes '?' for any

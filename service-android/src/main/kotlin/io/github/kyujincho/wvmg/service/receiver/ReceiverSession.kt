@@ -367,12 +367,29 @@ public class ReceiverSession(
 
     private val advertiseLock: Any = Any()
 
+    @Suppress("TooGenericExceptionCaught")
     private fun publishAdvertisementLocked(
         tcpServer: TcpReceiverServer,
         port: Int,
     ) {
-        advertiseHandle = advertiser.advertise(endpointInfo, port)
-        ReceiverAdvertisementStateHolder.setAdvertising(true)
+        // Bring up BLE GATT / other initial-control listeners before
+        // the mDNS registration call. Some Android builds can leave
+        // NsdManager registration pending for a long time; the
+        // receiver should still be connectible over BLE GATT while
+        // that platform callback is pending.
+        startInitialControlServersLocked(tcpServer)
+        try {
+            advertiseHandle = advertiser.advertise(endpointInfo, port)
+            ReceiverAdvertisementStateHolder.setAdvertising(true)
+        } catch (t: Throwable) {
+            advertiseHandle = null
+            stopInitialControlServersLocked()
+            ReceiverAdvertisementStateHolder.setAdvertising(false)
+            throw t
+        }
+    }
+
+    private fun startInitialControlServersLocked(tcpServer: TcpReceiverServer) {
         for (initialControlServer in initialControlServers) {
             if (initialControlServer.isActive) continue
             runCatching {

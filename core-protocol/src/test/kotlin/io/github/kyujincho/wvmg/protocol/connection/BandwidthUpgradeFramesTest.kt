@@ -8,6 +8,7 @@ package io.github.kyujincho.wvmg.protocol.connection
 import com.google.common.truth.Truth.assertThat
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame.UpgradePathInfo
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import io.github.kyujincho.wvmg.protocol.medium.Medium
@@ -49,6 +50,21 @@ class BandwidthUpgradeFramesTest {
         assertThat(parsed.upgradePathInfo.supportsClientIntroductionAck).isTrue()
         assertThat(parsed.upgradePathInfo.medium.number).isEqualTo(Medium.WIFI_DIRECT.wireNumber)
         assertThat(parsed.upgradePathInfo.hasWifiLanSocket()).isFalse()
+    }
+
+    @Test
+    fun `upgradePathRequest carries requested Wi-Fi Direct medium and role metadata`() {
+        val frame = BandwidthUpgradeFrames.upgradePathRequest(setOf(Medium.WIFI_DIRECT))
+        val parsed = parse(frame)
+        val request = parsed.upgradePathInfo.upgradePathRequest
+
+        assertThat(parsed.eventType).isEqualTo(BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_REQUEST)
+        assertThat(request.mediumsList.map { it.number }).containsExactly(Medium.WIFI_DIRECT.wireNumber)
+        assertThat(request.mediumMetaData.supportedWifiDirectAuthTypesList)
+            .containsExactly(MediumMetadata.WifiDirectAuthType.WIFI_DIRECT_WITH_PASSWORD)
+        assertThat(request.mediumMetaData.mediumRole.supportWifiDirectGroupClient).isTrue()
+        assertThat(BandwidthUpgradeFrames.decodeUpgradePathRequestMediums(frame))
+            .containsExactly(Medium.WIFI_DIRECT)
     }
 
     @Test
