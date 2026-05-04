@@ -78,6 +78,14 @@ lifecycle logic lives in a pure-JVM `ReceiverSession` helper that the
 `Service` only thinly wraps, keeping the start/stop/error-rollback paths
 exhaustively unit-testable without Robolectric.
 
+The launcher also exposes a persisted "Advertised Quick Share name"
+override for the receiver. When unset, WVMG resolves the advertised
+name from Android's device-name chain (`Settings.Global.DEVICE_NAME` on
+API 25+, then the Bluetooth adapter name when it is safely readable,
+then `Build.MODEL`, then the app label) and clamps the final
+`EndpointInfo.deviceName` to 19 UTF-8 bytes to avoid stock Quick Share
+interop regressions with longer names.
+
 ## Toolchain
 
 | Component       | Version |

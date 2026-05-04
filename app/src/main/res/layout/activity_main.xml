@@ -5,6 +5,7 @@
     The launcher is a thin scaffold (the real device list, transfer
     status, and full settings screens are still tracked elsewhere).
     Today it carries:
+      * #141 advertised Quick Share name setting.
       * #34 always-visible override toggle.
       * #38 folder-send entry point (SAF DocumentTree picker).
       * #47 battery-optimization banner — one-time, OEM-aware prompt
@@ -136,6 +137,63 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:text="@string/main_save_location_clear" />
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/main_advertised_name_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/main_advertised_name_title"
+            android:textAppearance="?android:attr/textAppearanceMedium"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/main_advertised_name_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/main_advertised_name_subtitle"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+        <EditText
+            android:id="@+id/main_advertised_name_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="@string/main_advertised_name_hint"
+            android:inputType="textCapWords"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/main_advertised_name_current"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:textStyle="italic" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/main_advertised_name_save"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/main_advertised_name_save" />
+
+            <Button
+                android:id="@+id/main_advertised_name_reset"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/main_advertised_name_reset" />
 
         </LinearLayout>
 

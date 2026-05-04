@@ -391,6 +391,105 @@ class ReceiverSessionTest {
         }
 
     @Test
+    fun `replaceEndpointInfo republishes active advertisement without rebinding tcp listener`() =
+        runBlocking {
+            val advertiser = RecordingAdvertiser()
+            val initialControlServer = RecordingInitialControlServer()
+            val original = sampleEndpointInfo(name = "Old Name")
+            val updated = sampleEndpointInfo(name = "New Name")
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    endpointInfo = original,
+                    advertiseGated = true,
+                    initialControlServers = listOf(initialControlServer),
+                )
+
+            session.start()
+            val originalPort = session.boundPort
+            session.publishAdvertisement()
+
+            session.replaceEndpointInfo(updated)
+
+            assertThat(session.boundPort).isEqualTo(originalPort)
+            assertThat(advertiser.calls).hasSize(2)
+            assertThat(advertiser.calls[0].endpointInfo).isEqualTo(original)
+            assertThat(advertiser.calls[0].handle.isActive).isFalse()
+            assertThat(advertiser.calls[1].endpointInfo).isEqualTo(updated)
+            assertThat(advertiser.calls[1].port).isEqualTo(originalPort)
+            assertThat(initialControlServer.stopCount).isEqualTo(1)
+            assertThat(initialControlServer.startCalls).hasSize(2)
+            assertThat(initialControlServer.startCalls[1].endpointInfo).isEqualTo(updated)
+
+            session.stop()
+        }
+
+    @Test
+    fun `replaceEndpointInfo updates a gated session before first publish`() =
+        runBlocking {
+            val advertiser = RecordingAdvertiser()
+            val updated = sampleEndpointInfo(name = "Renamed Device")
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    advertiseGated = true,
+                )
+
+            session.start()
+            session.replaceEndpointInfo(updated)
+            session.publishAdvertisement()
+
+            assertThat(advertiser.calls).hasSize(1)
+            assertThat(advertiser.calls[0].endpointInfo).isEqualTo(updated)
+
+            session.stop()
+        }
+
+    @Test
+    fun `replaceEndpointInfo failure is reported without throwing and can be restored`() =
+        runBlocking {
+            val advertiser = FailingOnAttemptAdvertiser(failOnAttempt = 2)
+            val original = sampleEndpointInfo(name = "Old Name")
+            val updated = sampleEndpointInfo(name = "New Name")
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    endpointInfo = original,
+                    advertiseGated = true,
+                )
+
+            session.start()
+            val originalPort = session.boundPort
+            session.publishAdvertisement()
+
+            val replaced = session.replaceEndpointInfo(updated)
+
+            assertThat(replaced).isFalse()
+            assertThat(session.boundPort).isEqualTo(originalPort)
+            assertThat(session.isAdvertising).isFalse()
+            assertThat(advertiser.attempts).hasSize(2)
+            assertThat(advertiser.attempts[0].endpointInfo).isEqualTo(original)
+            assertThat(advertiser.attempts[0].succeeded).isTrue()
+            assertThat(advertiser.attempts[1].endpointInfo).isEqualTo(updated)
+            assertThat(advertiser.attempts[1].succeeded).isFalse()
+
+            val restored = session.replaceEndpointInfo(original)
+
+            assertThat(restored).isTrue()
+            assertThat(session.isAdvertising).isFalse()
+
+            session.publishAdvertisement()
+
+            assertThat(session.isAdvertising).isTrue()
+            assertThat(advertiser.attempts).hasSize(3)
+            assertThat(advertiser.attempts[2].endpointInfo).isEqualTo(original)
+            assertThat(advertiser.attempts[2].port).isEqualTo(originalPort)
+            assertThat(advertiser.attempts[2].succeeded).isTrue()
+
+            session.stop()
+        }
+
+    @Test
     fun `initial control transports are injected into active connection flow`() =
         runBlocking {
             val initialControlServer = RecordingInitialControlServer()
@@ -547,6 +646,33 @@ class ReceiverSessionTest {
             val handle = FakeAdvertiseHandle(port = port)
             calls += Call(endpointInfo, port, handle)
             return handle
+        }
+    }
+
+    private class FailingOnAttemptAdvertiser(
+        private val failOnAttempt: Int,
+    ) : DiscoveryAdvertiser {
+        data class Attempt(
+            val endpointInfo: EndpointInfo,
+            val port: Int,
+            val succeeded: Boolean,
+        )
+
+        val attempts: MutableList<Attempt> = mutableListOf()
+
+        private var callCount: Int = 0
+
+        override fun advertise(
+            endpointInfo: EndpointInfo,
+            port: Int,
+        ): AdvertiseHandle {
+            callCount += 1
+            if (callCount == failOnAttempt) {
+                attempts += Attempt(endpointInfo, port, false)
+                throw java.io.IOException("simulated advertise failure")
+            }
+            attempts += Attempt(endpointInfo, port, true)
+            return FakeAdvertiseHandle(port = port)
         }
     }
 

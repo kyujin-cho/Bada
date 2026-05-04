@@ -79,6 +79,17 @@ Two network topologies matter now:
       strictly require synced clocks, but mDNS lease behavior is easier
       to reason about when wall clocks agree).
 
+### Receiver name under test
+
+- [ ] Record which receiver-name mode WVMG is using for this run:
+      **custom advertised name** from the launcher settings, or the
+      **default fallback chain** (`Settings.Global.DEVICE_NAME` on
+      API 25+, then Bluetooth adapter name when safely readable, then
+      `Build.MODEL`, then the app label).
+- [ ] If you are exercising the custom-name path, keep the configured
+      value within WVMG's documented 19-byte UTF-8 budget and note the
+      exact string in the test log.
+
 ### Quick Share visibility on the stock peer
 
 Set the stock peer's Quick Share visibility to one of these states for
@@ -331,6 +342,9 @@ discovery/bootstrap failures from later protocol failures.
       name appears**. The name comes from the packed `EndpointInfo`
       (see preconditions). If the device does **not** appear within
       ~15 seconds, see the troubleshooting section below.
+- [ ] Verify the displayed name matches the selected receiver-name mode:
+      the launcher's custom advertised name when one is set, otherwise
+      the resolved Android default name for the WVMG device.
 - [ ] Pick the WVMG device.
 - [ ] On the **WVMG device**: a consent notification appears (handled
       by
@@ -426,8 +440,10 @@ UX. If a test step fails, walk this list before assuming a WVMG bug.
   If you change WVMG's display name, restart Quick Share on the peer
   before re-checking.
 - Quick Share is **picky about EndpointInfo length**. Names longer
-  than ~63 UTF-8 bytes get truncated by some peers. Keep the WVMG
-  device name short during interop.
+  than WVMG's 19-byte UTF-8 receiver-name budget are now clamped before
+  advertisement. BLE DCT secondary hints may truncate even further to a
+  shorter prefix, so keep test names short and compare against the
+  canonical mDNS / share-sheet label.
 - Some peers close the connection if the consent dialog isn't
   responded to within ~30 seconds. Don't let the WVMG device's screen
   lock during the consent step.
