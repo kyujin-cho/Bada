@@ -1,7 +1,7 @@
 # Power instrumentation: BLE pulse scanning
 
 This is a manual test runbook for measuring the battery cost of
-WhenVivoMeetsGoogle's Phase 2 BLE pulse scanner (issue #33) running with
+LibreDrop's Phase 2 BLE pulse scanner (issue #33) running with
 the battery-tuned scan settings introduced in issue #35.
 
 The acceptance criterion in #35 is:
@@ -74,7 +74,7 @@ also brings the service up; or wire a "stay open" entry in MainActivity):
 
 ```bash
 ./gradlew :app:installDebug
-adb shell am start -n io.github.kyujincho.wvmg.debug/io.github.kyujincho.wvmg.MainActivity
+adb shell am start -n dev.bluehouse.libredrop.debug/dev.bluehouse.libredrop.MainActivity
 # Trigger any flow that calls ReceiverForegroundService.start() —
 # in the current build the share-intent path will do.
 ```
@@ -83,7 +83,7 @@ Confirm the foreground service is running and the BLE scan started in
 `SCAN_MODE_BALANCED`:
 
 ```bash
-adb logcat -d -s WvmgBleScan
+adb logcat -d -s LibreDropBleScan
 # Expect: "start: BLE pulse scan started mode=BALANCED"
 ```
 
@@ -128,17 +128,17 @@ adb shell dumpsys batterystats --checkin > batterystats-$(date +%Y%m%d-%H%M).txt
 ```
 
 The relevant line in the checkin format is the per-UID `wbl` (wake-lock
-+ BLE) breakdown. The package UID is `io.github.kyujincho.wvmg.debug`;
++ BLE) breakdown. The package UID is `dev.bluehouse.libredrop.debug`;
 look up its UID with:
 
 ```bash
-adb shell dumpsys package io.github.kyujincho.wvmg.debug | grep userId=
+adb shell dumpsys package dev.bluehouse.libredrop.debug | grep userId=
 ```
 
 Alternatively, the human-readable form is easier to read:
 
 ```bash
-adb shell dumpsys batterystats io.github.kyujincho.wvmg.debug
+adb shell dumpsys batterystats dev.bluehouse.libredrop.debug
 ```
 
 Look for the `Bluetooth scan results received:` and

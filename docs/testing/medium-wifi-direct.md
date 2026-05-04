@@ -2,8 +2,8 @@
 
 This is the on-device runbook for verifying the Wi-Fi Direct (P2P)
 bandwidth-upgrade adapter shipped in
-[#49](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/49) under
-the [Phase 4 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/4).
+[#49](https://github.com/kyujin-cho/LibreDrop/issues/49) under
+the [Phase 4 epic](https://github.com/kyujin-cho/LibreDrop/issues/4).
 
 The Phase 4 framework (#48 / #54) is the layer that *decides* to upgrade
 to Wi-Fi Direct after the initial Wi-Fi LAN connection has been
@@ -64,22 +64,22 @@ end-to-end transfers.
 ## Logcat tags
 
 ```
-adb logcat -s WvmgWifiDirect WvmgOutbound WvmgSend
+adb logcat -s LibreDropWifiDirect LibreDropOutbound LibreDropSend
 ```
 
 Expected lines on the receiver during a successful upgrade:
 
 ```
-WvmgWifiDirect: WifiP2pManager.createGroup OK
-WvmgWifiDirect: WIFI_P2P_CONNECTION_CHANGED_ACTION groupFormed=true isGroupOwner=true
+LibreDropWifiDirect: WifiP2pManager.createGroup OK
+LibreDropWifiDirect: WIFI_P2P_CONNECTION_CHANGED_ACTION groupFormed=true isGroupOwner=true
 ```
 
 On the sender:
 
 ```
-WvmgWifiDirect: WifiP2pManager.connect OK
-WvmgWifiDirect: WIFI_P2P_CONNECTION_CHANGED_ACTION groupFormed=true isGroupOwner=false
-WvmgWifiDirect: TCP connect to 192.168.49.1:<port> OK
+LibreDropWifiDirect: WifiP2pManager.connect OK
+LibreDropWifiDirect: WIFI_P2P_CONNECTION_CHANGED_ACTION groupFormed=true isGroupOwner=false
+LibreDropWifiDirect: TCP connect to 192.168.49.1:<port> OK
 ```
 
 Failures are logged as `Log.w(TAG, …)` and accompanied by the platform
@@ -101,13 +101,13 @@ reason code (`BUSY`, `P2P_UNSUPPORTED`, `ERROR`, `NO_SERVICE_REQUESTS`).
 Verification: send via the app once; in logcat, confirm
 `MediumRegistry.supportedMediums()` includes `WIFI_DIRECT`. (Add a
 `Log.i(TAG, supportedMediums().toString())` in
-`WvmgMediumRegistries.withWifiDirect` while debugging.)
+`LibreDropMediumRegistries.withWifiDirect` while debugging.)
 
 ### TC2 — Receiver creates a group, sender joins, GO IP matches
 
-1. Open WhenVivoMeetsGoogle on both devices.
+1. Open LibreDrop on both devices.
 2. On the sender, share a small file (1 MB) to the receiver via the
-   share sheet → WhenVivoMeetsGoogle.
+   share sheet → LibreDrop.
 3. On the receiver, accept the consent prompt.
 4. **Before the file actually starts transferring**, in another shell,
    run on the receiver:
@@ -115,7 +115,7 @@ Verification: send via the app once; in logcat, confirm
    adb -s <receiver-serial> shell dumpsys wifip2p | grep -E 'mGroupOwner|mDeviceAddress|networkName|passphrase'
    ```
 5. Confirm `groupOwner=true` on the receiver and the SSID/passphrase
-   match what `WvmgWifiDirect` logged.
+   match what `LibreDropWifiDirect` logged.
 6. On the sender, run the same `dumpsys wifip2p` and confirm the
    group-owner address matches the receiver.
 
@@ -146,7 +146,7 @@ followed by `UPGRADE_FAILURE` on the wire; the transfer continues over
 the original Wi-Fi LAN socket and finishes successfully. Verify with:
 
 ```
-adb logcat -s WvmgOutbound | grep -E 'UPGRADE_FAILURE|UpgradeAborted'
+adb logcat -s LibreDropOutbound | grep -E 'UPGRADE_FAILURE|UpgradeAborted'
 ```
 
 ### TC5 — Receiver tears down the group on completion
@@ -165,7 +165,7 @@ adb logcat -s WvmgOutbound | grep -E 'UPGRADE_FAILURE|UpgradeAborted'
 2. Immediately send file B.
 3. Expected: both transfers complete; the second does not stall
    waiting for a stale group to release. If it stalls, check
-   `WvmgWifiDirect: WifiP2pManager.removeGroup` ran during step 1's
+   `LibreDropWifiDirect: WifiP2pManager.removeGroup` ran during step 1's
    completion path.
 
 ---
@@ -192,6 +192,6 @@ adb logcat -s WvmgOutbound | grep -E 'UPGRADE_FAILURE|UpgradeAborted'
   receiver path now calls `discoverPeers`, waits briefly for
   `WIFI_P2P_STATE_CHANGED state=2`, stops discovery, removes any stale
   group, and only then calls `createGroup`. In a successful Galaxy ->
-  vivo BLE GATT handoff, `WvmgWifiDirect` should show
+  vivo BLE GATT handoff, `LibreDropWifiDirect` should show
   `discoverPeers onSuccess`, `stopPeerDiscovery onSuccess`, and
   `createGroup onSuccess` before the group-ready line.

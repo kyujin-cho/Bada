@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "io.github.kyujincho.wvmg.service"
+    namespace = "dev.bluehouse.libredrop.service"
     compileSdk =
         libs.versions.compileSdk
             .get()

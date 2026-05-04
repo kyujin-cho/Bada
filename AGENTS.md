@@ -30,7 +30,7 @@ Phase 1 (Wi-Fi LAN parity with NearDrop) is complete; Phase 2 will add BLE auto-
 
 # Run one test method (Kotlin backtick names need quoting; in Gradle, plain method
 # name with spaces in single quotes works).
-./gradlew :core-protocol:test --tests 'io.github.kyujincho.wvmg.protocol.crypto.HkdfTest.RFC 5869 test case 1'
+./gradlew :core-protocol:test --tests 'dev.bluehouse.libredrop.protocol.crypto.HkdfTest.RFC 5869 test case 1'
 
 # Auto-format ktlint violations.
 ./gradlew ktlintFormat
@@ -43,13 +43,13 @@ CI (`.github/workflows/ci.yml`) runs `staticAnalysis`, `:core-protocol:test`, `:
 Several diagnostic logcat tags are wired up for real-device testing — useful when discovery or transfer behaves differently from JVM tests:
 
 ```bash
-adb logcat -s WvmgDiscovery WvmgSend WvmgOutbound WvmgBleScan WvmgBleAdv WvmgMdnsGate
+adb logcat -s LibreDropDiscovery LibreDropSend LibreDropOutbound LibreDropBleScan LibreDropBleAdv LibreDropMdnsGate
 ```
 
-If a manufacturer's logcat filter swallows the app's `Log.i` output (vivo Funtouch OS does this), `OutboundConnection`'s logger uses `Log.e` and also appends to `getExternalFilesDir(null)/wvmg-outbound.log` — pull it with:
+If a manufacturer's logcat filter swallows the app's `Log.i` output (vivo Funtouch OS does this), `OutboundConnection`'s logger uses `Log.e` and also appends to `getExternalFilesDir(null)/libredrop-outbound.log` — pull it with:
 
 ```bash
-adb shell cat /sdcard/Android/data/io.github.kyujincho.wvmg.debug/files/wvmg-outbound.log
+adb shell cat /sdcard/Android/data/dev.bluehouse.libredrop.debug/files/libredrop-outbound.log
 ```
 
 ## Architecture
@@ -119,4 +119,4 @@ Manual on-device interop is documented as Markdown checklists under `docs/testin
 - **Branch names**: `<type>/<short-description>` where type is `feature`, `bugfix`, `hotfix`, `refactor`, `docs`, `test`, or `chore`. Issue-scoped branches include the issue number, e.g. `bugfix/issue-83-discovery-real-devices`.
 - **Commit / PR messages**: English only. No AI attribution lines (no `Co-Authored-By: Claude`, no `Generated with` blurbs). Use the `feat:` / `fix:` / `chore:` / `refactor:` / `docs:` / `test:` prefix that matches the change.
 - **Merge strategy**: squash-merge (`gh pr merge <N> --squash --delete-branch`) is the default. The `--delete-branch` flag will fail to delete the local branch if a worktree is using it; clean up the worktree afterwards with `git worktree remove --force <path>`, then `git branch -D <branch>`.
-- **Worktrees**: parallel work uses sibling worktrees at `../wt-epic-<E>-issue-<N>` or `../wt-issue-<N>`. Always copy `local.properties` from the primary tree (it's gitignored): `cp /Users/kyujin/Projects/WhenVivoMeetsGoogle/local.properties .` — Android builds need it for `sdk.dir`.
+- **Worktrees**: parallel work uses sibling worktrees at `../wt-epic-<E>-issue-<N>` or `../wt-issue-<N>`. Always copy `local.properties` from the primary tree (it's gitignored): `cp /Users/kyujin/Projects/LibreDrop/local.properties .` — Android builds need it for `sdk.dir`.

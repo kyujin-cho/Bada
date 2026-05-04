@@ -7,7 +7,7 @@
             android:exported="true"
             android:label="BLE Fast Scan Probe">
             <intent-filter>
-                <action android:name="io.github.kyujincho.wvmg.debug.BLE_FAST_SCAN_PROBE" />
+                <action android:name="dev.bluehouse.libredrop.debug.BLE_FAST_SCAN_PROBE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>

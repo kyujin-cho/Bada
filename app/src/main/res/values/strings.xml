@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="app_name">WhenVivoMeetsGoogle</string>
+    <string name="app_name">LibreDrop</string>
 
     <!-- Launcher activity (#34). The "always visible" override lets the
          user force the receiver to publish mDNS even when no BLE pulse is
@@ -25,7 +25,7 @@
          device-name chain (system device name, Bluetooth name, model,
          then app label). -->
     <string name="main_advertised_name_title">Advertised Quick Share name</string>
-    <string name="main_advertised_name_subtitle">Nearby Quick Share peers see this name when they discover this device. Leave it empty to use the Android device name fallback chain. WVMG trims the final name to 19 UTF-8 bytes to avoid interop issues with longer advertisements.</string>
+    <string name="main_advertised_name_subtitle">Nearby Quick Share peers see this name when they discover this device. Leave it empty to use the Android device name fallback chain. LibreDrop trims the final name to 19 UTF-8 bytes to avoid interop issues with longer advertisements.</string>
     <string name="main_advertised_name_hint">Device name</string>
     <string name="main_advertised_name_current">Currently advertised: %1$s</string>
     <string name="main_advertised_name_save">Save name</string>
@@ -67,7 +67,7 @@
          permission rows so the user understands the Phase 1 networking
          requirement before they land in the share flow. -->
     <string name="onboarding_network_card_title">Nearby discovery requirements</string>
-    <string name="onboarding_network_card_body">Shared Wi-Fi is still the baseline Quick Share path, especially when receiving. When sending to a nearby stock Quick Share peer, WVMG can also use Bluetooth-assisted bootstrap if the devices are off-LAN. Keep Bluetooth on for that path.</string>
+    <string name="onboarding_network_card_body">Shared Wi-Fi is still the baseline Quick Share path, especially when receiving. When sending to a nearby stock Quick Share peer, LibreDrop can also use Bluetooth-assisted bootstrap if the devices are off-LAN. Keep Bluetooth on for that path.</string>
     <string name="onboarding_network_card_dismiss">OK</string>
 
     <!-- NEARBY_WIFI_DEVICES (API 33+). -->
@@ -92,7 +92,7 @@
 
     <!-- ACCESS_FINE_LOCATION (API 24-30, legacy nearby-device discovery). -->
     <string name="permission_legacy_nearby_location_title">Nearby device location access</string>
-    <string name="permission_legacy_nearby_location_rationale">Android 11 and lower route Bluetooth device discovery and BLE scan results through the location permission. WVMG uses it only to discover nearby Quick Share devices; it does not use your physical location.</string>
+    <string name="permission_legacy_nearby_location_rationale">Android 11 and lower route Bluetooth device discovery and BLE scan results through the location permission. LibreDrop uses it only to discover nearby Quick Share devices; it does not use your physical location.</string>
 
     <!-- Permission status labels. -->
     <string name="permission_status_granted">Granted</string>

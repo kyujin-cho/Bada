@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WhenVivoMeetsGoogle"
+rootProject.name = "LibreDrop"
 
 include(":app")
 include(":service-android")

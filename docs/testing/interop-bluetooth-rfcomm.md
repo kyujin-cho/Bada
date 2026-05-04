@@ -1,12 +1,12 @@
 # Interop test: Bluetooth RFCOMM bandwidth-upgrade medium
 
 This is a manual interoperability runbook for verifying issue
-[#51](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/51) —
+[#51](https://github.com/kyujin-cho/LibreDrop/issues/51) —
 the Phase 4 Bluetooth RFCOMM bandwidth-upgrade medium implemented by
-[`BluetoothRfcommMediumProvider`](../../discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/medium/BluetoothRfcommMediumProvider.kt).
+[`BluetoothRfcommMediumProvider`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/medium/BluetoothRfcommMediumProvider.kt).
 
 This is part of the
-[Phase 4 epic](https://github.com/kyujin-cho/WhenVivoMeetsGoogle/issues/4)
+[Phase 4 epic](https://github.com/kyujin-cho/LibreDrop/issues/4)
 (alternative bandwidth-upgrade mediums). Apple-side interop (AirDrop,
 AWDL) remains explicitly out of scope.
 
@@ -54,9 +54,9 @@ both sides.
 
 ### Devices under test (DUTs)
 
-- [ ] **WVMG receiver:** Android device running the WVMG debug APK from
+- [ ] **LibreDrop receiver:** Android device running the LibreDrop debug APK from
       `./gradlew :app:assembleDebug`. Bluetooth toggled **on**.
-- [ ] **WVMG sender:** Second Android device on the same build. Bluetooth
+- [ ] **LibreDrop sender:** Second Android device on the same build. Bluetooth
       toggled **on**. The two devices do **not** need to be paired —
       the provider uses the *insecure* RFCOMM variants, which connect
       without an OS pairing prompt.
@@ -65,7 +65,7 @@ both sides.
 
 Onboarding (#31) requests both `BLUETOOTH_SCAN` and `BLUETOOTH_ADVERTISE`
 on API 31+. After #51 the same flow also requests `BLUETOOTH_CONNECT`.
-On both devices verify under **Settings → Apps → WhenVivoMeetsGoogle →
+On both devices verify under **Settings → Apps → LibreDrop →
 Permissions → Nearby devices** that the runtime grant is held.
 
 On API ≤ 30 the legacy `BLUETOOTH` / `BLUETOOTH_ADMIN` permissions are
@@ -90,7 +90,7 @@ install-time only (always granted if declared).
 
 ```bash
 adb -s <receiver_serial> logcat -c
-adb -s <receiver_serial> logcat -s WvmgBtRfcomm
+adb -s <receiver_serial> logcat -s LibreDropBtRfcomm
 ```
 
 Trigger any path that calls `MediumRegistry.supportedMediums()` — the
@@ -103,7 +103,7 @@ re-trigger; expect no UPGRADE_PATH_AVAILABLE attempt.
 After the framework asks the registry to upgrade (#54 will wire this
 in), inspect logcat:
 
-- [ ] `WvmgBtRfcomm: RFCOMM listen failed; declining upgrade` — only
+- [ ] `LibreDropBtRfcomm: RFCOMM listen failed; declining upgrade` — only
       expected when Bluetooth is off or CONNECT is denied.
 - [ ] No log line means listen succeeded; `prepareUpgrade()` returned a
       non-null `UpgradePathCredentials.Bluetooth(macAddress, serviceUuid)`.
@@ -121,7 +121,7 @@ inspection of the upgrade frame is desired):
 After the sender parses UPGRADE_PATH_AVAILABLE and calls
 `adoptUpgrade()`:
 
-- [ ] Logcat tag `WvmgBtRfcomm` is silent (success path).
+- [ ] Logcat tag `LibreDropBtRfcomm` is silent (success path).
 - [ ] OR `RFCOMM connect to <MAC>/<UUID> failed` (failure path) —
       verify the failure mode in the stack trace; the most common is
       Android's "service discovery failed" when the UUID does not
@@ -145,10 +145,10 @@ silently degrading to BR (instead of EDR) and warrants investigation.
 ## Logcat tags worth watching
 
 ```bash
-adb logcat -s WvmgBtRfcomm WvmgDiscovery WvmgOutbound
+adb logcat -s LibreDropBtRfcomm LibreDropDiscovery LibreDropOutbound
 ```
 
-`WvmgBtRfcomm` is the dedicated tag for this provider; the others give
+`LibreDropBtRfcomm` is the dedicated tag for this provider; the others give
 context on the surrounding connection lifecycle.
 
 ---

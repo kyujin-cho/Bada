@@ -10,7 +10,7 @@ plugins {
 }
 
 android {
-    namespace = "io.github.kyujincho.wvmg.discovery"
+    namespace = "dev.bluehouse.libredrop.discovery"
     compileSdk =
         libs.versions.compileSdk
             .get()
