@@ -47,6 +47,20 @@
          is intentionally vendor-neutral so the same string serves every
          OEM family; the helper takes the user to the right Settings
          page. -->
+    <!-- #145 legacy-WhenVivoMeetsGoogle migration banner. Shown when the
+         launcher detects a coresident pre-rename install
+         (io.github.kyujincho.wvmg or .debug). The legacy build registers a
+         duplicate 0xFEF3 GATT advertisement service that prevents stock
+         Quick Share senders from completing the BLE bootstrap, so the
+         banner is non-dismissible: only uninstalling the old package
+         resolves it. The Uninstall button opens Android's standard
+         confirm-uninstall dialog for the legacy package via
+         ACTION_DELETE — no extra permission required. -->
+    <string name="main_legacy_wvmg_banner_title">Uninstall the previous app</string>
+    <string name="main_legacy_wvmg_banner_body">An older build of this app, named WhenVivoMeetsGoogle, is still installed on this device. The two installs interfere on Bluetooth, which prevents Galaxy and other stock Quick Share senders from reaching this device. Tap Uninstall to remove the older build.</string>
+    <string name="main_legacy_wvmg_banner_uninstall">Uninstall older build</string>
+    <string name="main_legacy_wvmg_banner_unavailable">Could not open the uninstall dialog for %1$s. Please uninstall it manually from system Settings.</string>
+
     <string name="main_battery_banner_title">Allow background activity</string>
     <string name="main_battery_banner_body">This phone may stop receiving Quick Share files in the background unless this app is exempted from battery optimization. Tap Open Settings to add the exemption, or Skip if you only use Quick Share with the app open.</string>
     <string name="main_battery_banner_open">Open Settings</string>

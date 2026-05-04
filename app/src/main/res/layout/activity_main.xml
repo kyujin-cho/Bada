@@ -31,6 +31,60 @@
             android:textAppearance="?android:attr/textAppearanceLarge" />
 
         <!--
+          Legacy-WhenVivoMeetsGoogle banner (#145). Hidden by default;
+          MainActivity reveals it only when the migration detector finds
+          a coresident pre-rename install still on the device. The
+          banner is non-dismissible — the legacy install registers a
+          duplicate 0xFEF3 GATT service that defeats the Quick Share
+          slot-redirect, so the user must actually uninstall the old
+          package for off-LAN BLE bootstrap to work. The banner
+          disappears automatically the next time onStart fires after the
+          uninstall completes.
+        -->
+        <LinearLayout
+            android:id="@+id/main_legacy_wvmg_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="?android:attr/colorBackgroundFloating"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/main_legacy_wvmg_banner_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/main_legacy_wvmg_banner_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/main_legacy_wvmg_banner_body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/main_legacy_wvmg_banner_body"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="end"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/main_legacy_wvmg_banner_uninstall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/main_legacy_wvmg_banner_uninstall" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!--
           Battery-optimization banner (#47). Hidden by default so the
           activity does not flicker on launch; MainActivity reveals it
           only when the helper detects the app is not yet exempt and

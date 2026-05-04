@@ -151,6 +151,21 @@
          killers from severing in-flight transfers. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- #145: probe whether a coresident pre-rename WhenVivoMeetsGoogle install
+         is still present so the launcher can warn the user to uninstall it. The
+         old install registers a duplicate `0xFEF3` GATT advertisement service on
+         the same controller, which causes stock Quick Share senders to read the
+         slot from one service but open the BLE socket against another (see
+         issue #145). Package-visibility filtering on API 30+ silently turns
+         `getPackageInfo` into NameNotFoundException for unknown packages, so
+         the detector cannot find the legacy install without this carve-out.
+         The query is by exact package name only and reveals nothing other than
+         "is the legacy WVMG app present?", so the surface stays minimal. -->
+    <queries>
+        <package android:name="io.github.kyujincho.wvmg" />
+        <package android:name="io.github.kyujincho.wvmg.debug" />
+    </queries>
+
     <application
         android:name=".LibreDropApplication"
         android:allowBackup="false"

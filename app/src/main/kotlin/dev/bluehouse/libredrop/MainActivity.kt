@@ -21,6 +21,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import dev.bluehouse.libredrop.battery.BatteryOptimizationOemHelper
 import dev.bluehouse.libredrop.battery.BatteryOptimizationPreferences
+import dev.bluehouse.libredrop.migration.LegacyPackageDetectorAndroid
 import dev.bluehouse.libredrop.onboarding.PermissionRequirements
 import dev.bluehouse.libredrop.onboarding.PermissionsOnboardingActivity
 import dev.bluehouse.libredrop.send.SendActivity
@@ -100,6 +101,15 @@ class MainActivity : AppCompatActivity() {
      */
     private lateinit var saveLocationLauncher: ActivityResultLauncher<Uri?>
 
+    /**
+     * Most recent result of [LegacyPackageDetectorAndroid.findInstalledLegacy].
+     * Captured by [refreshLegacyWvmgBanner] so the Uninstall click
+     * handler does not have to re-probe (which could race with a
+     * partially-completed uninstall and target the wrong variant when
+     * both `wvmg` and `wvmg.debug` are present).
+     */
+    private var legacyPackageInBanner: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -159,6 +169,14 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.main_battery_banner_skip).setOnClickListener {
             onBatteryBannerSkipClicked()
+        }
+
+        // #145 legacy-WhenVivoMeetsGoogle migration banner. The button is
+        // wired in onCreate so it survives configuration changes;
+        // visibility is recomputed in onStart so it disappears the
+        // moment the user comes back from the system uninstall flow.
+        findViewById<Button>(R.id.main_legacy_wvmg_banner_uninstall).setOnClickListener {
+            onLegacyWvmgUninstallClicked()
         }
 
         // Save-location settings (#42). The launcher must be registered
@@ -239,6 +257,13 @@ class MainActivity : AppCompatActivity() {
         // hides automatically the moment the platform reports us as
         // exempt, even if the user never tapped Skip.
         refreshBatteryBanner()
+
+        // Re-evaluate the legacy-WVMG banner on every resume so it
+        // disappears immediately after the user returns from the system
+        // uninstall confirmation. Cheap PackageManager probe — two
+        // entries in the manifest <queries> block, no allocation when
+        // both lookups miss.
+        refreshLegacyWvmgBanner()
 
         // Re-read the save-location preference on every onStart so the
         // label reflects an external change (e.g. the user revoked the
@@ -364,6 +389,48 @@ class MainActivity : AppCompatActivity() {
                 R.string.main_advertised_name_current,
                 AdvertisedDeviceNames.resolve(this),
             )
+    }
+
+    /**
+     * Show or hide the #145 migration banner based on whether a
+     * coresident legacy WhenVivoMeetsGoogle install is still present.
+     * Stores the detected legacy package id in [legacyPackageInBanner]
+     * so the Uninstall button click handler can route directly without
+     * re-running detection (avoids a TOCTOU race where the user
+     * uninstalls one variant while both were detected).
+     */
+    private fun refreshLegacyWvmgBanner() {
+        val legacyPackage = LegacyPackageDetectorAndroid.findInstalledLegacy(this)
+        legacyPackageInBanner = legacyPackage
+        val banner = findViewById<View>(R.id.main_legacy_wvmg_banner)
+        banner.visibility = if (legacyPackage != null) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Open Android's standard uninstall confirmation dialog for the
+     * legacy WhenVivoMeetsGoogle package using `Intent.ACTION_DELETE`.
+     * That action does not need any extra permission and does not
+     * require us to be a device owner — the platform shows its own
+     * confirmation UI before tearing the package down.
+     *
+     * On the rare ROM that has stripped `ACTION_DELETE` (we have not
+     * seen one in the wild on the OEMs we care about), surface a Toast
+     * and let the user uninstall manually rather than crashing the
+     * activity.
+     */
+    private fun onLegacyWvmgUninstallClicked() {
+        val target = legacyPackageInBanner ?: return
+        val intent =
+            Intent(Intent.ACTION_DELETE).apply {
+                data = Uri.fromParts("package", target, null)
+            }
+        try {
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "ACTION_DELETE not resolvable for $target: ${e.message}", e)
+            val message = getString(R.string.main_legacy_wvmg_banner_unavailable, target)
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun onBatteryBannerSkipClicked() {
