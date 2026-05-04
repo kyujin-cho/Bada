@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import dev.bluehouse.libredrop.R
 import dev.bluehouse.libredrop.protocol.connection.TransferItem
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentBroadcastReceiver
+import dev.bluehouse.libredrop.service.receiver.consent.ConsentDiagnostic
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentIntents
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentModalRegistry
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentNotificationContent
@@ -97,6 +98,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_consent_trampoline)
 
+        ConsentDiagnostic.log(this, "trampoline.onCreate intent.id=${incomingId(intent)}")
         bindIntent(intent)
     }
 
@@ -108,8 +110,35 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // the new intent so the right entry shows.
         super.onNewIntent(intent)
         setIntent(intent)
+        ConsentDiagnostic.log(this, "trampoline.onNewIntent intent.id=${incomingId(intent)}")
         bindIntent(intent)
     }
+
+    override fun onStart() {
+        super.onStart()
+        ConsentDiagnostic.log(this, "trampoline.onStart id=$connectionId")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ConsentDiagnostic.log(this, "trampoline.onResume id=$connectionId")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ConsentDiagnostic.log(this, "trampoline.onPause id=$connectionId finishing=$isFinishing")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        ConsentDiagnostic.log(this, "trampoline.onStop id=$connectionId finishing=$isFinishing")
+    }
+
+    private fun incomingId(intent: Intent?): Long =
+        intent?.getLongExtra(
+            ConsentIntents.EXTRA_CONNECTION_ID,
+            ConsentIntents.MISSING_CONNECTION_ID,
+        ) ?: ConsentIntents.MISSING_CONNECTION_ID
 
     private fun bindIntent(intent: Intent?) {
         // Unregister any prior modal binding before adopting the new
@@ -129,12 +158,18 @@ class ConsentTrampolineActivity : AppCompatActivity() {
                 .takeIf { it != ConsentIntents.MISSING_CONNECTION_ID }
                 ?.let { ConsentRegistry.instance.lookup(it) }
 
+        ConsentDiagnostic.log(
+            this,
+            "trampoline.bindIntent id=$connectionId lookup=${if (entry == null) "null" else "present"}",
+        )
+
         if (entry == null) {
             // The notification fired but the underlying connection has
             // already terminated (e.g. the peer cancelled). Show a brief
             // toast and finish — the surface keeps its incoming-call
             // flags so the user is never left staring at a blank lock
             // screen.
+            ConsentDiagnostic.log(this, "trampoline.finish id=$connectionId reason=lookup-null")
             Toast
                 .makeText(this, R.string.consent_dismissed, Toast.LENGTH_SHORT)
                 .show()
@@ -313,10 +348,15 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
     private fun registerModal() {
         if (connectionId == ConsentIntents.MISSING_CONNECTION_ID) return
+        ConsentDiagnostic.log(this, "trampoline.registerModal id=$connectionId")
         ConsentModalRegistry.instance.register(connectionId) {
             // The coordinator asked us to disappear without submitting
             // a decision — typically because LibreDrop is going to the
             // background and the heads-up notification is taking over.
+            ConsentDiagnostic.log(
+                this,
+                "trampoline.dismissCallback id=$connectionId decisionSubmitted=$decisionSubmitted",
+            )
             if (!decisionSubmitted) {
                 runOnUiThread { finish() }
             }
@@ -326,6 +366,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
     private fun unregisterModal() {
         if (!modalRegistered) return
+        ConsentDiagnostic.log(this, "trampoline.unregisterModal id=$connectionId")
         if (connectionId != ConsentIntents.MISSING_CONNECTION_ID) {
             ConsentModalRegistry.instance.unregister(connectionId)
         }

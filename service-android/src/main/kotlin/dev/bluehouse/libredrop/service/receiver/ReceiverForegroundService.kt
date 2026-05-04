@@ -35,6 +35,7 @@ import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
 import dev.bluehouse.libredrop.service.downloads.DownloadsWriterFactory
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentBroadcastReceiver
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentCoordinator
+import dev.bluehouse.libredrop.service.receiver.consent.ConsentDiagnostic
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentIntents
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentModalRegistry
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentNotification
@@ -628,6 +629,7 @@ public class ReceiverForegroundService : Service() {
                 activeConnections = session.activeConnections,
                 results = session.completions,
                 registry = ConsentRegistry.instance,
+                diagnostic = { line -> ConsentDiagnostic.log(ctx, line) },
                 sink =
                     object : ConsentCoordinator.Sink {
                         override fun postConsent(
@@ -700,7 +702,12 @@ public class ReceiverForegroundService : Service() {
      * unavailable.
      */
     private fun launchConsentTrampolineAsModal(connectionId: Long) {
-        val target = consentTrampolineTarget ?: return
+        val target = consentTrampolineTarget
+        if (target == null) {
+            ConsentDiagnostic.log(this, "service.launchModal id=$connectionId target=null skip=true")
+            return
+        }
+        ConsentDiagnostic.log(this, "service.launchModal id=$connectionId target=${target.simpleName}")
         val intent =
             Intent(this, target).apply {
                 action = ConsentIntents.ACTION_SHOW_CONSENT
@@ -721,12 +728,17 @@ public class ReceiverForegroundService : Service() {
             }
         try {
             startActivity(intent)
+            ConsentDiagnostic.log(this, "service.launchModal id=$connectionId startActivity=ok")
         } catch (e: SecurityException) {
             // Vendor builds occasionally restrict background-activity
             // launches even from foreground services. Fall through
             // silently — the heads-up notification path is the
             // documented fallback for exactly this case.
             Log.w(MODAL_TAG, "Could not launch consent trampoline as modal: ${e.message}", e)
+            ConsentDiagnostic.log(
+                this,
+                "service.launchModal id=$connectionId startActivity=SecurityException msg=${e.message}",
+            )
         }
     }
 

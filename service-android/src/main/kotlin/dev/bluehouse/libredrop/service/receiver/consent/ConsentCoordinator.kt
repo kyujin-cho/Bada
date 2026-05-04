@@ -96,6 +96,12 @@ public class ConsentCoordinator(
     private val connectionIdProvider: () -> Long = MonotonicConnectionIds::next,
     private val stateExtractor: (InboundConnection) -> StateFlow<InboundConnectionState> = { it.state },
     private val consentSubmitter: (InboundConnection) -> ((Boolean) -> Unit) = { conn -> conn::submitUserConsent },
+    /**
+     * Best-effort diagnostic appender. Production wires this to
+     * [ConsentDiagnostic.log]; tests leave it as the no-op default so
+     * unit tests never have to provide a real Context.
+     */
+    private val diagnostic: (String) -> Unit = {},
 ) {
     private val idForConnection: MutableMap<InboundConnection, Long> = HashMap()
     private val idLock = Any()
@@ -249,6 +255,9 @@ public class ConsentCoordinator(
             surfaceForId[connectionId] =
                 if (isForeground) Surface.Modal else Surface.Notification
         }
+        diagnostic(
+            "raise id=$connectionId isForeground=$isForeground target=${if (isForeground) "Modal" else "Notification"}",
+        )
         if (isForeground) {
             sink.launchModal(connectionId, entry)
         } else {
@@ -266,11 +275,15 @@ public class ConsentCoordinator(
         val previous =
             synchronized(surfaceLock) {
                 val prior = surfaceForId[connectionId]
-                if (prior == null || prior == Surface.Decided) return
+                if (prior == null || prior == Surface.Decided) {
+                    diagnostic("dismiss id=$connectionId prior=$prior noop=true")
+                    return
+                }
                 surfaceForId[connectionId] = Surface.Decided
                 entryForId.remove(connectionId)
                 prior
             }
+        diagnostic("dismiss id=$connectionId prior=$previous")
         when (previous) {
             Surface.Notification -> sink.dismissConsent(connectionId)
             Surface.Modal -> sink.dismissModal(connectionId)
@@ -306,6 +319,9 @@ public class ConsentCoordinator(
                     }.onEach { (id, _) -> surfaceForId[id] = target }
                     .toList()
             }
+        diagnostic(
+            "onForegroundChanged isForeground=$isForeground target=$target transitions=${transitions.map { it.first }}",
+        )
         for ((id, entry) in transitions) {
             applySurfaceSwitch(id, entry, target)
         }
@@ -323,6 +339,7 @@ public class ConsentCoordinator(
         entry: ConsentRegistry.Entry,
         target: Surface,
     ) {
+        diagnostic("applySurfaceSwitch id=$connectionId target=$target")
         when (target) {
             Surface.Modal -> {
                 sink.dismissConsent(connectionId)
