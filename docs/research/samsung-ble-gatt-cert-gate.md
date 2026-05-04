@@ -2,10 +2,10 @@
 
 **Document type:** Reverse-engineering analysis / interop limitation note
 **Subject:** Samsung One UI 8.x Quick Share BLE GATT acceptance gate (per-peer Weave handler registration)
-**Status:** GMS APK decompilation + on-device empirical verification (16+ test rounds against Galaxy S26 Ultra running stock Quick Share / `com.samsung.android.app.sharelive`)
+**Status:** GMS APK decompilation + on-device empirical verification (18 test rounds against Galaxy S26 Ultra running stock Quick Share / `com.samsung.android.app.sharelive`). Cross-checked against an independent parallel investigation on the same project on 2026-05-01..02 that arrived at the same `No handler registered` symptom from the protocol-timing angle but did not pivot to APK decompilation; this document's cert-gate analysis is unique to it.
 **GMS version analyzed:** `com.google.android.gms@261731035@26.17.31 (260400-906420463)`
-**Companion code:** `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/bootstrap/BleGattInitialControlClient.kt`, `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/ble/BleAdvertisePayload.kt`
-**Last verified:** 2026-05-03
+**Companion code:** `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/bootstrap/BleGattInitialControlClient.kt`, `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/ble/BleAdvertisePayload.kt`, `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/SamsungQuickShareHeuristic.kt`, `app/src/main/kotlin/io/github/kyujincho/wvmg/send/SendBootstrapPlan.kt`, `app/src/main/kotlin/io/github/kyujincho/wvmg/send/SendActivity.kt`
+**Last verified:** 2026-05-04 (post-#142/#144/#146 merge to `main`)
 **Audience:** Future contributors who would otherwise re-walk this loop trying to make WVMG's BLE GATT bootstrap reach a stock Samsung receiver.
 
 > **TL;DR.** WVMG (or any non-GMS app) cannot complete a BLE GATT bootstrap into Samsung One UI's Quick Share receiver. The block is a Google-account-bound `SenderCertificate` lookup that gates per-peer Weave handler registration on the receiver. Without a certificate that Samsung's GMS already has in its `nearby_sharing_sender_certificate_book_*` files, every ATT write to characteristic `00000100-0004-1000-8000-001A11000101` is rejected with `BluetoothGattException: No handler registered for characteristic …`. The gate is cryptographic, not behavioral; protocol-level workarounds do not exist. The same finding is what `rquickshare`/`NearDrop` ran into and bailed on. Samsung is reachable from WVMG via Wi-Fi LAN (mDNS) without this restriction; that is the supported path.
@@ -268,30 +268,66 @@ Both of those are kept in `BleAdvertisePayload`. They are real interop wins that
 
 | Direction | Wi-Fi LAN (mDNS) | BLE GATT |
 |---|---|---|
-| Galaxy → WVMG (vivo as receiver) | ✅ works | ✅ works (WVMG accepts any peer; cert-gate is a Samsung-receiver thing, not on us) |
+| Galaxy → WVMG (vivo as receiver) | ✅ works | ✅ works as of PR #146 (`fix: complete Galaxy to vivo BLE GATT handoff`) — WVMG-as-receiver doesn't enforce a cert gate on incoming peers; the Galaxy-side sender stack completes Weave handshake into our `BleGattInitialControlServer`, then upgrades to Wi-Fi Direct via the `BandwidthUpgrade*` flow. The cert-gate is a Samsung-*receiver* policy, not a Samsung-sender one. |
 | WVMG (vivo) → Galaxy | ✅ works (Galaxy's Wi-Fi LAN acceptance path doesn't enforce the cert gate; mDNS-discovered peers complete the Sharing.Nearby handshake without certificate match) | ❌ blocked by §3–§4 above |
 
 So for the user's sending-from-non-Samsung-to-Samsung case, **Wi-Fi LAN is the supported route**. WVMG's existing implementation handles it. No additional certificate or GMS dependency is required.
 
 ---
 
-## 9. Recommended product behavior
+## 9. Product behavior
 
-In WVMG's peer picker, when a Samsung-class peer (`bleName` containing "Galaxy" / `endpointInfo.deviceName.startsWith("Kyujin's …")`-style markers, or simply: "this peer was discovered via BLE pulse but doesn't have a Wi-Fi LAN route") shows up:
+### Shipped
 
-1. **Try Wi-Fi LAN first.** If available, use it.
-2. **If only BLE-GATT route is available** and the peer is Samsung-class, **don't claim BLE GATT will work**. Either:
-   - Greyed-out / "unavailable" with a hint: *"Samsung Quick Share requires Wi-Fi. Connect both devices to the same Wi-Fi network."* + a `Settings.ACTION_WIFI_SETTINGS` deeplink, or
-   - Allow the user to attempt BLE GATT (for the rare future world where Samsung loosens this), but with a clear disclaimer that it likely won't complete.
-3. If the BLE-GATT bootstrap is attempted and the receiver's first ATT write window elapses without a real CONNECTION_CONFIRM (i.e., no Weave data frame arrives in the next ~5 s after the phantom CONFIRM), **demote the BLE-GATT route and rebroadcast the picker** rather than waiting the full Sharing.Nearby handshake timeout.
+WVMG's peer picker classifies Samsung-class peers via
+`SamsungQuickShareHeuristic.isLikelySamsungReceiver(peer)` — a
+word-boundary-anchored matcher over `EndpointInfo.deviceName` and the
+BLE fast-advertisement display name covering `Galaxy`, `S20`–`S29`,
+`Note 10/20`, `Z Fold`, `Z Flip`, `A`/`M`/`F` series, and `Tab S`. The
+matcher is conservative — `Pixel`, `OnePlus`, `Sony Xperia`, `Xiaomi`,
+`Redmi Note`, `vivo`, `Huawei`, `Oppo` do not match; tests in
+`SamsungQuickShareHeuristicTest.kt` lock both the positive and
+negative cases.
 
-The current implementation in `discovery-android/src/main/kotlin/io/github/kyujincho/wvmg/discovery/bootstrap/BleGattInitialControlClient.kt` correctly **stops trying to bootstrap into Samsung once the handshake times out**, but it does so only after 15 s — long enough for users to assume the app is broken. The mitigation above is a UX patch on top of an architectural reality: BLE GATT to Samsung just doesn't work for non-GMS senders, and the right answer is to tell the user, not to keep retrying.
+When a Samsung-class peer is reachable only via BLE GATT,
+`SendBootstrapPlan` sets `samsungBleGattCaveat = true` and the picker
+subtitle reads `"BLE GATT <mac> — Wi-Fi recommended for Samsung"`. On
+tap, `SendActivity.confirmSamsungBleGattAttempt` raises an
+`AlertDialog` with three buttons:
+
+- **Open Wi-Fi settings** — `startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))`.
+- **Try anyway** — proceeds with the BLE GATT attempt regardless (leaves a door open for the rare environment where the cert match might happen to land, or for future Samsung policy loosening).
+- **Cancel** — dismiss, picker stays up.
+
+Wi-Fi LAN is still tried first when available — the caveat only
+surfaces when BLE GATT is the only direct route the planner could pick
+(mirroring `SendBootstrapPlan.directRoute`'s ordering: LAN → BLE
+L2CAP → BLE GATT → Bluetooth Classic).
+
+### Not shipped (future enhancements considered)
+
+- **Greying out** the Samsung BLE-GATT-only row instead of the
+  confirmation dialog. We picked the dialog because greying-out kills
+  the "Try anyway" affordance without explaining anything; the dialog
+  is the same number of taps but carries the explanation.
+- **Demoting the BLE-GATT route after a fast-fail probe** (e.g., write
+  CONNECTION_REQUEST and abort if no real Weave data frame arrives
+  ~5 s after the phantom CONFIRM, instead of waiting the full
+  15 s `step 2: initial handshake timed out` window). Worth doing as a
+  follow-up if the dialog still leaves users with a long-feeling
+  failure path; current `BleGattInitialControlClient` retains the 15 s
+  timeout (`step 2: initial handshake timed out after 15000ms`).
 
 ---
 
 ## 10. Cross-references
 
-- `BleAdvertisePayload.kt` — the 23-byte FastInitiation pulse format with the byte-3 fix and `secret_id_hash`. Kdoc on that file documents *why* each byte matters (which Samsung empirics it preserves).
-- `BleGattInitialControlClient.kt` — the central-side BLE GATT bootstrap (writes Weave CONNECTION_REQUEST, expects CONFIRM). The `WEAVE_REQUEST_MAX_RETRIES` and post-connect / post-slot grace constants are residue from rounds 1–18 trying to find a timing window; they're harmless for Pixel and the rare working Samsung-edge cases, but they do not help against the Samsung cert gate. Documented in this file for context.
-- `BleGattInitialControlServer.kt` — the receiver-side server. WVMG **does not** enforce a cert gate on incoming peers; this is intentional — WVMG-as-receiver wants to accept anyone, including Samsung senders that *do* have a valid cert chain in their own GMS.
-- `rquickshare`'s README explicitly bails on Samsung BLE GATT with the note "Samsung did something shady". `NearDrop` has no Samsung BLE GATT story. Both projects independently arrived at the same wall via different routes; this document captures *exactly which wall*, so the next contributor doesn't have to.
+- `discovery-android/.../discovery/ble/BleAdvertisePayload.kt` — the 23-byte FastInitiation pulse format with the byte-3 fix and `secret_id_hash`. Kdoc on that file documents *why* each byte matters (which Samsung empirics it preserves).
+- `discovery-android/.../discovery/bootstrap/BleGattInitialControlClient.kt` — the central-side BLE GATT bootstrap (writes Weave CONNECTION_REQUEST, expects CONFIRM). The `WEAVE_REQUEST_MAX_RETRIES` and post-connect / post-slot grace constants are residue from rounds 1–18 trying to find a timing window; they're harmless for Pixel and the rare working Samsung-edge cases, but they do not help against the Samsung cert gate. Documented in this file for context.
+- `discovery-android/.../discovery/bootstrap/BleGattInitialControlServer.kt` — the receiver-side server. WVMG **does not** enforce a cert gate on incoming peers; this is intentional — WVMG-as-receiver wants to accept anyone, including Samsung senders that *do* have a valid cert chain in their own GMS. PR #146 completes the Galaxy → vivo Weave handshake into this server, plus the Wi-Fi Direct upgrade flow that follows.
+- `discovery-android/.../discovery/SamsungQuickShareHeuristic.kt` (+ `SamsungQuickShareHeuristicTest.kt`) — the model-name pattern matcher used to detect Samsung-class peers. The patterns and false-positive guards are defended by tests; update both together when Samsung adds a new model line.
+- `app/.../send/SendBootstrapPlan.kt` — the `samsungBleGattCaveat: Boolean` field on the plan, set when `route is BleGatt && SamsungQuickShareHeuristic.isLikelySamsungReceiver(peer)`. Drives both the picker subtitle and the dialog gate in `SendActivity`.
+- `app/.../send/SendActivity.kt` (`confirmSamsungBleGattAttempt`, `openWifiSettings`, `proceedWithPeer`) — the `AlertDialog` that intercepts taps on Samsung BLE-GATT-only peers, plus the `Settings.ACTION_WIFI_SETTINGS` deeplink.
+- `app/src/main/res/values/strings.xml` — the `send_samsung_ble_warning_*` strings shown in the dialog.
+
+External corroboration: `rquickshare`'s README explicitly bails on Samsung BLE GATT with the note "Samsung did something shady"; `NearDrop` has no Samsung BLE GATT story at all. Both projects independently arrived at the same wall via different paths; this document captures *exactly which wall*, so the next contributor doesn't have to.
