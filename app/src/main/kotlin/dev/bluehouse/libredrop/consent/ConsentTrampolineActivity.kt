@@ -5,6 +5,7 @@
  */
 package dev.bluehouse.libredrop.consent
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -15,8 +16,9 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import dev.bluehouse.libredrop.R
 import dev.bluehouse.libredrop.protocol.connection.TransferItem
+import dev.bluehouse.libredrop.service.receiver.consent.ConsentBroadcastReceiver
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentIntents
-import dev.bluehouse.libredrop.service.receiver.consent.ConsentNotification
+import dev.bluehouse.libredrop.service.receiver.consent.ConsentModalRegistry
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentNotificationContent
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentRegistry
 
@@ -24,6 +26,11 @@ import dev.bluehouse.libredrop.service.receiver.consent.ConsentRegistry
  * Layer 2 of the consent UI (#22): a screen-on, lock-screen-bypassing
  * activity that shows the full transfer details (sender device name,
  * file list with sizes, 4-digit PIN) plus Accept / Reject buttons.
+ *
+ * Also serves as the foreground in-app modal surface added in #151:
+ * when LibreDrop is foregrounded at the moment a `WaitingForUserConsent`
+ * arrives, the [dev.bluehouse.libredrop.service.receiver.consent.ConsentCoordinator]
+ * launches this activity instead of posting a heads-up notification.
  *
  * ### Same UX as an incoming call
  *
@@ -36,13 +43,22 @@ import dev.bluehouse.libredrop.service.receiver.consent.ConsentRegistry
  *
  * ### Routing
  *
- * The activity is launched by the consent notification's `setContentIntent`
- * (and `setFullScreenIntent`) with [ConsentIntents.EXTRA_CONNECTION_ID].
- * On Accept / Reject it submits the decision through the
- * [ConsentRegistry] entry's live `InboundConnection.submitUserConsent` —
- * exactly the path the broadcast receiver uses, so the FSM cannot
- * tell whether the user clicked the notification action or the
- * dialog.
+ * The activity is launched either by:
+ *
+ *  - the consent notification's `setContentIntent` /
+ *    `setFullScreenIntent` (background path, user tapped the heads-up),
+ *    or
+ *  - a programmatic launch from
+ *    [dev.bluehouse.libredrop.service.receiver.consent.ConsentCoordinator]
+ *    when LibreDrop is already foregrounded (issue #151 modal path).
+ *
+ * Both paths pass [ConsentIntents.EXTRA_CONNECTION_ID] and look up the
+ * live [InboundConnection] in [ConsentRegistry]. On Accept / Reject the
+ * activity dispatches a broadcast through
+ * [ConsentBroadcastReceiver]'s action filter — exactly the same path
+ * the heads-up notification's action buttons use — so the inbound FSM
+ * cannot tell which UI surfaced the decision (#151 acceptance
+ * criterion).
  *
  * ### Cancel semantics
  *
@@ -50,13 +66,26 @@ import dev.bluehouse.libredrop.service.receiver.consent.ConsentRegistry
  * route to the same `submitUserConsent(false)` path. Per the issue
  * acceptance criteria, simply dismissing the activity by closing the
  * window does NOT auto-reject — the activity finishes, but the
- * notification remains so the user can still decide. This matches
+ * notification re-raises (handled by the coordinator's
+ * foreground-listener path) so the user can still decide. This matches
  * NearDrop's behaviour where the connection only resolves on an
  * explicit user choice.
+ *
+ * ### Coordinator-driven dismiss
+ *
+ * On `onCreate` the activity registers itself with
+ * [ConsentModalRegistry] under its connection id; on `onDestroy` (or
+ * after submitting a decision) it unregisters. The
+ * [dev.bluehouse.libredrop.service.receiver.consent.ConsentCoordinator]
+ * uses the registry to call [finish] when the user backgrounds
+ * LibreDrop while the modal is up — the modal closes, the coordinator
+ * raises the heads-up notification, and the user can resume from the
+ * shade.
  */
 class ConsentTrampolineActivity : AppCompatActivity() {
     private var connectionId: Long = ConsentIntents.MISSING_CONNECTION_ID
     private var decisionSubmitted: Boolean = false
+    private var modalRegistered: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // setShowWhenLocked / setTurnScreenOn must be called BEFORE
@@ -67,6 +96,27 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         applyIncomingCallFlags()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_consent_trampoline)
+
+        bindIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        // Activity is `singleTask`/`singleTop` style — when a fresh
+        // launch arrives for the same activity instance (e.g. another
+        // pending consent under a different id, or a coordinator
+        // re-launch after the user briefly backgrounded), rebind to
+        // the new intent so the right entry shows.
+        super.onNewIntent(intent)
+        setIntent(intent)
+        bindIntent(intent)
+    }
+
+    private fun bindIntent(intent: Intent?) {
+        // Unregister any prior modal binding before adopting the new
+        // one so a re-launch under a different connection id does not
+        // leak the old finish-callback.
+        unregisterModal()
+        decisionSubmitted = false
 
         connectionId =
             intent?.getLongExtra(
@@ -94,6 +144,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
         renderEntry(entry)
         wireButtons(entry)
+        registerModal()
     }
 
     override fun onDestroy() {
@@ -101,7 +152,9 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // decision (e.g. swipe-back, screen lock), DO NOT auto-reject —
         // the issue's acceptance criteria explicitly call out that
         // dismissal must not be treated as a reject. The notification
-        // continues to live on so the user can still decide.
+        // re-raises through the coordinator's foreground listener so
+        // the user can still decide.
+        unregisterModal()
         super.onDestroy()
     }
 
@@ -227,19 +280,56 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Submit the user's decision by broadcasting a consent intent that
+     * lands in [ConsentBroadcastReceiver] — exactly the same path the
+     * heads-up notification's action buttons use. Routing both paths
+     * through the broadcast receiver guarantees the inbound FSM cannot
+     * tell whether the user clicked the notification action or the
+     * modal button (#151 acceptance: identical bookkeeping for both
+     * surfaces).
+     */
     private fun submit(
-        entry: ConsentRegistry.Entry,
+        @Suppress("UNUSED_PARAMETER") entry: ConsentRegistry.Entry,
         accepted: Boolean,
     ) {
         if (decisionSubmitted) return
         decisionSubmitted = true
-        // Unregister BEFORE submitting so a racing broadcast (the user
-        // managed to tap a notification action a millisecond before
-        // the activity decision) cannot double-submit.
-        ConsentRegistry.instance.unregister(connectionId)
-        entry.connection.submitUserConsent(accepted)
-        ConsentNotification.dismiss(this, connectionId)
+        // Unregister the modal hook BEFORE dispatching the broadcast
+        // so a coordinator-driven dismiss (e.g. the user lost the race
+        // by backgrounding LibreDrop a millisecond too late) cannot
+        // double-finish the activity.
+        unregisterModal()
+        val action = if (accepted) ConsentIntents.ACTION_ACCEPT else ConsentIntents.ACTION_REJECT
+        sendBroadcast(
+            Intent(action).apply {
+                setPackage(packageName)
+                setClass(this@ConsentTrampolineActivity, ConsentBroadcastReceiver::class.java)
+                putExtra(ConsentIntents.EXTRA_CONNECTION_ID, connectionId)
+            },
+        )
         finish()
+    }
+
+    private fun registerModal() {
+        if (connectionId == ConsentIntents.MISSING_CONNECTION_ID) return
+        ConsentModalRegistry.instance.register(connectionId) {
+            // The coordinator asked us to disappear without submitting
+            // a decision — typically because LibreDrop is going to the
+            // background and the heads-up notification is taking over.
+            if (!decisionSubmitted) {
+                runOnUiThread { finish() }
+            }
+        }
+        modalRegistered = true
+    }
+
+    private fun unregisterModal() {
+        if (!modalRegistered) return
+        if (connectionId != ConsentIntents.MISSING_CONNECTION_ID) {
+            ConsentModalRegistry.instance.unregister(connectionId)
+        }
+        modalRegistered = false
     }
 
     private companion object {

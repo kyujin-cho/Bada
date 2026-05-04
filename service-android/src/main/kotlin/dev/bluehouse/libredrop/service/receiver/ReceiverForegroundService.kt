@@ -35,8 +35,12 @@ import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
 import dev.bluehouse.libredrop.service.downloads.DownloadsWriterFactory
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentBroadcastReceiver
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentCoordinator
+import dev.bluehouse.libredrop.service.receiver.consent.ConsentIntents
+import dev.bluehouse.libredrop.service.receiver.consent.ConsentModalRegistry
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentNotification
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentRegistry
+import dev.bluehouse.libredrop.service.receiver.foreground.AppForegroundState
+import dev.bluehouse.libredrop.service.receiver.foreground.ProcessLifecycleOwnerAppForegroundState
 import dev.bluehouse.libredrop.service.receiver.progress.TransferCancelRegistry
 import dev.bluehouse.libredrop.service.receiver.progress.TransferProgressCoordinator
 import dev.bluehouse.libredrop.service.receiver.progress.TransferProgressNotification
@@ -132,6 +136,17 @@ public class ReceiverForegroundService : Service() {
 
     @Volatile
     private var consentReceiver: BroadcastReceiver? = null
+
+    /**
+     * Process-wide foreground/background flag (#151). Lazily
+     * initialised on the main thread the first time the consent
+     * coordinator is wired up — `ProcessLifecycleOwner.get()` requires
+     * its observers to be registered there. The same instance is
+     * reused across coordinator restarts so the listener subscription
+     * stays attached for the lifetime of the service process.
+     */
+    @Volatile
+    private var appForegroundState: AppForegroundState? = null
 
     @Volatile
     private var bleScanner: BleQuickShareScanner? = null
@@ -601,11 +616,13 @@ public class ReceiverForegroundService : Service() {
 
     /**
      * Wire a [ConsentCoordinator] over the session's flows so that
-     * each `WaitingForUserConsent` transition is surfaced as a
-     * heads-up notification posted via [ConsentNotification].
+     * each `WaitingForUserConsent` transition is surfaced through the
+     * appropriate UI: an in-app modal when LibreDrop is foregrounded
+     * (#151) or a heads-up notification when it isn't.
      */
     private fun startConsentCoordinator(session: ReceiverSession) {
         val ctx = applicationContext
+        val foregroundState = obtainAppForegroundState()
         val coordinator =
             ConsentCoordinator(
                 activeConnections = session.activeConnections,
@@ -628,11 +645,89 @@ public class ReceiverForegroundService : Service() {
                         override fun dismissConsent(connectionId: Long) {
                             ConsentNotification.dismiss(ctx, connectionId)
                         }
+
+                        override fun launchModal(
+                            connectionId: Long,
+                            entry: ConsentRegistry.Entry,
+                        ) {
+                            launchConsentTrampolineAsModal(connectionId)
+                        }
+
+                        override fun dismissModal(connectionId: Long) {
+                            ConsentModalRegistry.instance.dismiss(connectionId)
+                        }
                     },
                 scope = serviceScope,
+                appForegroundState = foregroundState,
             )
         coordinator.start()
         consentCoordinator = coordinator
+    }
+
+    /**
+     * Lazily construct the [ProcessLifecycleOwnerAppForegroundState]
+     * adapter on the main thread. Reused across coordinator restarts
+     * so the listener subscription stays attached even if a session is
+     * recycled — the lifecycle-process API does not support detaching
+     * an observer cleanly without the underlying [LifecycleOwner]
+     * cooperating, and the adapter is cheap to keep alive.
+     */
+    private fun obtainAppForegroundState(): AppForegroundState {
+        appForegroundState?.let { return it }
+        val state = AtomicReference<AppForegroundState>()
+        // Construct on the main thread per ProcessLifecycleOwner's
+        // contract. `Service.onStartCommand` already runs on the main
+        // thread so this is normally inline; the marshalling exists
+        // for any future call site that might run on a different
+        // thread.
+        val latch = java.util.concurrent.CountDownLatch(1)
+        runOnMainThread {
+            state.set(ProcessLifecycleOwnerAppForegroundState())
+            latch.countDown()
+        }
+        latch.await()
+        val created = state.get()
+        appForegroundState = created
+        return created
+    }
+
+    /**
+     * Launch the consent trampoline activity (#22) as the foreground
+     * modal surface (#151). No-op when the host application has not
+     * registered a trampoline class — same fallback the notification
+     * path uses, so the user still gets a usable consent surface
+     * (heads-up notification) when only the activity launch is
+     * unavailable.
+     */
+    private fun launchConsentTrampolineAsModal(connectionId: Long) {
+        val target = consentTrampolineTarget ?: return
+        val intent =
+            Intent(this, target).apply {
+                action = ConsentIntents.ACTION_SHOW_CONSENT
+                putExtra(ConsentIntents.EXTRA_CONNECTION_ID, connectionId)
+                // FLAG_ACTIVITY_NEW_TASK is mandatory when launching
+                // an Activity from a non-Activity Context (the
+                // service). FLAG_ACTIVITY_REORDER_TO_FRONT brings an
+                // existing trampoline instance to the top of its task
+                // (in combination with launchMode="singleTop") rather
+                // than creating a duplicate. SINGLE_TOP routes the new
+                // intent through onNewIntent on the existing activity
+                // when one is already alive.
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+            }
+        try {
+            startActivity(intent)
+        } catch (e: SecurityException) {
+            // Vendor builds occasionally restrict background-activity
+            // launches even from foreground services. Fall through
+            // silently — the heads-up notification path is the
+            // documented fallback for exactly this case.
+            Log.w(MODAL_TAG, "Could not launch consent trampoline as modal: ${e.message}", e)
+        }
     }
 
     /**
@@ -741,6 +836,13 @@ public class ReceiverForegroundService : Service() {
         ConsentRegistry.instance.snapshotIds().forEach { id ->
             ConsentRegistry.instance.unregister(id)
             ConsentNotification.dismiss(ctx, id)
+        }
+        // Same hygiene for any in-app modal trampoline activities that
+        // are still alive (#151). Calling dismiss invokes their finish
+        // hook so the user is not left staring at a modal whose
+        // backing connection has been torn down.
+        ConsentModalRegistry.instance.snapshotIds().forEach { id ->
+            ConsentModalRegistry.instance.dismiss(id)
         }
         // Same hygiene for the in-flight progress notifications
         // posted by #46 — a dangling progress card pointing at a
@@ -968,6 +1070,9 @@ public class ReceiverForegroundService : Service() {
         /** logcat tag for the diagnostics line — matches the discovery module. */
         private const val DIAGNOSTICS_TAG: String = "LibreDropDiscovery"
         private const val INBOUND_DIAG_TAG: String = "LibreDropInbound"
+
+        /** logcat tag for the foreground-modal launch path (#151). */
+        private const val MODAL_TAG: String = "LibreDropConsentModal"
     }
 }
 

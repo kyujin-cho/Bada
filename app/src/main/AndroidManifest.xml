@@ -235,12 +235,16 @@
           Consent trampoline (#22) — the screen-on, lock-screen-bypassing
           dialog opened by tapping the consent notification body.
 
-          Launched only by our own consent notification's content
-          PendingIntent (which is package-scoped), so exported=false.
-          The activity is documents-style (singleTask + excludeFromRecents)
-          so multiple in-flight consents do not pollute the recents
-          list — each consent is a transient prompt, not a piece of
-          history the user wants to revisit.
+          Launched by the consent notification's content PendingIntent
+          (background path) and programmatically by ConsentCoordinator
+          when LibreDrop is foregrounded (#151 modal path). Both
+          launches are package-scoped, so exported=false.
+
+          launchMode is `singleTop` so a coordinator-driven re-launch
+          while the activity is already up routes through onNewIntent
+          rather than creating a duplicate. excludeFromRecents keeps
+          consent prompts out of the recents list — each prompt is
+          transient, not history the user wants to revisit.
 
           showOnLockScreen / turnScreenOn are also set programmatically
           on API 27+ via Activity setShowWhenLocked / setTurnScreenOn;
@@ -251,7 +255,7 @@
             android:name=".consent.ConsentTrampolineActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
             android:label="@string/consent_activity_label" />
