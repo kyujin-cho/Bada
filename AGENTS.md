@@ -52,6 +52,9 @@ If a manufacturer's logcat filter swallows the app's `Log.i` output (vivo Funtou
 adb shell cat /sdcard/Android/data/dev.bluehouse.libredrop.debug/files/libredrop-outbound.log
 ```
 
+### Debug Loop
+Debug loop spawns when testing on actual devices are required. Unless user explicitly calls out for, this function won't be executed. For debug loop testing, two android devices will be connected - one with vanila GMS (e.g. Samsung, Pixel, ...) and one without vanila GMS (Oppo, Vivo, ...).Install LibreDrop on the phone without GMS and use adb's UIAutomator/Screen Dump to automate test steps. OriginOS (FuntouchOS) specific: APK installtion step stalling for more than 5 seconds means Vivo's security care feature is blocking the app installtion until explicit consent from the user is made, so in this case use uiautomator to clear the agreement and then continue.
+
 ## Architecture
 
 Five Gradle modules. The split is driven by one hard rule: the protocol implementation must be JVM-testable, so anything that imports `android.*` lives outside `:core-protocol`.
