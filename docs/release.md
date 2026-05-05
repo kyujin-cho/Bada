@@ -1,14 +1,15 @@
 # Release Builds
 
 LibreDrop release builds are produced by `.github/workflows/release.yml`.
-The workflow is separate from normal CI and runs when either:
+The workflow is separate from normal CI and runs when:
 
 - a tag matching `v*` is pushed, such as `v1.2.3`
-- a GitHub Release is published
 
 The workflow builds `:app:assembleRelease` and `:app:bundleRelease`, signs them
 with a keystore supplied through GitHub Actions secrets, and uploads the signed
-APK and AAB as workflow artifacts.
+APK and AAB as workflow artifacts. The decoded keystore lives in
+`$RUNNER_TEMP/release.keystore` for the Gradle step only and is removed before
+artifact upload.
 
 ## Required GitHub Secrets
 

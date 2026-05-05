@@ -1,14 +1,12 @@
 name: Release
 
-# This workflow is intentionally separate from CI. It runs only for release
-# publishing surfaces: version tags that start with "v" and published GitHub
-# Releases. The normal pull-request CI workflow remains unchanged.
+# This workflow is intentionally separate from CI. Tag pushes are the single
+# source of truth for release binaries so we build each version exactly once.
+# The normal pull-request CI workflow remains unchanged.
 on:
   push:
     tags:
       - 'v*'
-  release:
-    types: [published]
 
 permissions:
   contents: read
@@ -30,6 +28,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
 
       - name: Decode release keystore
         env:
@@ -61,11 +61,15 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
 
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "${{ runner.temp }}/release.keystore"
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: libredrop-release-${{ github.ref_name }}
           if-no-files-found: error
           path: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/bundle/release/*.aab
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab

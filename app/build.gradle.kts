@@ -15,7 +15,12 @@ data class ReleaseSigningInputs(
     val keyPassword: String,
 )
 
-fun releaseSigningInputs(): ReleaseSigningInputs? {
+fun isReleaseTaskRequested(): Boolean =
+    gradle.startParameter.taskNames.any { taskName ->
+        taskName.substringAfterLast(':').contains("release", ignoreCase = true)
+    }
+
+fun releaseSigningInputs(releaseTaskRequested: Boolean): ReleaseSigningInputs? {
     fun propertyOrEnvironment(name: String): String? =
         providers
             .gradleProperty(name)
@@ -36,8 +41,11 @@ fun releaseSigningInputs(): ReleaseSigningInputs? {
     }
 
     val missing = values.filterValues { it == null }.keys
-    check(missing.isEmpty()) {
-        "Release signing config is incomplete. Missing: ${missing.joinToString()}"
+    if (missing.isNotEmpty()) {
+        if (releaseTaskRequested) {
+            error("Release signing config is incomplete. Missing: ${missing.joinToString()}")
+        }
+        return null
     }
 
     return ReleaseSigningInputs(
@@ -48,7 +56,7 @@ fun releaseSigningInputs(): ReleaseSigningInputs? {
     )
 }
 
-val releaseSigningInputs = releaseSigningInputs()
+val releaseSigningInputs = releaseSigningInputs(isReleaseTaskRequested())
 
 android {
     namespace = "dev.bluehouse.libredrop"
