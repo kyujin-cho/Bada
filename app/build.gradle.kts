@@ -8,6 +8,48 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+data class ReleaseSigningInputs(
+    val keystoreFile: String,
+    val keystorePassword: String,
+    val keyAlias: String,
+    val keyPassword: String,
+)
+
+fun releaseSigningInputs(): ReleaseSigningInputs? {
+    fun propertyOrEnvironment(name: String): String? =
+        providers
+            .gradleProperty(name)
+            .orElse(providers.environmentVariable(name))
+            .orNull
+            ?.takeIf { it.isNotBlank() }
+
+    val values =
+        mapOf(
+            "KEYSTORE_FILE" to propertyOrEnvironment("KEYSTORE_FILE"),
+            "KEYSTORE_PASSWORD" to propertyOrEnvironment("KEYSTORE_PASSWORD"),
+            "KEY_ALIAS" to propertyOrEnvironment("KEY_ALIAS"),
+            "KEY_PASSWORD" to propertyOrEnvironment("KEY_PASSWORD"),
+        )
+    val present = values.filterValues { it != null }
+    if (present.isEmpty()) {
+        return null
+    }
+
+    val missing = values.filterValues { it == null }.keys
+    check(missing.isEmpty()) {
+        "Release signing config is incomplete. Missing: ${missing.joinToString()}"
+    }
+
+    return ReleaseSigningInputs(
+        keystoreFile = values.getValue("KEYSTORE_FILE")!!,
+        keystorePassword = values.getValue("KEYSTORE_PASSWORD")!!,
+        keyAlias = values.getValue("KEY_ALIAS")!!,
+        keyPassword = values.getValue("KEY_PASSWORD")!!,
+    )
+}
+
+val releaseSigningInputs = releaseSigningInputs()
+
 android {
     namespace = "dev.bluehouse.libredrop"
     compileSdk =
@@ -31,6 +73,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseSigningInputs != null) {
+            create("release") {
+                storeFile = file(releaseSigningInputs.keystoreFile)
+                storePassword = releaseSigningInputs.keystorePassword
+                keyAlias = releaseSigningInputs.keyAlias
+                keyPassword = releaseSigningInputs.keyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -38,6 +91,9 @@ android {
         }
         release {
             isMinifyEnabled = false
+            if (releaseSigningInputs != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

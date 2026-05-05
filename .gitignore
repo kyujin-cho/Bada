@@ -12,6 +12,8 @@ local.properties
 *.ap_
 *.dex
 *.iml
+*.jks
+*.keystore
 captures/
 .externalNativeBuild/
 .cxx/
