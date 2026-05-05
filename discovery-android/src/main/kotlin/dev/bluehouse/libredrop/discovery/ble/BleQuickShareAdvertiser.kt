@@ -636,11 +636,12 @@ public object DefaultPayloadFactory : PayloadFactory {
         endpointId: ByteArray,
         endpointInfo: EndpointInfo,
     ): ByteArray {
-        val gattAdvertisement = BleServiceData.encodeFramed(
-            endpointId = endpointId,
-            endpointInfo = endpointInfo,
-            secondProfile = true,
-        )
+        val gattAdvertisement =
+            BleServiceData.encodeFramed(
+                endpointId = endpointId,
+                endpointInfo = endpointInfo,
+                secondProfile = true,
+            )
         return BleAdvertisementHeader.encodeSingleSlot(
             serviceId = NearbyServiceId.VALUE,
             gattAdvertisement = gattAdvertisement,
