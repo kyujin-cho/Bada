@@ -1253,10 +1253,49 @@ internal class OutboundConnectionDriver(
     ): OutboundResult? {
         val source = file.openChannel()
         var chunkIdx = 0
-        val chunkSize = PayloadTransferEncoder.selectFileChunkSize(file.size)
+        val tierChunkSize = PayloadTransferEncoder.selectFileChunkSize(file.size)
+        val desiredChunkSize =
+            PayloadTransferEncoder.limitAdaptiveFileChunkSizeForTransport(
+                desiredChunkSize = tierChunkSize,
+                maxEncryptedFrameLength = channel.maxOutgoingFrameLength,
+            )
+        val chunkSize =
+            PayloadTransferEncoder.capFileChunkSizeToEncryptedFrameBudget(
+                payloadId = file.payloadId,
+                fileName = file.name,
+                totalSize = file.size,
+                desiredChunkSize = desiredChunkSize,
+                maxEncryptedFrameLength = channel.maxOutgoingFrameLength,
+                lastModifiedTimestampMillis = file.lastModifiedTimestampMillis,
+                parentFolder = file.parentFolder,
+            )
+        val modeledEncryptedFrameLength =
+            PayloadTransferEncoder.modeledEncryptedFrameLengthForChunk(
+                payloadId = file.payloadId,
+                fileName = file.name,
+                totalSize = file.size,
+                bodySize = chunkSize,
+                lastModifiedTimestampMillis = file.lastModifiedTimestampMillis,
+                parentFolder = file.parentFolder,
+            )
         try {
+            if (desiredChunkSize != tierChunkSize) {
+                logger(
+                    "fsm: streamOneFile transport-limited chunkSize=$desiredChunkSize " +
+                        "tierChunkSize=$tierChunkSize frameBudget=${channel.maxOutgoingFrameLength}",
+                )
+            }
+            if (chunkSize != desiredChunkSize) {
+                logger(
+                    "fsm: streamOneFile capped chunkSize=$chunkSize " +
+                        "desiredChunkSize=$desiredChunkSize " +
+                        "frameBudget=${channel.maxOutgoingFrameLength} to fit encrypted frame budget",
+                )
+            }
             logger(
                 "fsm: streamOneFile chunkSize=$chunkSize " +
+                    "frameBudget=${channel.maxOutgoingFrameLength} " +
+                    "modeledEncryptedFrameLength=$modeledEncryptedFrameLength " +
                     "name=${file.name} size=${file.size} payloadId=${file.payloadId}",
             )
             val frames =

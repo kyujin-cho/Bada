@@ -58,11 +58,13 @@ public class FramedConnection(
     private val input: InputStream,
     private val output: OutputStream,
     private val closeAction: () -> Unit,
+    internal val maxOutgoingFrameLength: Int = SANE_FRAME_LENGTH - 1,
 ) : AutoCloseable {
     public constructor(transport: ConnectedTransport) : this(
         input = transport.inputStream,
         output = transport.outputStream,
         closeAction = { transport.close() },
+        maxOutgoingFrameLength = TransportFrameBudget.maxOutgoingFrameLength(transport.medium),
     )
 
     public constructor(socket: Socket) : this(
@@ -86,12 +88,6 @@ public class FramedConnection(
      * particular needs each ClientInit/ServerInit flush to be visible to
      * the peer before the next read).
      *
-     * Note: the outgoing-frame size is **not** checked against
-     * [SANE_FRAME_LENGTH]. The cap exists to bound peer-controlled
-     * allocations on the receive side; on the send side the caller is
-     * already trusted, and Quick Share file payloads are chunked by an
-     * upper layer (`PayloadTransferFrame`) well below this limit.
-     *
      * @throws IOException if the socket write fails or the connection is
      *   already closed.
      */
@@ -104,6 +100,12 @@ public class FramedConnection(
                 // re-buffers — but it avoids two flushes on small frames
                 // (which UKEY2 has many of).
                 val length = bytes.size
+                if (length <= 0 || length > maxOutgoingFrameLength) {
+                    throw OutboundFrameTooLargeException(
+                        actualLength = length,
+                        maxAllowedLength = maxOutgoingFrameLength,
+                    )
+                }
                 val framed = ByteArray(LENGTH_PREFIX_BYTES + length)
                 framed[BYTE_OFFSET_0] = (length ushr BIT_SHIFT_24).toByte()
                 framed[BYTE_OFFSET_1] = (length ushr BIT_SHIFT_16).toByte()
@@ -302,4 +304,17 @@ public class OversizedFrameException(
 ) : IOException(
         "Declared frame length $declaredLength is outside " +
             "1..${FramedConnection.SANE_FRAME_LENGTH - 1}",
+    )
+
+/**
+ * Thrown by [FramedConnection.sendFrame] when the local sender attempts to
+ * write a frame that exceeds the peer-specific ceiling for the active
+ * transport.
+ */
+public class OutboundFrameTooLargeException(
+    public val actualLength: Int,
+    public val maxAllowedLength: Int,
+) : IOException(
+        "Outgoing frame length $actualLength exceeds the transport limit " +
+            "1..$maxAllowedLength",
     )

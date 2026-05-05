@@ -8,9 +8,13 @@ package dev.bluehouse.libredrop.protocol.payload
 import com.google.common.truth.Truth.assertThat
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadChunk
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
+import com.google.protobuf.ByteString
+import dev.bluehouse.libredrop.protocol.crypto.securemessage.SecureMessageCodec
 import dev.bluehouse.libredrop.protocol.transport.FramedConnection
+import dev.bluehouse.libredrop.protocol.transport.TransportFrameBudget
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.io.ByteArrayInputStream
@@ -26,6 +30,10 @@ import kotlin.random.Random
  * [PayloadAssemblerTest].
  */
 class PayloadTransferEncoderTest {
+    private val sizingEncryptKey = ByteArray(SecureMessageCodec.AES_KEY_SIZE)
+    private val sizingHmacKey = ByteArray(SecureMessageCodec.HMAC_KEY_SIZE)
+    private val sizingIv = ByteArray(SecureMessageCodec.IV_SIZE)
+
     @Test
     fun `selectFileChunkSize uses deterministic size tiers below the framed transport cap`() {
         assertThat(PayloadTransferEncoder.selectFileChunkSize(0)).isEqualTo(256 * 1024)
@@ -45,6 +53,70 @@ class PayloadTransferEncoderTest {
         assertThrows<IllegalArgumentException> {
             PayloadTransferEncoder.selectFileChunkSize(-1)
         }
+    }
+
+    @Test
+    fun `limitAdaptiveFileChunkSizeForTransport keeps constrained upgraded links on the safe default chunk size`() {
+        val unconstrained = 2 * 1024 * 1024
+
+        assertThat(
+            PayloadTransferEncoder.limitAdaptiveFileChunkSizeForTransport(
+                desiredChunkSize = unconstrained,
+                maxEncryptedFrameLength = FramedConnection.SANE_FRAME_LENGTH - 1,
+            ),
+        ).isEqualTo(unconstrained)
+
+        assertThat(
+            PayloadTransferEncoder.limitAdaptiveFileChunkSizeForTransport(
+                desiredChunkSize = unconstrained,
+                maxEncryptedFrameLength = TransportFrameBudget.PLAY_SERVICES_UPGRADED_MAX_FRAME_LENGTH,
+            ),
+        ).isEqualTo(PayloadTransferEncoder.DEFAULT_FILE_CHUNK_SIZE)
+    }
+
+    @Test
+    fun `capFileChunkSizeToEncryptedFrameBudget stays below observed Galaxy wifi direct rejects`() {
+        val totalSize = 341_064_318L
+        val desiredChunkSize = PayloadTransferEncoder.selectFileChunkSize(totalSize)
+        assertThat(desiredChunkSize).isEqualTo(2 * 1024 * 1024)
+
+        val cappedChunkSize =
+            PayloadTransferEncoder.capFileChunkSizeToEncryptedFrameBudget(
+                payloadId = 3_481_759_869_812_819_740L,
+                fileName = "Sonos_85.00.23.apk",
+                totalSize = totalSize,
+                desiredChunkSize = desiredChunkSize,
+                maxEncryptedFrameLength = TransportFrameBudget.PLAY_SERVICES_UPGRADED_MAX_FRAME_LENGTH,
+            )
+
+        assertThat(cappedChunkSize).isLessThan(desiredChunkSize)
+        assertThat(cappedChunkSize).isGreaterThan(1024 * 1024)
+
+        val header =
+            PayloadHeader
+                .newBuilder()
+                .setId(3_481_759_869_812_819_740L)
+                .setType(PayloadHeader.PayloadType.FILE)
+                .setTotalSize(totalSize)
+                .setFileName("Sonos_85.00.23.apk")
+                .setParentFolder("")
+                .setLastModifiedTimestampMillis(0L)
+                .setIsSensitive(false)
+                .build()
+        val receiverBudget = TransportFrameBudget.PLAY_SERVICES_UPGRADED_MAX_FRAME_LENGTH
+
+        val oldFrameLength = encryptedFrameLengthForDataChunk(header, desiredChunkSize)
+        val cappedFrameLength = encryptedFrameLengthForDataChunk(header, cappedChunkSize)
+        val firstRejectedLiveChunkFrameLength = encryptedFrameLengthForDataChunk(header, 2_096_969)
+        val laterRejectedLiveChunkFrameLength = encryptedFrameLengthForDataChunk(header, 2_096_953)
+
+        assertThat(oldFrameLength).isGreaterThan(receiverBudget)
+        assertThat(firstRejectedLiveChunkFrameLength).isGreaterThan(receiverBudget)
+        assertThat(laterRejectedLiveChunkFrameLength).isGreaterThan(receiverBudget)
+        assertThat(cappedFrameLength).isAtMost(receiverBudget)
+        assertThat(cappedChunkSize).isLessThan(2_096_921)
+        assertThat(cappedFrameLength).isLessThan(laterRejectedLiveChunkFrameLength)
+        assertThat(encryptedFrameLengthForDataChunk(header, cappedChunkSize + 1)).isGreaterThan(receiverBudget)
     }
 
     @Test
@@ -237,5 +309,47 @@ class PayloadTransferEncoderTest {
         assertThat(header.parentFolder).isEqualTo("Documents")
         assertThat(header.lastModifiedTimestampMillis).isEqualTo(1_700_000_000_000L)
         assertThat(header.type).isEqualTo(PayloadHeader.PayloadType.FILE)
+    }
+
+    private fun encryptedFrameLengthForDataChunk(
+        header: PayloadHeader,
+        bodySize: Int,
+    ): Int {
+        val offset = header.totalSize.coerceAtLeast(bodySize.toLong()) - bodySize.toLong()
+        val frame =
+            OfflineFrame
+                .newBuilder()
+                .setVersion(OfflineFrame.Version.V1)
+                .setV1(
+                    V1Frame
+                        .newBuilder()
+                        .setType(V1Frame.FrameType.PAYLOAD_TRANSFER)
+                        .setPayloadTransfer(
+                            PayloadTransferFrame
+                                .newBuilder()
+                                .setPacketType(PayloadTransferFrame.PacketType.DATA)
+                                .setPayloadHeader(header)
+                                .setPayloadChunk(
+                                    PayloadChunk
+                                        .newBuilder()
+                                        .setFlags(0)
+                                        .setOffset(offset)
+                                        .setBody(ByteString.copyFrom(ByteArray(bodySize)))
+                                        .build(),
+                                ).build(),
+                        ).build(),
+                ).build()
+        val d2dBytes =
+            SecureMessageCodec.wrapDeviceToDeviceMessage(
+                offlineFrame = frame.toByteArray(),
+                sequenceNumber = Int.MAX_VALUE,
+            )
+        return SecureMessageCodec
+            .encryptAndSign(
+                payload = d2dBytes,
+                encryptKey = sizingEncryptKey,
+                hmacKey = sizingHmacKey,
+                iv = sizingIv,
+            ).size
     }
 }

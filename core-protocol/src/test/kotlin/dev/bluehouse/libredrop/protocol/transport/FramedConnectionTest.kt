@@ -83,6 +83,27 @@ class FramedConnectionTest {
         }
 
     @Test
+    fun `sendFrame rejects writes above the configured outbound limit before touching the socket`() =
+        runTest {
+            val (client, server) = connectedSocketPair()
+            val sender =
+                FramedConnection(
+                    input = client.getInputStream(),
+                    output = client.getOutputStream(),
+                    closeAction = { client.close() },
+                    maxOutgoingFrameLength = 8,
+                )
+
+            val ex =
+                assertThrows<OutboundFrameTooLargeException> {
+                    sender.sendFrame(ByteArray(9))
+                }
+            assertThat(ex.actualLength).isEqualTo(9)
+            assertThat(ex.maxAllowedLength).isEqualTo(8)
+            assertThat(server.getInputStream().available()).isEqualTo(0)
+        }
+
+    @Test
     fun `receiveFrame round-trips a payload sent by sendFrame`() =
         runTest {
             val (client, server) = connectedSocketPair()
