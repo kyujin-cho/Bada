@@ -53,13 +53,30 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           chmod 600 "$RUNNER_TEMP/release.keystore"
 
-      - name: Build signed release APK and bundle
+      - name: Build signed release APK
         env:
           KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Resolve signed APK path
+        id: release_apk
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            printf 'Expected exactly one release APK, found %s\n' "${#apks[@]}" >&2
+            printf 'Matches: %s\n' "${apks[*]:-<none>}" >&2
+            exit 1
+          fi
+
+          apk_path="${apks[0]}"
+          apk_name="$(basename "$apk_path")"
+          printf 'apk_path=%s\n' "$apk_path" >> "$GITHUB_OUTPUT"
+          printf 'apk_name=%s\n' "$apk_name" >> "$GITHUB_OUTPUT"
 
       - name: Remove decoded keystore
         if: always()
@@ -68,11 +85,9 @@ jobs:
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: libredrop-release-${{ github.ref_name }}
+          name: ${{ steps.release_apk.outputs.apk_name }}
           if-no-files-found: error
-          path: |
-            app/build/outputs/apk/release/app-release.apk
-            app/build/outputs/bundle/release/app-release.aab
+          path: ${{ steps.release_apk.outputs.apk_path }}
 
       - name: Attach assets to matching GitHub Release
         env:
@@ -85,8 +100,7 @@ jobs:
             if gh release view "$release_tag" --repo "$repo" >/dev/null 2>&1; then
               gh release upload "$release_tag" \
                 --repo "$repo" \
-                app/build/outputs/apk/release/app-release.apk \
-                app/build/outputs/bundle/release/app-release.aab \
+                "${{ steps.release_apk.outputs.apk_path }}" \
                 --clobber
               exit 0
             fi

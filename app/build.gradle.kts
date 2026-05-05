@@ -1,3 +1,5 @@
+import com.android.build.gradle.internal.api.BaseVariantOutputImpl
+
 // :app — Android application module. Empty by design at this stage; the
 // real share intent handling (#24), settings UI, and device list land in
 // later issues. This module's job is to wire :service-android,
@@ -113,6 +115,21 @@ android {
 
     buildFeatures {
         viewBinding = true
+    }
+}
+
+android.applicationVariants.configureEach {
+    if (buildType.name != "release") {
+        return@configureEach
+    }
+
+    val applicationId = applicationId
+    val versionName =
+        mergedFlavor.versionName
+            ?: error("Release APK filename requires a versionName.")
+
+    outputs.configureEach {
+        (this as BaseVariantOutputImpl).outputFileName = "$applicationId-$versionName.apk"
     }
 }
 

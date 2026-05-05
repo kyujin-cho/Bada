@@ -5,10 +5,12 @@ The workflow is separate from normal CI and runs when:
 
 - a tag matching `v*` is pushed, such as `v1.2.3`
 
-The workflow builds `:app:assembleRelease` and `:app:bundleRelease`, signs them
-with a keystore supplied through GitHub Actions secrets, uploads the signed APK
-and AAB as workflow artifacts, and attaches them to a matching GitHub Release
-when one exists for the tag. The decoded keystore lives in
+The workflow builds `:app:assembleRelease`, signs the APK with a keystore
+supplied through GitHub Actions secrets, uploads the signed APK as a workflow
+artifact, and attaches it to a matching GitHub Release when one exists for the
+tag. Release APK filenames come from the Gradle release variant and follow
+`<applicationId>-<versionName>.apk`, for example
+`dev.bluehouse.libredrop-0.1.0-alpha01.apk`. The decoded keystore lives in
 `$RUNNER_TEMP/release.keystore` for the Gradle step only and is removed before
 artifact upload.
 
@@ -64,9 +66,10 @@ Paste the encoded value into the `KEYSTORE_B64` repository secret.
 
 ## Release Assets
 
-The workflow always uploads the signed APK/AAB to the Actions run as a workflow
-artifact. If the tag already has a matching GitHub Release, the workflow also
-attaches the same files to the Release page.
+The workflow always uploads the signed APK to the Actions run as a workflow
+artifact using the same filename as the on-disk release APK. If the tag already
+has a matching GitHub Release, the workflow also attaches that APK to the
+Release page.
 
 ## Local Signed Build
 
