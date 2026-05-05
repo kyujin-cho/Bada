@@ -32,8 +32,6 @@ LibreDrop supports Android 7.0 or newer (`minSdk = 24`).
 
 End users can install the signed release APK from the
 [GitHub Releases page](https://github.com/kyujin-cho/LibreDrop/releases).
-Release assets are published by the release pipeline tracked in
-[#156](https://github.com/kyujin-cho/LibreDrop/issues/156).
 
 1. Open the latest release and download the `.apk` asset.
 2. If Android prompts for it, allow your browser or file manager to install
@@ -41,10 +39,6 @@ Release assets are published by the release pipeline tracked in
    [downloading apps from other sources](https://support.google.com/android/answer/9457058?hl=en)
    covers the stock flow.
 3. Open the downloaded APK and confirm the install prompt.
-
-Release APKs are signed with LibreDrop's release key. Android verifies the
-signature during install and update, and future releases will only install as
-updates if they are signed by the same key.
 
 ### Build from source
 
@@ -93,8 +87,8 @@ To send a whole folder, open LibreDrop and tap **Send folder**.
 | --- | --- |
 | Stock Android Quick Share on Pixel / GMS devices | Shared Wi-Fi LAN is the baseline path. BLE-assisted discovery/bootstrap is covered by the stock Android runbook. |
 | Stock Samsung Quick Share / One UI | Shared Wi-Fi LAN is the baseline path. Recent testing also validated BLE GATT bootstrap into a Galaxy S26 Ultra; read the Samsung note below before interpreting noisy GATT logs. |
-| NearDrop on macOS | Supported over the shared Wi-Fi LAN path; use the NearDrop interop runbook for validation. |
-| Quick Share on Windows | Protocol target; file interop should use the same Quick Share wire protocol, but keep device details in bug reports if behavior differs. |
+| NearDrop on macOS | Not tested |
+| Quick Share on Windows | Not tested |
 
 Networking notes:
 
