@@ -490,6 +490,42 @@ class ReceiverSessionTest {
         }
 
     @Test
+    fun `replaceEndpointInfo can keep initial control active when mDNS republish fails`() =
+        runBlocking {
+            val advertiser = FailingOnAttemptAdvertiser(failOnAttempt = 2)
+            val initialControlServer = RecordingInitialControlServer()
+            val original = sampleEndpointInfo(name = "Old Name")
+            val updated = sampleEndpointInfo(name = "New Name")
+            val session =
+                makeSession(
+                    advertiser = advertiser,
+                    endpointInfo = original,
+                    advertiseGated = true,
+                    initialControlServers = listOf(initialControlServer),
+                )
+
+            session.start()
+            session.publishAdvertisement()
+
+            val replaced =
+                session.replaceEndpointInfo(
+                    endpointInfo = updated,
+                    requireAdvertisement = false,
+                )
+
+            assertThat(replaced).isTrue()
+            assertThat(session.isAdvertising).isFalse()
+            assertThat(initialControlServer.isActive).isTrue()
+            assertThat(initialControlServer.stopCount).isEqualTo(1)
+            assertThat(initialControlServer.startCalls).hasSize(2)
+            assertThat(initialControlServer.startCalls[1].endpointInfo).isEqualTo(updated)
+            assertThat(advertiser.attempts).hasSize(2)
+            assertThat(advertiser.attempts[1].succeeded).isFalse()
+
+            session.stop()
+        }
+
+    @Test
     fun `initial control transports are injected into active connection flow`() =
         runBlocking {
             val initialControlServer = RecordingInitialControlServer()

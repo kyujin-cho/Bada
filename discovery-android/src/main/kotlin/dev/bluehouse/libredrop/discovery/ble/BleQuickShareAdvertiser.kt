@@ -665,6 +665,8 @@ public object DefaultVisiblePayloadFactory : OptionalPayloadFactory {
         if (endpointInfo.hidden || endpointInfo.deviceName == null) return null
         val psm = BleDctPsmHolder.currentPsm
         val activePsm = psm?.takeIf { it != DctAdvertisement.DEFAULT_PSM }
+        // Keep the inner GATT advertisement self-contained. PSM 0 is Nearby's
+        // no-L2CAP sentinel, so the outer extra-field PSM can still be omitted.
         val rxAdvertisement =
             BleAdvertisement.encodeGattAdvertisement(
                 endpointId = endpointId,

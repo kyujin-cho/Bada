@@ -122,17 +122,20 @@ internal object OfflineFrames {
      * @param requestSafeToDisconnect Set the request flag. True for
      *   the happy-path teardown after streaming files and for
      *   cancel/reject cases — receiver still benefits from draining
-     *   buffered bytes before tearing down. The ack-side flag is not
-     *   yet wired up; receiver-side `InboundConnectionDriver` still
-     *   sends the empty default and the contract is not enforced
-     *   when stock Quick Share is the *sender*. Add an
-     *   `ackSafeToDisconnect` parameter when that gap is closed.
+     *   buffered bytes before tearing down.
+     * @param ackSafeToDisconnect Set the acknowledgement flag when the
+     *   peer requested a safe disconnect and this side has drained its
+     *   read pipeline far enough to close cleanly.
      */
-    fun disconnection(requestSafeToDisconnect: Boolean = false): OfflineFrame {
+    fun disconnection(
+        requestSafeToDisconnect: Boolean = false,
+        ackSafeToDisconnect: Boolean = false,
+    ): OfflineFrame {
         val disconnection =
             DisconnectionFrame
                 .newBuilder()
                 .setRequestSafeToDisconnect(requestSafeToDisconnect)
+                .setAckSafeToDisconnect(ackSafeToDisconnect)
                 .build()
         return OfflineFrame
             .newBuilder()

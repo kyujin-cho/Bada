@@ -9,8 +9,10 @@ import com.google.common.truth.Truth.assertThat
 import dev.bluehouse.libredrop.protocol.endpoint.Base64Url
 import dev.bluehouse.libredrop.protocol.endpoint.DeviceType
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
+import kotlinx.coroutines.delay
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -61,6 +63,33 @@ class DiscoveryAdvertiseTest {
 
         assertThat(nsd.publishedNames()).doesNotContain(handle.instanceName)
         assertThat(handle.isActive).isFalse()
+    }
+
+    @Test
+    fun `advertise times out when registrar never confirms registration`() {
+        val discovery =
+            Discovery.forTesting(
+                registrar =
+                    object : NsdRegistrar {
+                        override suspend fun register(
+                            serviceType: String,
+                            instanceName: String,
+                            port: Int,
+                            attributes: Map<String, ByteArray>,
+                        ): NsdRegistrationHandle {
+                            delay(Long.MAX_VALUE)
+                            error("unreachable")
+                        }
+                    },
+                browser = NoopNsdBrowser,
+            )
+
+        val error =
+            assertThrows<IOException> {
+                discovery.advertise(sampleEndpointInfo(), port = 12_345)
+            }
+
+        assertThat(error).hasMessageThat().contains("timed out")
     }
 
     @Test

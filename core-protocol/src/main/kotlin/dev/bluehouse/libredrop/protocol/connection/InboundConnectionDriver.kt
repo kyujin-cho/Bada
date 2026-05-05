@@ -21,6 +21,7 @@ import dev.bluehouse.libredrop.protocol.payload.PayloadEvent
 import dev.bluehouse.libredrop.protocol.payload.PayloadTransferEncoder
 import dev.bluehouse.libredrop.protocol.sharing.InboundSharingFsm
 import dev.bluehouse.libredrop.protocol.sharing.InboundSharingState
+import dev.bluehouse.libredrop.protocol.sharing.SharingFrame
 import dev.bluehouse.libredrop.protocol.sharing.SharingFrameType
 import dev.bluehouse.libredrop.protocol.sharing.SharingFrames
 import dev.bluehouse.libredrop.protocol.sharing.SharingFsmEffect
@@ -491,6 +492,26 @@ internal class InboundConnectionDriver(
         if (frame.isDisconnection()) {
             // Peer is leaving. Treat as completion if every announced
             // item arrived; otherwise as cancel.
+            val disconnection = frame.v1.disconnection
+            logger(
+                "wire: received DISCONNECTION " +
+                    "requestSafe=${disconnection.requestSafeToDisconnect} " +
+                    "ackSafe=${disconnection.ackSafeToDisconnect} " +
+                    "received=${received.size}/${announced.size} " +
+                    "currentPayloadId=$currentItemPayloadId",
+            )
+            if (disconnection.requestSafeToDisconnect) {
+                runCatching {
+                    channel.sendOfflineFrame(
+                        OfflineFrames.disconnection(ackSafeToDisconnect = true),
+                    )
+                }.onFailure { cause ->
+                    logger(
+                        "wire: failed safe-disconnect ack " +
+                            "${cause::class.simpleName}: ${cause.message}",
+                    )
+                }
+            }
             return if (received.size == announced.size && announced.isNotEmpty()) {
                 finalizeCompleted(channel)
             } else {
@@ -565,7 +586,7 @@ internal class InboundConnectionDriver(
         val sharingFrame = SharingFrames.parse(event.data)
         logger(
             "sharing: received ${sharingFrame.v1.type} payloadId=${event.payloadId} " +
-                "bytes=${event.data.size} state=${fsm.state}",
+                "bytes=${event.data.size} state=${fsm.state} ${sharingFrame.summary()}",
         )
         // Disambiguate peer-cancel from local-cancel before applyEffects
         // sees the Cancelled effect — both code paths emit the same FSM
@@ -674,10 +695,16 @@ internal class InboundConnectionDriver(
      */
     private fun handlePeerClosed(): InboundResult =
         if (received.size == announced.size && announced.isNotEmpty()) {
+            logger("wire: peer closed after all payloads arrived received=${received.size}")
             val items = received.toList()
             mutableState.value = InboundConnectionState.Completed(items)
             InboundResult.Completed(items)
         } else {
+            logger(
+                "wire: peer closed before payload completion " +
+                    "received=${received.size}/${announced.size} " +
+                    "currentPayloadId=$currentItemPayloadId",
+            )
             publishCancelled(CancelCause.PEER)
             InboundResult.Cancelled(CancelCause.PEER)
         }
@@ -833,6 +860,33 @@ internal class InboundConnectionDriver(
         mutableState.value = InboundConnectionState.Cancelled(cause)
     }
 
+    @Suppress(
+        "DEPRECATION", // ProgressUpdateFrame is deprecated but still emitted by One UI senders.
+        "ReturnCount", // One return per frame type keeps diagnostic formatting simple.
+    )
+    private fun SharingFrame.summary(): String {
+        val v1 = v1
+        if (v1.type == SharingFrameType.PROGRESS_UPDATE && v1.hasProgressUpdate()) {
+            val progress = v1.progressUpdate
+            return "progress=${progress.progress} startTransfer=${progress.startTransfer}"
+        }
+        if (v1.type == SharingFrameType.INTRODUCTION && v1.hasIntroduction()) {
+            return v1.introduction.fileMetadataList.joinToString(
+                prefix = "files=[",
+                postfix = "]",
+                limit = MAX_LOGGED_INTRODUCTION_ITEMS,
+            ) { file ->
+                "payloadId=${file.payloadId},id=${file.id}," +
+                    "hash=${if (file.hasAttachmentHash()) file.attachmentHash else "absent"}," +
+                    "size=${file.size}"
+            }
+        }
+        if (v1.type == SharingFrameType.RESPONSE && v1.hasConnectionResponse()) {
+            return "response=${v1.connectionResponse.status}"
+        }
+        return ""
+    }
+
     /**
      * Read one length-prefixed [OfflineFrame] from the unencrypted
      * transport and parse it. Used pre-UKEY2 (ConnectionRequest /
@@ -846,6 +900,7 @@ internal class InboundConnectionDriver(
     private companion object {
         private const val INITIAL_FRAME_PROBE_ATTEMPTS = 20
         private const val INITIAL_FRAME_PROBE_DELAY_MILLIS = 10L
+        private const val MAX_LOGGED_INTRODUCTION_ITEMS = 5
         private const val POST_UPGRADE_SHARING_DELAY_MILLIS = 750L
     }
 }

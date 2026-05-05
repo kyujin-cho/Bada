@@ -56,6 +56,18 @@ public typealias ConnectionResponseFrame = Protocol.ConnectionResponseFrame
 /** `ConnectionResponseFrame.Status` (`ACCEPT | REJECT | NOT_ENOUGH_SPACE | ...`). */
 public typealias ConnectionResponseStatus = Protocol.ConnectionResponseFrame.Status
 
+/** Attachment details returned by the receiver in `ConnectionResponseFrame`. */
+public typealias AttachmentDetails = Protocol.AttachmentDetails
+
+/** FILE-specific attachment details returned in `ConnectionResponseFrame`. */
+public typealias FileAttachmentDetails = Protocol.FileAttachmentDetails
+
+/** Nearby payload metadata nested inside `FileAttachmentDetails`. */
+public typealias PayloadDetails = Protocol.PayloadDetails
+
+/** Payload details grouped by attachment hash. */
+public typealias PayloadsDetails = Protocol.PayloadsDetails
+
 /**
  * Builders and (de)serialization helpers for [SharingFrame].
  *
@@ -165,16 +177,61 @@ public object SharingFrames {
      * top-level [SharingFrame]. Used by the receiver FSM to emit
      * accept / reject after user consent.
      */
-    public fun connectionResponse(status: ConnectionResponseStatus): SharingFrame {
-        val response =
+    public fun connectionResponse(
+        status: ConnectionResponseStatus,
+        introduction: IntroductionFrame? = null,
+    ): SharingFrame {
+        val responseBuilder =
             ConnectionResponseFrame
                 .newBuilder()
                 .setStatus(status)
-                .build()
+        if (status == ConnectionResponseStatus.ACCEPT && introduction != null) {
+            addAttachmentDetails(responseBuilder, introduction)
+        }
         return wrapV1(SharingFrameType.RESPONSE) {
-            setConnectionResponse(response)
+            setConnectionResponse(responseBuilder.build())
         }
     }
+
+    private fun addAttachmentDetails(
+        responseBuilder: Protocol.ConnectionResponseFrame.Builder,
+        introduction: IntroductionFrame,
+    ) {
+        for (file in introduction.fileMetadataList) {
+            if (!file.hasAttachmentHash()) continue
+            val attachmentHash = file.attachmentHash
+            responseBuilder.putAttachmentDetails(
+                attachmentHash,
+                fileAttachmentDetails(attachmentHash, file.payloadId, file.size),
+            )
+        }
+    }
+
+    private fun fileAttachmentDetails(
+        attachmentHash: Long,
+        payloadId: Long,
+        size: Long,
+    ): AttachmentDetails =
+        AttachmentDetails
+            .newBuilder()
+            .setType(Protocol.AttachmentDetails.Type.FILE)
+            .setFileAttachmentDetails(
+                FileAttachmentDetails
+                    .newBuilder()
+                    .setReceiverExistingFileSize(0L)
+                    .putAttachmentHashPayloads(
+                        attachmentHash,
+                        PayloadsDetails
+                            .newBuilder()
+                            .addPayloadDetails(
+                                PayloadDetails
+                                    .newBuilder()
+                                    .setId(payloadId)
+                                    .setSize(size)
+                                    .build(),
+                            ).build(),
+                    ).build(),
+            ).build()
 
     /**
      * Build a `Sharing.Nearby.Frame` carrying a CANCEL signal.

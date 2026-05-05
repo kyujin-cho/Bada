@@ -63,6 +63,7 @@ public class InboundSharingFsm(
         private set
 
     private var started: Boolean = false
+    private var pendingIntroduction: IntroductionFrame? = null
 
     /**
      * Drive the FSM to its initial state and produce the first outbound
@@ -233,6 +234,7 @@ public class InboundSharingFsm(
         if (!frame.v1.hasIntroduction()) {
             return protocolError("INTRODUCTION frame missing introduction body")
         }
+        pendingIntroduction = frame.v1.introduction
         state = InboundSharingState.WaitingForUserConsent
         return listOf(SharingFsmEffect.IntroductionReceived(frame.v1.introduction))
     }
@@ -290,7 +292,10 @@ public class InboundSharingFsm(
             state = InboundSharingState.ReceivingPayloads
             listOf(
                 SharingFsmEffect.SendFrame(
-                    SharingFrames.connectionResponse(ConnectionResponseStatus.ACCEPT),
+                    SharingFrames.connectionResponse(
+                        status = ConnectionResponseStatus.ACCEPT,
+                        introduction = pendingIntroduction,
+                    ),
                 ),
                 SharingFsmEffect.ReadyToReceivePayloads,
                 SharingFsmEffect.Completed,

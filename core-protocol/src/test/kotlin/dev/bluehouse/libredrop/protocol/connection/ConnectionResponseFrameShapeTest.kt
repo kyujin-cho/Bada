@@ -48,6 +48,19 @@ class ConnectionResponseFrameShapeTest {
         assertSixFieldShape(OfflineFrames.connectionResponse())
     }
 
+    @Test
+    fun `OfflineFrames disconnection can acknowledge safe disconnect`() {
+        val frame =
+            OfflineFrames.disconnection(
+                requestSafeToDisconnect = false,
+                ackSafeToDisconnect = true,
+            )
+
+        val disconnection = frame.v1.disconnection
+        assertThat(disconnection.requestSafeToDisconnect).isFalse()
+        assertThat(disconnection.ackSafeToDisconnect).isTrue()
+    }
+
     private fun assertSixFieldShape(frame: OfflineFrame) {
         val parsed = OfflineFrame.parseFrom(frame.toByteArray())
 

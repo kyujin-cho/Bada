@@ -121,7 +121,6 @@ import java.util.concurrent.atomic.AtomicReference
  * (see [ReceiverSession]) so the service body remains the only
  * Android-coupled surface.
  */
-@Suppress("TooManyFunctions") // Android service lifecycle and binder entry points stay local to this class.
 public class ReceiverForegroundService : Service() {
     private val serviceJob: Job = SupervisorJob()
     private val serviceScope: CoroutineScope = CoroutineScope(serviceJob + Dispatchers.IO)
@@ -393,7 +392,14 @@ public class ReceiverForegroundService : Service() {
         // transition produces a progress notification.
         startProgressCoordinator(newSession)
         startInboundDiagnosticsLogger(newSession)
-        startReceiverIdentityRotator(newSession)
+        ReceiverIdentityRotator(
+            nextIdentityProvider = { AdvertisedDeviceNames.createEndpointInfo(applicationContext) },
+            bleBroadcasterFactory = { buildBleBroadcaster() },
+            logger = { line ->
+                Log.e(INBOUND_DIAG_TAG, line)
+                appendInboundLog(line)
+            },
+        ).start(serviceScope, newSession)
 
         serviceScope.launch {
             try {
@@ -534,7 +540,7 @@ public class ReceiverForegroundService : Service() {
             override fun start(): Boolean {
                 val endpointInfo =
                     EndpointIdentityHolder.snapshot.get() ?: return false
-                val endpointId = BleEndpointIdHolder.bytesFor(endpointInfo)
+                val endpointId = BleEndpointIdHolder.bytesFor()
                 // BleQuickShareAdvertiser.start re-uses the existing
                 // platform registration when the identity is unchanged,
                 // so re-issuing start() while already advertising is
@@ -606,66 +612,6 @@ public class ReceiverForegroundService : Service() {
                 }
             }
         }
-    }
-
-    /**
-     * Rotate the receiver's advertised BLE/mDNS identity after an inbound
-     * transfer reaches a terminal state.
-     *
-     * Samsung ShareLive caches the off-LAN receiver by its BLE endpoint id /
-     * token after a successful BLE GATT + Wi-Fi Direct handoff. Reusing the
-     * same identity for the next tap can make ShareLive skip the fresh GATT
-     * path and attempt a stale `mosey0` TCP connection directly. Rotating the
-     * endpoint id and EndpointInfo metadata preserves the visible device name
-     * while making the next discovery look like a fresh receiver session.
-     */
-    private fun startReceiverIdentityRotator(session: ReceiverSession) {
-        serviceScope.launch {
-            session.completions.collect {
-                rotateReceiverIdentityAfterInbound(session)
-            }
-        }
-    }
-
-    private fun rotateReceiverIdentityAfterInbound(activeSession: ReceiverSession) {
-        if (!activeSession.isRunning) return
-
-        val previousIdentity = EndpointIdentityHolder.snapshot.get()
-        val previousEndpointId = BleEndpointIdHolder.snapshot()
-        val nextIdentity = AdvertisedDeviceNames.createEndpointInfo(applicationContext)
-
-        val nextEndpointId = BleEndpointIdHolder.rotate()
-        EndpointIdentityHolder.snapshot.set(nextIdentity)
-
-        val wasAdvertising = activeSession.isAdvertising
-        val applied = activeSession.replaceEndpointInfo(nextIdentity)
-        if (applied) {
-            if (activeSession.isAdvertising) {
-                buildBleBroadcaster().start()
-            }
-            Log.e(
-                INBOUND_DIAG_TAG,
-                "identity rotate: endpointId=${nextEndpointId.toAsciiLabel()} wasAdvertising=$wasAdvertising",
-            )
-            appendInboundLog(
-                "identity rotate: endpointId=${nextEndpointId.toAsciiLabel()} wasAdvertising=$wasAdvertising",
-            )
-            return
-        }
-
-        BleEndpointIdHolder.restore(previousEndpointId)
-        EndpointIdentityHolder.snapshot.set(previousIdentity)
-        if (previousIdentity != null) {
-            activeSession.replaceEndpointInfo(previousIdentity)
-            if (wasAdvertising) {
-                runCatching { activeSession.publishAdvertisement() }
-                if (activeSession.isAdvertising) {
-                    buildBleBroadcaster().start()
-                }
-            }
-        }
-        Log.e(INBOUND_DIAG_TAG, "identity rotate: failed, restored previous identity")
-        appendInboundLog("identity rotate: failed, restored previous identity")
     }
 
     private fun appendInboundLog(line: String) {
@@ -1048,14 +994,13 @@ public class ReceiverForegroundService : Service() {
                         ?: AdvertisedDeviceNames.createEndpointInfo(context).also {
                             EndpointIdentityHolder.snapshot.compareAndSet(null, it)
                         }
-                val currentIdentity = { EndpointIdentityHolder.snapshot.get() ?: identity }
                 // Keep one Discovery per session so the periodic
                 // diagnostic snapshot in [startReceiverSession] reflects
                 // the same instance the advertise lambda is using.
                 val discovery =
                     Discovery(
                         context = context,
-                        instanceEndpointIdProvider = { BleEndpointIdHolder.bytesFor(currentIdentity()) },
+                        instanceEndpointIdProvider = { BleEndpointIdHolder.bytesFor() },
                     )
                 ActiveDiscoveryHolder.set(discovery)
                 ReceiverSession(
@@ -1078,7 +1023,7 @@ public class ReceiverForegroundService : Service() {
                             // consent reaches the app.
                             BleGattInitialControlServer(
                                 context = context.applicationContext,
-                                endpointIdProvider = { BleEndpointIdHolder.bytesFor(currentIdentity()) },
+                                endpointIdProvider = { BleEndpointIdHolder.bytesFor() },
                                 publishAdvertisementSlotService = false,
                             ),
                         ),
@@ -1371,29 +1316,51 @@ internal object BleEndpointIdHolder {
     /** The cached 4-byte slug shared by BLE, GATT bootstrap, and mDNS. */
     private val cached: AtomicReference<ByteArray?> = AtomicReference(null)
 
-    fun bytesFor(
-        @Suppress("UNUSED_PARAMETER")
-        endpointInfo: EndpointInfo,
-    ): ByteArray {
-        cached.get()?.let { return it.copyOf() }
+    fun bytesFor(): ByteArray {
+        val existing = staged.get() ?: cached.get()
+        if (existing != null) return existing.copyOf()
         val generated = generate()
-        return if (cached.compareAndSet(null, generated.copyOf())) {
-            generated.copyOf()
-        } else {
-            cached.get()!!.copyOf()
-        }
+        val selected =
+            if (cached.compareAndSet(null, generated.copyOf())) {
+                generated
+            } else {
+                cached.get()!!
+            }
+        return selected.copyOf()
     }
 
     fun snapshot(): ByteArray? = cached.get()?.copyOf()
 
+    fun newCandidate(): ByteArray = generate()
+
+    fun commit(endpointId: ByteArray) {
+        cached.set(endpointId.copyOf())
+    }
+
     fun rotate(): ByteArray {
-        val generated = generate()
-        cached.set(generated.copyOf())
-        return generated.copyOf()
+        val generated = newCandidate()
+        commit(generated)
+        return generated
     }
 
     fun restore(endpointId: ByteArray?) {
         cached.set(endpointId?.copyOf())
+    }
+
+    fun applyCandidate(
+        endpointId: ByteArray,
+        block: () -> Boolean,
+    ): Boolean {
+        val previous = staged.getAndSet(endpointId.copyOf())
+        return try {
+            val applied = block()
+            if (applied) {
+                commit(endpointId)
+            }
+            applied
+        } finally {
+            staged.set(previous)
+        }
     }
 
     private fun generate(): ByteArray {
@@ -1406,10 +1373,13 @@ internal object BleEndpointIdHolder {
 
     fun clear() {
         cached.set(null)
+        staged.set(null)
     }
+
+    private val staged: AtomicReference<ByteArray?> = AtomicReference(null)
 }
 
-private fun ByteArray.toAsciiLabel(): String = String(this, Charsets.US_ASCII)
+internal fun ByteArray.toAsciiLabel(): String = String(this, Charsets.US_ASCII)
 
 /**
  * Process-singleton holder for the receiver's stable [EndpointInfo].

@@ -5,6 +5,7 @@
  */
 package dev.bluehouse.libredrop.protocol.sharing
 
+import com.google.android.gms.nearby.sharing.Protocol
 import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -93,6 +94,44 @@ class SharingFramesTest {
 
         val reject = SharingFrames.connectionResponse(ConnectionResponseStatus.REJECT)
         assertThat(reject.v1.connectionResponse.status).isEqualTo(ConnectionResponseStatus.REJECT)
+    }
+
+    @Test
+    fun `accept connectionResponse mirrors file attachment payload details`() {
+        val attachmentHash = 9_001L
+        val payloadId = 42L
+        val size = 1_024L
+        val introduction =
+            Protocol.IntroductionFrame
+                .newBuilder()
+                .addFileMetadata(
+                    Protocol.FileMetadata
+                        .newBuilder()
+                        .setName("photo.jpg")
+                        .setPayloadId(payloadId)
+                        .setSize(size)
+                        .setAttachmentHash(attachmentHash)
+                        .build(),
+                ).build()
+
+        val responseFrame =
+            SharingFrames.connectionResponse(
+                status = ConnectionResponseStatus.ACCEPT,
+                introduction = introduction,
+            )
+        val response = responseFrame.v1.connectionResponse
+
+        val details = response.getAttachmentDetailsOrThrow(attachmentHash)
+        val fileDetails = details.fileAttachmentDetails
+        val payload =
+            fileDetails
+                .getAttachmentHashPayloadsOrThrow(attachmentHash)
+                .payloadDetailsList
+                .single()
+        assertThat(details.type).isEqualTo(Protocol.AttachmentDetails.Type.FILE)
+        assertThat(fileDetails.receiverExistingFileSize).isEqualTo(0L)
+        assertThat(payload.id).isEqualTo(payloadId)
+        assertThat(payload.size).isEqualTo(size)
     }
 
     @Test

@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.io.IOException
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
@@ -185,6 +187,7 @@ public class Discovery internal constructor(
                     registrar = registrar,
                     networkWatcherFactory = networkWatcherFactory,
                     diagnostics = diagnostics,
+                    registerTimeoutMillis = DEFAULT_ADVERTISE_REGISTER_TIMEOUT_MILLIS,
                     onClose = {
                         diagnostics.setAdvertising(false)
                         diagnostics.setAdvertiseBound(null)
@@ -503,6 +506,8 @@ public class Discovery internal constructor(
             }
             return addresses
         }
+
+        internal const val DEFAULT_ADVERTISE_REGISTER_TIMEOUT_MILLIS: Long = 2_000L
     }
 }
 
@@ -537,6 +542,7 @@ internal class NsdAdvertiseHandle(
     private val registrar: NsdRegistrar,
     networkWatcherFactory: NetworkWatcherFactory,
     private val diagnostics: DiagnosticsState,
+    private val registerTimeoutMillis: Long,
     private val onClose: () -> Unit,
 ) : AdvertiseHandle {
     override val port: Int
@@ -616,12 +622,21 @@ internal class NsdAdvertiseHandle(
             // platform auto-suffixed our name on a previous re-register.
             LocalAdvertisedInstances.unregister(registeredName)
             val handle =
-                runBlocking {
-                    registrar.register(
-                        serviceType = request.serviceType,
-                        instanceName = request.requestedInstanceName,
-                        port = request.port,
-                        attributes = request.attributes,
+                try {
+                    runBlocking {
+                        withTimeout(registerTimeoutMillis) {
+                            registrar.register(
+                                serviceType = request.serviceType,
+                                instanceName = request.requestedInstanceName,
+                                port = request.port,
+                                attributes = request.attributes,
+                            )
+                        }
+                    }
+                } catch (t: kotlinx.coroutines.TimeoutCancellationException) {
+                    throw IOException(
+                        "NsdManager.registerService timed out after ${registerTimeoutMillis}ms",
+                        t,
                     )
                 }
             current = handle

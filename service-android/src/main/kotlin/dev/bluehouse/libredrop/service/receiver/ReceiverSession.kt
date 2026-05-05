@@ -343,8 +343,12 @@ public class ReceiverSession(
      * so active inbound connections keep running under the same session.
      */
     @Suppress("TooGenericExceptionCaught")
-    internal fun replaceEndpointInfo(endpointInfo: EndpointInfo): Boolean =
+    internal fun replaceEndpointInfo(
+        endpointInfo: EndpointInfo,
+        requireAdvertisement: Boolean = true,
+    ): Boolean =
         synchronized(advertiseLock) {
+            val previousEndpointInfo = this.endpointInfo
             this.endpointInfo = endpointInfo
 
             val tcpServer = server
@@ -357,10 +361,19 @@ public class ReceiverSession(
                 stopInitialControlServersLocked()
                 ReceiverAdvertisementStateHolder.setAdvertising(false)
                 runCatching {
-                    publishAdvertisementLocked(tcpServer, tcpServer.boundPort)
+                    publishAdvertisementLocked(
+                        tcpServer = tcpServer,
+                        port = tcpServer.boundPort,
+                        keepInitialControlOnAdvertiseFailure = !requireAdvertisement,
+                    )
                     true
                 }.getOrElse {
-                    false
+                    if (requireAdvertisement) {
+                        this.endpointInfo = previousEndpointInfo
+                        false
+                    } else {
+                        true
+                    }
                 }
             }
         }
@@ -371,6 +384,7 @@ public class ReceiverSession(
     private fun publishAdvertisementLocked(
         tcpServer: TcpReceiverServer,
         port: Int,
+        keepInitialControlOnAdvertiseFailure: Boolean = false,
     ) {
         // Bring up BLE GATT / other initial-control listeners before
         // the mDNS registration call. Some Android builds can leave
@@ -383,7 +397,9 @@ public class ReceiverSession(
             ReceiverAdvertisementStateHolder.setAdvertising(true)
         } catch (t: Throwable) {
             advertiseHandle = null
-            stopInitialControlServersLocked()
+            if (!keepInitialControlOnAdvertiseFailure) {
+                stopInitialControlServersLocked()
+            }
             ReceiverAdvertisementStateHolder.setAdvertising(false)
             throw t
         }
