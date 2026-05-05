@@ -120,6 +120,7 @@ visibility:
   used to live here, preserved verbatim.
 - [Stock Android interop runbook](docs/testing/interop-stock-quick-share-android.md)
 - [NearDrop macOS interop runbook](docs/testing/interop-neardrop-macos.md)
+- [Release builds](docs/release.md)
 - [Research notes](docs/research/)
 - [Agent/contributor guidance](AGENTS.md)
 
