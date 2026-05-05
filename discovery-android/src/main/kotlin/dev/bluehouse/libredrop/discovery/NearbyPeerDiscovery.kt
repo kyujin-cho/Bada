@@ -14,16 +14,18 @@ import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import java.net.InetAddress
 
 /**
  * Aggregates sender-side peer discovery across multiple media.
  *
- * The existing LAN mDNS path remains intact, but its output is merged with
- * Bluetooth Classic Nearby device-name discovery and BLE fast
- * advertisements so the sender UI is no longer hard-wired to
- * [DiscoveredService].
+ * The existing LAN mDNS path remains intact, but its output is merged with BLE
+ * fast advertisements so the sender UI is no longer hard-wired to
+ * [DiscoveredService]. Bluetooth Classic aggregation remains available to
+ * tests and future feature re-enable work, but production user-facing flows do
+ * not start the Classic scanner.
  */
 public class NearbyPeerDiscovery internal constructor(
     private val lanEvents: Flow<DiscoveryEvent>,
@@ -33,7 +35,12 @@ public class NearbyPeerDiscovery internal constructor(
     public constructor(context: Context) : this(
         lanEvents = Discovery(context.applicationContext).browse(),
         bleEvents = BleFastAdvertisementScanner(context.applicationContext).scan(),
-        bluetoothEvents = BluetoothClassicPeerScanner(context.applicationContext).scan(),
+        bluetoothEvents =
+            if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) {
+                BluetoothClassicPeerScanner(context.applicationContext).scan()
+            } else {
+                emptyFlow()
+            },
     )
 
     public fun browse(): Flow<NearbyPeerEvent> =

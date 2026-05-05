@@ -110,7 +110,7 @@ class SendBootstrapPlanTest {
     }
 
     @Test
-    fun `Bluetooth Classic is used when visible BLE GATT bootstrap is unverified`() {
+    fun `Bluetooth Classic candidate is ignored when visible BLE GATT bootstrap is unverified`() {
         val peer =
             peer(
                 bluetoothMac = "11:22:33:44:55:66",
@@ -122,13 +122,11 @@ class SendBootstrapPlanTest {
 
         val plan = SendBootstrapPlan.resolve(peer = peer)
 
-        assertTrue(plan.isConnectable)
-        assertEquals(
-            NearbyPeerRoute.BluetoothClassic("11:22:33:44:55:66"),
-            (plan.action as SendBootstrapPlan.Action.Direct).route,
-        )
-        assertTrue(plan.subtitle.contains("Bluetooth Classic"))
+        assertFalse(plan.isConnectable)
+        assertEquals(SendBootstrapPlan.Action.Unavailable, plan.action)
         assertTrue(plan.rejectedCandidates.contains("ble-gatt=not-verified"))
+        assertTrue(plan.rejectedCandidates.contains("bluetooth-classic=disabled"))
+        assertFalse(plan.failureReason!!.contains("Bluetooth Classic"))
     }
 
     @Test

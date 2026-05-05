@@ -7,6 +7,7 @@ package dev.bluehouse.libredrop.send
 
 import dev.bluehouse.libredrop.discovery.NearbyPeer
 import dev.bluehouse.libredrop.discovery.NearbyPeerRoute
+import dev.bluehouse.libredrop.discovery.UserFacingMediumFeatures
 
 internal data class SendBootstrapPlan(
     val action: Action,
@@ -77,7 +78,7 @@ internal data class SendBootstrapPlan(
             val subtitle =
                 when (route) {
                     is NearbyPeerRoute.Lan -> "Wi-Fi LAN ${route.address.hostAddress}:${route.port}"
-                    is NearbyPeerRoute.BluetoothClassic -> "Bluetooth Classic ${route.macAddress}"
+                    is NearbyPeerRoute.BluetoothClassic -> "Unsupported Bluetooth route"
                     is NearbyPeerRoute.BleL2cap -> "BLE L2CAP ${route.macAddress} psm=${route.psm}"
                     is NearbyPeerRoute.BleGatt -> "BLE GATT ${route.macAddress}"
                 }
@@ -121,7 +122,7 @@ internal data class SendBootstrapPlan(
                     rejectedCandidates += lanRejection(peer)
                     rejectedCandidates += bleL2capRejection(peer)
                     rejectedCandidates += bleGattRejection(peer)
-                    rejectedCandidates += "bluetooth-classic=missing"
+                    rejectedCandidates += bluetoothClassicRejection(peer)
                     null
                 }
             }
@@ -162,9 +163,6 @@ internal data class SendBootstrapPlan(
                 }
                 if (ble != null && blePsm == null && !ble.gattConnectable) {
                     add("receiver BLE GATT bootstrap is not verified")
-                }
-                if (ble != null) {
-                    add("no Bluetooth Classic bootstrap identity")
                 }
                 if (ble != null && peer.endpointInfo?.hidden != false) {
                     add("BLE observation does not confirm a visible receiver")
@@ -236,6 +234,18 @@ internal data class SendBootstrapPlan(
         }
 
         private fun bluetoothRoute(peer: NearbyPeer): NearbyPeerRoute.BluetoothClassic? =
-            peer.bluetoothEndpoint?.let { NearbyPeerRoute.BluetoothClassic(it.macAddress) }
+            if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) {
+                peer.bluetoothEndpoint?.let { NearbyPeerRoute.BluetoothClassic(it.macAddress) }
+            } else {
+                null
+            }
+
+        private fun bluetoothClassicRejection(peer: NearbyPeer): String =
+            when {
+                !UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED ->
+                    "bluetooth-classic=disabled"
+                peer.bluetoothEndpoint == null -> "bluetooth-classic=missing"
+                else -> "bluetooth-classic=unusable"
+            }
     }
 }

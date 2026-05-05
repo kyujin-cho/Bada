@@ -195,16 +195,25 @@ private class BleGattClientTransport(
         }
 
     fun start(): Boolean {
-        val phyMask = BluetoothDevice.PHY_LE_2M_MASK or BluetoothDevice.PHY_LE_1M_MASK
         val opened =
-            device.connectGatt(
-                context,
-                false,
-                this,
-                BluetoothDevice.TRANSPORT_LE,
-                phyMask,
-                mainHandler,
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val phyMask = BluetoothDevice.PHY_LE_2M_MASK or BluetoothDevice.PHY_LE_1M_MASK
+                device.connectGatt(
+                    context,
+                    false,
+                    this,
+                    BluetoothDevice.TRANSPORT_LE,
+                    phyMask,
+                    mainHandler,
+                )
+            } else {
+                device.connectGatt(
+                    context,
+                    false,
+                    this,
+                    BluetoothDevice.TRANSPORT_LE,
+                )
+            }
         gatt = opened
         // Force a GATT cache refresh as soon as the connection is
         // available. Android's BLE stack caches discovered services
