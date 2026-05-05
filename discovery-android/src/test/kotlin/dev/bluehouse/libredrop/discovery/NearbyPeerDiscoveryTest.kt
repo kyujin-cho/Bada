@@ -66,7 +66,7 @@ class NearbyPeerDiscoveryTest {
             val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
             assertThat(seen.filterIsInstance<NearbyPeerEvent.Resolved>()).hasSize(2)
             assertThat(resolved.stableId).isEqualTo("endpoint:ABCD")
-            assertThat(resolved.candidateMediums).containsExactly(Medium.WIFI_LAN, Medium.BLUETOOTH)
+            assertThat(resolved.candidateMediums).containsExactly(Medium.WIFI_LAN)
             assertThat(resolved.preferredRoute()).isEqualTo(
                 NearbyPeerRoute.Lan(
                     address = InetAddress.getByName("192.168.1.44"),
@@ -78,7 +78,7 @@ class NearbyPeerDiscoveryTest {
         }
 
     @Test
-    fun `LAN loss keeps bluetooth-discovered peer alive`() =
+    fun `LAN loss keeps bluetooth-discovered peer alive as unroutable metadata`() =
         runTest {
             val lanEvents = MutableSharedFlow<DiscoveryEvent>()
             val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
@@ -121,16 +121,15 @@ class NearbyPeerDiscoveryTest {
 
             assertThat(seen.filterIsInstance<NearbyPeerEvent.Lost>()).isEmpty()
             val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
-            assertThat(resolved.candidateMediums).containsExactly(Medium.BLUETOOTH)
-            assertThat(resolved.preferredRoute()).isEqualTo(
-                NearbyPeerRoute.BluetoothClassic("11:22:33:44:55:66"),
-            )
+            assertThat(resolved.candidateMediums).isEmpty()
+            assertThat(resolved.bluetoothEndpoint?.macAddress).isEqualTo("11:22:33:44:55:66")
+            assertThat(resolved.preferredRoute()).isNull()
 
             collector.cancel()
         }
 
     @Test
-    fun `BLE fast advertisement merges into bluetooth bootstrap candidate`() =
+    fun `BLE fast advertisement merges with disabled bluetooth metadata`() =
         runTest {
             val lanEvents = MutableSharedFlow<DiscoveryEvent>()
             val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
@@ -170,11 +169,10 @@ class NearbyPeerDiscoveryTest {
             runCurrent()
 
             val resolved = seen.filterIsInstance<NearbyPeerEvent.Resolved>().last().peer
-            assertThat(resolved.candidateMediums).containsExactly(Medium.BLE, Medium.BLUETOOTH)
+            assertThat(resolved.candidateMediums).containsExactly(Medium.BLE)
             assertThat(resolved.bleAdvertisement?.advertiserAddress).isEqualTo("77:88:99:AA:BB:CC")
-            assertThat(resolved.preferredRoute()).isEqualTo(
-                NearbyPeerRoute.BluetoothClassic("66:55:44:33:22:11"),
-            )
+            assertThat(resolved.bluetoothEndpoint?.macAddress).isEqualTo("66:55:44:33:22:11")
+            assertThat(resolved.preferredRoute()).isNull()
 
             collector.cancel()
         }

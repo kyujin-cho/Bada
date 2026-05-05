@@ -17,6 +17,7 @@ import dev.bluehouse.libredrop.R
 import dev.bluehouse.libredrop.databinding.ActivitySendBinding
 import dev.bluehouse.libredrop.discovery.NearbyPeer
 import dev.bluehouse.libredrop.discovery.NearbyPeerRoute
+import dev.bluehouse.libredrop.discovery.UserFacingMediumFeatures
 import dev.bluehouse.libredrop.discovery.bootstrap.BleGattInitialControlClient
 import dev.bluehouse.libredrop.discovery.bootstrap.BleGattInitialControlServer
 import dev.bluehouse.libredrop.discovery.bootstrap.BleL2capInitialControlClient
@@ -193,6 +194,7 @@ public class SendActivity : AppCompatActivity() {
                     logger = ::logOutboundWireMessage,
                 )
             is NearbyPeerRoute.BluetoothClassic -> {
+                if (!UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) return null
                 val client = BluetoothClassicBootstrapClient(applicationContext)
                 bluetoothBootstrapClient = client
                 val transport =

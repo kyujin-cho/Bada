@@ -102,11 +102,11 @@
 
     <!-- BLUETOOTH_CONNECT (API 31+, Phase 4 Bluetooth transports). -->
     <string name="permission_bluetooth_connect_title">Bluetooth connections</string>
-    <string name="permission_bluetooth_connect_rationale">Used to accept and open Bluetooth peer-to-peer links when the two devices cannot reach each other over the current Wi-Fi network. Transfers still use Quick Share encryption.</string>
+    <string name="permission_bluetooth_connect_rationale">Used to open Bluetooth Low Energy direct links and read Bluetooth adapter state for nearby Quick Share discovery. Transfers still use Quick Share encryption.</string>
 
     <!-- ACCESS_FINE_LOCATION (API 24-30, legacy nearby-device discovery). -->
     <string name="permission_legacy_nearby_location_title">Nearby device location access</string>
-    <string name="permission_legacy_nearby_location_rationale">Android 11 and lower route Bluetooth device discovery and BLE scan results through the location permission. LibreDrop uses it only to discover nearby Quick Share devices; it does not use your physical location.</string>
+    <string name="permission_legacy_nearby_location_rationale">Android 11 and lower route Bluetooth Low Energy scan results through the location permission. LibreDrop uses it only to discover nearby Quick Share devices; it does not use your physical location.</string>
 
     <!-- Permission status labels. -->
     <string name="permission_status_granted">Granted</string>

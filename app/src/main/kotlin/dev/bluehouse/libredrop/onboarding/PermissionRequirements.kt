@@ -27,8 +27,8 @@ import dev.bluehouse.libredrop.R
  *
  * Runtime permissions are gated by API level:
  *   * `ACCESS_FINE_LOCATION` is required on Android 11 and lower for
- *     Bluetooth discovery / BLE scans; older platform releases route
- *     nearby-device discovery through the location runtime permission.
+ *     Bluetooth Low Energy scans; older platform releases route nearby-device
+ *     discovery through the location runtime permission.
  *   * `NEARBY_WIFI_DEVICES` and `POST_NOTIFICATIONS` only exist on API 33+.
  *   * `BLUETOOTH_ADVERTISE`, `BLUETOOTH_SCAN`, and `BLUETOOTH_CONNECT` only
  *     exist on API 31+ — on API ≤ 30 the legacy install-time
@@ -42,7 +42,7 @@ import dev.bluehouse.libredrop.R
  *     without it Phase 1 cannot run mDNS discovery at all.
  *   * Optional denials let the app run in a degraded mode. Today that
  *     means missing notifications (silent transfers) or missing nearby
- *     Bluetooth / off-LAN discovery.
+ *     BLE / off-LAN discovery.
  *
  * Onboarding is allowed to complete with optional-only denials; the
  * service-start gate re-checks at runtime so the user can grant later
@@ -173,8 +173,8 @@ internal object PermissionRequirements {
 
     /**
      * True when the only outstanding permissions are non-blocking ones
-     * (`POST_NOTIFICATIONS`, nearby Bluetooth/off-LAN discovery, and
-     * the BLE permissions). The service can run in degraded mode in
+     * (`POST_NOTIFICATIONS`, nearby BLE/off-LAN discovery, and the BLE
+     * permissions). The service can run in degraded mode in
      * that case — see issue #26 / #31 acceptance criteria. Returns
      * false when no permissions are missing (use [allGranted] to detect
      * that case).

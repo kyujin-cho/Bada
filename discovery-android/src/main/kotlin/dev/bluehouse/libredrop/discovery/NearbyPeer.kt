@@ -16,9 +16,10 @@ import java.net.InetAddress
  * surface.
  *
  * A peer can be discovered by one or more mediums at the same time:
- * Wi-Fi LAN mDNS, Bluetooth Classic device-name discovery, and BLE fast
- * advertisements. The sender UI and bootstrap path consume this model
- * instead of directly binding themselves to [DiscoveredService].
+ * Wi-Fi LAN mDNS and BLE fast advertisements. Bluetooth Classic fields remain
+ * represented for tests and future feature re-enable work, but normal
+ * user-facing route selection hides them while
+ * [UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED] is false.
  */
 public data class NearbyPeer(
     val stableId: String,
@@ -38,7 +39,12 @@ public data class NearbyPeer(
         get() =
             buildSet {
                 if (lanEndpoint != null) add(Medium.WIFI_LAN)
-                if (bluetoothEndpoint != null) add(Medium.BLUETOOTH)
+                if (
+                    bluetoothEndpoint != null &&
+                    UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED
+                ) {
+                    add(Medium.BLUETOOTH)
+                }
                 if (bleAdvertisement != null) {
                     add(Medium.BLE)
                     if (bleAdvertisement.l2capPsm != null) add(Medium.BLE_L2CAP)
@@ -58,8 +64,7 @@ public data class NearbyPeer(
      * BLE receiver without a PSM is only a GATT bootstrap candidate after
      * the GATT advertisement-slot probe verifies the service; header-only,
      * hidden, and raw scan-result-only BLE observations remain discovery
-     * metadata until another route confirms a transport. Bluetooth Classic
-     * remains only a last fallback for peers that still expose it.
+     * metadata until another route confirms a transport.
      */
     public fun preferredRoute(): NearbyPeerRoute? {
         val lan = lanEndpoint
@@ -79,9 +84,11 @@ public data class NearbyPeer(
         if (bleAddress != null && ble.gattConnectable && endpointInfo?.hidden == false) {
             return NearbyPeerRoute.BleGatt(macAddress = bleAddress)
         }
-        val bluetooth = bluetoothEndpoint
-        if (bluetooth != null) {
-            return NearbyPeerRoute.BluetoothClassic(bluetooth.macAddress)
+        if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) {
+            val bluetooth = bluetoothEndpoint
+            if (bluetooth != null) {
+                return NearbyPeerRoute.BluetoothClassic(bluetooth.macAddress)
+            }
         }
         return null
     }
@@ -137,8 +144,7 @@ public data class NearbyPeer(
 
     /**
      * BLE fast-advertisement candidate. Observation-only today; useful for
-     * dedupe/aggregation even when Bluetooth Classic provides the actual
-     * initial-control path.
+     * dedupe/aggregation across LAN and BLE discovery surfaces.
      */
     public data class BleAdvertisement(
         val advertiserAddress: String?,
