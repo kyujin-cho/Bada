@@ -9,6 +9,7 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Payl
 import java.nio.channels.SeekableByteChannel
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.nio.file.StandardOpenOption
 
 /**
@@ -197,7 +198,11 @@ public class TempFileDestinationFactory(
         )
     }
 
-    private fun defaultDir(): Path = Path.of(System.getProperty("java.io.tmpdir"), "libredrop-payload-receive")
+    private fun defaultDir(): Path =
+        Paths.get(
+            System.getProperty("java.io.tmpdir"),
+            "libredrop-payload-receive",
+        )
 
     private fun sanitize(name: String): String = name.map { ch -> if (isSafeFileChar(ch)) ch else '_' }.joinToString("")
 

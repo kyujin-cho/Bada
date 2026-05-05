@@ -213,7 +213,7 @@ internal object Ukey2KeyEncoding {
         }
 
         // y^2 mod p
-        val lhs = y.modPow(BigInteger.TWO, p)
+        val lhs = y.modPow(BIG_INTEGER_TWO, p)
         // x^3 + a*x + b mod p
         val rhs =
             x
@@ -331,6 +331,7 @@ internal object Ukey2KeyEncoding {
 
     private const val BYTE_MASK = 0xFF
     private const val HEX_RADIX = 16
+    private val BIG_INTEGER_TWO: BigInteger = BigInteger.valueOf(2L)
 
     /** Exponent in the Weierstrass curve equation `y^2 = x^3 + a*x + b`. */
     private const val CURVE_EQ_X_EXPONENT: Long = 3

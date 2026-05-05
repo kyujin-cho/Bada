@@ -35,6 +35,11 @@ jobs:
       - name: Run :core-protocol JVM tests
         run: ./gradlew :core-protocol:test --stacktrace
 
+      - name: Check :core-protocol Android API 29 compatibility
+        run: |
+          ./gradlew :core-protocol:jar --stacktrace
+          ./scripts/check-core-protocol-android-api29-compat.sh
+
       - name: Run :discovery-android JVM unit tests
         run: ./gradlew :discovery-android:testDebugUnitTest --stacktrace
 
