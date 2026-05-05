@@ -1,174 +1,154 @@
 # LibreDrop
 
-A standalone Android port of the **Google Quick Share / Nearby Share** protocol,
-modeled on [NearDrop](https://github.com/grishka/NearDrop) by @grishka. The
-goal is to send and receive files between this app and any existing Quick
-Share peer (stock Android Quick Share, NearDrop on macOS, Quick Share on
-Windows) **without depending on Google Play Services** for the protocol
-logic.
+LibreDrop is an Android app for sending and receiving files with **Quick
+Share / Nearby Share** peers without using Google Play Services for the
+protocol implementation.
 
-> Apple-side interop (AirDrop, AWDL, iPhone discovery) is explicitly out of
-> scope.
+It targets interop with stock Android Quick Share, NearDrop on macOS, and
+Quick Share on Windows. AirDrop, AWDL, iPhone discovery, and Apple-side
+interop are out of scope.
 
-## Module layout
+<img src="docs/assets/receive-ui.png" alt="LibreDrop receive UI screenshot" width="360">
 
-```
-:app                  UI, share intents, settings (Android application)
-:service-android      ForegroundService, notifications, MediaStore writes
-:discovery-android    NsdManager wrappers, BLE advertise/scan, Bluetooth Classic bootstrap
-:core-protocol        Pure-Kotlin protocol implementation (no Android deps)
-:core-protocol-test   KAT vectors, fixtures
-```
+## What It Does
 
-`:core-protocol` is a plain Kotlin/JVM module that depends only on
-`kotlinx.coroutines`, `protobuf-javalite`, and the JCE/JDK. It must never
-import anything from `android.*`. This split keeps the protocol
-unit-testable on the JVM — essential because the cipher suites and framing
-have hundreds of edge cases that need KAT coverage.
+- Receives files from nearby Quick Share senders and saves them to Downloads,
+  or to a folder you choose in the app.
+- Sends files from Android's system share sheet to nearby Quick Share peers.
+- Sends folders from the app's **Send folder** button while preserving the
+  folder layout on the receiver.
+- Shows the same 4-digit confirmation PIN flow users expect from Quick Share.
+- Lets you choose the advertised Quick Share device name shown to senders.
 
-### `:core-protocol` package map
+LibreDrop is still an early project. Phase 1 Wi-Fi LAN parity with NearDrop is
+complete, and current builds include BLE-assisted discovery/bootstrap work for
+stock Android peers.
 
-- **`...protocol.transport`** — `FramedConnection`, the length-prefixed TCP
-  framing that is the lowest layer of the Quick Share transport.
-- **`...protocol.ukey2`** — `Ukey2Client` / `Ukey2Server` implementing the
-  P256_SHA512 key-exchange handshake over `FramedConnection`.
-- **`...protocol.crypto`** — `Hkdf` (HKDF-SHA256, implemented directly on
-  `javax.crypto.Mac("HmacSHA256")` to avoid Tink's transitive
-  `protobuf-java` clashing with `protobuf-javalite` on Android) and
-  `D2DKeyDerivation` / `D2DSessionKeys` (the post-handshake chain that
-  derives the four AES-256 / HMAC-SHA256 traffic keys, locked down by KAT
-  vectors in `:core-protocol-test`).
-- **`...protocol.crypto.securemessage`** — `SecureMessageCodec` (stateless
-  AES-256-CBC + HMAC-SHA256 envelope primitive) and `SecureChannel`
-  (per-connection wrapper around `FramedConnection` that reads and writes
-  `OfflineFrame` protos with pre-incremented sequence numbers and
-  HMAC-before-decrypt order).
-- **`...protocol.payload`** — `PayloadAssembler` reassembles
-  `PayloadTransferFrame` chunks into BYTES and FILE payloads, validating
-  per-`payload_id` offsets and tolerating Android's "two-frame" quirk on
-  receive. FILE bytes stream through a caller-supplied
-  `FileDestinationFactory` (the Android wiring substitutes a `MediaStore`
-  content-URI factory at this seam). `PayloadTransferEncoder` emits the
-  same shape on send for both payload types: data chunks with `flags=0`
-  followed by a dedicated empty `LAST_CHUNK` terminator at
-  `offset=totalSize`. Samsung One UI 7+ requires the split terminator for
-  FILE payloads; fusing it into the last data chunk causes silent
-  discard on the receiver.
-- **`...protocol.connection`** — `InboundConnection` ties everything
-  together: accepts a TCP connection, runs UKEY2, derives the
-  `D2DSessionKeys` with the correct role swap, drives the
-  `InboundSharingFsm` through user consent, streams payloads through the
-  assembler, and signals completion via `Disconnection`. Public surface is
-  a coroutine-based `suspend fun run(factory)`, a
-  `StateFlow<InboundConnectionState>` for UI observation, and a
-  thread-safe `submitUserConsent(accepted)` / `cancel()` pair. The same
-  module surfaces the `TransferMetadata` (filenames, sizes, MIME types,
-  4-digit confirmation PIN derived from the UKEY2 `authString`) that the
-  consent UI renders.
+## Install
 
-### Android wiring (`:service-android`)
-
-`ReceiverForegroundService` (foreground-service type `connectedDevice`)
-brings the stack online: it acquires the Wi-Fi `MulticastLock`, binds the
-`TcpReceiverServer` accept loop on an ephemeral port, registers the
-`Discovery.advertise` mDNS record against that port, and supplies a fresh
-`MediaStoreDownloadsFactory` per accepted connection so the per-payload
-`IS_PENDING` state never bleeds across transfers. The bulk of the
-lifecycle logic lives in a pure-JVM `ReceiverSession` helper that the
-`Service` only thinly wraps, keeping the start/stop/error-rollback paths
-exhaustively unit-testable without Robolectric.
-
-The launcher also exposes a persisted "Advertised Quick Share name"
-override for the receiver. When unset, LibreDrop resolves the advertised
-name from Android's device-name chain (`Settings.Global.DEVICE_NAME` on
-API 25+, then the Bluetooth adapter name when it is safely readable,
-then `Build.MODEL`, then the app label) and clamps the final
-`EndpointInfo.deviceName` to 19 UTF-8 bytes to avoid stock Quick Share
-interop regressions with longer names.
-
-## Toolchain
-
-| Component       | Version |
-|-----------------|---------|
-| Kotlin          | 2.1.x   |
-| AGP             | 8.7.x   |
-| Gradle          | 8.10.x  |
-| JDK toolchain   | 17      |
-| `compileSdk`    | 36      |
-| `targetSdk`     | 36      |
-| `minSdk`        | 24      |
-
-`minSdk = 24` (Android 7.0) covers ~98% of devices and avoids the JCE/socket
-awkwardness present on older releases.
-
-Static analysis is wired up out of the box via
-[ktlint](https://github.com/JLLeitschuh/ktlint-gradle) and
-[detekt](https://detekt.dev/). Both run under `./gradlew check`.
-
-## Build & test
+There is not yet a packaged store release. Build and sideload the debug APK:
 
 ```bash
-# Build a debug APK (acceptance criterion for issue #5).
 ./gradlew :app:assembleDebug
-
-# Run :core-protocol tests on plain JVM — no emulator required.
-./gradlew :core-protocol:test
-
-# Lint + style + tests across the whole project.
-./gradlew check
-
-# Run ktlint and detekt explicitly.
-./gradlew staticAnalysis
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Testing
+Requirements:
 
-Manual interop runbooks (markdown checklists) live under
-[`docs/testing/`](docs/testing/):
+- Android 7.0 or newer (`minSdk = 24`).
+- JDK 17 and an Android SDK when building from source.
+- Wi-Fi and Bluetooth enabled for the best interop coverage.
 
-- [NearDrop on macOS interop checklist](docs/testing/interop-neardrop-macos.md)
-  — start here when verifying end-to-end behavior against the reference
-  implementation.
-- [Stock Android Quick Share interop](docs/testing/interop-stock-quick-share-android.md)
-  — Pixel (clean GMS) and Samsung (One UI) coverage.
+The debug package id is `dev.bluehouse.libredrop.debug`; release builds use
+`dev.bluehouse.libredrop`.
 
-## Status
+## Use It
 
-Phase 1 is complete. Track the
-[Phase 1 epic](https://github.com/kyujin-cho/LibreDrop/issues/1)
-for the full sub-issue list and merged PRs.
+### Receive
 
-## Networking requirements
+1. Open LibreDrop and grant the requested permissions.
+2. Leave the receiver service running. The persistent notification shows the
+   Wi-Fi network LibreDrop is receiving on.
+3. Use **Always visible** when you want other devices to see this phone even
+   when no sender pulse is active.
+4. Keep the default save location, or choose another folder from **Save
+   received files to**.
+5. When a sender starts a transfer, compare the PIN and tap **Accept**.
 
-Shared Wi-Fi remains the baseline Quick Share path, but sender-side
-bootstrap is no longer limited to pure LAN discovery:
+Received files are written to the selected folder. The default is the system
+Downloads folder.
 
-- **LibreDrop sender -> stock Quick Share receiver** can start either from the
-  shared-LAN mDNS path or from a nearby Bluetooth-assisted bootstrap path
-  when the devices are off-LAN. For the off-LAN path, keep Bluetooth on
-  at both ends and use the stock peer's visible-to-everyone mode.
-- **Stock Quick Share sender -> LibreDrop receiver** still depends on the
-  shared-LAN receiver discovery path today, so keep the devices on the
-  same Wi-Fi network for that direction.
-- For the shared-LAN regression path, both devices must be on the same
-  Wi-Fi network and on the same VLAN. mDNS multicasts
-  (`_FC9F5ED42C8A._tcp.local.`) do not cross routed subnets, so a
-  typical "Guest" SSID will silently break discovery.
-- The Wi-Fi network must permit IPv4 multicast / mDNS traffic. Some
-  enterprise APs drop multicast frames by default.
-- AP isolation / "client isolation" must be off on the access point.
-- The stock-device interop matrix and current manual validation checklist
-  live in [docs/testing/interop-stock-quick-share-android.md](docs/testing/interop-stock-quick-share-android.md).
+### Send
 
-The receiver's persistent notification surfaces the current Wi-Fi SSID
-(`Receiving on "<SSID>"`) so you can verify both ends match without
-leaving the app.
+1. Share a file from any Android app and choose **Send via Quick Share**.
+2. Wait for a nearby peer row to appear.
+3. Tap the peer, compare the PIN, and complete the transfer.
 
-## Reference material
+To send a whole folder, open LibreDrop and tap **Send folder**.
+
+## Compatibility
+
+| Peer | Current expectation |
+| --- | --- |
+| Stock Android Quick Share on Pixel / GMS devices | Shared Wi-Fi LAN is the baseline path. BLE-assisted discovery/bootstrap is covered by the stock Android runbook. |
+| Stock Samsung Quick Share / One UI | Shared Wi-Fi LAN is the baseline path. Recent testing also validated BLE GATT bootstrap into a Galaxy S26 Ultra; read the Samsung note below before interpreting noisy GATT logs. |
+| NearDrop on macOS | Supported over the shared Wi-Fi LAN path; use the NearDrop interop runbook for validation. |
+| Quick Share on Windows | Protocol target; file interop should use the same Quick Share wire protocol, but keep device details in bug reports if behavior differs. |
+
+Networking notes:
+
+- Shared Wi-Fi means the same SSID/VLAN with mDNS multicast allowed.
+- Guest Wi-Fi, client isolation, routed VLANs, or enterprise multicast
+  filtering can make peers disappear.
+- Bluetooth Classic/RFCOMM is intentionally not exposed in user-facing flows.
+
+Samsung BLE GATT note:
+
+- Earlier research described a possible Samsung certificate gate, but live
+  testing on May 5, 2026 contradicted the absolute limitation. See
+  [`docs/research/samsung-ble-gatt-cert-gate.md`](docs/research/samsung-ble-gatt-cert-gate.md)
+  and
+  [`docs/research/samsung-ble-gatt-limitation-rebuttal.md`](docs/research/samsung-ble-gatt-limitation-rebuttal.md).
+- Treat Samsung `No handler registered` BLE logs as diagnostic noise unless
+  they correlate with lack of UI or protocol progress.
+
+## Permissions
+
+LibreDrop asks only for permissions tied to receiving, discovery, and transfer
+visibility:
+
+- **Nearby Wi-Fi devices**: discovers and advertises Quick Share peers on the
+  local network.
+- **Bluetooth advertise / scan**: sends and listens for BLE pulses used by
+  nearby Quick Share discovery.
+- **Bluetooth connect**: opens BLE direct links and reads Bluetooth adapter
+  state needed by nearby discovery.
+- **Notifications**: shows the foreground receiver, incoming consent prompts,
+  and transfer progress.
+- **Location on older Android versions**: Android 11 and lower route BLE scan
+  results and some Wi-Fi APIs through location permissions. LibreDrop does not
+  use physical location.
+- **Battery optimization exemption**: optional, but useful on OEM builds that
+  aggressively stop background foreground services.
+
+## Troubleshooting
+
+- If no peers appear, first put both devices on the same Wi-Fi network and
+  disable guest/client isolation.
+- If a stock Android sender cannot see LibreDrop, open LibreDrop and enable
+  **Always visible**.
+- If Samsung logs show `No handler registered`, check whether the sender or
+  receiver UI is still progressing before treating it as a failure.
+- If installs stall on vivo / OriginOS / Funtouch OS, the vendor security
+  prompt may be waiting for manual approval.
+- If received files are missing, check the selected save folder and whether the
+  transfer reached **Completed**.
+
+## Project Docs
+
+- [Architecture](docs/architecture.md): the contributor/protocol README that
+  used to live here, preserved verbatim.
+- [Stock Android interop runbook](docs/testing/interop-stock-quick-share-android.md)
+- [NearDrop macOS interop runbook](docs/testing/interop-neardrop-macos.md)
+- [Research notes](docs/research/)
+- [Agent/contributor guidance](AGENTS.md)
+
+## Build And Test
+
+```bash
+./gradlew :app:assembleDebug
+./gradlew :core-protocol:test
+./gradlew staticAnalysis
+./gradlew check
+```
+
+The core protocol module is pure Kotlin/JVM and intentionally has no
+`android.*` imports; Android-specific discovery, services, and UI live in
+separate modules. See [Architecture](docs/architecture.md) for the module map
+and protocol reading guide.
+
+## Reference Material
 
 - Protocol spec: <https://github.com/grishka/NearDrop/blob/master/PROTOCOL.md>
-- NearDrop source (the implementation we're porting from):
-  <https://github.com/grishka/NearDrop>
+- NearDrop source: <https://github.com/grishka/NearDrop>
 - Google's UKEY2 handshake spec: <https://github.com/google/ukey2>
-- Quick Share `.proto` files (vendored from Chromium):
-  <https://github.com/grishka/NearDrop/tree/master/NearbyShare/ProtobufSource>
