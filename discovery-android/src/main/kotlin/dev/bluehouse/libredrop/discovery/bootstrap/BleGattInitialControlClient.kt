@@ -58,7 +58,11 @@ import java.util.concurrent.atomic.AtomicReference
  * connectable `0xFEF3` advertiser, then wraps the normal Nearby multiplex
  * socket inside that stream. This client performs that bootstrap and exposes
  * the accepted virtual socket as a [ConnectedTransport] for the existing
- * outbound protocol driver.
+ * outbound protocol driver. Timing delays, slot reads, and retries here are
+ * compatibility residue from real-device probing. Samsung can log
+ * `No handler registered` from its advertisement-slot callback even while
+ * the actual Weave handler processes the same writes; validate progress by
+ * Nearby frames and UI state, not by that log line alone.
  */
 public class BleGattInitialControlClient internal constructor(
     private val appContext: Context,
@@ -204,15 +208,9 @@ private class BleGattClientTransport(
         gatt = opened
         // Force a GATT cache refresh as soon as the connection is
         // available. Android's BLE stack caches discovered services
-        // per-MAC across connections; if a previous bootstrap to the
-        // same MAC populated the cache with stale handles (e.g. before
-        // Samsung published the slot characteristics), our subsequent
-        // service discovery will reuse those handles and the
-        // characteristic-handle that Samsung's `gchu` is keyed on may
-        // not match anymore — which would manifest as `No handler
-        // registered for characteristic …` even though the UUIDs all
-        // match. The `BluetoothGatt.refresh()` method is hidden but
-        // accessible via reflection.
+        // per-MAC across connections; stale handles can mimic a bad
+        // Weave characteristic selection and is cheap before each fresh
+        // bootstrap.
         if (opened != null) {
             runCatching {
                 val refresh = BluetoothGatt::class.java.getMethod("refresh")
@@ -235,21 +233,10 @@ private class BleGattClientTransport(
             close()
             return
         }
-        // Stock Quick Share receivers (notably Samsung One UI 8.x on
-        // Galaxy S22/S26 firmware) register their per-characteristic
-        // GATT handlers (`00000100-…-0101` / `…-0102`) lazily after the
-        // GATT connection comes up — typically ~1.5 s after
-        // `onServerConnectionState(connected=true)` on Samsung. If we
-        // start the MTU exchange / CCCD write / Weave CONNECTION_REQUEST
-        // immediately, our writes land on the wire before the handler
-        // is registered and Samsung logs
-        // `No handler registered for characteristic 00000100-…-0101`
-        // and silently drops them; the remote ATT layer still ACKs the
-        // write so our local stack reports success but Samsung's app
-        // never sees the bytes, and the Weave CONNECTION_CONFIRM never
-        // comes back. Hold the next step on a 1.5 s grace window so
-        // Samsung has enough time to wire its handler and accept the
-        // ATT writes when they finally arrive.
+        // Hold a short grace window before MTU/service discovery. Some
+        // receivers bring their GATT application handlers up lazily after
+        // link connection, and this delay keeps the bootstrap tolerant of
+        // that.
         // Keep the connection in CONNECTION_PRIORITY_HIGH (interval=6)
         // for the entire bootstrap. Without this, Samsung downgrades to
         // interval=24 (~30 ms) right after the initial activity burst,
@@ -292,8 +279,8 @@ private class BleGattClientTransport(
         // Dump every advertised service + characteristic so we can spot
         // peer-side variations in the Weave UUID family. Samsung GMS
         // sometimes exposes non-standard write/notify pairs alongside
-        // the canonical 00000100-…-0101 / -0102, and our writes silently
-        // fail with `No handler registered` if we picked the wrong pair.
+        // the canonical 00000100-…-0101 / -0102, so keep the service dump
+        // available when diagnosing characteristic binding issues.
         for (s in gatt.services) {
             val charDump =
                 s.characteristics.joinToString(",") { c ->
@@ -308,16 +295,10 @@ private class BleGattClientTransport(
         }
         // Stock Quick Share centrals read the receiver's
         // `0xFEF3` advertisement-slot characteristics
-        // (`00000000-0000-3000-8000-00000000000{0..4}`) BEFORE writing
-        // anything to the Weave write characteristic. On Samsung One UI
-        // 8.x this read sequence is what triggers the receiver-side
-        // GMS to register the per-peer Weave handler — without it our
-        // first CCCD/CONNECTION_REQUEST writes get
-        // `gchu.onCharacteristicWriteRequest → No handler registered`
-        // even though pulse classification is type=NOTIFY and the
-        // peer is in EVERYONE-visibility mode. Drain the slot reads
-        // in sequence, then proceed to CCCD subscribe + Weave
-        // CONNECTION_REQUEST in `onAllSlotsRead`.
+        // (`00000000-0000-3000-8000-00000000000{0..4}`) before writing
+        // to the Weave characteristic. Keep that ordering for protocol
+        // parity and for receivers that expect it before the Weave
+        // request.
         if (slotCharacteristics.isEmpty()) {
             Log.w(TAG, "no advertisement slot characteristics found; subscribing immediately")
             subscribeAndConnect(gatt)
@@ -331,12 +312,9 @@ private class BleGattClientTransport(
         val slot = slotCharacteristics.getOrNull(slotReadIndex)
         if (slot == null) {
             Log.w(TAG, "all advertisement slots read; waiting before CCCD subscribe")
-            // Hold another grace window before CCCD: stock GMS receivers
-            // may take additional time after the slot reads to wire the
-            // per-peer Weave write handler in `gchi`. Without this
-            // second grace, our CCCD/CONNECTION_REQUEST writes still
-            // race the registration and get dropped with `No handler
-            // registered for characteristic …-0101`.
+            // Hold another grace window before CCCD. Some receivers may
+            // take additional time after slot reads to wire their GATT
+            // handler.
             mainHandler.postDelayed({
                 if (closed) return@postDelayed
                 Log.w(TAG, "post-slot grace expired; subscribing CCCD")
@@ -536,21 +514,9 @@ private class BleGattClientTransport(
             ),
         )
         sendPacketCounter = (sendPacketCounter + 1) % WeaveFrames.MAX_PACKET_COUNTER
-        // Stock Quick Share receivers (Samsung One UI 8.x) register
-        // their per-characteristic GATT handlers reactively when the
-        // first ATT write lands. The first 1-3 writes always fail
-        // silently from the receiver's app point of view (the BLE link
-        // ACKs them, but `gchu.onCharacteristicWriteRequest` throws
-        // `No handler registered for characteristic 00000100-…-0101`),
-        // and the receiver only registers the
-        // `BlockingQueueStream with size 10` after parsing one of these
-        // failed writes. By that time our CONNECTION_REQUEST is already
-        // lost and we sit waiting for a CONNECTION_CONFIRM that will
-        // never come. Schedule a retry so a second CONNECTION_REQUEST
-        // lands on the now-registered handler. We re-enqueue up to
-        // [WEAVE_REQUEST_MAX_RETRIES] times, gated on
-        // `weaveConnected`; the receive callback aborts the retry as
-        // soon as the real CONNECTION_CONFIRM lands.
+        // Retry the Weave request for receivers whose application-layer
+        // handler is slow to come up. A valid CONNECTION_CONFIRM will
+        // set `weaveConnected` and suppress further retries.
         scheduleWeaveConnectionRequestRetryLocked(attempt = 1)
     }
 

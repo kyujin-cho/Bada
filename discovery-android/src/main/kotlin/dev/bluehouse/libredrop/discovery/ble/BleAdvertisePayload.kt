@@ -33,9 +33,8 @@ import java.security.SecureRandom
  *   NearDrop captures (and prior versions of this file) had `0x01`, which
  *   sets the deprecated/reinterpreted `sender_cert_supported` bit and
  *   causes Samsung One UI to mis-classify the pulse as `type=SILENT` (see
- *   `Detected fast init state changed: type=SILENT` in Galaxy logcat),
- *   which in turn prevents Samsung's GMS from registering the per-peer
- *   Weave-byte handler on its `0xFEF3` GATT server. Fix: emit `0x00`.
+ *   `Detected fast init state changed: type=SILENT` in Galaxy logcat)
+ *   instead of an active share pulse. Fix: emit `0x00`.
  * - `PP` (byte 4) — `metadata[1]`, the unsigned negation of the adjusted Tx
  *   power. `kAdjustedTxPower = -66 dBm` so the wire byte is `-(-66) = 66 = 0x42`.
  * - `UU` (byte 5) — `uwb_metadata`. Zero when we do not advertise UWB.
@@ -44,12 +43,12 @@ import java.security.SecureRandom
  * - `HH × 8` (bytes 15..22) — `secret_id_hash`. Truncated SHA-256 over the
  *   sender's `endpointId`. Samsung GMS treats an all-zero hash as "no real
  *   share intent" and demotes the pulse to `type=SILENT` regardless of the
- *   metadata-byte type bits. A stable non-zero hash is the trigger that
- *   makes the receiver's `shouldAcceptSocketHandler` return true and wire
- *   the per-characteristic Weave handler so subsequent ATT writes to
- *   `00000100-0004-1000-8000-001a11000101` are actually delivered to the
- *   GMS application layer (instead of throwing
- *   `BluetoothGattException: No handler registered for characteristic …`).
+ *   metadata-byte type bits. A stable non-zero hash is therefore necessary
+ *   to reach active `type=NOTIFY` classification. Samsung may still log
+ *   `BluetoothGattException: No handler registered for characteristic …`
+ *   from one wildcard GATT callback while the real Weave handler processes
+ *   the same writes, so that log alone is not evidence that this hash was
+ *   rejected.
  *
  * Total payload = 14 fixed bytes + 1 salt + 8 hash = 23 bytes, comfortably
  * inside the legacy 31-byte advertising-PDU budget alongside the 16-bit
@@ -129,11 +128,10 @@ public object BleAdvertisePayload {
     /**
      * Build a fresh 23-byte payload bound to [endpointId]. The trailing
      * 8-byte `secret_id_hash` is the truncated SHA-256 of `endpointId`'s
-     * UTF-8 bytes — any non-zero hash is sufficient for stock GMS
-     * receivers to classify the pulse as `type=NORMAL` (kNotify with
-     * intent) and wire their per-peer Weave handler. The single salt byte
-     * preceding the hash is drawn from [random] and lets receivers
-     * dedupe rapid back-to-back broadcasts within the same share session.
+     * UTF-8 bytes. Any non-zero hash is enough to avoid Samsung's
+     * all-zero-hash `type=SILENT` demotion. The single salt byte preceding
+     * the hash is drawn from [random] and lets receivers dedupe rapid
+     * back-to-back broadcasts within the same share session.
      *
      * @param endpointId the sender's 4-byte ASCII slug (the same value
      *   that appears in the OfflineFrame `ConnectionRequestFrame.endpoint_id`

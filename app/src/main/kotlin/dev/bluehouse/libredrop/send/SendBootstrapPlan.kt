@@ -7,26 +7,12 @@ package dev.bluehouse.libredrop.send
 
 import dev.bluehouse.libredrop.discovery.NearbyPeer
 import dev.bluehouse.libredrop.discovery.NearbyPeerRoute
-import dev.bluehouse.libredrop.discovery.SamsungQuickShareHeuristic
 
 internal data class SendBootstrapPlan(
     val action: Action,
     val subtitle: String,
     val failureReason: String?,
     val rejectedCandidates: List<String>,
-    /**
-     * Set when the only available bootstrap is BLE GATT *and* the peer
-     * is Samsung-class. Samsung One UI's Quick Share receiver enforces
-     * a Google-account-bound `SenderCertificate` lookup before it
-     * registers a per-peer Weave handler — see
-     * `docs/research/samsung-ble-gatt-cert-gate.md` — so attempts to
-     * bootstrap into Samsung over BLE GATT from a non-GMS app
-     * predictably stall at the 15 s handshake timeout. Picker UI uses
-     * this flag to surface a "Wi-Fi recommended" caveat and a
-     * confirmation dialog on tap, instead of silently letting the user
-     * burn a 15 s timeout.
-     */
-    val samsungBleGattCaveat: Boolean = false,
 ) {
     val isConnectable: Boolean
         get() = action !is Action.Unavailable
@@ -85,31 +71,21 @@ internal data class SendBootstrapPlan(
         }
 
         private fun direct(
-            peer: NearbyPeer,
             route: NearbyPeerRoute,
             rejectedCandidates: List<String>,
         ): SendBootstrapPlan {
-            val samsungCaveat =
-                route is NearbyPeerRoute.BleGatt &&
-                    SamsungQuickShareHeuristic.isLikelySamsungReceiver(peer)
             val subtitle =
                 when (route) {
                     is NearbyPeerRoute.Lan -> "Wi-Fi LAN ${route.address.hostAddress}:${route.port}"
                     is NearbyPeerRoute.BluetoothClassic -> "Bluetooth Classic ${route.macAddress}"
                     is NearbyPeerRoute.BleL2cap -> "BLE L2CAP ${route.macAddress} psm=${route.psm}"
-                    is NearbyPeerRoute.BleGatt ->
-                        if (samsungCaveat) {
-                            "BLE GATT ${route.macAddress} — Wi-Fi recommended for Samsung"
-                        } else {
-                            "BLE GATT ${route.macAddress}"
-                        }
+                    is NearbyPeerRoute.BleGatt -> "BLE GATT ${route.macAddress}"
                 }
             return SendBootstrapPlan(
                 action = Action.Direct(route),
                 subtitle = subtitle,
                 failureReason = null,
                 rejectedCandidates = rejectedCandidates,
-                samsungBleGattCaveat = samsungCaveat,
             )
         }
 
@@ -159,7 +135,6 @@ internal data class SendBootstrapPlan(
             when (action) {
                 is Action.Direct ->
                     direct(
-                        peer = peer,
                         route = action.route,
                         rejectedCandidates = rejectedCandidates,
                     )

@@ -35,12 +35,9 @@ internal class SendPeerPickerController(
     private val logDiagnostic: (String) -> Unit,
     /**
      * Sender's 4-byte endpoint slug. Threaded into the BLE FastInitiation
-     * pulse's `secret_id_hash` so stock GMS receivers (Samsung One UI in
-     * particular) classify the pulse as `type=NORMAL` and wire their
-     * per-peer Weave handler — without this, the receiver drops every
-     * subsequent ATT write to the `00000100-…-0101` characteristic with
-     * `No handler registered for characteristic …` and the BLE GATT
-     * bootstrap stalls at the Weave handshake.
+     * pulse's `secret_id_hash` so stock GMS receivers classify the pulse
+     * as an active `type=NOTIFY` share instead of an all-zero-hash
+     * `type=SILENT` pulse.
      */
     private val senderEndpointId: String,
 ) {

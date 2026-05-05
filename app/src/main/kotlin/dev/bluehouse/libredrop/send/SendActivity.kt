@@ -5,15 +5,11 @@
  */
 package dev.bluehouse.libredrop.send
 
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.util.Log
 import android.view.View
-import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
@@ -109,14 +105,10 @@ public class SendActivity : AppCompatActivity() {
         payloadResolver = SendPayloadResolver(fileSourceFactory, documentTreeFactory)
         // Generate the sender identity up front so the picker controller
         // can thread the endpointId into the BLE FastInitiation pulse's
-        // `secret_id_hash`. Stock GMS receivers (Samsung One UI 8.x in
-        // particular) classify pulses with an all-zero hash as
-        // `type=SILENT`, which causes them to skip the per-peer Weave
-        // handler registration on their `0xFEF3` GATT server — every
-        // subsequent ATT write to `00000100-…-0101` then throws
-        // `No handler registered for characteristic …`. The endpointId
-        // bytes form the hash and lift Samsung's classification to
-        // `type=NORMAL`, unblocking the BLE GATT bootstrap.
+        // `secret_id_hash`. Stock GMS receivers classify an all-zero hash
+        // as `type=SILENT`; a non-zero hash keeps us in the active
+        // `type=NOTIFY` path that makes the receiver expose its GATT
+        // bootstrap surface.
         prepareSenderIdentity()
         startSenderGattServer()
         peerPickerController =
@@ -295,47 +287,7 @@ public class SendActivity : AppCompatActivity() {
             )
             return
         }
-        // Pre-flight: BLE-GATT-only into a Samsung receiver is a known
-        // dead end (Google-account-bound sender_certificate gate on
-        // Samsung's Weave handler — see
-        // docs/research/samsung-ble-gatt-cert-gate.md). Surface a
-        // confirmation dialog instead of silently letting the user
-        // burn a 15s handshake timeout. Caller can still opt to "Try
-        // anyway" — leaves a door open if Samsung ever loosens the
-        // gate, and avoids a hard block on false-positive heuristic
-        // matches.
-        if (plan.samsungBleGattCaveat) {
-            confirmSamsungBleGattAttempt(peer, plan, chosenRoute)
-            return
-        }
         proceedWithPeer(peer, plan, chosenRoute)
-    }
-
-    private fun confirmSamsungBleGattAttempt(
-        peer: NearbyPeer,
-        plan: SendBootstrapPlan,
-        chosenRoute: NearbyPeerRoute?,
-    ) {
-        val deviceName = peerPickerController.peerLabel(peer)
-        AlertDialog
-            .Builder(this)
-            .setTitle(R.string.send_samsung_ble_warning_title)
-            .setMessage(getString(R.string.send_samsung_ble_warning_body, deviceName))
-            .setPositiveButton(R.string.send_samsung_ble_warning_open_wifi) { _, _ ->
-                openWifiSettings()
-            }.setNegativeButton(R.string.send_samsung_ble_warning_try_anyway) { _, _ ->
-                proceedWithPeer(peer, plan, chosenRoute)
-            }.setNeutralButton(R.string.send_samsung_ble_warning_cancel) { dialog, _ -> dialog.dismiss() }
-            .show()
-    }
-
-    private fun openWifiSettings() {
-        val intent = Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        try {
-            startActivity(intent)
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, R.string.send_samsung_ble_warning_open_wifi, Toast.LENGTH_LONG).show()
-        }
     }
 
     private fun proceedWithPeer(
@@ -620,15 +572,10 @@ public class SendActivity : AppCompatActivity() {
 
     /**
      * Bring up a sender-side GATT server exposing the same `0xFEF3`
-     * service shape stock Quick Share peripherals advertise. We do not
-     * intend Samsung to actually open a Weave session into us — the
-     * server's only job is to expose the advertisement-slot
-     * characteristics so Samsung's GMS can read our `EndpointInfo`
-     * back when it correlates an inbound GATT-from-us connection
-     * against a known peer. Without our own GATT server, Samsung sees
-     * us as a "drive-by central" with no reciprocal identity surface,
-     * which appears to be one of the predicates gating its per-peer
-     * Weave handler registration on `gchu`/`gchk`.
+     * service shape stock Quick Share senders can expose. The active
+     * Samsung receive path is still sender-as-central into the Galaxy
+     * GATT server; this local server exists only as protocol-parity
+     * surface for peers that probe the sender advertisement.
      */
     @Suppress("MissingPermission")
     private fun startSenderGattServer() {

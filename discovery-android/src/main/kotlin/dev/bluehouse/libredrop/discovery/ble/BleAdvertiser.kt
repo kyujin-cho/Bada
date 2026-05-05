@@ -47,11 +47,10 @@ import java.util.concurrent.atomic.AtomicReference
  *  3. The handle's [close] stops the advertisement. Closing twice is a
  *     no-op; the advertiser may be re-`start`ed after close.
  *
- * The Quick Share advertisement is intentionally **non-connectable** (we
- * do not accept GATT connections — we only need the receiver's BLE scan
- * loop to wake up and start mDNS). This also keeps the payload comfortably
- * within the legacy 31-byte advertising-PDU budget so we never need
- * extended-advertising fallbacks.
+ * The Quick Share advertisement is connectable to match stock sender
+ * pulses. We still only need the receiver's BLE scan loop to wake up and
+ * start its reachable bootstrap surface; connectability and the non-zero
+ * `secret_id_hash` are classification signals for that active-send path.
  *
  * Threading: [start] / [close] are safe to call from any thread; the
  * underlying `BluetoothLeAdvertiser` callbacks fire on the main thread.
@@ -83,10 +82,9 @@ public class BleAdvertiser internal constructor(
      * a fresh [SecureRandom] for the payload's random salt byte.
      *
      * @param endpointId the sender's 4-byte ASCII slug. The pulse's
-     *   `secret_id_hash` is the truncated SHA-256 of this value, which is
-     *   what stock GMS receivers (notably Samsung One UI) inspect to
-     *   classify the pulse as `type=NORMAL` and wire their per-peer Weave
-     *   handler. Must be non-empty.
+     *   `secret_id_hash` is the truncated SHA-256 of this value, which
+     *   stock GMS receivers inspect to classify the pulse as an active
+     *   `type=NOTIFY` share instead of `type=SILENT`. Must be non-empty.
      */
     public constructor(context: Context, endpointId: String) : this(
         provider = DefaultAdvertiserProvider(context.applicationContext),
@@ -218,15 +216,9 @@ public class BleAdvertiser internal constructor(
      *   * `TX_POWER_HIGH` — best chance of a wake-up across a typical
      *     room.
      *   * `connectable = true` — stock Quick Share senders advertise as
-     *     connectable, and Samsung One UI 8.x receivers appear to gate
-     *     their per-peer Weave handler registration on this bit (a
-     *     non-connectable pulse is treated as a passive scan / discovery
-     *     beacon, not a real share-intent peer). We do not actually host
-     *     a GATT server on the sender side, so any connection attempt
-     *     from a receiver will be NACKed at the application layer — but
-     *     the connectable bit on the wire is a strong "real peer" signal
-     *     that, paired with the `secret_id_hash` in the service data,
-     *     unblocks the receiver-side handler registration path.
+     *     connectable. Samsung empirics show this is one of the signals
+     *     used to distinguish an active share pulse from passive
+     *     discovery noise.
      */
     private fun buildSettings(): AdvertiseSettings =
         AdvertiseSettings

@@ -25,11 +25,8 @@ import java.util.Random
  * Byte 3 = `0x00` packs `version=0, type=kNotify (0), uwb=0,
  * sender_cert=0`. **Drift here breaks Samsung One UI**: a non-zero byte 3
  * (e.g. the legacy `0x01` we shipped before fixing #145) is interpreted
- * by stock GMS as `type=SILENT`, which causes the receiver to skip
- * registering its per-peer Weave handler — every subsequent ATT write to
- * `00000100-…-0101` then throws
- * `BluetoothGattException: No handler registered for characteristic …`
- * and the BLE GATT bootstrap stalls at the Weave handshake.
+ * by stock GMS as `type=SILENT`, which keeps the receiver out of the
+ * active-share path.
  *
  * The trailing 8-byte `secret_id_hash` (truncated SHA-256 of the
  * sender's `endpointId`) is the second half of the same gate: an
