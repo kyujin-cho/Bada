@@ -82,16 +82,6 @@ Networking notes:
   filtering can make peers disappear.
 - Bluetooth Classic/RFCOMM is intentionally not exposed in user-facing flows.
 
-Samsung BLE GATT note:
-
-- Earlier research described a possible Samsung certificate gate, but live
-  testing on May 5, 2026 contradicted the absolute limitation. See
-  [`docs/research/samsung-ble-gatt-cert-gate.md`](docs/research/samsung-ble-gatt-cert-gate.md)
-  and
-  [`docs/research/samsung-ble-gatt-limitation-rebuttal.md`](docs/research/samsung-ble-gatt-limitation-rebuttal.md).
-- Treat Samsung `No handler registered` BLE logs as diagnostic noise unless
-  they correlate with lack of UI or protocol progress.
-
 ## Permissions
 
 LibreDrop asks only for permissions tied to receiving, discovery, and transfer
