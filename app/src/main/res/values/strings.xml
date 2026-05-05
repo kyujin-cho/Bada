@@ -2,6 +2,78 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">LibreDrop</string>
 
+    <!-- Bottom-navigation tab labels for MainActivity. The send/receive
+         tab is the default destination on cold start; settings holds the
+         save-location and advertised-name controls. -->
+    <string name="nav_send_receive_title">Send / Receive</string>
+    <string name="nav_settings_title">Settings</string>
+
+    <!-- Toolbar overflow menu shown via the kebab in MainActivity's
+         top app bar. Currently a single entry that opens a placeholder
+         Credit screen; future contributors / acknowledgements live
+         there. -->
+    <string name="menu_credit">Credit</string>
+    <string name="credit_activity_label">Credit</string>
+    <string name="credit_placeholder_text">credit</string>
+
+    <!--
+      Credit screen content. Three primary categories (Developer,
+      Designer, QA) plus a dedicated "Special Thanks to" section.
+      Each entry pairs a nickname with a one-line description; the
+      descriptions intentionally preserve the original Korean wording
+      because they are personal mottos chosen by each contributor.
+    -->
+    <string name="credit_section_developer">Developer</string>
+    <string name="credit_section_polisher">Polisher</string>
+    <string name="credit_section_qa">QA</string>
+    <string name="credit_section_thanks">Special Thanks to</string>
+
+    <string name="credit_kevin_name">Kevin Cho</string>
+    <string name="credit_kevin_desc">고기가 탄다.</string>
+    <string name="credit_yeonfeel_name">YEONFEEL</string>
+    <string name="credit_yeonfeel_desc">나의 멜로디도 너에게 닿기를</string>
+    <!-- Chiyak shows up in BOTH the QA section (top of three) and
+         the bottom-of-screen Special Thanks compact line. The
+         duplication is intentional: the QA listing recognizes
+         Chiyak's testing work, while Special Thanks separately
+         credits the dev-token contribution. -->
+    <string name="credit_chiyak_name">Chiyak</string>
+    <string name="credit_chiyak_qa_desc">고기가 탄다</string>
+    <string name="credit_parami_name">Parami</string>
+    <string name="credit_parami_desc">고기가 탄다</string>
+    <string name="credit_teqhnikacross_name">TEQHNIKACROSS</string>
+    <string name="credit_teqhnikacross_desc">고기가 탄다</string>
+    <!-- Combined "Name (note)" line for the bottom-centered Special
+         Thanks section. Pre-baked into a single string so the layout
+         can render it as one small caption rather than the per-row
+         image-+-stack pattern used by the main category sections. -->
+    <string name="credit_thanks_compact">Chiyak (개발 토큰 제공)</string>
+    <string name="credit_avatar_description">Contributor avatar</string>
+
+    <!-- File-picker entry point on the Send/Receive tab. Opens
+         ACTION_OPEN_DOCUMENT with EXTRA_ALLOW_MULTIPLE so the user can
+         pick one or more files of any MIME type from the gallery, the
+         documents UI, or any other DocumentsProvider on the device. The
+         resulting URIs are forwarded to SendActivity as
+         ACTION_SEND_MULTIPLE / EXTRA_STREAM (single picks degrade to
+         ACTION_SEND). -->
+    <string name="main_send_files_button">Send files</string>
+    <string name="main_send_files_subtitle">Pick one or more files from this device — photos, documents, anything — and send them to a nearby Quick Share peer.</string>
+    <string name="main_send_files_pick_failed">Could not open the file picker on this device.</string>
+    <string name="main_send_files_no_selection">No files were selected.</string>
+
+    <!-- Idle state caption shown above the photo preview cards on the
+         Send/Receive tab. Matches the vivo-native "ready to receive"
+         hint while two random gallery thumbnails sit just below it
+         as a visual cue. Kept short so it scans cleanly at the small
+         caption text style. -->
+    <string name="main_send_waiting">Waiting for files…</string>
+
+    <!-- Content description for the two photo preview cards on the
+         Send/Receive tab. Generic — the cards rotate through random
+         gallery picks so a per-photo description is not feasible. -->
+    <string name="main_send_preview_photo_description">Recent gallery photo preview</string>
+
     <!-- Launcher activity (#34). The "always visible" override lets the
          user force the receiver to publish mDNS even when no BLE pulse is
          in flight — useful when BLE scan is unavailable or the user just
@@ -69,13 +141,46 @@
     <string name="main_battery_banner_skip">Skip</string>
     <string name="main_battery_banner_unavailable">No suitable Settings page was found on this device. You can manage battery optimization manually from system Settings.</string>
 
+    <!-- Toast shown after the user taps Skip on the first-launch
+         battery-optimization dialog. Tells them where to find the
+         setting again so dismissing the prompt is a low-stakes
+         choice. The same toast is reused if they never re-trigger
+         the prompt because the conditions clear (e.g. exempt
+         already). -->
+    <string name="dialog_battery_skip_toast">You can change this from Settings.</string>
+
+    <!-- Settings tab "Background activity" row (#47 follow-up). Re-entry
+         point for the OEM-aware battery exemption Settings page,
+         mirroring what the first-launch dialog offers. The status line
+         summarizes the current platform-reported state so the user
+         knows whether tapping "Open battery settings" will land them
+         on a "currently exempt" page or a "not exempt" page. -->
+    <string name="settings_battery_title">Background activity</string>
+    <string name="settings_battery_subtitle">Exempt this app from battery optimization so it can keep receiving Quick Share files when the screen is off.</string>
+    <string name="settings_battery_status_exempt">Currently: exempt from battery optimization</string>
+    <string name="settings_battery_status_not_exempt">Currently: not exempt — receiving may stop in the background</string>
+    <string name="settings_battery_open">Open battery settings</string>
+
     <!-- Permissions onboarding (#26 + #31). -->
     <string name="onboarding_title">App permissions</string>
     <string name="onboarding_intro">Quick Share needs a small set of Android permissions to discover nearby devices over your local Wi-Fi network, to broadcast and listen for short Bluetooth Low Energy pulses that wake nearby Quick Share receivers, and to keep you informed about transfers. Each permission below explains exactly what it is used for.</string>
     <string name="onboarding_empty_state">Your device does not require any runtime permissions for Phase 1. You are all set.</string>
     <string name="onboarding_grant_button">Grant permissions</string>
     <string name="onboarding_open_settings">Open app settings</string>
-    <string name="onboarding_continue">Continue</string>
+    <!--
+      Continue label. Renamed from "Continue" to "Continue without
+      permissions" because the success path (all mandatory permissions
+      granted) now auto-finishes the activity from the permission
+      callback — the only reason a user would ever tap this button is
+      to dismiss the prompt without granting, so the label says so
+      directly.
+
+      The legacy `onboarding_continue_partial` /
+      `onboarding_continue_degraded` strings used to drive
+      state-dependent labels here; kept in this file for translators
+      who may still pull them, but no longer referenced from code.
+    -->
+    <string name="onboarding_continue">Continue without permissions</string>
     <string name="onboarding_continue_partial">Continue without all permissions</string>
     <string name="onboarding_continue_degraded">Continue in degraded mode</string>
 
@@ -212,4 +317,29 @@
     <string name="consent_text_line_with_title">%1$s · %2$s</string>
     <string name="consent_more_items">…and %1$d more</string>
     <string name="consent_dismissed">Transfer no longer pending</string>
+
+    <!--
+      Post-Accept consent flow states (receiving → completed / failed).
+      The trampoline activity stays foreground after the user taps
+      Accept and renders these as it observes the in-flight
+      InboundConnection's state.
+    -->
+    <string name="consent_state_receiving">Receiving…</string>
+    <string name="consent_state_progress">%1$s / %2$s</string>
+    <string name="consent_state_completed">Transfer complete</string>
+    <string name="consent_state_completed_one">1 file received</string>
+    <string name="consent_state_completed_many">%1$d files received</string>
+    <string name="consent_state_failed">Transfer failed</string>
+    <string name="consent_state_cancelled">Transfer cancelled</string>
+    <string name="consent_state_view_image">View image</string>
+    <string name="consent_state_close">Close</string>
+    <string name="consent_state_view_image_unavailable">No app can open this image.</string>
+
+    <!--
+      Integer percentage label rendered in the centre of the circular
+      progress disc on both the sender's Sending state and the
+      receiver's Receiving state. Uses %% so the literal `%` glyph
+      survives string formatting unchanged.
+    -->
+    <string name="transfer_progress_percent">%1$d%%</string>
 </resources>

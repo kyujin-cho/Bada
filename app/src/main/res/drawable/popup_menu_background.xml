@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Popup background for the toolbar overflow menu. White surface with
+  16dp corner radius + 8dp top/bottom padding so the first / last
+  item have breathing room from the rounded edge.
+
+  Matches the vivo / OriginOS native popup look (clean rounded
+  rectangle, no visible stroke; the platform PopupWindow draws the
+  drop shadow on top of this surface).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="16dp" />
+    <solid android:color="#FFFFFFFF" />
+    <padding
+        android:bottom="8dp"
+        android:top="8dp" />
+</shape>

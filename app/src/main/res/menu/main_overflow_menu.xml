@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Overflow menu shown by MainActivity's Toolbar. Currently a single
+  destination — the Credit screen. Items use
+  `app:showAsAction="never"` so they never spill out of the overflow
+  popup as a top-level icon, matching the kebab-only pattern users
+  expect from the vivo / OriginOS native apps.
+-->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/menu_credit"
+        android:title="@string/menu_credit"
+        app:showAsAction="never" />
+
+</menu>

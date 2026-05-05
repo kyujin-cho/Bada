@@ -145,8 +145,16 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.ktx)
+    implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
+
+    // Material Components for Android — provides BottomNavigationView for
+    // the in-app bottom-nav between the Send/Receive tab and the Settings
+    // tab in MainActivity. The activity theme uses the
+    // MaterialComponents.*.Bridge variant so existing AppCompat-based
+    // widgets keep working unchanged.
+    implementation(libs.material)
 
     // ZXing core — pure-Java QR encoder used to render the Quick Share QR
     // URL as a scannable bitmap on ShowQrActivity (#84). Only the encoder

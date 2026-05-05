@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Deep blue gradient backdrop for the small QR-share icon button
+  pinned to the send card's top-right corner. Linear 135° gradient
+  goes from a darker navy at the top-left to a brighter brand blue
+  at the bottom-right, giving the button visual weight against the
+  card's white / sky-blue surfaces.
+
+  14dp corner radius keeps the button reading as a soft-rounded
+  square rather than a perfect circle, matching the rest of the
+  app's card-style aesthetic.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="14dp" />
+    <gradient
+        android:angle="135"
+        android:endColor="#1E5BFF"
+        android:startColor="#002F9C"
+        android:type="linear" />
+</shape>

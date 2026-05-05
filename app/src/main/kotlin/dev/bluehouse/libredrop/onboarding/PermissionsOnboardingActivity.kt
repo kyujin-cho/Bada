@@ -17,6 +17,7 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.widget.NestedScrollView
 import dev.bluehouse.libredrop.R
 import dev.bluehouse.libredrop.bugreport.BugReportFlowSupport
 import dev.bluehouse.libredrop.databinding.ActivityPermissionsOnboardingBinding
@@ -53,6 +54,21 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
     private var hasRequestedOnce: Boolean = false
 
     /**
+     * True once the user has scrolled the content area to its end —
+     * the activity unlocks the pinned bottom buttons only after this
+     * gate flips. Persisted across configuration changes so a rotate
+     * does not re-lock buttons the user has already earned. Latches
+     * once true; we never disable the buttons again on a re-scroll
+     * up, which would feel punitive.
+     *
+     * For short pages (no scroll needed), [setupScrollGate] flips this
+     * to true on the first layout pass via a `post`-deferred check, so
+     * the gate is never a UX trap on devices that have nothing to
+     * render in the permission grid.
+     */
+    private var scrolledToEnd: Boolean = false
+
+    /**
      * Multi-permission request launcher. We request the full set in one
      * dialog so the user does not get a chain of system prompts.
      */
@@ -72,7 +88,22 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
             if (permanentlyDenied) {
                 binding.onboardingSettingsButton.visibility = View.VISIBLE
             }
-            updateContinueButton()
+            applyButtonStates()
+
+            // Auto-advance once the mandatory permission set is
+            // satisfied. Mirrors the MainActivity onStart gate (all
+            // granted OR only optional left) so the user does not
+            // have to tap a separate "Continue" button when the grant
+            // they just confirmed already covered everything that
+            // blocks the launcher. Optional-only denials (e.g.
+            // POST_NOTIFICATIONS) are non-blocking by design — the
+            // launcher runs in degraded notification mode rather than
+            // re-prompting forever.
+            if (PermissionRequirements.allGranted(this) ||
+                PermissionRequirements.onlyOptionalMissing(this)
+            ) {
+                finish()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,6 +120,7 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
                 // Visibility is restored after the views are inflated.
                 binding.onboardingSettingsButton.visibility = View.VISIBLE
             }
+            scrolledToEnd = it.getBoolean(STATE_SCROLLED_TO_END, false)
         }
 
         renderPermissionRows()
@@ -102,6 +134,44 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         binding.onboardingNetworkCardDismiss.setOnClickListener {
             binding.onboardingNetworkCard.visibility = View.GONE
         }
+
+        setupScrollGate()
+        applyButtonStates()
+    }
+
+    /**
+     * Wire the scroll-to-end gate that controls when the pinned
+     * bottom buttons unlock. Two paths to flip [scrolledToEnd]:
+     *
+     *   1. The user scrolls down and reaches the bottom of the
+     *      NestedScrollView's child. We detect this by asking the
+     *      scroll view whether it can still scroll downward; once
+     *      it cannot, the gate flips.
+     *   2. The content fits without scrolling at all (e.g. pre-33
+     *      device with an empty permission grid, or a short
+     *      configuration on a tall screen). The deferred `post`
+     *      runs after the first layout pass, by which point the
+     *      scroll view's `canScrollVertically(1)` reflects real
+     *      measurements; if no scrolling is possible we flip the
+     *      gate immediately so the user is not stuck with disabled
+     *      buttons on a screen with nothing to scroll.
+     */
+    private fun setupScrollGate() {
+        val scroll = binding.onboardingScroll
+        scroll.setOnScrollChangeListener(
+            NestedScrollView.OnScrollChangeListener { v, _, _, _, _ ->
+                if (!scrolledToEnd && !v.canScrollVertically(1)) {
+                    scrolledToEnd = true
+                    applyButtonStates()
+                }
+            },
+        )
+        scroll.post {
+            if (!scrolledToEnd && !scroll.canScrollVertically(1)) {
+                scrolledToEnd = true
+                applyButtonStates()
+            }
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -111,6 +181,7 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
             STATE_SETTINGS_BUTTON_VISIBLE,
             binding.onboardingSettingsButton.visibility == View.VISIBLE,
         )
+        outState.putBoolean(STATE_SCROLLED_TO_END, scrolledToEnd)
     }
 
     override fun onResume() {
@@ -118,7 +189,7 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         // The user may have toggled permissions in system Settings while
         // we were paused, so re-sync state every time we come back.
         refreshAllRows()
-        updateContinueButton()
+        applyButtonStates()
     }
 
     private fun renderPermissionRows() {
@@ -179,7 +250,7 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
     private fun onGrantClicked() {
         val missing = PermissionRequirements.missingPermissions(this)
         if (missing.isEmpty()) {
-            updateContinueButton()
+            applyButtonStates()
             return
         }
 
@@ -209,24 +280,31 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
-    private fun updateContinueButton() {
-        // The continue button is always enabled — the user can leave
-        // onboarding even with denials, and the service-start gate
-        // (issue #21) re-checks at runtime. Optional-only denials show
-        // a softer label so the user knows they can proceed but with
-        // degraded notifications.
-        binding.onboardingContinueButton.isEnabled = true
-        binding.onboardingContinueButton.setText(
-            when {
-                PermissionRequirements.allGranted(this) -> R.string.onboarding_continue
-                PermissionRequirements.onlyOptionalMissing(this) -> R.string.onboarding_continue_degraded
-                else -> R.string.onboarding_continue_partial
-            },
-        )
+    /**
+     * Apply the scroll-to-end gate to the pinned button row. Every
+     * button stays disabled until the user has scrolled the rationale
+     * content to the end (or the activity has determined no scrolling
+     * was needed). This is the visible affordance: read first, then
+     * act.
+     *
+     * Visibility decisions (e.g. the Settings shortcut appearing
+     * after a permanent denial) live elsewhere; this function only
+     * touches `isEnabled`. The Continue label is set once in
+     * [onCreate] via the layout's `android:text` attribute and never
+     * changes — the success path (mandatory grants satisfied)
+     * auto-finishes the activity from [permissionLauncher], so this
+     * button is only ever the "skip without granting" action.
+     */
+    private fun applyButtonStates() {
+        val gateOpen = scrolledToEnd
+        binding.onboardingGrantButton.isEnabled = gateOpen
+        binding.onboardingSettingsButton.isEnabled = gateOpen
+        binding.onboardingContinueButton.isEnabled = gateOpen
     }
 
     private companion object {
         const val STATE_HAS_REQUESTED_ONCE = "libredrop.onboarding.hasRequestedOnce"
         const val STATE_SETTINGS_BUTTON_VISIBLE = "libredrop.onboarding.settingsButtonVisible"
+        const val STATE_SCROLLED_TO_END = "libredrop.onboarding.scrolledToEnd"
     }
 }

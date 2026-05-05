@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Settings tab. Hosted by SettingsFragment inside MainActivity's
+  bottom-navigation shell.
+
+  Layout order:
+    1. Save-location settings (#42) — pick / clear a SAF tree URI to
+       redirect incoming files away from the system Downloads folder.
+    2. Advertised Quick Share name (#141) — custom override for the
+       device name nearby Quick Share peers see.
+    3. Background activity (#47 follow-up) — re-trigger the OEM-aware
+       battery-optimization Settings page after the first-launch
+       dialog has been dismissed.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/main_save_location_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/main_save_location_title"
+            android:textAppearance="?android:attr/textAppearanceMedium"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/main_save_location_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/main_save_location_subtitle"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+        <TextView
+            android:id="@+id/main_save_location_current"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:textStyle="italic" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/main_save_location_pick"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/main_save_location_pick" />
+
+            <Button
+                android:id="@+id/main_save_location_clear"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/main_save_location_clear" />
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/main_advertised_name_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/main_advertised_name_title"
+            android:textAppearance="?android:attr/textAppearanceMedium"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/main_advertised_name_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/main_advertised_name_subtitle"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+        <EditText
+            android:id="@+id/main_advertised_name_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="@string/main_advertised_name_hint"
+            android:inputType="textCapWords"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/main_advertised_name_current"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:textStyle="italic" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/main_advertised_name_save"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/main_advertised_name_save" />
+
+            <Button
+                android:id="@+id/main_advertised_name_reset"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/main_advertised_name_reset" />
+
+        </LinearLayout>
+
+        <!--
+          Background activity (#47 follow-up). Lets the user open the
+          OEM-aware battery-optimization Settings page after dismissing
+          the first-launch dialog. The status line is refreshed on
+          every onStart from PowerManager.isIgnoringBatteryOptimizations
+          via BatteryOptimizationOemHelper.isAlreadyExempt.
+        -->
+        <TextView
+            android:id="@+id/settings_battery_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/settings_battery_title"
+            android:textAppearance="?android:attr/textAppearanceMedium"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/settings_battery_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/settings_battery_subtitle"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+        <TextView
+            android:id="@+id/settings_battery_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:textStyle="italic" />
+
+        <Button
+            android:id="@+id/settings_battery_open"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/settings_battery_open" />
+
+        <!--
+          Shake-to-report bug flow (#166). When the switch is on,
+          BugReportFlowSupport (installed at the activity level in
+          MainActivity) listens for accelerometer shakes and prompts
+          the user to save a diagnostic ZIP. The preference is read
+          live by the support class, so toggling here takes effect
+          on the next sensor sample without a service restart.
+        -->
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/main_bug_report_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/main_bug_report_title" />
+
+        <TextView
+            android:id="@+id/main_bug_report_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/main_bug_report_subtitle"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+    </LinearLayout>
+
+</ScrollView>

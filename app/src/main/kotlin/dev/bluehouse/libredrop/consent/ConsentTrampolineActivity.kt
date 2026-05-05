@@ -5,17 +5,38 @@
  */
 package dev.bluehouse.libredrop.consent
 
+import android.content.ActivityNotFoundException
+import android.content.ContentUris
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.ImageDecoder
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
+import android.text.format.Formatter
+import android.transition.ChangeBounds
+import android.transition.TransitionManager
+import android.util.Log
 import android.view.View
 import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import dev.bluehouse.libredrop.R
 import dev.bluehouse.libredrop.bugreport.BugReportFlowSupport
+import dev.bluehouse.libredrop.protocol.connection.InboundConnection
+import dev.bluehouse.libredrop.protocol.connection.InboundConnectionState
+import dev.bluehouse.libredrop.protocol.connection.ReceivedItem
 import dev.bluehouse.libredrop.protocol.connection.TransferItem
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentBroadcastReceiver
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentDiagnostic
@@ -23,6 +44,10 @@ import dev.bluehouse.libredrop.service.receiver.consent.ConsentIntents
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentModalRegistry
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentNotificationContent
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentRegistry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Layer 2 of the consent UI (#22): a screen-on, lock-screen-bypassing
@@ -90,6 +115,26 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private var modalRegistered: Boolean = false
     private lateinit var bugReportFlowSupport: BugReportFlowSupport
 
+    /**
+     * The [InboundConnection] the activity observes after the user
+     * taps Accept. Captured from the [ConsentRegistry.Entry] before
+     * the broadcast is dispatched so the registry's later
+     * unregister-on-decision call cannot strand us without a state
+     * source. `null` until Accept fires.
+     */
+    private var observedConnection: InboundConnection? = null
+
+    /** Coroutine collecting the observed connection's StateFlow. */
+    private var stateJob: Job? = null
+
+    /**
+     * Total announced byte count for the in-flight transfer, captured
+     * from the `WaitingForUserConsent` entry so the receiving panel can
+     * format the running counter as "12 MB / 100 MB" before the first
+     * `Receiving` event lands (which also carries the same total).
+     */
+    private var totalAnnouncedBytes: Long = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // setShowWhenLocked / setTurnScreenOn must be called BEFORE
         // setContentView on API 27+ so the platform brings the activity
@@ -98,11 +143,38 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // flags via the shim below.
         applyIncomingCallFlags()
         super.onCreate(savedInstanceState)
+        // Soft alpha + scale-up entrance so the popup feels like it's
+        // emerging from its centre rather than snapping into place.
+        // Paired with `popup_fade_out` in [finish] for a symmetric
+        // dismiss.
+        @Suppress("DEPRECATION")
+        overridePendingTransition(R.anim.popup_fade_in, 0)
         setContentView(R.layout.activity_consent_trampoline)
         bugReportFlowSupport = BugReportFlowSupport.install(this)
 
         ConsentDiagnostic.log(this, "trampoline.onCreate intent.id=${incomingId(intent)}")
         bindIntent(intent)
+    }
+
+    /**
+     * Override the activity-level dismissal animation so every path
+     * out of the popup — accept / reject button, close button on the
+     * completed panel, system back, or tap-outside on the dialog
+     * window — fades + slightly scales the dialog as it leaves
+     * instead of disappearing in a single frame. The platform's
+     * default Dialog-theme exit is just an alpha fade with a short
+     * duration; the custom [popup_fade_out] keeps the same direction
+     * but adds the matching scale + interpolator the entrance uses.
+     *
+     * `overridePendingTransition` is deprecated on API 34+ in favour
+     * of `overrideActivityTransition`, but the old API still works
+     * (back-compat shim is still wired in the framework) and is
+     * trivially correct for our minSdk = 24 floor.
+     */
+    @Suppress("DEPRECATION")
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(0, R.anim.popup_fade_out)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -193,6 +265,11 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // re-raises through the coordinator's foreground listener so
         // the user can still decide.
         unregisterModal()
+        // The post-Accept state observer is `lifecycleScope`-scoped
+        // and would auto-cancel here too; the explicit cancel keeps
+        // the teardown sequence symmetric with [startObservingConnectionState].
+        stateJob?.cancel()
+        stateJob = null
         super.onDestroy()
     }
 
@@ -328,7 +405,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
      * surfaces).
      */
     private fun submit(
-        @Suppress("UNUSED_PARAMETER") entry: ConsentRegistry.Entry,
+        entry: ConsentRegistry.Entry,
         accepted: Boolean,
     ) {
         if (decisionSubmitted) return
@@ -338,6 +415,16 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // by backgrounding LibreDrop a millisecond too late) cannot
         // double-finish the activity.
         unregisterModal()
+
+        if (accepted) {
+            // Capture the connection + total size BEFORE dispatching
+            // the broadcast — the broadcast handler unregisters the
+            // ConsentRegistry entry, which would strip our access to
+            // entry.connection on the very next line.
+            observedConnection = entry.connection
+            totalAnnouncedBytes = entry.totalSize
+        }
+
         val action = if (accepted) ConsentIntents.ACTION_ACCEPT else ConsentIntents.ACTION_REJECT
         // Dispatch via setPackage + action only. ConsentBroadcastReceiver
         // is registered dynamically by ReceiverForegroundService with
@@ -357,7 +444,341 @@ class ConsentTrampolineActivity : AppCompatActivity() {
                 putExtra(ConsentIntents.EXTRA_CONNECTION_ID, connectionId)
             },
         )
-        finish()
+
+        if (accepted) {
+            // Stay foreground and observe the in-flight transfer so the
+            // user gets a circular-progress + completion-preview UI
+            // instead of a snap-finish that drops them straight back to
+            // wherever they were.
+            switchToReceivingPanel()
+            startObservingConnectionState()
+        } else {
+            finish()
+        }
+    }
+
+    /**
+     * Hide the consent prompt and reveal the circular-progress panel.
+     * Wraps the visibility flip in a [ChangeBounds] transition so the
+     * dialog window resizes smoothly between the consent and the
+     * (smaller) receiving panel rather than snapping in a single
+     * frame.
+     */
+    private fun switchToReceivingPanel() {
+        beginPanelTransition()
+        findViewById<View>(R.id.consent_panel).visibility = View.GONE
+        findViewById<View>(R.id.consent_receiving_panel).visibility = View.VISIBLE
+
+        // Seed the running counter with the announced totals so the
+        // user sees "0 B / 100 MB" immediately rather than empty
+        // space until the first Receiving event lands.
+        renderProgress(bytesReceived = 0, totalBytes = totalAnnouncedBytes)
+    }
+
+    /**
+     * Subscribe to the captured InboundConnection's StateFlow under
+     * [lifecycleScope] so collection cancels automatically when the
+     * activity is destroyed. The collector switches the visible panel
+     * on every terminal transition.
+     */
+    private fun startObservingConnectionState() {
+        val connection = observedConnection ?: return
+        stateJob?.cancel()
+        stateJob =
+            lifecycleScope.launch {
+                connection.state.collect { state ->
+                    when (state) {
+                        is InboundConnectionState.Receiving ->
+                            renderProgress(
+                                bytesReceived = state.progress.bytesTransferred,
+                                totalBytes = state.progress.totalSize,
+                            )
+                        is InboundConnectionState.Completed -> showCompletedPanel(state.items)
+                        is InboundConnectionState.Cancelled ->
+                            showFailedPanel(getString(R.string.consent_state_cancelled), reason = null)
+                        is InboundConnectionState.Failed ->
+                            showFailedPanel(getString(R.string.consent_state_failed), reason = state.reason)
+                        is InboundConnectionState.Rejected ->
+                            showFailedPanel(getString(R.string.consent_state_failed), reason = null)
+                        else -> Unit
+                    }
+                }
+            }
+    }
+
+    private fun renderProgress(
+        bytesReceived: Long,
+        totalBytes: Long,
+    ) {
+        val progressBar = findViewById<CircularProgressIndicator>(R.id.consent_receiving_progress) ?: return
+        val percentText = findViewById<TextView>(R.id.consent_receiving_progress_pct)
+        val pct =
+            if (totalBytes > 0) {
+                ((bytesReceived.toDouble() / totalBytes.toDouble()) * 100).toInt().coerceIn(0, 100)
+            } else {
+                0
+            }
+        if (totalBytes > 0) {
+            // Once we know the total, switch from the spinning
+            // indeterminate state to a deterministic ratio so the user
+            // can see the bar fill up frame by frame.
+            if (progressBar.isIndeterminate) progressBar.isIndeterminate = false
+            progressBar.setProgressCompat(pct, true)
+        }
+        percentText?.text = getString(R.string.transfer_progress_percent, pct)
+        findViewById<TextView>(R.id.consent_receiving_progress_text)?.text =
+            getString(
+                R.string.consent_state_progress,
+                Formatter.formatShortFileSize(this, bytesReceived),
+                Formatter.formatShortFileSize(this, totalBytes),
+            )
+    }
+
+    /**
+     * Reveal the completion panel and kick off a best-effort
+     * MediaStore lookup for an image preview. The lookup is async on
+     * a background dispatcher so a slow query never blocks the UI;
+     * the View image button stays hidden until the lookup resolves to
+     * a real Uri.
+     */
+    private fun showCompletedPanel(items: List<ReceivedItem>) {
+        beginPanelTransition()
+        findViewById<View>(R.id.consent_receiving_panel).visibility = View.GONE
+        findViewById<View>(R.id.consent_failed_panel).visibility = View.GONE
+        findViewById<View>(R.id.consent_completed_panel).visibility = View.VISIBLE
+
+        val fileItems = items.filterIsInstance<ReceivedItem.File>()
+        val summary =
+            if (fileItems.size == 1) {
+                getString(R.string.consent_state_completed_one)
+            } else {
+                getString(R.string.consent_state_completed_many, fileItems.size)
+            }
+        findViewById<TextView>(R.id.consent_completed_summary)?.text = summary
+
+        findViewById<Button>(R.id.consent_completed_close_button).setOnClickListener { finish() }
+
+        // Best-effort image preview: walk the received-item filenames,
+        // ask MediaStore which one (if any) lives in the gallery, and
+        // load the resolved Uri into the preview ImageView.
+        lifecycleScope.launch {
+            val targetNames = fileItems.map { it.header.fileName }.toSet()
+            if (targetNames.isEmpty()) return@launch
+            val previewUri = withContext(Dispatchers.IO) { findReceivedImageUri(targetNames) }
+            if (previewUri != null) {
+                bindCompletedPreview(previewUri)
+            }
+        }
+    }
+
+    private fun bindCompletedPreview(uri: Uri) {
+        val previewView = findViewById<ImageView>(R.id.consent_completed_preview) ?: return
+        val previewCard = findViewById<FrameLayout>(R.id.consent_completed_preview_card) ?: return
+        val viewButton = findViewById<Button>(R.id.consent_completed_view_button) ?: return
+        try {
+            previewView.setImageURI(uri)
+            previewCard.visibility = View.VISIBLE
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Failed to load preview Uri: ${e.message}")
+            return
+        }
+        // Mirror the sender's success card: paint a heavily-blurred
+        // copy of the same image across the dialog backdrop so both
+        // completion surfaces read as the same visual family.
+        applyBlurredCardBackground(uri)
+        viewButton.visibility = View.VISIBLE
+        // Reveal the spacer between Close and View image so the row
+        // splits cleanly when both buttons are visible (the spacer
+        // stays GONE while only Close is in play, letting Close span
+        // the full width of the panel).
+        findViewById<View>(R.id.consent_completed_button_gap)?.visibility = View.VISIBLE
+        viewButton.setOnClickListener {
+            try {
+                val viewIntent =
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "image/*")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                startActivity(viewIntent)
+            } catch (e: ActivityNotFoundException) {
+                Log.w(TAG, "No activity to view image: ${e.message}")
+                Toast
+                    .makeText(this, R.string.consent_state_view_image_unavailable, Toast.LENGTH_LONG)
+                    .show()
+            }
+        }
+    }
+
+    /**
+     * Sender-style blurred backdrop for the completion dialog: paints
+     * a sampled copy of the received image across the full dialog
+     * surface and dampens it under a translucent white sheet so the
+     * foreground panel stays readable. The bitmap is decoded with
+     * `setTargetSampleSize` (API 28+) / `inSampleSize` (older) so the
+     * ImageView's intrinsic size never balloons the wrap_content
+     * FrameLayout to image dimensions.
+     *
+     * The blur effect itself uses [RenderEffect] (API 31+); pre-API-31
+     * devices fall back to a sharp sampled bitmap behind the same
+     * overlay, which still reads as a soft accent.
+     */
+    private fun applyBlurredCardBackground(uri: Uri) {
+        val blurView = findViewById<ImageView>(R.id.consent_card_blur) ?: return
+        val overlayView = findViewById<View>(R.id.consent_card_overlay) ?: return
+        lifecycleScope.launch {
+            val bitmap =
+                withContext(Dispatchers.IO) {
+                    decodeSampledBitmap(uri, BLUR_BG_TARGET_PX)
+                } ?: return@launch
+            blurView.setImageBitmap(bitmap)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                blurView.setRenderEffect(buildPrettyBlurEffect())
+            }
+            blurView.visibility = View.VISIBLE
+            overlayView.visibility = View.VISIBLE
+        }
+    }
+
+    /**
+     * Compose the dialog-backdrop blur effect: saturation-boosted
+     * color filter chained behind a Gaussian blur. Mirrors
+     * [SendActivity]'s pretty-blur pipeline so the sender's success
+     * card and the receiver's completion dialog read as the same
+     * visual family — saturation lift → blur smear gives the iOS
+     * `UIVisualEffectView`-style vibrancy feel rather than the
+     * washed-out gray a plain Gaussian blur tends to produce.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun buildPrettyBlurEffect(): RenderEffect {
+        val saturationFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.4f) })
+        val saturationEffect = RenderEffect.createColorFilterEffect(saturationFilter)
+        val blurEffect =
+            RenderEffect.createBlurEffect(
+                BLUR_RADIUS_PX,
+                BLUR_RADIUS_PX,
+                Shader.TileMode.MIRROR,
+            )
+        return RenderEffect.createChainEffect(blurEffect, saturationEffect)
+    }
+
+    /**
+     * Decode a content URI to a sampled bitmap whose larger edge is
+     * at most [targetPx]. Mirrors the pattern used by SendActivity so
+     * both completion surfaces share the same memory profile and the
+     * `wrap_content` parents do not size to the source bitmap's
+     * pixel dimensions.
+     */
+    private fun decodeSampledBitmap(
+        uri: Uri,
+        targetPx: Int,
+    ): Bitmap? =
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val source = ImageDecoder.createSource(contentResolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    val ratio =
+                        maxOf(
+                            info.size.width / targetPx,
+                            info.size.height / targetPx,
+                            1,
+                        )
+                    decoder.setTargetSampleSize(ratio)
+                }
+            } else {
+                val bounds =
+                    android.graphics.BitmapFactory
+                        .Options()
+                        .apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+                }
+                val sample =
+                    maxOf(
+                        bounds.outWidth / targetPx,
+                        bounds.outHeight / targetPx,
+                        1,
+                    )
+                val opts =
+                    android.graphics.BitmapFactory.Options().apply {
+                        inSampleSize = sample
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    }
+                contentResolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, opts)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "decodeSampledBitmap failed for $uri", e)
+            null
+        }
+
+    /**
+     * Search MediaStore.Images for a recently-added entry whose
+     * display name matches one of [targetNames]. Returns the first
+     * match (most-recently-added) or `null` if none of the announced
+     * names land in the image collection — common for non-image
+     * payloads or when the platform has not yet indexed the new file.
+     */
+    private fun findReceivedImageUri(targetNames: Set<String>): Uri? {
+        val collection =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                @Suppress("DEPRECATION")
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
+        val projection =
+            arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+            )
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        return try {
+            contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                var inspected = 0
+                while (cursor.moveToNext() && inspected < PREVIEW_LOOKUP_LIMIT) {
+                    inspected++
+                    val name = cursor.getString(nameCol)
+                    if (name in targetNames) {
+                        return@use ContentUris.withAppendedId(collection, cursor.getLong(idCol))
+                    }
+                }
+                null
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "MediaStore preview query denied: ${e.message}")
+            null
+        }
+    }
+
+    private fun showFailedPanel(
+        title: String,
+        reason: String?,
+    ) {
+        beginPanelTransition()
+        findViewById<View>(R.id.consent_receiving_panel).visibility = View.GONE
+        findViewById<View>(R.id.consent_completed_panel).visibility = View.GONE
+        findViewById<View>(R.id.consent_failed_panel).visibility = View.VISIBLE
+
+        findViewById<TextView>(R.id.consent_failed_title).text = title
+        val reasonView = findViewById<TextView>(R.id.consent_failed_reason)
+        if (reason.isNullOrBlank()) {
+            reasonView.visibility = View.GONE
+        } else {
+            reasonView.visibility = View.VISIBLE
+            reasonView.text = reason
+        }
+        findViewById<Button>(R.id.consent_failed_close_button).setOnClickListener { finish() }
+    }
+
+    private fun beginPanelTransition() {
+        val root = findViewById<View>(R.id.consent_root) as? android.view.ViewGroup ?: return
+        TransitionManager.beginDelayedTransition(
+            root,
+            ChangeBounds().apply { duration = PANEL_TRANSITION_MS },
+        )
     }
 
     private fun registerModal() {
@@ -390,5 +811,45 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private companion object {
         /** Cap on the number of file lines rendered before truncation. */
         private const val MAX_ITEM_LINES = 8
+
+        /** Diagnostic tag for the activity-side preview / view-image paths. */
+        private const val TAG = "LibreDropConsent"
+
+        /**
+         * How many cursor rows to walk in MediaStore when looking for
+         * a received image to preview. The newest 30 images cover the
+         * common case of "opened the app immediately after a transfer";
+         * deeper history scans rarely match because Quick Share saves
+         * with the peer's announced filename and the announced name is
+         * almost never an old gallery duplicate.
+         */
+        private const val PREVIEW_LOOKUP_LIMIT = 30
+
+        /**
+         * Duration of the [ChangeBounds] transition between consent
+         * panels. Matches the in-card transition used elsewhere in the
+         * app for stylistic consistency.
+         */
+        private const val PANEL_TRANSITION_MS: Long = 280L
+
+        /**
+         * Target pixel size for the blurred backdrop on the completed
+         * panel. Sampling to this size before handing the bitmap to
+         * the ImageView prevents the wrap_content FrameLayout from
+         * sizing to the source image's pixel dimensions — same
+         * rationale as SendActivity.BLUR_BG_TARGET_PX. 720 px keeps
+         * pace with SendActivity so the two completion surfaces have
+         * matching gradient smoothness.
+         */
+        private const val BLUR_BG_TARGET_PX: Int = 720
+
+        /**
+         * Pixel radius for the dialog backdrop's RenderEffect blur.
+         * 80 px puts the blur in the iOS-material "soft dreamy" zone
+         * — large enough that the source bitmap reads as a gradient
+         * of color rather than a recognizable photo, but not so large
+         * that the result collapses into a single muddy hue.
+         */
+        private const val BLUR_RADIUS_PX: Float = 80f
     }
 }

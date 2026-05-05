@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Bottom navigation menu for MainActivity. Two destinations:
+
+    * @id/nav_send_receive — Send/receive tab. Holds the file picker /
+      folder picker entry points and the always-visible toggle. Default
+      selected destination on a cold start.
+    * @id/nav_settings — Settings tab. Holds the save-location picker
+      and the advertised-device-name controls.
+
+  The IDs declared here are also referenced from MainActivity to switch
+  Fragment instances on selection.
+-->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/nav_send_receive"
+        android:icon="@drawable/ic_send_receive_24"
+        android:title="@string/nav_send_receive_title" />
+
+    <item
+        android:id="@+id/nav_settings"
+        android:icon="@drawable/ic_settings_24"
+        android:title="@string/nav_settings_title" />
+
+</menu>

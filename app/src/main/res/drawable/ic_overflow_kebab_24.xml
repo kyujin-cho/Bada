@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Custom toolbar overflow icon. Two hollow ring outlines stacked
+  vertically, matching the vivo / OriginOS "more options" pattern
+  (the stock Android material kebab is three filled dots; vivo uses
+  two strokes-only rings).
+
+  Each ring: outer radius 3.0dp, stroke width 2.0dp, no fill, in a
+  24dp viewport centered at x=12. Centers at y=7 and y=17 so the
+  pair fills more of the viewport (rings span y=4 to y=20 with a
+  ~2dp gap between them) and reads as the bold visual weight the
+  vivo / OriginOS native rings carry — pixel-comparable to the
+  rings in the screenshot side-by-side. The stroke color is
+  hardcoded to black; the toolbar applies its own
+  `?attr/colorControlNormal` tint at runtime.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,7 m-3.0,0 a3.0,3.0 0 1,0 6.0,0 a3.0,3.0 0 1,0 -6.0,0 M12,17 m-3.0,0 a3.0,3.0 0 1,0 6.0,0 a3.0,3.0 0 1,0 -6.0,0"
+        android:strokeColor="@android:color/black"
+        android:strokeWidth="2.0" />
+</vector>

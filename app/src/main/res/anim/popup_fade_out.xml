@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Activity-level exit animation for popup-style activities. Reverse
+  of `popup_fade_in`: the dialog slightly shrinks toward its center
+  while fading out. Uses an accelerate interpolator so the motion
+  starts soft and picks up speed — typical "snap-away" feel for a
+  dismiss. Slightly shorter (180ms) than the entrance (200ms) so
+  the back-to-foreground hand-off lands without a sluggish trail.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="180"
+    android:interpolator="@android:interpolator/accelerate_quad">
+
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0" />
+
+    <scale
+        android:fromXScale="1.0"
+        android:toXScale="0.94"
+        android:fromYScale="1.0"
+        android:toYScale="0.94"
+        android:pivotX="50%"
+        android:pivotY="50%" />
+
+</set>

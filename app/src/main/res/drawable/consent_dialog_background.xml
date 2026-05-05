@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Window background for the ConsentTrampolineActivity dialog theme.
+  20dp corner radius + solid white surface so the activity reads as
+  a card floating over whatever's underneath when Full-Screen-Intent
+  raises it on top of another app or the lock screen. The platform
+  draws its own dim layer behind the dialog window, so this drawable
+  only paints the foreground card.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="20dp" />
+    <solid android:color="#FFFFFFFF" />
+</shape>

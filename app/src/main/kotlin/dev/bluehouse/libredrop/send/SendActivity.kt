@@ -6,9 +6,22 @@
 package dev.bluehouse.libredrop.send
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.ImageDecoder
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.transition.ChangeBounds
+import android.transition.Transition
+import android.transition.TransitionManager
+import android.util.Log
 import android.view.View
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
@@ -30,10 +43,16 @@ import dev.bluehouse.libredrop.protocol.connection.OutboundConnection
 import dev.bluehouse.libredrop.protocol.connection.OutboundConnectionState
 import dev.bluehouse.libredrop.protocol.endpoint.DeviceType
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
+import dev.bluehouse.libredrop.protocol.qr.QrKeyData
+import dev.bluehouse.libredrop.protocol.qr.QrUrl
+import dev.bluehouse.libredrop.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.libredrop.service.receiver.OutboundSessionActiveHolder
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.security.SecureRandom
+import kotlin.math.min
 
 /**
  * Sender-side share-intent landing screen (#24).
@@ -88,6 +107,17 @@ public class SendActivity : AppCompatActivity() {
     private lateinit var senderEndpointInfo: EndpointInfo
     private lateinit var senderEndpointInfoBytes: ByteArray
 
+    /**
+     * URI of the first image-MIME attachment from the launching share
+     * intent, captured in [onCreate] so the success terminal can render
+     * a square preview without re-walking the (potentially-revoked)
+     * intent payload after the transfer settles. `null` for non-image
+     * shares, multi-file shares whose first item is not an image, and
+     * folder shares (the folder picker has no single representative
+     * file to preview).
+     */
+    private var sentImagePreviewUri: Uri? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Veto receiver-side mDNS publish for the duration of this
@@ -129,7 +159,19 @@ public class SendActivity : AppCompatActivity() {
         binding.sendCancelButton.setOnClickListener { onCancelClicked() }
         binding.sendDoneButton.setOnClickListener { finish() }
         binding.sendShowQrButton.setOnClickListener { onShowQrClicked() }
+        binding.sendQrDone.setOnClickListener { onQrDoneClicked() }
         binding.sendNetworkHintDismiss.setOnClickListener { peerPickerController.onHintDismissed() }
+
+        // Capture the first image attachment URI now so the success
+        // terminal can render a preview without re-resolving the intent.
+        sentImagePreviewUri = extractFirstImageUri(intent)
+
+        // The toolbar carries a floating pill in place of a static
+        // title; populate it with the current advertised device name
+        // so the user sees who the share is "from" at a glance. The
+        // resolver returns the user-set custom name when present and
+        // falls back to the platform device-name chain otherwise.
+        binding.sendDevicePillText.text = AdvertisedDeviceNames.resolve(this)
 
         // Resolve the intent's file list. May render a terminal UI
         // state (unsupported / folder empty / folder walk failed) and
@@ -318,6 +360,10 @@ public class SendActivity : AppCompatActivity() {
         peerPickerController.suspendPicker()
         peerPickerController.stopBleAdvertise()
 
+        // Smoothly resize the card outline as the picker chrome
+        // collapses and the status panel grows in.
+        beginCardBoundsTransition(BOUNDS_DURATION_MS)
+
         // Hide the picker chrome.
         binding.sendPeerList.isVisible = false
         binding.sendEmptyState.isVisible = false
@@ -381,6 +427,22 @@ public class SendActivity : AppCompatActivity() {
         state: OutboundConnectionState,
         peer: NearbyPeer,
     ) {
+        // Animate any bounds change in the status panel triggered by
+        // this state — chiefly the PIN appearing on
+        // AwaitingRemoteAcceptance / Sending and disappearing on
+        // Connecting / Handshaking. Idle is a no-op below so the
+        // transition is harmless there; calling beginDelayedTransition
+        // without a real bounds change just clears any pending
+        // transition for the next layout pass.
+        beginCardBoundsTransition(BOUNDS_DURATION_MS)
+        // Sky-blue gradient backdrop is on only while the PIN is
+        // showing — the AwaitingRemoteAcceptance state. Every other
+        // state collapses the backdrop back to the default white
+        // card surface; doing the toggle once at the top keeps the
+        // visibility correct regardless of which `when` branch
+        // matches below.
+        binding.sendPinStateBackground.visibility =
+            if (state is OutboundConnectionState.AwaitingRemoteAcceptance) View.VISIBLE else View.GONE
         when (state) {
             OutboundConnectionState.Idle -> {
                 // No-op — Idle is the initial flow value, the StateFlow
@@ -407,21 +469,21 @@ public class SendActivity : AppCompatActivity() {
             }
             is OutboundConnectionState.Sending -> {
                 binding.sendStatusPhase.setText(R.string.send_phase_sending)
-                binding.sendPin.text = state.pin
-                binding.sendPin.visibility = View.VISIBLE
-                // #46: include smoothed bytes/sec rate + ETA in the
-                // status subtitle. The formatter drops the rate / ETA
-                // segments while warming up so the user does not see
-                // "0 B/s, unknown ETA" — a bare "12 MB of 100 MB"
-                // line shows up first, then rate + ETA fade in once
-                // the EMA has two samples.
-                binding.sendStatusMessage.text =
-                    SendProgressFormatter.format(this, state.progress)
+                // PIN comparison is over once both sides have ACCEPT'd
+                // and we transition into Sending; the verbose status-
+                // message line is replaced by the new circular
+                // progress disc with a centered integer percentage.
+                // Hide the leftover artifacts so the in-flight UI is
+                // just phase + target + circle.
+                binding.sendPin.visibility = View.GONE
+                binding.sendStatusMessage.visibility = View.GONE
+                renderCircularProgress(state.progress.bytesTransferred, state.progress.totalSize)
             }
             OutboundConnectionState.Completed ->
                 renderTerminal(
                     getString(R.string.send_phase_completed),
                     getString(R.string.send_status_target, peerPickerController.peerLabel(peer)),
+                    isSuccess = true,
                 )
             is OutboundConnectionState.Rejected ->
                 renderTerminal(
@@ -445,22 +507,286 @@ public class SendActivity : AppCompatActivity() {
     // Terminal / unsupported / QR
     // -----------------------------------------------------------------
 
+    /**
+     * Render a terminal state inside the status panel. The success
+     * variant ([isSuccess] = true) suppresses the PIN + status-message
+     * lines and surfaces a square image preview when the share was an
+     * image MIME — matching the requested "보냈다는 정보 + 이미지 정보만"
+     * layout. Failure variants keep the [message] line because it
+     * carries the failure reason.
+     */
     private fun renderTerminal(
         phaseText: String,
         message: String,
+        isSuccess: Boolean = false,
     ) {
+        beginCardBoundsTransition(BOUNDS_DURATION_MS)
         binding.sendStatusPanel.visibility = View.VISIBLE
         binding.sendStatusPhase.text = phaseText
-        binding.sendStatusMessage.text = message
         binding.sendDoneButton.visibility = View.VISIBLE
         binding.sendCancelButton.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
+
+        // The PIN is a pairing artifact — once we've reached a terminal
+        // state the comparison window is over, so always hide it.
+        binding.sendPin.visibility = View.GONE
+        // The Sending-state circle is also a transient — collapse it
+        // on every terminal so it does not bleed into the success /
+        // failure card.
+        binding.sendStatusCircleWrapper.visibility = View.GONE
+        // The sky-blue PIN backdrop only belongs to the
+        // AwaitingRemoteAcceptance state; explicit GONE here covers
+        // the path where renderTerminal is called outside of the
+        // state-flow collector (e.g. unsupported payload, folder
+        // walk failed) without going through renderConnectionState.
+        binding.sendPinStateBackground.visibility = View.GONE
+
+        if (isSuccess) {
+            // Success path: hide every line that was meaningful only
+            // during the picker / sending phase — we already have
+            // phase ("Sent successfully") + target on their own, plus
+            // the polaroid preview + blurred backdrop below. The
+            // previously-shown payload summary ("1 file • 4.2 MB"),
+            // picker subtitle ("Tap a device to send"), and verbose
+            // status-message line all become noise once the transfer
+            // has settled.
+            binding.sendPayloadSummary.visibility = View.GONE
+            binding.sendSubtitle.visibility = View.GONE
+            binding.sendStatusMessage.visibility = View.GONE
+            renderSuccessPreview(sentImagePreviewUri)
+            applyBlurredCardBackground(sentImagePreviewUri)
+        } else {
+            // Failure / cancel / reject — keep the reason visible and
+            // hide the image preview (no successful payload to show).
+            binding.sendStatusMessage.visibility = View.VISIBLE
+            binding.sendStatusMessage.text = message
+            binding.sendTerminalPreviewCard.visibility = View.GONE
+            applyBlurredCardBackground(null)
+        }
+    }
+
+    /**
+     * Render the in-flight `Sending` progress on the circular
+     * disc + center percentage. Both the bar fill and the text
+     * track the same ratio; the text is rounded to an integer and
+     * coerced into [0, 100] so the user never sees "-1%" or "101%"
+     * if the reported counters drift slightly past the announced
+     * total in either direction.
+     *
+     * Uses [com.google.android.material.progressindicator.CircularProgressIndicator.setProgressCompat]
+     * so the platform animates between values rather than snapping;
+     * `setProgressCompat` is also the API that handles the indeterminate
+     * → determinate transition cleanly.
+     */
+    private fun renderCircularProgress(
+        bytesTransferred: Long,
+        totalSize: Long,
+    ) {
+        binding.sendStatusCircleWrapper.visibility = View.VISIBLE
+        val pct =
+            if (totalSize > 0L) {
+                ((bytesTransferred.toDouble() / totalSize.toDouble()) * 100).toInt().coerceIn(0, 100)
+            } else {
+                0
+            }
+        if (binding.sendStatusCircle.isIndeterminate) {
+            binding.sendStatusCircle.isIndeterminate = false
+        }
+        binding.sendStatusCircle.setProgressCompat(pct, true)
+        binding.sendStatusCirclePct.text = getString(R.string.transfer_progress_percent, pct)
+    }
+
+    /**
+     * Bind the success-state polaroid preview. The wrapping
+     * `send_terminal_preview_card` is the visible polaroid (white
+     * rounded surface + 6dp padding for the border + elevation for
+     * the shadow); the inner ImageView only holds the bitmap. Falls
+     * back to a hidden card when the share carried no image-MIME
+     * payload, which keeps the success layout clean instead of
+     * showing an empty white square.
+     */
+    private fun renderSuccessPreview(uri: Uri?) {
+        if (uri == null) {
+            binding.sendTerminalPreviewCard.visibility = View.GONE
+            return
+        }
+        try {
+            binding.sendTerminalPreview.setImageURI(uri)
+            binding.sendTerminalPreviewCard.visibility = View.VISIBLE
+        } catch (e: SecurityException) {
+            Log.w(OUTBOUND_TAG, "preview load failed: ${e.message}")
+            binding.sendTerminalPreviewCard.visibility = View.GONE
+        }
+    }
+
+    /**
+     * Paint the sent image as a heavily-blurred backdrop across the
+     * entire card surface, with a translucent white sheet on top to
+     * keep the foreground text + buttons readable.
+     *
+     * Bitmap loading is sampled to [BLUR_BG_TARGET_PX] before being
+     * handed to the ImageView. Without sampling, ImageView's intrinsic
+     * size is the source bitmap's pixel dimensions (often 4000+px on
+     * modern phone cameras), and FrameLayout's `wrap_content`
+     * measurement uses that intrinsic size for `match_parent` children
+     * — meaning the success card would balloon to image size instead
+     * of staying the size dictated by the picker / status content.
+     * Sampling to a small target keeps the ImageView's intrinsic size
+     * trivial; `centerCrop` then scales the small bitmap to fill
+     * whatever bounds the FrameLayout actually lays out.
+     *
+     * The blur effect itself uses [RenderEffect] (API 31+); on older
+     * devices the sampled bitmap is shown un-blurred behind the same
+     * overlay, which still reads as a soft accent. Passing `null`
+     * collapses both layers back to `GONE` so failure terminals look
+     * like the pre-success card.
+     */
+    private fun applyBlurredCardBackground(uri: Uri?) {
+        if (uri == null) {
+            binding.sendCardBlur.visibility = View.GONE
+            binding.sendCardOverlay.visibility = View.GONE
+            return
+        }
+        lifecycleScope.launch {
+            val bitmap =
+                withContext(Dispatchers.IO) {
+                    decodeSampledBitmap(uri, BLUR_BG_TARGET_PX)
+                } ?: return@launch
+            binding.sendCardBlur.setImageBitmap(bitmap)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                binding.sendCardBlur.setRenderEffect(buildPrettyBlurEffect())
+            }
+            binding.sendCardBlur.visibility = View.VISIBLE
+            binding.sendCardOverlay.visibility = View.VISIBLE
+        }
+    }
+
+    /**
+     * Compose the success-card blur effect: saturation-boosted color
+     * filter chained behind a Gaussian blur. The two-step pipeline
+     * (saturation first, then blur) gives the iOS-style "vibrancy"
+     * feel — richer colors come through the soft halo than a plain
+     * Gaussian blur over the original bitmap, which tends to read as
+     * washed-out gray.
+     *
+     * `RenderEffect.createChainEffect` applies the second argument
+     * first and the first argument on top, so `chain(blur, saturation)`
+     * means "boost saturation, then blur the saturation-boosted
+     * version". A `setSaturation(1.4f)` matrix lifts the colors ~40%
+     * before the blur smears them — enough to read as vivid without
+     * tipping into oversaturated.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun buildPrettyBlurEffect(): RenderEffect {
+        val saturationFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.4f) })
+        val saturationEffect = RenderEffect.createColorFilterEffect(saturationFilter)
+        val blurEffect =
+            RenderEffect.createBlurEffect(
+                BLUR_RADIUS_PX,
+                BLUR_RADIUS_PX,
+                Shader.TileMode.MIRROR,
+            )
+        return RenderEffect.createChainEffect(blurEffect, saturationEffect)
+    }
+
+    /**
+     * Decode an image URI into a memory-friendly bitmap whose larger
+     * edge is at most [targetPx]. Uses the platform `ImageDecoder`
+     * pipeline on API 28+ (which exposes a clean `setTargetSampleSize`
+     * call), and falls back to the classic `BitmapFactory` two-pass
+     * sampling loop on older devices. Returns `null` on any decode
+     * failure so the caller can leave the blur layer hidden.
+     */
+    private fun decodeSampledBitmap(
+        uri: Uri,
+        targetPx: Int,
+    ): Bitmap? =
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val source = ImageDecoder.createSource(contentResolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    val ratio =
+                        maxOf(
+                            info.size.width / targetPx,
+                            info.size.height / targetPx,
+                            1,
+                        )
+                    decoder.setTargetSampleSize(ratio)
+                }
+            } else {
+                val bounds =
+                    android.graphics.BitmapFactory
+                        .Options()
+                        .apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+                }
+                val sample =
+                    maxOf(
+                        bounds.outWidth / targetPx,
+                        bounds.outHeight / targetPx,
+                        1,
+                    )
+                val opts =
+                    android.graphics.BitmapFactory.Options().apply {
+                        inSampleSize = sample
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    }
+                contentResolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, opts)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(OUTBOUND_TAG, "decodeSampledBitmap failed for $uri", e)
+            null
+        }
+
+    /**
+     * Pull the first image-MIME stream URI out of the launching share
+     * intent. Handles both `ACTION_SEND` (single Uri) and
+     * `ACTION_SEND_MULTIPLE` (ArrayList<Uri>) shapes; the folder send
+     * action carries a tree URI with no single representative image
+     * and is intentionally not previewed. Returns `null` whenever the
+     * MIME lookup fails or the first attachment is not an image.
+     */
+    @Suppress("DEPRECATION")
+    private fun extractFirstImageUri(intent: Intent): Uri? {
+        val candidate: Uri? =
+            when (intent.action) {
+                Intent.ACTION_SEND -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    } else {
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                    }
+                }
+                Intent.ACTION_SEND_MULTIPLE -> {
+                    val list =
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                        } else {
+                            intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                        }
+                    list?.firstOrNull()
+                }
+                else -> null
+            }
+        if (candidate == null) return null
+        val mime =
+            try {
+                contentResolver.getType(candidate)
+            } catch (e: SecurityException) {
+                Log.w(OUTBOUND_TAG, "preview MIME lookup denied: ${e.message}")
+                null
+            }
+        return candidate.takeIf { mime?.startsWith("image/") == true }
     }
 
     private fun renderUnsupportedPayload() {
+        beginCardBoundsTransition(BOUNDS_DURATION_MS)
         binding.sendPayloadSummary.text = getString(R.string.send_payload_text)
         binding.sendSubtitle.text = getString(R.string.send_unsupported)
         binding.sendPeerList.visibility = View.GONE
@@ -477,6 +803,7 @@ public class SendActivity : AppCompatActivity() {
      * surface a clear message and let the user back out.
      */
     private fun renderFolderEmpty() {
+        beginCardBoundsTransition(BOUNDS_DURATION_MS)
         binding.sendPayloadSummary.text = getString(R.string.main_send_folder_button)
         binding.sendSubtitle.text = getString(R.string.send_folder_empty)
         binding.sendPeerList.visibility = View.GONE
@@ -494,6 +821,7 @@ public class SendActivity : AppCompatActivity() {
      * with the wrong shape) lands here too — see [SendPayloadResolver].
      */
     private fun renderFolderWalkFailed() {
+        beginCardBoundsTransition(BOUNDS_DURATION_MS)
         binding.sendPayloadSummary.text = getString(R.string.main_send_folder_button)
         binding.sendSubtitle.text = getString(R.string.send_folder_walk_failed)
         binding.sendPeerList.visibility = View.GONE
@@ -549,8 +877,159 @@ public class SendActivity : AppCompatActivity() {
         finish()
     }
 
+    /**
+     * Swap the card content from the peer-picker view to the in-card
+     * QR panel and animate the transition. The QR bitmap is rendered
+     * fresh from a new ECDSA P-256 keypair on every entry to the
+     * panel so the URL the receiver sees is single-use; this matches
+     * the historical [ShowQrActivity] behavior.
+     *
+     * Two animations run in parallel for the elastic feel:
+     *   * [TransitionManager.beginDelayedTransition] with
+     *     [ChangeBounds] makes the card's outline (and every
+     *     resizing ancestor) smoothly grow / shrink between the
+     *     picker height and the QR-panel height — without this,
+     *     the FrameLayout's `wrap_content` jumps to the new size in
+     *     a single frame and the rounded card corners snap.
+     *   * The panel itself scales 0.7→1.0 and fades 0→1 with an
+     *     [OvershootInterpolator] so it pops in from the card
+     *     center after a slight overshoot.
+     */
     private fun onShowQrClicked() {
-        startActivity(Intent(this, ShowQrActivity::class.java))
+        if (binding.sendQrPanel.isVisible) return
+
+        val generated = QrKeyData.generate()
+        val url = QrUrl.build(generated.qrKeyData)
+        binding.sendQrUrl.text = url
+
+        val displayMetrics = resources.displayMetrics
+        val qrSize = (min(displayMetrics.widthPixels, displayMetrics.heightPixels) * QR_SCREEN_FRACTION).toInt()
+        val bitmap = QrBitmapRenderer.render(url, qrSize)
+        binding.sendQrBitmap.setImageBitmap(bitmap)
+        binding.sendQrBitmap.layoutParams =
+            binding.sendQrBitmap.layoutParams.apply {
+                width = qrSize
+                height = qrSize
+            }
+
+        beginCardBoundsTransition(BOUNDS_DURATION_MS)
+        // Cancel any in-flight picker fade-in from a previous Done
+        // press and reset its alpha — otherwise toggling QR on/off
+        // rapidly could leave the picker stuck at alpha < 1 the next
+        // time it is revealed.
+        binding.sendPickerContent.animate().cancel()
+        binding.sendPickerContent.alpha = 1f
+        binding.sendPickerContent.visibility = View.GONE
+        val panel = binding.sendQrPanel
+        panel.visibility = View.VISIBLE
+        panel.scaleX = ENTER_INITIAL_SCALE
+        panel.scaleY = ENTER_INITIAL_SCALE
+        panel.alpha = 0f
+        panel
+            .animate()
+            .scaleX(1f)
+            .scaleY(1f)
+            .alpha(1f)
+            .setDuration(ENTER_DURATION_MS)
+            .setInterpolator(OvershootInterpolator(OVERSHOOT_TENSION))
+            .start()
+    }
+
+    /**
+     * Reverse [onShowQrClicked] in three smooth phases that read as a
+     * single continuous shrink:
+     *
+     *   1. Panel collapses — scale 1.0 → 0.7 + alpha 1 → 0 over
+     *      [EXIT_DURATION_MS] with an [AccelerateInterpolator] for a
+     *      snappy exit.
+     *   2. Card outline shrinks — `withEndAction` schedules a
+     *      [ChangeBounds] transition right before flipping
+     *      visibility, so the FrameLayout's wrap_content recomputes
+     *      from qr-height to picker-height under
+     *      [BOUNDS_DURATION_MS] of bounds animation rather than
+     *      snapping. The picker is brought to `VISIBLE` with
+     *      `alpha = 0` so it counts toward the FrameLayout's measured
+     *      end-state height — without this the FrameLayout would size
+     *      to the gone qr panel and ChangeBounds would have no end
+     *      bounds to animate to.
+     *   3. Picker fades in — a `TransitionListener` on the
+     *      `ChangeBounds` fires `onTransitionEnd` once the outline
+     *      finishes shrinking, at which point the picker (Show QR
+     *      button, Cancel button, peer list, etc.) fades from
+     *      `alpha = 0` to `alpha = 1` over [FADE_IN_DURATION_MS]. So
+     *      the picker chrome appears after the card has settled at
+     *      its new size, not during the shrink.
+     */
+    private fun onQrDoneClicked() {
+        val panel = binding.sendQrPanel
+        panel
+            .animate()
+            .scaleX(EXIT_TARGET_SCALE)
+            .scaleY(EXIT_TARGET_SCALE)
+            .alpha(0f)
+            .setDuration(EXIT_DURATION_MS)
+            .setInterpolator(AccelerateInterpolator())
+            .withEndAction {
+                val picker = binding.sendPickerContent
+                // Bring the picker back to layout but transparent so
+                // the ChangeBounds transition resolves the FrameLayout
+                // height to the picker's measured size (without the
+                // alpha=0, the picker would still measure normally —
+                // alpha is purely visual; the alpha=0 is what defers
+                // the actual reveal until phase 3 below).
+                picker.visibility = View.VISIBLE
+                picker.alpha = 0f
+
+                val transition =
+                    ChangeBounds().apply {
+                        duration = BOUNDS_DURATION_MS
+                        addListener(
+                            object : Transition.TransitionListener {
+                                override fun onTransitionStart(transition: Transition) = Unit
+
+                                override fun onTransitionEnd(transition: Transition) {
+                                    picker
+                                        .animate()
+                                        .alpha(1f)
+                                        .setDuration(FADE_IN_DURATION_MS)
+                                        .start()
+                                }
+
+                                override fun onTransitionCancel(transition: Transition) {
+                                    // Defensive: never leave the picker
+                                    // permanently invisible if the bounds
+                                    // animation is interrupted.
+                                    picker.alpha = 1f
+                                }
+
+                                override fun onTransitionPause(transition: Transition) = Unit
+
+                                override fun onTransitionResume(transition: Transition) = Unit
+                            },
+                        )
+                    }
+                TransitionManager.beginDelayedTransition(binding.root, transition)
+
+                panel.visibility = View.GONE
+                panel.scaleX = 1f
+                panel.scaleY = 1f
+                panel.alpha = 1f
+            }.start()
+    }
+
+    /**
+     * Schedule a [ChangeBounds] transition on the activity's root
+     * scene so any view inside it whose laid-out bounds change as a
+     * result of the next visibility toggle animates from the old
+     * bounds to the new ones. This catches the FrameLayout that
+     * holds the picker / QR panels, the MaterialCardView wrapping
+     * it, and the surrounding NestedScrollView content height — so
+     * the card's rounded outline grows / shrinks smoothly instead
+     * of snapping in a single frame.
+     */
+    private fun beginCardBoundsTransition(durationMs: Long = BOUNDS_DURATION_MS) {
+        val transition = ChangeBounds().apply { duration = durationMs }
+        TransitionManager.beginDelayedTransition(binding.root, transition)
     }
 
     /**
@@ -660,5 +1139,45 @@ public class SendActivity : AppCompatActivity() {
         public const val ACTION_SEND_FOLDER: String = "dev.bluehouse.libredrop.action.SEND_FOLDER"
 
         private const val OUTBOUND_TAG: String = "LibreDropOutbound"
+
+        // In-card QR panel animation tunables. Entry uses an
+        // overshoot easing so the panel briefly scales past 1.0 before
+        // settling — gives the "elastic pop" feel; exit accelerates
+        // toward zero for a snappier dismiss. The card's outline
+        // resize runs on a slightly shorter ChangeBounds window so the
+        // outline finishes settling just as the panel's overshoot
+        // begins to settle, rather than chasing the bouncy panel.
+        private const val ENTER_INITIAL_SCALE: Float = 0.7f
+        private const val EXIT_TARGET_SCALE: Float = 0.7f
+        private const val ENTER_DURATION_MS: Long = 350L
+        private const val EXIT_DURATION_MS: Long = 200L
+        private const val BOUNDS_DURATION_MS: Long = 280L
+        private const val FADE_IN_DURATION_MS: Long = 200L
+        private const val OVERSHOOT_TENSION: Float = 1.5f
+
+        // Fraction of the shorter screen edge to use for the QR
+        // bitmap rendered into the in-card panel. Mirrors the value
+        // used by the historical [ShowQrActivity] so the QR stays
+        // square and proportionally large in both portrait and
+        // landscape.
+        private const val QR_SCREEN_FRACTION: Double = 0.75
+
+        // Blur radius (in pixels) applied to the sent image on the
+        // success card backdrop. 80f sits in the iOS-material "soft
+        // dreamy" zone — large enough that the image reads as a
+        // gradient of color rather than a recognizable photo, but
+        // not so large that the result collapses into a single
+        // muddy hue.
+        private const val BLUR_RADIUS_PX: Float = 80f
+
+        // Target pixel size for the blurred card backdrop. Sampling
+        // to this size before handing the bitmap to the ImageView
+        // keeps `wrap_content` FrameLayout measurement from
+        // ballooning to the source bitmap's pixel dimensions — see
+        // [applyBlurredCardBackground] for the full rationale. 720px
+        // is roughly twice the on-screen card width on a typical
+        // ~3x density device, so the blur has plenty of source detail
+        // to smooth into a soft gradient without burning memory.
+        private const val BLUR_BG_TARGET_PX: Int = 720
     }
 }

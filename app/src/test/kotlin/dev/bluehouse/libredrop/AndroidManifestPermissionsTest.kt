@@ -167,28 +167,32 @@ class AndroidManifestPermissionsTest {
     }
 
     @Test
-    fun `media permissions are not declared in phase 1`() {
-        // Phase 1 uses the system share-intent flow, which does not need
-        // direct media access. READ_MEDIA_* would surface needless
-        // permissions to users — guard against that drift.
+    fun `read_media_images is declared for the polaroid send-receive preview`() {
+        // The Send/Receive tab renders two random recent gallery photos
+        // as a "ready to receive" decorative cue, and the post-Accept
+        // consent flow looks up the saved file in MediaStore so it can
+        // show an in-card preview + "View image" deep link to the
+        // system gallery viewer. Both surfaces query
+        // `MediaStore.Images.Media`, which the platform gates behind
+        // `READ_MEDIA_IMAGES` on API 33+ (and `READ_EXTERNAL_STORAGE`
+        // on API 24-32 — covered by the legacy declaration that is
+        // already capped with `maxSdkVersion=32`).
         //
-        // ACCESS_FINE_LOCATION used to be on this list as a Phase 1
-        // safety guard. Phase 4 #50 (Wi-Fi local-only hotspot
-        // bandwidth-upgrade medium) requires the platform's hotspot
-        // path to surface SSID + passphrase via the
-        // LocalOnlyHotspotReservation callback, which gates that data
-        // behind ACCESS_FINE_LOCATION on API 26+ (NEARBY_WIFI_DEVICES
-        // is accepted in lieu on API 33+ but the older grant is the
-        // only universally-supported one). We therefore moved the
-        // permission off the forbidden list and added a dedicated
+        // ACCESS_FINE_LOCATION used to be on a phase-1 forbidden list.
+        // Phase 4 #50 (Wi-Fi local-only hotspot bandwidth-upgrade
+        // medium) needs it for the LocalOnlyHotspotReservation
+        // callback to surface SSID + passphrase, so it has its own
         // declaration test below.
-        //
-        // ACCESS_COARSE_LOCATION is no longer forbidden: Android 12+
-        // lint enforces declaring COARSE whenever FINE is declared, and
-        // the hotspot path needs FINE on API 26+.
+        assertTrue(
+            "READ_MEDIA_IMAGES must be declared for the polaroid preview / consent image preview",
+            manifest.contains("android.permission.READ_MEDIA_IMAGES"),
+        )
+
+        // Audio / video permissions remain forbidden — the photo
+        // surfaces only ever read images, and pulling in audio / video
+        // grants would surface needless prompts to users.
         val mediaForbidden =
             listOf(
-                "android.permission.READ_MEDIA_IMAGES",
                 "android.permission.READ_MEDIA_VIDEO",
                 "android.permission.READ_MEDIA_AUDIO",
             )

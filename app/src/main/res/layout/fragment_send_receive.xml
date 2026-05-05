@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Send/Receive tab. Hosted by SendReceiveFragment inside MainActivity's
+  bottom-navigation shell.
+
+  Vertical stack inside a ScrollView so the layout still works on
+  short screens once the conditional WVMG banner is visible.
+
+  Layout order (top to bottom):
+    1. Legacy WhenVivoMeetsGoogle migration banner (#145, conditional;
+       non-dismissible — surfaced when a coresident pre-rename install
+       is detected).
+    2. Photo preview area: a small "Waiting for files…" caption
+       centered above two polaroid-style photo cards. The cards are
+       lightly rotated and slightly offset on the X axis so they sit
+       at irregular angles, a soft vivo-style decorative cue that
+       this device is ready to receive.
+    3. Send Files / Send Folder buttons in a horizontal 2-column
+       row, each with `layout_weight=1`.
+    4. Always-visible toggle (#34, the receiver visibility switch).
+
+  All subtitle / description TextViews from the previous build have
+  been removed per the spec — the buttons and the toggle's own label
+  carry every label needed.
+
+  The battery-optimization (#47) prompt is no longer surfaced as a
+  banner here; it lives as a one-shot AlertDialog raised by
+  MainActivity on first launch + a re-triggerable row on the Settings
+  tab.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <!--
+          Legacy-WhenVivoMeetsGoogle banner (#145). Hidden by default;
+          SendReceiveFragment reveals it only when the migration
+          detector finds a coresident pre-rename install still on the
+          device. The banner is non-dismissible — the legacy install
+          registers a duplicate 0xFEF3 GATT service that defeats the
+          Quick Share slot-redirect, so the user must actually
+          uninstall the old package for off-LAN BLE bootstrap to work.
+          The banner disappears automatically the next time onStart
+          fires after the uninstall completes.
+        -->
+        <LinearLayout
+            android:id="@+id/main_legacy_wvmg_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="?android:attr/colorBackgroundFloating"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/main_legacy_wvmg_banner_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/main_legacy_wvmg_banner_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/main_legacy_wvmg_banner_body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/main_legacy_wvmg_banner_body"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="end"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/main_legacy_wvmg_banner_uninstall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/main_legacy_wvmg_banner_uninstall" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!--
+          Photo preview area. The "Waiting for files…" caption sits
+          above two polaroid-style photo cards. Each card is a
+          FrameLayout with a white rounded background, a 6dp inner
+          padding (which makes the white surface read as a thin
+          border around the inner ImageView), and a small elevation
+          for the drop shadow. Both cards are positioned `center` in
+          the parent FrameLayout, then offset on the X axis and given
+          a small rotation so they sit at irregular angles like
+          tossed photos. SendReceiveFragment loads two random images
+          from MediaStore into the inner ImageViews when
+          READ_MEDIA_IMAGES is granted; without the permission the
+          cards remain visible as decorative empty frames.
+        -->
+        <TextView
+            android:id="@+id/main_send_waiting"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:gravity="center"
+            android:text="@string/main_send_waiting"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:layout_marginTop="12dp"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+            <FrameLayout
+                android:id="@+id/main_send_preview_card_1"
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:layout_gravity="center"
+                android:background="@drawable/photo_card_background"
+                android:elevation="4dp"
+                android:padding="6dp"
+                android:rotation="-7"
+                android:translationX="-32dp">
+
+                <ImageView
+                    android:id="@+id/main_send_preview_photo_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/main_send_preview_photo_description"
+                    android:scaleType="centerCrop" />
+
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/main_send_preview_card_2"
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:layout_gravity="center"
+                android:background="@drawable/photo_card_background"
+                android:elevation="6dp"
+                android:padding="6dp"
+                android:rotation="6"
+                android:translationX="32dp">
+
+                <ImageView
+                    android:id="@+id/main_send_preview_photo_2"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/main_send_preview_photo_description"
+                    android:scaleType="centerCrop" />
+
+            </FrameLayout>
+
+        </FrameLayout>
+
+        <!--
+          Send Files / Send Folder action row. Two buttons share the
+          horizontal space equally via `layout_weight=1`. The 12dp
+          Space child in the middle gives them visual breathing room
+          without injecting a margin attribute on either button (so a
+          future swap to MaterialButtonToggleGroup or similar is a
+          purely structural change).
+        -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/main_send_files_button"
+                style="@style/Widget.LibreDrop.Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/main_send_files_button" />
+
+            <Space
+                android:layout_width="12dp"
+                android:layout_height="wrap_content" />
+
+            <Button
+                android:id="@+id/main_send_folder_button"
+                style="@style/Widget.LibreDrop.Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/main_send_folder_button" />
+
+        </LinearLayout>
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/main_always_visible_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/main_always_visible_title" />
+
+    </LinearLayout>
+
+</ScrollView>
