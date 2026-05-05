@@ -8,6 +8,7 @@ package dev.bluehouse.libredrop.discovery.ble
 import android.bluetooth.le.AdvertiseSettings
 import com.google.common.truth.Truth.assertThat
 import dev.bluehouse.libredrop.protocol.endpoint.BleAdvertisement
+import dev.bluehouse.libredrop.protocol.endpoint.BleAdvertisementHeader
 import dev.bluehouse.libredrop.protocol.endpoint.BleServiceData
 import dev.bluehouse.libredrop.protocol.endpoint.DeviceType
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
@@ -69,7 +70,7 @@ class BleQuickShareAdvertiserTest {
     }
 
     @Test
-    fun `start submits a direct second-profile fast advertisement`() {
+    fun `start submits a GATT advertisement header`() {
         val gate = RecordingGate(failOnStart = false)
         val advertiser =
             BleQuickShareAdvertiser.forTesting(
@@ -88,14 +89,11 @@ class BleQuickShareAdvertiserTest {
         assertThat(mode).isEqualTo(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
         assertThat(gate.startCalls.last().dctPayload).isNull()
 
-        val advertisement = BleAdvertisement.parse(payload)
-        assertThat(advertisement).isNotNull()
-        assertThat(advertisement!!.fastAdvertisement).isTrue()
-        assertThat(advertisement.secondProfile).isTrue()
-        assertThat(advertisement.psm).isEqualTo(0)
-        val parsed = BleServiceData.parse(payload)
-        assertThat(parsed).isNotNull()
-        assertThat(parsed!!.endpointInfo.hidden).isTrue()
+        val header = BleAdvertisementHeader.parse(payload)
+        assertThat(header).isNotNull()
+        assertThat(header!!.numSlots).isEqualTo(1)
+        assertThat(header.psm).isEqualTo(0)
+        assertThat(header.supportsExtendedAdvertisement).isFalse()
     }
 
     @Test
@@ -123,10 +121,11 @@ class BleQuickShareAdvertiserTest {
         val payload = call.payload
         val dctPayload = call.dctPayload
         val visiblePayload = call.visiblePayload
-        val primaryAdvertisement = BleAdvertisement.parse(payload)
-        assertThat(primaryAdvertisement).isNotNull()
-        assertThat(primaryAdvertisement!!.fastAdvertisement).isTrue()
-        assertThat(primaryAdvertisement.secondProfile).isTrue()
+        val primaryHeader = BleAdvertisementHeader.parse(payload)
+        assertThat(primaryHeader).isNotNull()
+        assertThat(primaryHeader!!.numSlots).isEqualTo(1)
+        assertThat(primaryHeader.psm).isEqualTo(0)
+        assertThat(primaryHeader.supportsExtendedAdvertisement).isTrue()
 
         assertThat(dctPayload).isNull()
 
@@ -156,10 +155,11 @@ class BleQuickShareAdvertiserTest {
 
             assertThat(started).isTrue()
             val call = gate.startCalls.single()
-            val primaryAdvertisement = BleAdvertisement.parse(call.payload)
-            assertThat(primaryAdvertisement).isNotNull()
-            assertThat(primaryAdvertisement!!.secondProfile).isTrue()
-            assertThat(primaryAdvertisement.psm).isEqualTo(0)
+            val primaryHeader = BleAdvertisementHeader.parse(call.payload)
+            assertThat(primaryHeader).isNotNull()
+            assertThat(primaryHeader!!.numSlots).isEqualTo(1)
+            assertThat(primaryHeader.psm).isEqualTo(0)
+            assertThat(primaryHeader.supportsExtendedAdvertisement).isTrue()
             assertThat(call.dctPayload).isNull()
             assertThat(BleServiceData.parsePsmExtraField(call.visiblePayload!!)).isEqualTo(0x1234)
             val visibleAdvertisement = BleAdvertisement.parse(call.visiblePayload!!)!!
@@ -201,12 +201,12 @@ class BleQuickShareAdvertiserTest {
         assertThat(gate.firstRegistration?.closed).isTrue()
         assertThat(gate.lastRegistration?.closed).isFalse()
 
-        // The primary bytes are compact direct advertisements; identity drift is covered by
+        // The primary bytes are compact GATT headers; identity drift is covered by
         // the replacement count and payload parser assertions above.
         val (payload, _) = gate.startCalls.last()
-        val advertisement = BleAdvertisement.parse(payload)
-        assertThat(advertisement).isNotNull()
-        assertThat(advertisement!!.secondProfile).isTrue()
+        val header = BleAdvertisementHeader.parse(payload)
+        assertThat(header).isNotNull()
+        assertThat(header!!.numSlots).isEqualTo(1)
     }
 
     @Test

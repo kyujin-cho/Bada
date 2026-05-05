@@ -23,9 +23,11 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
+import dev.bluehouse.libredrop.protocol.endpoint.BleAdvertisementHeader
 import dev.bluehouse.libredrop.protocol.endpoint.BleServiceData
 import dev.bluehouse.libredrop.protocol.endpoint.DctAdvertisement
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
+import dev.bluehouse.libredrop.protocol.endpoint.NearbyServiceId
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 
@@ -45,28 +47,24 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * ### Wire format
  *
- * The primary service-data payload is built as a compact BLE v2
- * fast-advertisement in `:core-protocol` (pure-JVM, KAT-tested). It uses the
- * Nearby second-profile frame type so a stock sender that falls back to the
- * legacy `0xFEF3` service-data path still targets LibreDrop's isolated socket
- * profile instead of Google's coresident regular profile:
+ * The primary service-data payload is built as a compact BLE v2 GATT
+ * advertisement header in `:core-protocol` (pure-JVM, KAT-tested). Stock
+ * Samsung senders read the visible receiver identity from GATT slot zero,
+ * where LibreDrop publishes a second-profile fast advertisement:
  *
  * ```text
- * [ 0x4b | body_len | body... | device_token[2] ]
+ * [ header | bloom_filter | advertisement_hash | psm=0 ]
  * ```
  *
  * Vivo/OriginOS devices can run Google Play services' own Nearby GATT
- * provider beside LibreDrop. Advertising a GATT advertisement header as the
- * primary BLE pulse made stock Galaxy cache that header as the selected
- * identity and route later taps through the GMS-owned regular socket before
- * LibreDrop saw consent. The primary compact payload avoids that cached-header
- * path entirely, while the receiver's regular GATT slot service remains
- * available for Samsung to resolve the selected peer into LibreDrop's
- * second-profile socket. The connectable extended payload
- * carries the visible receiver name only. Do not append the RX
- * instant-connection extra field here: on One UI 8.0.5 it promotes the tap
- * into a separate Mosey/link-local path on port 8770, bypassing LibreDrop's
- * BLE GATT bootstrap server.
+ * provider beside LibreDrop. The regular `0xFEF3` slot service therefore
+ * must stay published, and slot zero must advertise the second-profile socket
+ * so Samsung resolves the selected peer into LibreDrop instead of Google's
+ * coresident regular profile. The connectable extended payload carries the
+ * visible receiver name only. Do not append the RX instant-connection extra
+ * field here: on One UI 8.0.5 it promotes the tap into a separate
+ * Mosey/link-local path on port 8770, bypassing LibreDrop's BLE GATT
+ * bootstrap server.
  *
  * LibreDrop does not submit the optional DCT (`0xFC73`) advertisement in
  * receiver mode. Samsung ShareLive was observed to probe the DCT advertiser
@@ -619,8 +617,8 @@ internal class AndroidAdvertisePermissionChecker(
 
 /**
  * Builder for the compact primary service-data payload. The default implementation
- * emits a direct BLE v2 second-profile fast advertisement in `:core-protocol`;
- * tests can substitute a fake to drive specific failure paths.
+ * emits a BLE v2 GATT advertisement header in `:core-protocol`; tests can
+ * substitute a fake to drive specific failure paths.
  */
 public fun interface PayloadFactory {
     public fun build(
@@ -637,13 +635,22 @@ public object DefaultPayloadFactory : PayloadFactory {
     override fun build(
         endpointId: ByteArray,
         endpointInfo: EndpointInfo,
-    ): ByteArray =
-        BleServiceData.encodeFramed(
+    ): ByteArray {
+        val gattAdvertisement = BleServiceData.encodeFramed(
             endpointId = endpointId,
             endpointInfo = endpointInfo,
             secondProfile = true,
         )
+        return BleAdvertisementHeader.encodeSingleSlot(
+            serviceId = NearbyServiceId.VALUE,
+            gattAdvertisement = gattAdvertisement,
+            psm = 0,
+            supportsExtendedAdvertisement = endpointInfo.supportsVisibleExtendedAdvertisement(),
+        )
+    }
 }
+
+private fun EndpointInfo.supportsVisibleExtendedAdvertisement(): Boolean = !hidden && !deviceName.isNullOrBlank()
 
 /** Optional payload builder for secondary extended advertisements. */
 public fun interface OptionalPayloadFactory {
