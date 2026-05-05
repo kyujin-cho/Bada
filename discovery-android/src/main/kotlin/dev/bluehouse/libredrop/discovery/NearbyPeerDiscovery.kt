@@ -8,6 +8,7 @@
 package dev.bluehouse.libredrop.discovery
 
 import android.content.Context
+import android.util.Log
 import dev.bluehouse.libredrop.discovery.ble.BleFastAdvertisementScanner
 import dev.bluehouse.libredrop.discovery.classic.BluetoothClassicPeerScanner
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import java.net.InetAddress
+
+private const val DISCOVERY_TAG: String = "LibreDropDiscovery"
 
 /**
  * Aggregates sender-side peer discovery across multiple media.
@@ -250,9 +253,54 @@ private class PeerAggregator {
         after: NearbyPeer?,
     ): List<NearbyPeerEvent> {
         if (after == null) return emptyList()
-        if (before == after) return emptyList()
+
+        val beforeVisible = before?.isConnectable == true
+        val afterVisible = after.isConnectable
+
+        if (!afterVisible) {
+            logFilteredPeer(after)
+            return if (beforeVisible) listOf(NearbyPeerEvent.Lost(after.stableId)) else emptyList()
+        }
+        if (before == after && beforeVisible) return emptyList()
         return listOf(NearbyPeerEvent.Resolved(after))
     }
+
+    private fun logFilteredPeer(peer: NearbyPeer) {
+        Log.i(
+            DISCOVERY_TAG,
+            "picker filter: hiding peer=${peer.stableId} " +
+                "endpointId=${peer.endpointId ?: "<none>"} reason=${filterReason(peer)}",
+        )
+    }
+
+    private fun filterReason(peer: NearbyPeer): String =
+        buildList {
+            if (peer.endpointInfo == null) {
+                add("endpoint-info-unparseable")
+            }
+
+            val lan = peer.lanEndpoint
+            when {
+                lan == null -> add("wifi-lan-missing")
+                lan.primaryAddress() == null -> add("wifi-lan-no-primary-address")
+            }
+
+            val ble = peer.bleAdvertisement
+            when {
+                ble == null -> add("ble-missing")
+                ble.advertiserAddress == null -> add("ble-no-address")
+                ble.l2capPsm != null -> Unit
+                ble.gattConnectable -> add("ble-gatt-pending-endpoint-info")
+                else -> add("ble-no-verified-bootstrap")
+            }
+
+            if (
+                peer.bluetoothEndpoint != null &&
+                !UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED
+            ) {
+                add("bluetooth-classic-disabled")
+            }
+        }.distinct().joinToString(separator = ",")
 }
 
 private data class MutablePeer(

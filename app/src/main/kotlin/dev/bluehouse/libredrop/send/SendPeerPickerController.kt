@@ -200,6 +200,10 @@ internal class SendPeerPickerController(
     }
 
     private fun upsertResolvedPeer(incoming: NearbyPeer) {
+        if (!planFor(incoming).isConnectable) {
+            peers.removeAll { it.stableId == incoming.stableId }
+            return
+        }
         val existingIndex = peers.indexOfFirst { it.stableId == incoming.stableId }
         if (existingIndex >= 0) {
             peers[existingIndex] = incoming
@@ -216,25 +220,22 @@ internal class SendPeerPickerController(
         val container = binding.sendPeerList
         container.removeAllViews()
         val inflater = LayoutInflater.from(context)
-        val hasConnectablePeer = peers.any { planFor(it).isConnectable }
         for (peer in peers) {
             val plan = planFor(peer)
+            if (!plan.isConnectable) continue
             val row = ItemPeerRowBinding.inflate(inflater, container, false)
             row.peerRowTitle.text = peerLabel(peer)
             row.peerRowSubtitle.text = plan.subtitle
-            row.root.isEnabled = plan.isConnectable
-            row.root.alpha = if (plan.isConnectable) 1f else DISABLED_PEER_ALPHA
-            row.root.setOnClickListener {
-                if (plan.isConnectable) onPeerSelected(peer)
-            }
+            row.root.isEnabled = true
+            row.root.alpha = 1f
+            row.root.setOnClickListener { onPeerSelected(peer) }
             container.addView(row.root)
         }
         binding.sendEmptyState.visibility = if (peers.isEmpty()) View.VISIBLE else View.GONE
         binding.sendSubtitle.setText(
             when {
                 peers.isEmpty() -> R.string.send_subtitle_discovering
-                hasConnectablePeer -> R.string.send_subtitle_pick_peer
-                else -> R.string.send_subtitle_no_usable_route
+                else -> R.string.send_subtitle_pick_peer
             },
         )
         updateEmptyPeerHintVisibility()
@@ -250,13 +251,11 @@ internal class SendPeerPickerController(
     }
 
     private fun updateEmptyPeerHintVisibility() {
-        val onlyUnroutablePeers = peers.isNotEmpty() && peers.none { planFor(it).isConnectable }
         val show =
-            (!emptyPeerHintTimer.isDismissed() && onlyUnroutablePeers) ||
-                emptyPeerHintTimer.shouldShowHint(
-                    nowMillis = System.currentTimeMillis(),
-                    peerListEmpty = peers.isEmpty(),
-                )
+            emptyPeerHintTimer.shouldShowHint(
+                nowMillis = System.currentTimeMillis(),
+                peerListEmpty = peers.isEmpty(),
+            )
         binding.sendNetworkHint.visibility = if (show) View.VISIBLE else View.GONE
     }
 
@@ -300,7 +299,6 @@ internal class SendPeerPickerController(
 
     private companion object {
         private const val BLE_TAG: String = "LibreDropDiscovery"
-        private const val DISABLED_PEER_ALPHA: Float = 0.6f
     }
 }
 

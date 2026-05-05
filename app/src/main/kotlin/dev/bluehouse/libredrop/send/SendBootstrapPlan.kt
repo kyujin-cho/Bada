@@ -155,6 +155,9 @@ internal data class SendBootstrapPlan(
                 val lanAddress = lan?.primaryAddress()
                 val ble = peer.bleAdvertisement
                 val blePsm = ble?.l2capPsm
+                if (peer.endpointInfo == null) {
+                    add("peer endpoint info could not be parsed")
+                }
                 if (lan == null || lanAddress == null) {
                     add("no shared Wi-Fi LAN route")
                 }
@@ -164,13 +167,10 @@ internal data class SendBootstrapPlan(
                 if (ble != null && blePsm == null && !ble.gattConnectable) {
                     add("receiver BLE GATT bootstrap is not verified")
                 }
-                if (ble != null && peer.endpointInfo?.hidden != false) {
-                    add("BLE observation does not confirm a visible receiver")
-                }
             }.distinct().takeIf { it.isNotEmpty() }?.joinToString(separator = "; ")
 
         private fun lanRoute(peer: NearbyPeer): NearbyPeerRoute.Lan? =
-            peer.lanEndpoint?.let { lan ->
+            peer.lanEndpoint?.takeIf { peer.endpointInfo != null }?.let { lan ->
                 lan.primaryAddress()?.let { address ->
                     NearbyPeerRoute.Lan(address = address, port = lan.port)
                 }
@@ -181,13 +181,14 @@ internal data class SendBootstrapPlan(
             val lanAddress = lan?.primaryAddress()
             return when {
                 lan == null -> "wifi-lan=missing"
+                peer.endpointInfo == null -> "wifi-lan=endpoint-info-unparseable"
                 lanAddress == null -> "wifi-lan=no-primary-address"
                 else -> "wifi-lan=unusable"
             }
         }
 
         private fun bleL2capRoute(peer: NearbyPeer): NearbyPeerRoute.BleL2cap? =
-            peer.bleAdvertisement?.let { ble ->
+            peer.bleAdvertisement?.takeIf { peer.endpointInfo != null }?.let { ble ->
                 val address = ble.advertiserAddress
                 val psm = ble.l2capPsm
                 if (address != null && psm != null) {
@@ -204,15 +205,16 @@ internal data class SendBootstrapPlan(
             return when {
                 ble == null -> "ble=missing"
                 bleAddress == null -> "ble=no-address"
+                peer.endpointInfo == null -> "ble-l2cap=no-endpoint-info"
                 blePsm == null -> "ble-l2cap=peer-psm-missing"
                 else -> "ble-l2cap=unusable"
             }
         }
 
         private fun bleGattRoute(peer: NearbyPeer): NearbyPeerRoute.BleGatt? =
-            peer.bleAdvertisement?.let { ble ->
+            peer.bleAdvertisement?.takeIf { peer.endpointInfo != null }?.let { ble ->
                 val address = ble.advertiserAddress
-                if (address != null && ble.gattConnectable && peer.endpointInfo?.hidden == false) {
+                if (address != null && ble.gattConnectable) {
                     NearbyPeerRoute.BleGatt(macAddress = address)
                 } else {
                     null
@@ -226,9 +228,8 @@ internal data class SendBootstrapPlan(
             return when {
                 ble == null -> "ble-gatt=missing"
                 bleAddress == null -> "ble-gatt=no-address"
-                !ble.gattConnectable -> "ble-gatt=not-verified"
                 endpointInfo == null -> "ble-gatt=no-endpoint-info"
-                endpointInfo.hidden -> "ble-gatt=peer-hidden"
+                !ble.gattConnectable -> "ble-gatt=not-verified"
                 else -> "ble-gatt=unusable"
             }
         }

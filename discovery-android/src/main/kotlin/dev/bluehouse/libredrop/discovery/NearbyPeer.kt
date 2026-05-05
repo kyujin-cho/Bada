@@ -20,6 +20,10 @@ import java.net.InetAddress
  * represented for tests and future feature re-enable work, but normal
  * user-facing route selection hides them while
  * [UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED] is false.
+ *
+ * A parsed [endpointInfo] is part of negotiability: the sender UI should not
+ * offer peers whose identity bytes are malformed even if some transport signal
+ * (for example a LAN address tuple or BLE PSM) was discovered.
  */
 public data class NearbyPeer(
     val stableId: String,
@@ -62,11 +66,14 @@ public data class NearbyPeer(
      * a peer is already reachable by mDNS + TCP. BLE L2CAP is the preferred
      * off-LAN bootstrap path when the receiver advertises a PSM. A visible
      * BLE receiver without a PSM is only a GATT bootstrap candidate after
-     * the GATT advertisement-slot probe verifies the service; header-only,
-     * hidden, and raw scan-result-only BLE observations remain discovery
-     * metadata until another route confirms a transport.
+     * the GATT advertisement-slot probe verifies the service; header-only
+     * and raw scan-result-only BLE observations remain discovery metadata
+     * until another route confirms a transport.
      */
     public fun preferredRoute(): NearbyPeerRoute? {
+        if (endpointInfo == null) {
+            return null
+        }
         val lan = lanEndpoint
         val primaryAddress = lan?.primaryAddress()
         if (lan != null && primaryAddress != null) {
@@ -81,7 +88,7 @@ public data class NearbyPeer(
         if (bleAddress != null && l2capPsm != null) {
             return NearbyPeerRoute.BleL2cap(macAddress = bleAddress, psm = l2capPsm)
         }
-        if (bleAddress != null && ble.gattConnectable && endpointInfo?.hidden == false) {
+        if (bleAddress != null && ble.gattConnectable) {
             return NearbyPeerRoute.BleGatt(macAddress = bleAddress)
         }
         if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) {

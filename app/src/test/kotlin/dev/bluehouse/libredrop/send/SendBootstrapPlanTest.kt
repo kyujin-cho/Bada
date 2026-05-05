@@ -37,12 +37,26 @@ class SendBootstrapPlanTest {
     }
 
     @Test
-    fun `visible BLE peer stays unavailable when GATT is not connectable`() {
+    fun `peer with malformed endpoint info stays unavailable`() {
+        val peer =
+            peer(
+                lanAddress = "192.168.1.20",
+                endpointInfoPresent = false,
+            )
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
+        assertFalse(plan.isConnectable)
+        assertTrue(plan.failureReason!!.contains("peer endpoint info could not be parsed"))
+        assertTrue(plan.rejectedCandidates.contains("wifi-lan=endpoint-info-unparseable"))
+    }
+
+    @Test
+    fun `BLE peer stays unavailable when GATT is not connectable`() {
         val peer =
             peer(
                 bleAddress = "AA:BB:CC:DD:EE:FF",
                 blePsm = null,
-                bleVisible = true,
                 bleGattConnectable = false,
             )
 
@@ -52,15 +66,16 @@ class SendBootstrapPlanTest {
         assertTrue(plan.failureReason!!.contains("no shared Wi-Fi LAN route"))
         assertTrue(plan.failureReason!!.contains("receiver BLE advertisement has no L2CAP PSM"))
         assertTrue(plan.failureReason!!.contains("receiver BLE GATT bootstrap is not verified"))
+        assertTrue(plan.rejectedCandidates.contains("ble-gatt=not-verified"))
     }
 
     @Test
-    fun `verified visible BLE peer without PSM uses direct GATT bootstrap`() {
+    fun `verified BLE peer without PSM uses GATT regardless of visibility bit`() {
         val peer =
             peer(
                 bleAddress = "AA:BB:CC:DD:EE:FF",
                 blePsm = null,
-                bleVisible = true,
+                endpointInfoHidden = true,
             )
 
         val plan = SendBootstrapPlan.resolve(peer = peer)
@@ -75,48 +90,12 @@ class SendBootstrapPlanTest {
     }
 
     @Test
-    fun `hidden BLE observation stays unavailable without verified bootstrap metadata`() {
-        val peer =
-            peer(
-                bleAddress = "AA:BB:CC:DD:EE:FF",
-                blePsm = null,
-                bleVisible = false,
-            )
-
-        val plan = SendBootstrapPlan.resolve(peer = peer)
-
-        assertFalse(plan.isConnectable)
-        assertTrue(plan.failureReason!!.contains("visible receiver"))
-        assertTrue(plan.rejectedCandidates.contains("ble-gatt=peer-hidden"))
-    }
-
-    @Test
-    fun `BLE GATT route wins before Bluetooth Classic when receiver is visible`() {
+    fun `Bluetooth Classic candidate is ignored when BLE GATT bootstrap is unverified`() {
         val peer =
             peer(
                 bluetoothMac = "11:22:33:44:55:66",
                 bleAddress = "AA:BB:CC:DD:EE:FF",
                 blePsm = null,
-                bleVisible = true,
-            )
-
-        val plan = SendBootstrapPlan.resolve(peer = peer)
-
-        assertTrue(plan.isConnectable)
-        assertEquals(
-            NearbyPeerRoute.BleGatt("AA:BB:CC:DD:EE:FF"),
-            (plan.action as SendBootstrapPlan.Action.Direct).route,
-        )
-    }
-
-    @Test
-    fun `Bluetooth Classic candidate is ignored when visible BLE GATT bootstrap is unverified`() {
-        val peer =
-            peer(
-                bluetoothMac = "11:22:33:44:55:66",
-                bleAddress = "AA:BB:CC:DD:EE:FF",
-                blePsm = null,
-                bleVisible = true,
                 bleGattConnectable = false,
             )
 
@@ -126,48 +105,22 @@ class SendBootstrapPlanTest {
         assertEquals(SendBootstrapPlan.Action.Unavailable, plan.action)
         assertTrue(plan.rejectedCandidates.contains("ble-gatt=not-verified"))
         assertTrue(plan.rejectedCandidates.contains("bluetooth-classic=disabled"))
-        assertFalse(plan.failureReason!!.contains("Bluetooth Classic"))
     }
 
     @Test
-    fun `Samsung peer reachable only via BLE GATT uses the normal GATT route`() {
-        // Real-device validation on Galaxy S26 Ultra showed that the
-        // gchm "No handler registered" logs can coexist with a working
-        // Weave/Nearby receive path. BLE-GATT-only Samsung rows should
-        // therefore remain normal selectable routes.
+    fun `BLE L2CAP route requires parsed endpoint info`() {
         val peer =
             peer(
                 bleAddress = "AA:BB:CC:DD:EE:FF",
-                blePsm = null,
-                bleVisible = true,
+                blePsm = 0x1234,
+                endpointInfoPresent = false,
             )
 
         val plan = SendBootstrapPlan.resolve(peer = peer)
 
-        assertTrue(plan.isConnectable)
-        assertEquals(
-            NearbyPeerRoute.BleGatt("AA:BB:CC:DD:EE:FF"),
-            (plan.action as SendBootstrapPlan.Action.Direct).route,
-        )
-        assertEquals("BLE GATT AA:BB:CC:DD:EE:FF", plan.subtitle)
-    }
-
-    @Test
-    fun `Samsung peer reachable via Wi-Fi LAN still prefers LAN`() {
-        val peer =
-            peer(
-                lanAddress = "192.168.1.20",
-                lanPort = 7654,
-                bleAddress = "AA:BB:CC:DD:EE:FF",
-                bleVisible = true,
-            )
-
-        val plan = SendBootstrapPlan.resolve(peer = peer)
-
-        assertEquals(
-            NearbyPeerRoute.Lan(InetAddress.getByName("192.168.1.20"), 7654),
-            (plan.action as SendBootstrapPlan.Action.Direct).route,
-        )
+        assertFalse(plan.isConnectable)
+        assertTrue(plan.rejectedCandidates.contains("ble-l2cap=no-endpoint-info"))
+        assertTrue(plan.rejectedCandidates.contains("ble-gatt=no-endpoint-info"))
     }
 
     @Test
@@ -187,22 +140,25 @@ class SendBootstrapPlanTest {
         bluetoothMac: String? = null,
         bleAddress: String? = null,
         blePsm: Int? = null,
-        bleVisible: Boolean? = null,
         bleGattConnectable: Boolean = true,
+        endpointInfoPresent: Boolean = true,
+        endpointInfoHidden: Boolean = false,
     ): NearbyPeer =
         NearbyPeer(
             stableId = "peer-1",
             endpointId = "ABCD",
             endpointInfo =
-                bleVisible?.let { visible ->
+                if (endpointInfoPresent) {
                     EndpointInfo(
                         version = 1,
-                        hidden = !visible,
+                        hidden = endpointInfoHidden,
                         deviceType = DeviceType.PHONE,
                         reserved = false,
                         metadata = ByteArray(EndpointInfo.METADATA_LEN),
-                        deviceName = if (visible) "Galaxy S26 Ultra" else null,
+                        deviceName = if (endpointInfoHidden) null else "Galaxy S26 Ultra",
                     )
+                } else {
+                    null
                 },
             lanEndpoint =
                 lanAddress?.let {

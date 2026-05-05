@@ -605,7 +605,6 @@ public class BleFastAdvertisementScanner(
 private fun BleFastAdvertisementScanner.Observation.requiresGattVerification(): Boolean =
     advertiserAddress != null &&
         l2capPsm == null &&
-        endpointInfo?.hidden == false &&
         !gattConnectable
 
 private fun DctAdvertisement.Parsed.toEndpointInfo(): EndpointInfo =
