@@ -184,6 +184,10 @@ discover and start the session without relying on same-LAN mDNS.
 - [ ] Record whether the connection stayed on the initial medium or
       upgraded. Look for `step 1: initial transport open medium=...`
       and any `medium-upgrade:` lines in `LibreDropOutbound`.
+- [ ] For the **large-file** run, also record the sender's adaptive FILE
+      chunk size from the `LibreDropOutbound` line
+      `fsm: streamOneFile chunkSize=<bytes> ...` and note the observed
+      throughput / completion behavior alongside it.
 - [ ] Immediately rerun the same peer pair on a **shared LAN** and
       confirm the regression path still chooses `route=lan=<ip>:<port>`.
 

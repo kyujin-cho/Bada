@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Timeout
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -286,6 +287,55 @@ class OutboundConnectionTest {
             closed = true
             inputStream.close()
             outputStream.close()
+        }
+    }
+
+    /**
+     * Slows only large frame writes. Small control frames stay fast so the
+     * handshake finishes quickly; FILE payload frames larger than
+     * [slowThresholdBytes] are written in small slices with sleeps between
+     * them so one frame spans the 10-second KEEP_ALIVE interval.
+     */
+    private class LargeFrameSlowOutputStream(
+        private val delegate: OutputStream,
+        private val slowThresholdBytes: Int,
+        private val chunkBytes: Int,
+        private val interChunkDelayMillis: Long,
+    ) : OutputStream() {
+        override fun write(b: Int) {
+            delegate.write(b)
+        }
+
+        override fun write(
+            b: ByteArray,
+            off: Int,
+            len: Int,
+        ) {
+            if (len < slowThresholdBytes) {
+                delegate.write(b, off, len)
+                delegate.flush()
+                return
+            }
+
+            var position = off
+            val end = off + len
+            while (position < end) {
+                val toWrite = minOf(chunkBytes, end - position)
+                delegate.write(b, position, toWrite)
+                delegate.flush()
+                position += toWrite
+                if (position < end) {
+                    Thread.sleep(interChunkDelayMillis)
+                }
+            }
+        }
+
+        override fun flush() {
+            delegate.flush()
+        }
+
+        override fun close() {
+            delegate.close()
         }
     }
 
@@ -935,6 +985,64 @@ class OutboundConnectionTest {
                 val received = factory.output[payloadId]?.toByteArray()
                 assertThat(received?.size).isEqualTo(largeBytes.size)
                 assertThat(received).isEqualTo(largeBytes)
+            }
+        }
+
+    @Test
+    fun `slow payload frame spanning keep alive interval still completes`() =
+        runBlocking {
+            withTimeout(LONG_WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val outboundLogs = mutableListOf<String>()
+                val outbound =
+                    OutboundConnection(
+                        transport =
+                            object : ConnectedTransport {
+                                override val medium: Medium = Medium.BLUETOOTH
+                                override val inputStream: InputStream = client.getInputStream()
+                                override val outputStream: OutputStream =
+                                    LargeFrameSlowOutputStream(
+                                        delegate = client.getOutputStream(),
+                                        slowThresholdBytes = 128 * 1024,
+                                        chunkBytes = 8 * 1024,
+                                        interChunkDelayMillis = 350L,
+                                    )
+
+                                override fun close() {
+                                    client.close()
+                                }
+                            },
+                        secureRandom = SecureRandom("outbound-slow-frame".toByteArray()),
+                        logger = outboundLogs::add,
+                    )
+                val factory = InMemoryFactory()
+                val fileBytes = ByteArray(300_000) { ((it * 17) and 0xFF).toByte() }
+                val payloadId = 9090L
+                val files = listOf(bytesSource("slow-frame.bin", fileBytes, payloadId))
+
+                coroutineScope {
+                    val outboundJob = async { outbound.run(files) }
+                    val inbound =
+                        InboundConnection(
+                            transport = server.asConnectedTransport(Medium.BLUETOOTH),
+                            secureRandom = SecureRandom("inbound-slow-frame".toByteArray()),
+                        )
+
+                    launch {
+                        inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                        inbound.submitUserConsent(accepted = true)
+                    }
+
+                    val inboundResult = inbound.run(factory)
+                    val outboundResult = outboundJob.await()
+
+                    assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
+                    assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                }
+
+                assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
+                assertThat(outboundLogs.any { it.contains("streamOneFile chunkSize=262144") }).isTrue()
+                assertThat(outboundLogs.any { it.contains("keep-alive: ticker stopped") }).isFalse()
             }
         }
 

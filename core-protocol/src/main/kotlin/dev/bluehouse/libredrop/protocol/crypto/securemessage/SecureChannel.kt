@@ -168,6 +168,9 @@ public class SecureChannel internal constructor(
     internal suspend fun receiveRawOfflineFrame(): OfflineFrame =
         OfflineFrame.parseFrom(framedConnection.receiveFrame())
 
+    internal val maxOutgoingFrameLength: Int
+        get() = framedConnection.maxOutgoingFrameLength
+
     /**
      * The next outgoing sequence number that [sendOfflineFrame] WOULD use,
      * exposed for diagnostics and tests. The value increases by exactly

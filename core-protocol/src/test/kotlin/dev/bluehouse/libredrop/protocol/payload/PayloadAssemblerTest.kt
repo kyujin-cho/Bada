@@ -898,6 +898,34 @@ class PayloadAssemblerTest {
     }
 
     @Test
+    fun `assembler accepts FILE frames produced by the encoder with selector chosen non-default chunk size`() {
+        val data = Random(0xC168).nextBytes(900_000)
+        val selectedChunkSize = PayloadTransferEncoder.selectFileChunkSize(data.size.toLong())
+        assertThat(selectedChunkSize).isEqualTo(256 * 1024)
+
+        val source = Channels.newChannel(java.io.ByteArrayInputStream(data))
+        val frames =
+            PayloadTransferEncoder
+                .encodeFilePayload(
+                    payloadId = 315,
+                    fileName = "selector.bin",
+                    totalSize = data.size.toLong(),
+                    source = source,
+                    chunkSize = selectedChunkSize,
+                ).toList()
+
+        val factory = CapturingFactory()
+        val assembler = PayloadAssembler(fileDestinationFactory = factory)
+        var lastEvent: PayloadEvent? = null
+        for (frame in frames) {
+            lastEvent = assembler.onPayloadTransfer(frame.v1.payloadTransfer)
+        }
+
+        assertThat(lastEvent).isInstanceOf(PayloadEvent.FileComplete::class.java)
+        assertThat(factory.outputs[315]!!.toByteArray()).isEqualTo(data)
+    }
+
+    @Test
     fun `large file streamed in tiny chunks completes correctly`() {
         // Simulates a slow peer that sends 100 KiB chunks of a 10 MiB file.
         // Confirms the assembler scales linearly with chunk count and does

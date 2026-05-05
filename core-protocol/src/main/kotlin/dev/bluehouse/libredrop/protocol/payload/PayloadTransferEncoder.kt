@@ -11,6 +11,8 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Payl
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import com.google.protobuf.ByteString
+import dev.bluehouse.libredrop.protocol.crypto.securemessage.SecureMessageCodec
+import dev.bluehouse.libredrop.protocol.transport.FramedConnection
 import java.nio.ByteBuffer
 import java.nio.channels.ReadableByteChannel
 
@@ -42,6 +44,24 @@ public object PayloadTransferEncoder {
      * eat into the TCP send buffer and stall progress reporting.
      */
     public const val DEFAULT_FILE_CHUNK_SIZE: Int = 512 * 1024
+
+    private const val ADAPTIVE_FILE_CHUNK_SIZE_256_KIB: Int = 256 * 1024
+    private const val ADAPTIVE_FILE_CHUNK_SIZE_1_MIB: Int = 1024 * 1024
+    private const val ADAPTIVE_FILE_CHUNK_SIZE_2_MIB: Int = 2 * 1024 * 1024
+    private const val ADAPTIVE_FILE_TIER_1_MAX_SIZE: Long = 1024L * 1024L
+    private const val ADAPTIVE_FILE_TIER_2_MAX_SIZE: Long = 8L * 1024L * 1024L
+    private const val ADAPTIVE_FILE_TIER_3_MAX_SIZE: Long = 64L * 1024L * 1024L
+    private const val FRAME_SIZING_SEQUENCE_NUMBER: Int = Int.MAX_VALUE
+
+    private val frameSizingEncryptKey = ByteArray(SecureMessageCodec.AES_KEY_SIZE)
+    private val frameSizingHmacKey = ByteArray(SecureMessageCodec.HMAC_KEY_SIZE)
+    private val frameSizingIv = ByteArray(SecureMessageCodec.IV_SIZE)
+
+    init {
+        check(ADAPTIVE_FILE_CHUNK_SIZE_2_MIB < FramedConnection.SANE_FRAME_LENGTH) {
+            "Adaptive file chunk size cap must stay below FramedConnection.SANE_FRAME_LENGTH"
+        }
+    }
 
     /**
      * Encode an outbound BYTES payload.
@@ -167,16 +187,13 @@ public object PayloadTransferEncoder {
         require(totalSize >= 0) { "totalSize must be non-negative, got $totalSize" }
 
         val header =
-            PayloadHeader
-                .newBuilder()
-                .setId(payloadId)
-                .setType(PayloadHeader.PayloadType.FILE)
-                .setTotalSize(totalSize)
-                .setFileName(fileName)
-                .setParentFolder(parentFolder)
-                .setLastModifiedTimestampMillis(lastModifiedTimestampMillis)
-                .setIsSensitive(false)
-                .build()
+            buildFilePayloadHeader(
+                payloadId = payloadId,
+                fileName = fileName,
+                totalSize = totalSize,
+                parentFolder = parentFolder,
+                lastModifiedTimestampMillis = lastModifiedTimestampMillis,
+            )
 
         return sequence {
             val readBuffer = ByteBuffer.allocate(chunkSize)
@@ -226,6 +243,172 @@ public object PayloadTransferEncoder {
                 ),
             )
         }
+    }
+
+    /**
+     * Deterministic sender-side policy for outbound FILE payload chunking.
+     *
+     * This returns the optimistic tier target; callers that intend to
+     * send over Nearby Connections still need to pass the result through
+     * [capFileChunkSizeToEncryptedFrameBudget], because Google Play
+     * Services enforces a much smaller per-frame cap on the encrypted
+     * upgraded transport than our local 5 MiB framing guard does.
+     */
+    internal fun selectFileChunkSize(totalSize: Long): Int {
+        require(totalSize >= 0) { "totalSize must be non-negative, got $totalSize" }
+
+        return when {
+            totalSize <= ADAPTIVE_FILE_TIER_1_MAX_SIZE -> ADAPTIVE_FILE_CHUNK_SIZE_256_KIB
+            totalSize <= ADAPTIVE_FILE_TIER_2_MAX_SIZE -> DEFAULT_FILE_CHUNK_SIZE
+            totalSize <= ADAPTIVE_FILE_TIER_3_MAX_SIZE -> ADAPTIVE_FILE_CHUNK_SIZE_1_MIB
+            else -> ADAPTIVE_FILE_CHUNK_SIZE_2_MIB
+        }
+    }
+
+    /**
+     * Keep constrained upgraded transports on the known-good 512 KiB sender
+     * chunk path. The file-size tiers are safe on unconstrained transports
+     * such as Wi-Fi LAN, but Google Play Services applies a hidden, unstable
+     * parser ceiling on some upgraded links (notably stock Galaxy Wi-Fi
+     * Direct), so larger adaptive chunks cannot be trusted there yet.
+     */
+    internal fun limitAdaptiveFileChunkSizeForTransport(
+        desiredChunkSize: Int,
+        maxEncryptedFrameLength: Int,
+    ): Int {
+        require(desiredChunkSize > 0) { "desiredChunkSize must be positive, got $desiredChunkSize" }
+        require(maxEncryptedFrameLength > 0) {
+            "maxEncryptedFrameLength must be positive, got $maxEncryptedFrameLength"
+        }
+
+        return if (maxEncryptedFrameLength < FramedConnection.SANE_FRAME_LENGTH - 1) {
+            desiredChunkSize.coerceAtMost(DEFAULT_FILE_CHUNK_SIZE)
+        } else {
+            desiredChunkSize
+        }
+    }
+
+    /**
+     * Cap FILE chunk bodies against the active encrypted-frame budget, not
+     * just against our local 5 MiB framing guard.
+     *
+     * Callers on upgraded Google Play Services transports should pass the
+     * peer-specific limit from [dev.bluehouse.libredrop.protocol.transport.TransportFrameBudget].
+     */
+    internal fun capFileChunkSizeToEncryptedFrameBudget(
+        payloadId: Long,
+        fileName: String,
+        totalSize: Long,
+        desiredChunkSize: Int,
+        maxEncryptedFrameLength: Int = FramedConnection.SANE_FRAME_LENGTH - 1,
+        lastModifiedTimestampMillis: Long = 0L,
+        parentFolder: String = "",
+    ): Int {
+        require(totalSize >= 0) { "totalSize must be non-negative, got $totalSize" }
+        require(desiredChunkSize > 0) { "desiredChunkSize must be positive, got $desiredChunkSize" }
+        require(maxEncryptedFrameLength > 0) {
+            "maxEncryptedFrameLength must be positive, got $maxEncryptedFrameLength"
+        }
+
+        val header =
+            buildFilePayloadHeader(
+                payloadId = payloadId,
+                fileName = fileName,
+                totalSize = totalSize,
+                parentFolder = parentFolder,
+                lastModifiedTimestampMillis = lastModifiedTimestampMillis,
+            )
+        if (modeledEncryptedFrameLengthForDataChunk(header, desiredChunkSize) <=
+            maxEncryptedFrameLength
+        ) {
+            return desiredChunkSize
+        }
+
+        var low = 1
+        var high = desiredChunkSize
+        var best = 0
+        while (low <= high) {
+            val mid = low + ((high - low) ushr 1)
+            if (modeledEncryptedFrameLengthForDataChunk(header, mid) <=
+                maxEncryptedFrameLength
+            ) {
+                best = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        check(best > 0) {
+            "Could not fit any FILE chunk into the Google Nearby encrypted frame budget"
+        }
+        return best
+    }
+
+    internal fun modeledEncryptedFrameLengthForChunk(
+        payloadId: Long,
+        fileName: String,
+        totalSize: Long,
+        bodySize: Int,
+        lastModifiedTimestampMillis: Long = 0L,
+        parentFolder: String = "",
+    ): Int {
+        val header =
+            buildFilePayloadHeader(
+                payloadId = payloadId,
+                fileName = fileName,
+                totalSize = totalSize,
+                parentFolder = parentFolder,
+                lastModifiedTimestampMillis = lastModifiedTimestampMillis,
+            )
+        return modeledEncryptedFrameLengthForDataChunk(header, bodySize)
+    }
+
+    private fun buildFilePayloadHeader(
+        payloadId: Long,
+        fileName: String,
+        totalSize: Long,
+        parentFolder: String,
+        lastModifiedTimestampMillis: Long,
+    ): PayloadHeader =
+        PayloadHeader
+            .newBuilder()
+            .setId(payloadId)
+            .setType(PayloadHeader.PayloadType.FILE)
+            .setTotalSize(totalSize)
+            .setFileName(fileName)
+            .setParentFolder(parentFolder)
+            .setLastModifiedTimestampMillis(lastModifiedTimestampMillis)
+            .setIsSensitive(false)
+            .build()
+
+    private fun modeledEncryptedFrameLengthForDataChunk(
+        header: PayloadHeader,
+        bodySize: Int,
+    ): Int {
+        val offset = header.totalSize.coerceAtLeast(bodySize.toLong()) - bodySize.toLong()
+        val dataFrame =
+            wrap(
+                header = header,
+                chunk =
+                    PayloadChunk
+                        .newBuilder()
+                        .setFlags(0)
+                        .setOffset(offset)
+                        .setBody(ByteString.copyFrom(ByteArray(bodySize)))
+                        .build(),
+            )
+        val d2dBytes =
+            SecureMessageCodec.wrapDeviceToDeviceMessage(
+                offlineFrame = dataFrame.toByteArray(),
+                sequenceNumber = FRAME_SIZING_SEQUENCE_NUMBER,
+            )
+        return SecureMessageCodec
+            .encryptAndSign(
+                payload = d2dBytes,
+                encryptKey = frameSizingEncryptKey,
+                hmacKey = frameSizingHmacKey,
+                iv = frameSizingIv,
+            ).size
     }
 
     /**
