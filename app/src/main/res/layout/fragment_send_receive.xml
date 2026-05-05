@@ -10,14 +10,19 @@
     1. Legacy WhenVivoMeetsGoogle migration banner (#145, conditional;
        non-dismissible — surfaced when a coresident pre-rename install
        is detected).
-    2. Photo preview area: a small "Waiting for files…" caption
+    2. Always-visible pill (#34, receiver visibility on/off). Sits
+       directly under the toolbar so the on/off state is the first
+       thing the user reads when entering the tab. The button uses
+       the same 24dp pill silhouette as the rest of the app's
+       primary buttons; ON is a blue gradient with a "Always visible"
+       label, OFF is the frosted background with "Visible on scan".
+    3. Photo preview area: a small "Waiting for files…" caption
        centered above two polaroid-style photo cards. The cards are
        lightly rotated and slightly offset on the X axis so they sit
        at irregular angles, a soft vivo-style decorative cue that
        this device is ready to receive.
-    3. Send Files / Send Folder buttons in a horizontal 2-column
+    4. Send Files / Send Folder buttons in a horizontal 2-column
        row, each with `layout_weight=1`.
-    4. Always-visible toggle (#34, the receiver visibility switch).
 
   All subtitle / description TextViews from the previous build have
   been removed per the spec — the buttons and the toggle's own label
@@ -35,9 +40,25 @@
     android:clipToPadding="false"
     android:fillViewport="true">
 
+    <!--
+      `match_parent` height paired with the ScrollView's `fillViewport`
+      lets the LinearLayout grow to fill the visible area when content
+      is shorter than the viewport, so a `weight=1` Space below the
+      photo previews can push the Send Files / Send Folder row down
+      to the bottom of the screen rather than letting it float in the
+      middle. When content is taller (e.g. with the legacy WVMG
+      banner visible) the spacer collapses to 0 and the ScrollView
+      handles the overflow as before.
+
+      The always-visible ambient pulse layer that paints behind the
+      whole screen (including the toolbar) lives at the activity
+      level — see `activity_main.xml`'s root FrameLayout. The
+      fragment itself has no opaque background so the activity
+      backdrop bleeds through naturally.
+    -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:clipChildren="false"
         android:clipToPadding="false"
         android:orientation="vertical"
@@ -98,6 +119,44 @@
         </LinearLayout>
 
         <!--
+          Always-visible toggle (#34) rendered as an on/off pill button
+          rather than a SwitchCompat row. Pinned to the very top of the
+          fragment (just under the activity toolbar) so the discoverable-
+          ness of this device is the first piece of state the user sees.
+          Wiring lives in SendReceiveFragment.refreshVisibilityButton
+          which swaps the background drawable + label between the ON
+          (blue gradient + white text + "Always visible") and OFF
+          (frosted + dark text + "Visible on scan") states.
+
+          The pulse animation that emanates from this button's centre
+          when the ON state is active is rendered by a sibling
+          VisibilityPulseView at the fragment-level FrameLayout root —
+          it sits behind every other child on the z-axis so the
+          polaroid cards and "Waiting for files…" caption paint on
+          top of the pulse without being displaced.
+        -->
+        <Button
+            android:id="@+id/main_always_visible_button"
+            style="@style/Widget.LibreDrop.Button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/main_always_visible_off_title" />
+
+        <!--
+          Top flex spacer paired with the matching one below the photo
+          previews. Together they bracket the "Waiting for files…" +
+          polaroid pair into the vertical center of the viewport while
+          leaving the always-visible pill anchored to the top and the
+          Send Files / Send Folder row anchored to the bottom. Both
+          spacers carry the same `weight=1` so leftover height is
+          split evenly above and below the centerpiece.
+        -->
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!--
           Photo preview area. The "Waiting for files…" caption sits
           above two polaroid-style photo cards. Each card is a
           FrameLayout with a white rounded background, a 6dp inner
@@ -115,7 +174,6 @@
             android:id="@+id/main_send_waiting"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
             android:gravity="center"
             android:text="@string/main_send_waiting"
             android:textAppearance="?android:attr/textAppearanceSmall" />
@@ -127,47 +185,59 @@
             android:clipChildren="false"
             android:clipToPadding="false">
 
-            <FrameLayout
-                android:id="@+id/main_send_preview_card_1"
-                android:layout_width="120dp"
-                android:layout_height="120dp"
+            <!--
+              Pre-rendered polaroid preview cards. The white frame,
+              inner photo, drop shadow, AND the ±7° rotation are all
+              baked into a single supersampled bitmap by
+              `SendReceiveFragment.buildPolaroidBitmap` and shown in
+              an axis-aligned ImageView — no view-level rotation, no
+              software/hardware layer trickery. Doing the rotation in
+              software at ~9× the display resolution and downsampling
+              through the ImageView's bilinear+mipmap path produces
+              clean diagonals at every transition (outer card edge,
+              inner photo edge, and the photo content itself), where
+              view-level rotation always left some stair-stepping at
+              one boundary or another.
+
+              The 160dp footprint is sized to fit a 120dp card after
+              ±7° rotation (~134dp bounding) plus an ~8dp soft drop
+              shadow margin. The bitmap is square, so a fitCenter
+              ImageView preserves its aspect inside any density.
+            -->
+            <ImageView
+                android:id="@+id/main_send_preview_photo_1"
+                android:layout_width="160dp"
+                android:layout_height="160dp"
                 android:layout_gravity="center"
-                android:background="@drawable/photo_card_background"
-                android:elevation="4dp"
-                android:padding="6dp"
-                android:rotation="-7"
-                android:translationX="-32dp">
+                android:contentDescription="@string/main_send_preview_photo_description"
+                android:scaleType="fitCenter"
+                android:translationX="-32dp" />
 
-                <ImageView
-                    android:id="@+id/main_send_preview_photo_1"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:contentDescription="@string/main_send_preview_photo_description"
-                    android:scaleType="centerCrop" />
-
-            </FrameLayout>
-
-            <FrameLayout
-                android:id="@+id/main_send_preview_card_2"
-                android:layout_width="120dp"
-                android:layout_height="120dp"
+            <ImageView
+                android:id="@+id/main_send_preview_photo_2"
+                android:layout_width="160dp"
+                android:layout_height="160dp"
                 android:layout_gravity="center"
-                android:background="@drawable/photo_card_background"
-                android:elevation="6dp"
-                android:padding="6dp"
-                android:rotation="6"
-                android:translationX="32dp">
-
-                <ImageView
-                    android:id="@+id/main_send_preview_photo_2"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:contentDescription="@string/main_send_preview_photo_description"
-                    android:scaleType="centerCrop" />
-
-            </FrameLayout>
+                android:contentDescription="@string/main_send_preview_photo_description"
+                android:scaleType="fitCenter"
+                android:translationX="32dp" />
 
         </FrameLayout>
+
+        <!--
+          Flex spacer between the photo previews and the Send action
+          row. With the parent LinearLayout sized to `match_parent`
+          (and the ScrollView's fillViewport), this Space soaks up
+          all leftover vertical room and pushes the Send Files / Send
+          Folder buttons down to the bottom of the visible area.
+          Collapses to zero height when content overflows the
+          viewport, so the buttons stay reachable via scroll on short
+          screens or with the WVMG banner visible.
+        -->
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
         <!--
           Send Files / Send Folder action row. Two buttons share the
@@ -180,7 +250,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
+            android:layout_marginTop="16dp"
             android:orientation="horizontal">
 
             <Button
@@ -204,13 +274,6 @@
                 android:text="@string/main_send_folder_button" />
 
         </LinearLayout>
-
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/main_always_visible_switch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:text="@string/main_always_visible_title" />
 
     </LinearLayout>
 

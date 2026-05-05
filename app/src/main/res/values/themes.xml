@@ -235,4 +235,34 @@
         <item name="listPreferredItemHeightSmall">38dp</item>
         <item name="android:listPreferredItemHeightSmall">38dp</item>
     </style>
+
+    <!--
+      Theme overlay applied to MainActivity's MaterialToolbar via
+      `app:theme`. Swaps the platform-default circular ripple
+      (`?attr/actionBarItemBackground`) on toolbar action items
+      (currently the kebab / overflow icon) for a flat rectangular
+      state-list wash (`@drawable/toolbar_action_background`) so
+      tapping the kebab reads as "the icon brightens slightly" rather
+      than firing a circular ripple animation. The override is
+      isolated to a theme overlay (rather than the global app theme)
+      so popup menus and dialog action items elsewhere keep their
+      default Material ripples.
+    -->
+    <style name="ThemeOverlay.LibreDrop.ToolbarNoRipple" parent="">
+        <item name="actionBarItemBackground">@drawable/toolbar_action_background</item>
+        <item name="android:actionBarItemBackground">@drawable/toolbar_action_background</item>
+    </style>
+
+    <!--
+      Shape overlay used by the Credit screen's avatar ShapeableImageViews
+      so the contributor photos clip with the same 12dp rounded corners as
+      the gradient `credit_avatar_placeholder` drawable. Without this
+      overlay a raster avatar would render as a hard-edged square next to
+      the placeholder's soft corners and the rows would read as visually
+      inconsistent.
+    -->
+    <style name="ShapeAppearanceOverlay.LibreDrop.CreditAvatar" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
+    </style>
 </resources>

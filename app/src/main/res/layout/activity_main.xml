@@ -35,12 +35,30 @@
       tinting so active + inactive tabs both stay visible against a
       clean light surface, matching the vivo / OriginOS system theme.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fitsSystemWindows="true"
-    android:orientation="vertical">
+    android:layout_height="match_parent">
+
+    <!--
+      Activity-level ambient pulse layer. Drawn first inside this
+      FrameLayout so the toolbar, fragment, and bottom-nav all paint
+      on top of it. While the always-visible mode is ON,
+      VisibilityPulseView renders a small set of soft drifting
+      gradient blobs across the whole window — they bleed up behind
+      the (transparent) toolbar so the entire screen reads as one
+      ambient surface, per spec.
+    -->
+    <dev.bluehouse.libredrop.ui.VisibilityPulseView
+        android:id="@+id/main_always_visible_pulse"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fitsSystemWindows="true"
+        android:orientation="vertical">
 
     <!--
       Toolbar geometry follows the vivo / OriginOS native pattern:
@@ -55,14 +73,22 @@
           weighty header text on a vivo native screen. The title
           color is wired to `?android:attr/textColorPrimary` so it
           stays legible across DayNight switches.
+        * `android:background="@android:color/transparent"` —
+          intentionally NO solid surface here so the activity-level
+          pulse layer (above) bleeds through the toolbar. The toolbar
+          previously used `?attr/colorBackground`, but with the
+          ambient pulse drifting under the entire window the toolbar
+          should read as part of the same backdrop, not a separate
+          opaque strip.
     -->
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/main_toolbar"
         android:layout_width="match_parent"
         android:layout_height="88dp"
-        android:background="?android:attr/colorBackground"
+        android:background="@android:color/transparent"
         android:paddingEnd="12dp"
         android:paddingTop="32dp"
+        android:theme="@style/ThemeOverlay.LibreDrop.ToolbarNoRipple"
         app:popupTheme="@style/ThemeOverlay.LibreDrop.PopupMenu"
         app:title="@string/app_name"
         app:titleCentered="false"
@@ -102,7 +128,7 @@
         android:id="@+id/main_bottom_nav"
         android:layout_width="match_parent"
         android:layout_height="64dp"
-        android:background="@color/nav_surface"
+        android:background="@android:color/transparent"
         app:elevation="0dp"
         app:itemBackground="@android:color/transparent"
         app:itemIconTint="@color/bottom_nav_item_color"
@@ -113,4 +139,6 @@
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_nav_menu" />
 
-</LinearLayout>
+    </LinearLayout>
+
+</FrameLayout>

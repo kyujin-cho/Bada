@@ -5,6 +5,9 @@
  */
 package dev.bluehouse.libredrop.send
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ColorMatrix
@@ -20,6 +23,7 @@ import android.transition.Transition
 import android.transition.TransitionManager
 import android.util.Log
 import android.view.View
+import android.widget.Toast
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import androidx.appcompat.app.AppCompatActivity
@@ -159,7 +163,8 @@ public class SendActivity : AppCompatActivity() {
         binding.sendCancelButton.setOnClickListener { onCancelClicked() }
         binding.sendDoneButton.setOnClickListener { finish() }
         binding.sendShowQrButton.setOnClickListener { onShowQrClicked() }
-        binding.sendQrDone.setOnClickListener { onQrDoneClicked() }
+        binding.sendQrClose.setOnClickListener { onQrDoneClicked() }
+        binding.sendQrCopyLink.setOnClickListener { onCopyQrLinkClicked() }
         binding.sendNetworkHintDismiss.setOnClickListener { peerPickerController.onHintDismissed() }
 
         // Capture the first image attachment URI now so the success
@@ -364,10 +369,14 @@ public class SendActivity : AppCompatActivity() {
         // collapses and the status panel grows in.
         beginCardBoundsTransition(BOUNDS_DURATION_MS)
 
-        // Hide the picker chrome.
+        // Hide the picker chrome. The Cancel button is pinned to the
+        // card's bottom edge by a weighted scroll wrapper around the peer
+        // list; collapsing the wrapper here releases its weight so the
+        // status panel below can re-center inside the card.
         binding.sendPeerList.isVisible = false
         binding.sendEmptyState.isVisible = false
         binding.sendNetworkHint.isVisible = false
+        binding.sendPeerScroll.isVisible = false
         binding.sendShowQrButton.isVisible = false
         binding.sendStatusPanel.isVisible = true
 
@@ -529,6 +538,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
+        binding.sendPeerScroll.visibility = View.GONE
 
         // The PIN is a pairing artifact — once we've reached a terminal
         // state the comparison window is over, so always hide it.
@@ -792,6 +802,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
+        binding.sendPeerScroll.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
@@ -809,6 +820,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
+        binding.sendPeerScroll.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
@@ -827,6 +839,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
+        binding.sendPeerScroll.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
@@ -896,21 +909,24 @@ public class SendActivity : AppCompatActivity() {
      *     center after a slight overshoot.
      */
     private fun onShowQrClicked() {
-        if (binding.sendQrPanel.isVisible) return
+        if (binding.sendQrScroll.isVisible) return
 
         val generated = QrKeyData.generate()
         val url = QrUrl.build(generated.qrKeyData)
         binding.sendQrUrl.text = url
 
+        // Render the bitmap at a high pixel resolution
+        // (`QR_SCREEN_FRACTION × min(screenW, screenH)`) so the
+        // matrix stays sharp once the ImageView downsamples it to
+        // its 200dp display size. The XML layout pins the ImageView
+        // to that 200dp footprint; we no longer override
+        // `layoutParams` to the bitmap's pixel size, because doing so
+        // re-inflated the ImageView to ~360dp and pushed the URL +
+        // action buttons off the bottom of the 480dp card.
         val displayMetrics = resources.displayMetrics
         val qrSize = (min(displayMetrics.widthPixels, displayMetrics.heightPixels) * QR_SCREEN_FRACTION).toInt()
         val bitmap = QrBitmapRenderer.render(url, qrSize)
         binding.sendQrBitmap.setImageBitmap(bitmap)
-        binding.sendQrBitmap.layoutParams =
-            binding.sendQrBitmap.layoutParams.apply {
-                width = qrSize
-                height = qrSize
-            }
 
         beginCardBoundsTransition(BOUNDS_DURATION_MS)
         // Cancel any in-flight picker fade-in from a previous Done
@@ -920,8 +936,14 @@ public class SendActivity : AppCompatActivity() {
         binding.sendPickerContent.animate().cancel()
         binding.sendPickerContent.alpha = 1f
         binding.sendPickerContent.visibility = View.GONE
+        // Hide the floating QR icon while the QR panel is on-screen.
+        // The icon's whole purpose is to open this panel; leaving it
+        // visible means it overlaps the panel's title / body and acts
+        // as a redundant control. Restored to VISIBLE in
+        // `onQrDoneClicked` once the panel finishes animating out.
+        binding.sendShowQrButton.visibility = View.GONE
+        binding.sendQrScroll.visibility = View.VISIBLE
         val panel = binding.sendQrPanel
-        panel.visibility = View.VISIBLE
         panel.scaleX = ENTER_INITIAL_SCALE
         panel.scaleY = ENTER_INITIAL_SCALE
         panel.alpha = 0f
@@ -960,6 +982,30 @@ public class SendActivity : AppCompatActivity() {
      *      the picker chrome appears after the card has settled at
      *      its new size, not during the shrink.
      */
+    /**
+     * Copy the currently-displayed pairing URL into the system
+     * clipboard and surface a short toast acknowledging the action.
+     * Reads the URL straight off the [Binding.sendQrUrl] TextView so
+     * we never have to thread the live URL through fragment state —
+     * `onShowQrClicked` already wrote it there before the panel was
+     * revealed, and the URL is regenerated on every panel show, so
+     * the TextView is the canonical "URL currently on screen"
+     * source of truth.
+     */
+    private fun onCopyQrLinkClicked() {
+        val url = binding.sendQrUrl.text?.toString().orEmpty()
+        if (url.isEmpty()) return
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.show_qr_title), url))
+        // On Android 12L+ the platform shows its own "Copied to
+        // clipboard" overlay so a second toast would be redundant.
+        // Versions below that have no system surface for the action,
+        // so we provide our own.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(this, R.string.show_qr_link_copied, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun onQrDoneClicked() {
         val panel = binding.sendQrPanel
         panel
@@ -1010,10 +1056,14 @@ public class SendActivity : AppCompatActivity() {
                     }
                 TransitionManager.beginDelayedTransition(binding.root, transition)
 
-                panel.visibility = View.GONE
+                binding.sendQrScroll.visibility = View.GONE
                 panel.scaleX = 1f
                 panel.scaleY = 1f
                 panel.alpha = 1f
+                // Restore the floating QR icon now that the picker is
+                // back on-screen. Pairs with the GONE in
+                // `onShowQrClicked`.
+                binding.sendShowQrButton.visibility = View.VISIBLE
             }.start()
     }
 

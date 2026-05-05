@@ -19,6 +19,8 @@ import androidx.activity.addCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.imageview.ShapeableImageView
+import com.google.android.material.shape.ShapeAppearanceModel
 import dev.bluehouse.libredrop.MainActivity
 import dev.bluehouse.libredrop.R
 
@@ -86,10 +88,33 @@ internal class CreditActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.credit_kevin_name),
                 findViewById<TextView>(R.id.credit_yeonfeel_name),
                 findViewById<TextView>(R.id.credit_chiyak_qa_name),
-                findViewById<TextView>(R.id.credit_parami_name),
                 findViewById<TextView>(R.id.credit_teqhnikacross_name),
             )
         startStaggeredHighlights(nameViews)
+
+        // Replace the avatars' default `RoundedCornerTreatment`
+        // (G1 — quarter-circle arc, with a visible curvature jump
+        // where the arc meets the straight edge) with our
+        // `SmoothCornerTreatment` (G2-ish — cubic Bézier whose
+        // control points ramp the curvature smoothly out of the
+        // straight edges into the corner). On 64dp avatars at 12dp
+        // corner radius the arc rendering produces a visibly
+        // "clumped" corner shoulder; the smooth corner treatment
+        // distributes the same transition across more pixels and
+        // reads as a softer, continuous curve.
+        val smoothShape =
+            ShapeAppearanceModel.builder()
+                .setAllCorners(SmoothCornerTreatment())
+                .setAllCornerSizes(AVATAR_CORNER_RADIUS_DP * resources.displayMetrics.density)
+                .build()
+        listOf(
+            R.id.credit_kevin_avatar,
+            R.id.credit_yeonfeel_avatar,
+            R.id.credit_chiyak_avatar,
+            R.id.credit_teqhnikacross_avatar,
+        ).forEach { id ->
+            findViewById<ShapeableImageView>(id)?.shapeAppearanceModel = smoothShape
+        }
     }
 
     /**
@@ -245,5 +270,14 @@ internal class CreditActivity : AppCompatActivity() {
 
         /** Pause between sweeps inside the same TextView's loop. */
         const val HIGHLIGHT_PAUSE_MS: Long = 3000L
+
+        /**
+         * Avatar corner radius in dp. Mirrors the value baked into
+         * the `ShapeAppearanceOverlay.LibreDrop.CreditAvatar` style;
+         * we re-derive it here when installing the smooth corner
+         * treatment programmatically so a future radius change in
+         * one place does not silently desync the other.
+         */
+        const val AVATAR_CORNER_RADIUS_DP: Float = 12f
     }
 }

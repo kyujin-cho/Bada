@@ -20,11 +20,24 @@
   feels like part of the main app shell when the user lands here
   from MainActivity's overflow menu.
 -->
+<!--
+  Outer container background is the same `colorBackground` (~#fafafa)
+  the toolbar uses, NOT pure white. Combined with `fitsSystemWindows`
+  this lets the LinearLayout absorb the status bar inset as TOP
+  PADDING and paint the same gray strip the toolbar paints, so the
+  system status bar reads as one continuous surface with the
+  toolbar instead of a stark white band sitting above a gray bar.
+
+  The page body (the ScrollView below) has its own white surface
+  layered on top, so the status-bar gray ends precisely where the
+  toolbar ends and the contributor list still reads on a clean
+  white sheet.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/white"
+    android:background="?android:attr/colorBackground"
     android:fitsSystemWindows="true"
     android:orientation="vertical">
 
@@ -44,6 +57,7 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:background="@android:color/white"
         android:fillViewport="true">
 
         <LinearLayout
@@ -69,11 +83,16 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <ImageView
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/credit_kevin_avatar"
                     android:layout_width="64dp"
                     android:layout_height="64dp"
                     android:contentDescription="@string/credit_avatar_description"
-                    android:src="@drawable/credit_avatar_placeholder" />
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/credit_kevin_avatar"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                    app:strokeColor="@color/credit_avatar_stroke"
+                    app:strokeWidth="1dp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -118,11 +137,16 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <ImageView
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/credit_yeonfeel_avatar"
                     android:layout_width="64dp"
                     android:layout_height="64dp"
                     android:contentDescription="@string/credit_avatar_description"
-                    android:src="@drawable/credit_avatar_placeholder" />
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/credit_yeonfeel_avatar"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                    app:strokeColor="@color/credit_avatar_stroke"
+                    app:strokeWidth="1dp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -167,11 +191,16 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <ImageView
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/credit_chiyak_avatar"
                     android:layout_width="64dp"
                     android:layout_height="64dp"
                     android:contentDescription="@string/credit_avatar_description"
-                    android:src="@drawable/credit_avatar_placeholder" />
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/credit_chiyak_avatar"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                    app:strokeColor="@color/credit_avatar_stroke"
+                    app:strokeWidth="1dp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -205,49 +234,16 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <ImageView
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/credit_teqhnikacross_avatar"
                     android:layout_width="64dp"
                     android:layout_height="64dp"
                     android:contentDescription="@string/credit_avatar_description"
-                    android:src="@drawable/credit_avatar_placeholder" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/credit_parami_name"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/credit_parami_name"
-                        android:textAppearance="@style/TextAppearance.AppCompat.Title"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/credit_parami_desc"
-                        android:textAppearance="@style/TextAppearance.AppCompat.Body2" />
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <ImageView
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
-                    android:contentDescription="@string/credit_avatar_description"
-                    android:src="@drawable/credit_avatar_placeholder" />
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/credit_teqhnikacross_avatar"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                    app:strokeColor="@color/credit_avatar_stroke"
+                    app:strokeWidth="1dp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"

@@ -10,9 +10,20 @@
   pair fills more of the viewport (rings span y=4 to y=20 with a
   ~2dp gap between them) and reads as the bold visual weight the
   vivo / OriginOS native rings carry — pixel-comparable to the
-  rings in the screenshot side-by-side. The stroke color is
-  hardcoded to black; the toolbar applies its own
-  `?attr/colorControlNormal` tint at runtime.
+  rings in the screenshot side-by-side.
+
+  Stroke colour is wired to the `toolbar_overflow_tint` state list
+  so the rings shift to a brighter mid-gray on `state_pressed` —
+  that brightening IS the tap feedback. The toolbar's
+  `actionBarItemBackground` is fully transparent for every state
+  (see `toolbar_action_background.xml`), so no rectangular press
+  wash or ripple ever paints behind the icon; the user perceives
+  the tap as "the icon lit up" rather than "the button got
+  highlighted".
+
+  Note: `strokeColor` accepts ColorStateList resources directly on
+  AnimatedVectorDrawable / VectorDrawable — the rings re-evaluate
+  the state list when the parent ImageButton's state changes.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -21,6 +32,6 @@
     android:viewportHeight="24">
     <path
         android:pathData="M12,7 m-3.0,0 a3.0,3.0 0 1,0 6.0,0 a3.0,3.0 0 1,0 -6.0,0 M12,17 m-3.0,0 a3.0,3.0 0 1,0 6.0,0 a3.0,3.0 0 1,0 -6.0,0"
-        android:strokeColor="@android:color/black"
+        android:strokeColor="@color/toolbar_overflow_tint"
         android:strokeWidth="2.0" />
 </vector>

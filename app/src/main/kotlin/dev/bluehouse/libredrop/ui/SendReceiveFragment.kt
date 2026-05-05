@@ -11,7 +11,14 @@ import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ImageDecoder
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -23,8 +30,8 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.res.use
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import dev.bluehouse.libredrop.R
@@ -182,10 +189,17 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
     ) {
         super.onViewCreated(view, savedInstanceState)
 
-        val switch = view.findViewById<SwitchCompat>(R.id.main_always_visible_switch)
-        switch.isChecked = MdnsVisibilityOverrideHolder.isActive
-        switch.setOnCheckedChangeListener { _, checked ->
-            MdnsVisibilityOverrideHolder.setAlwaysVisible(checked)
+        val visibilityButton = view.findViewById<Button>(R.id.main_always_visible_button)
+        // The pulse view lives at the activity level (so its drifting
+        // gradient blobs paint behind the toolbar, fragment, and
+        // bottom-nav as one continuous backdrop). Look it up via the
+        // host activity rather than the fragment's own view subtree.
+        val visibilityPulse = requireActivity().findViewById<VisibilityPulseView>(R.id.main_always_visible_pulse)
+        refreshVisibilityButton(visibilityButton, visibilityPulse)
+        visibilityButton.setOnClickListener {
+            val next = !MdnsVisibilityOverrideHolder.isActive
+            MdnsVisibilityOverrideHolder.setAlwaysVisible(next)
+            refreshVisibilityButton(visibilityButton, visibilityPulse)
         }
 
         view.findViewById<Button>(R.id.main_send_files_button).setOnClickListener {
@@ -213,20 +227,68 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         view.findViewById<Button>(R.id.main_legacy_wvmg_banner_uninstall).setOnClickListener {
             onLegacyWvmgUninstallClicked()
         }
+
+        // Seed both polaroid ImageViews with empty-frame placeholders
+        // so the cards have a recognizable silhouette during the
+        // race between fragment inflation and the async gallery
+        // decode. The placeholder is the same baked polaroid path
+        // the real photos use, just with a neutral fill in the
+        // photo area, so the rotation and edge AA are identical
+        // before and after.
+        val placeholder1 = buildPolaroidBitmap(null, CARD_1_ROTATION_DEG)
+        val placeholder2 = buildPolaroidBitmap(null, CARD_2_ROTATION_DEG)
+        view.findViewById<ImageView>(R.id.main_send_preview_photo_1).setPolaroidBitmap(placeholder1)
+        view.findViewById<ImageView>(R.id.main_send_preview_photo_2).setPolaroidBitmap(placeholder2)
     }
 
     override fun onStart() {
         super.onStart()
-        // Re-sync the switch to the holder on every onStart — the
-        // override is process-wide and could have been changed by
-        // another activity while we were paused.
-        view?.findViewById<SwitchCompat>(R.id.main_always_visible_switch)?.let {
-            if (it.isChecked != MdnsVisibilityOverrideHolder.isActive) {
-                it.isChecked = MdnsVisibilityOverrideHolder.isActive
-            }
+        // Re-sync the visibility pill to the holder on every onStart —
+        // the override is process-wide and could have been changed by
+        // another activity (or, in the future, a quick-settings tile)
+        // while we were paused.
+        val v = view
+        if (v != null) {
+            val visibilityButton = v.findViewById<Button>(R.id.main_always_visible_button)
+            val visibilityPulse = requireActivity().findViewById<VisibilityPulseView>(R.id.main_always_visible_pulse)
+            refreshVisibilityButton(visibilityButton, visibilityPulse)
         }
         refreshLegacyWvmgBanner()
         ensurePhotoPreviews()
+    }
+
+    /**
+     * Repaint the always-visible pill to match the current
+     * [MdnsVisibilityOverrideHolder] state. ON gets the blue gradient
+     * background plus a white label that reads "Always visible"; OFF
+     * falls back to the global frosted button background plus the
+     * theme's default text color and the inverted "Visible on scan"
+     * label. Both states share the 24dp pill silhouette so the only
+     * thing that changes between taps is the surface and the label —
+     * the button's footprint stays put.
+     */
+    private fun refreshVisibilityButton(
+        button: Button,
+        pulse: VisibilityPulseView,
+    ) {
+        val active = MdnsVisibilityOverrideHolder.isActive
+        if (active) {
+            button.setBackgroundResource(R.drawable.btn_visibility_on_background)
+            button.setTextColor(ContextCompat.getColor(button.context, R.color.brand_on_primary))
+            button.setText(R.string.main_always_visible_title)
+            // Soft "device is broadcasting" cue: animated, low-alpha
+            // concentric pulses around the pill while ON; idle while OFF.
+            pulse.startPulse()
+        } else {
+            button.setBackgroundResource(R.drawable.btn_frosted_background)
+            val defaultTextColor =
+                button.context.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary)).use {
+                    it.getColor(0, 0)
+                }
+            button.setTextColor(defaultTextColor)
+            button.setText(R.string.main_always_visible_off_title)
+            pulse.stopPulse()
+        }
     }
 
     /**
@@ -287,19 +349,193 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
                 val shuffled = uris.shuffled()
                 val uri1 = shuffled[0]
                 val uri2 = if (shuffled.size > 1) shuffled[1] else uri1
-                val bitmap1 = decodeSampledBitmap(uri1, PREVIEW_TARGET_PX)
-                val bitmap2 = decodeSampledBitmap(uri2, PREVIEW_TARGET_PX)
+                val photo1 = decodeSampledBitmap(uri1, PREVIEW_TARGET_PX)
+                val photo2 = decodeSampledBitmap(uri2, PREVIEW_TARGET_PX)
+                // Bake the polaroids on the IO dispatcher (CPU work
+                // but the surrounding withContext block is already
+                // off the main thread, and chaining a Default hop
+                // would just trade one dispatcher round trip for
+                // another). Recycle the source bitmaps as soon as
+                // the composition is done — each ARGB_8888 source is
+                // ~5 MB, and we only need the rendered polaroid from
+                // here on.
+                val polaroid1 = photo1?.let { buildPolaroidBitmap(it, CARD_1_ROTATION_DEG) }
+                val polaroid2 = photo2?.let { buildPolaroidBitmap(it, CARD_2_ROTATION_DEG) }
+                photo1?.recycle()
+                photo2?.recycle()
                 withContext(Dispatchers.Main) {
                     val rootView = view ?: return@withContext
-                    bitmap1?.let {
-                        rootView.findViewById<ImageView>(R.id.main_send_preview_photo_1)?.setImageBitmap(it)
+                    polaroid1?.let {
+                        rootView.findViewById<ImageView>(R.id.main_send_preview_photo_1)?.setPolaroidBitmap(it)
                     }
-                    bitmap2?.let {
-                        rootView.findViewById<ImageView>(R.id.main_send_preview_photo_2)?.setImageBitmap(it)
+                    polaroid2?.let {
+                        rootView.findViewById<ImageView>(R.id.main_send_preview_photo_2)?.setPolaroidBitmap(it)
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Build a single bitmap that contains a fully pre-rendered
+     * polaroid card — drop shadow, white frame, inner photo (or a
+     * neutral placeholder fill), and the [rotationDeg] tilt — at the
+     * supersampled output resolution [POLAROID_OUTPUT_PX] so the
+     * caller can hand it straight to an axis-aligned ImageView with
+     * no further rotation. Doing the rotation in software at ~3×
+     * the display size lets us downsample on draw with bilinear +
+     * mipmap filtering, which kills the stair-step aliasing that
+     * view-level rotation showed at every contrast boundary (outer
+     * card edge, inner photo edge, and the photo content itself).
+     *
+     * Layout (proportional to [POLAROID_OUTPUT_PX]):
+     *   * Card occupies ~75% of the bitmap so the rotated bounding
+     *     box plus a soft drop-shadow margin still fit inside.
+     *   * Inner photo area is the card minus a 5% padding ring,
+     *     matching the original "thin white border around the photo"
+     *     polaroid look.
+     *   * Corners on both the card and shadow are ~3.3% of the card
+     *     size — visually about a 4dp radius on a 120dp card.
+     *
+     * If [photo] is null, the photo area is filled with a light
+     * neutral gray so the empty state still reads as a polaroid
+     * frame waiting for content.
+     */
+    private fun buildPolaroidBitmap(
+        photo: Bitmap?,
+        rotationDeg: Float,
+    ): Bitmap {
+        val outputSize = POLAROID_OUTPUT_PX
+        val output = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+
+        val center = outputSize / 2f
+        val cardSize = outputSize * 0.75f
+        val cornerRadius = cardSize * (4f / 120f)
+        val photoInset = cardSize * (6f / 120f)
+        val photoSize = cardSize - photoInset * 2
+
+        canvas.save()
+        canvas.rotate(rotationDeg, center, center)
+
+        val cardLeft = center - cardSize / 2f
+        val cardTop = center - cardSize / 2f
+        val cardRight = center + cardSize / 2f
+        val cardBottom = center + cardSize / 2f
+
+        // Drop shadow — drawn first so the card overpaints it. Slight
+        // downward offset + blurred mask-filter gives the same
+        // gravity-pulled feel the View elevation API produced for the
+        // rotated FrameLayout, but baked into the bitmap so the shadow
+        // tilts with the card instead of being clipped to the
+        // axis-aligned host view.
+        val shadowOffsetY = cardSize * 0.025f
+        val shadowBlurRadius = cardSize * 0.05f
+        val shadowPaint =
+            Paint().apply {
+                color = 0x33000000
+                isAntiAlias = true
+                maskFilter = BlurMaskFilter(shadowBlurRadius, BlurMaskFilter.Blur.NORMAL)
+            }
+        canvas.drawRoundRect(
+            cardLeft,
+            cardTop + shadowOffsetY,
+            cardRight,
+            cardBottom + shadowOffsetY,
+            cornerRadius,
+            cornerRadius,
+            shadowPaint,
+        )
+
+        // White card surface.
+        val cardPaint =
+            Paint().apply {
+                color = Color.WHITE
+                isAntiAlias = true
+            }
+        canvas.drawRoundRect(
+            cardLeft,
+            cardTop,
+            cardRight,
+            cardBottom,
+            cornerRadius,
+            cornerRadius,
+            cardPaint,
+        )
+
+        // Inner photo area.
+        val photoLeft = center - photoSize / 2f
+        val photoTop = center - photoSize / 2f
+        val photoRect =
+            RectF(
+                photoLeft,
+                photoTop,
+                photoLeft + photoSize,
+                photoTop + photoSize,
+            )
+
+        if (photo != null) {
+            val photoPaint =
+                Paint().apply {
+                    isAntiAlias = true
+                    isFilterBitmap = true
+                    isDither = true
+                }
+            canvas.drawBitmap(photo, computeCenterCropSrcRect(photo, photoRect), photoRect, photoPaint)
+        } else {
+            val placeholderPaint =
+                Paint().apply {
+                    color = 0xFFE7E7EB.toInt()
+                    isAntiAlias = true
+                }
+            canvas.drawRect(photoRect, placeholderPaint)
+        }
+
+        canvas.restore()
+        return output
+    }
+
+    /**
+     * Compute the source-bitmap sub-rect that fills [dstRect] under
+     * `centerCrop` semantics — the same rule
+     * `ImageView.scaleType="centerCrop"` follows but applied to a
+     * raw Canvas.drawBitmap call. Whichever axis is the longer one
+     * relative to the destination's aspect gets cropped equally on
+     * both sides.
+     */
+    private fun computeCenterCropSrcRect(
+        bitmap: Bitmap,
+        dstRect: RectF,
+    ): Rect {
+        val srcAspect = bitmap.width.toFloat() / bitmap.height.toFloat()
+        val dstAspect = dstRect.width() / dstRect.height()
+        return if (srcAspect > dstAspect) {
+            // Source wider than destination — crop horizontally.
+            val cropWidth = (bitmap.height * dstAspect).toInt()
+            val cropX = (bitmap.width - cropWidth) / 2
+            Rect(cropX, 0, cropX + cropWidth, bitmap.height)
+        } else {
+            // Source taller than destination — crop vertically.
+            val cropHeight = (bitmap.width / dstAspect).toInt()
+            val cropY = (bitmap.height - cropHeight) / 2
+            Rect(0, cropY, bitmap.width, cropY + cropHeight)
+        }
+    }
+
+    /**
+     * Wire [bitmap] into the polaroid ImageView. Called by both the
+     * placeholder seeding path and the post-decode update path so
+     * the mipmap + paint-flag setup happens in exactly one place.
+     */
+    private fun ImageView.setPolaroidBitmap(bitmap: Bitmap) {
+        bitmap.setHasMipMap(true)
+        val drawable = BitmapDrawable(resources, bitmap)
+        drawable.paint.apply {
+            isAntiAlias = true
+            isFilterBitmap = true
+            isDither = true
+        }
+        setImageDrawable(drawable)
     }
 
     /**
@@ -363,6 +599,15 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
                             1,
                         )
                     decoder.setTargetSampleSize(ratio)
+                    // Force a software (ARGB_8888) bitmap rather than
+                    // the API 28+ default of HARDWARE. The hardware
+                    // config is GPU-only and crashes with
+                    // "Software rendering doesn't support hardware
+                    // bitmaps" the moment the host card promotes
+                    // itself to a software layer (which we do on the
+                    // rotated polaroid frames so the antialiased
+                    // canvas transform smooths the white card edges).
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                 }
             } else {
                 decodeWithLegacySampling(uri, targetPx)
@@ -456,10 +701,31 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         // every cold start.
         const val GALLERY_QUERY_LIMIT = 30
 
-        // 360 px on the larger edge is enough to render crisply at
-        // 120dp on a 3x density screen (~360 px) without holding a
-        // full-resolution gallery bitmap in memory just for a
-        // decoration.
-        const val PREVIEW_TARGET_PX = 360
+        // 1080 px on the larger edge — three times the ~360 px the
+        // 120dp polaroid card occupies on a 3x density screen. The
+        // extra resolution acts as supersample anti-aliasing for the
+        // ±7° rotation: the canvas downsamples nine source pixels
+        // into one display pixel, which averages out the diagonal
+        // stair-stepping the 1:1 sized bitmap was showing. Cost is
+        // ~5 MB per ARGB_8888 bitmap × 2 cards = ~10 MB resident,
+        // acceptable for a flagship-target Android app.
+        const val PREVIEW_TARGET_PX = 1080
+
+        // Side length of the supersampled output bitmap that holds the
+        // pre-rendered polaroid card. 1080 lines up with the source
+        // photo decode size so the inner photo area (~75% of the
+        // output) ends up being painted from a near-1:1 src→dst pixel
+        // ratio. Drawn into a 160dp ImageView, this ratio is roughly
+        // 3× the display pixel density — the supersampling headroom
+        // that produces clean AA at every contrast boundary on the
+        // card after the rotation is baked in.
+        const val POLAROID_OUTPUT_PX = 1080
+
+        // Card tilt angles. Both halves of the pair come from the
+        // pre-baked-rotation refactor; the previous XML
+        // `rotation="-7"` / `rotation="6"` attributes are gone, so
+        // the only place these values live now is here.
+        const val CARD_1_ROTATION_DEG = -7f
+        const val CARD_2_ROTATION_DEG = 6f
     }
 }

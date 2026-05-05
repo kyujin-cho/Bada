@@ -21,4 +21,14 @@
     <color name="nav_surface">#FFFFFFFF</color>
     <color name="nav_item_active">#0F62FE</color>
     <color name="nav_item_inactive">#FF5F6368</color>
+
+    <!--
+      Hairline stroke applied to every Credit-screen avatar
+      (`com.google.android.material.imageview.ShapeableImageView` with
+      `app:strokeWidth="1dp"`). 12% black on a light card surface
+      reads as a soft mid-gray edge — visible enough to delineate
+      each avatar from the white background, faint enough to not
+      compete with the photo content inside.
+    -->
+    <color name="credit_avatar_stroke">#1F000000</color>
 </resources>

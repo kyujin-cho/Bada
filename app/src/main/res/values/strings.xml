@@ -29,7 +29,7 @@
     <string name="credit_section_thanks">Special Thanks to</string>
 
     <string name="credit_kevin_name">Kevin Cho</string>
-    <string name="credit_kevin_desc">고기가 탄다.</string>
+    <string name="credit_kevin_desc">I\'m running low on miles</string>
     <string name="credit_yeonfeel_name">YEONFEEL</string>
     <string name="credit_yeonfeel_desc">나의 멜로디도 너에게 닿기를</string>
     <!-- Chiyak shows up in BOTH the QA section (top of three) and
@@ -38,11 +38,13 @@
          Chiyak's testing work, while Special Thanks separately
          credits the dev-token contribution. -->
     <string name="credit_chiyak_name">Chiyak</string>
-    <string name="credit_chiyak_qa_desc">고기가 탄다</string>
-    <string name="credit_parami_name">Parami</string>
-    <string name="credit_parami_desc">고기가 탄다</string>
+    <string name="credit_chiyak_qa_desc">I wanna buy a concert ticket</string>
     <string name="credit_teqhnikacross_name">TEQHNIKACROSS</string>
-    <string name="credit_teqhnikacross_desc">고기가 탄다</string>
+    <!-- TEQHNIKACROSS keeps the same tagline for both English and Korean
+         on purpose (no values-ko override below): the contributor wanted
+         "We all want to be loved" rendered as-is, regardless of device
+         locale. -->
+    <string name="credit_teqhnikacross_desc">We all want to be loved</string>
     <!-- Combined "Name (note)" line for the bottom-centered Special
          Thanks section. Pre-baked into a single string so the layout
          can render it as one small caption rather than the per-row
@@ -80,6 +82,12 @@
          wants to be discoverable to nearby senders. -->
     <string name="main_always_visible_title">Always visible</string>
     <string name="main_always_visible_subtitle">Keep this device discoverable on Wi-Fi even without a Bluetooth pulse from a nearby sender. Turn off to save power; the receiver will only appear briefly while a sender is scanning.</string>
+    <!-- OFF-state label for the always-visible pill on the Send/Receive
+         tab. Phrased as the inverse of the ON-state title so the same
+         button reads as a clear two-position switch: ON = "Always
+         visible", OFF = "Visible on scan" (i.e. only when a sender's
+         BLE pulse wakes the receiver). -->
+    <string name="main_always_visible_off_title">Visible on scan</string>
     <string name="main_bug_report_title">Shake to report a bug</string>
     <string name="main_bug_report_subtitle">When enabled, shaking the phone while LibreDrop is open offers to package recent diagnostics, device state, and a screenshot into a zip that you save yourself. Nothing is uploaded automatically.</string>
 
@@ -295,10 +303,31 @@
     <string name="bug_report_issue_unavailable">No browser or compatible app is available to open GitHub.</string>
 
     <!-- QR-code (#20 + #84) screen. -->
-    <string name="show_qr_title">Scan from receiver</string>
-    <string name="show_qr_intro">Have the receiver scan this code to pair without manual selection. If their camera cannot read it, copy the URL below as a fallback.</string>
+    <string name="show_qr_title">QR code and link</string>
+    <!-- Body text on the QR panel. Phrased as a one-step instruction
+         followed by a security note so the user understands both how
+         to share AND that the QR / link grants unconditional access
+         to whoever holds it. Avoids em dashes in line with the rest
+         of the app's copy. -->
+    <string name="show_qr_intro">Ask the recipient to scan the QR code or open the link. Anyone holding the QR code or link can receive the files without further approval from you.</string>
     <string name="show_qr_image_description">QR code for the Quick Share pairing URL</string>
+    <!-- Used by the standalone ShowQrActivity, which still has a
+         single-button bottom row. The in-card QR panel inside
+         SendActivity uses the "Close" / "Copy link" pair below
+         instead. -->
     <string name="show_qr_done">Done</string>
+    <!-- Bottom action row in the QR panel. "Close" matches the
+         dismiss action used on the consent dialog and the rest of
+         the app's terminal panels. "Copy link" duplicates the URL
+         into the system clipboard so the user can paste it into a
+         chat / email when the receiver cannot scan the QR. -->
+    <string name="show_qr_close">Close</string>
+    <string name="show_qr_copy_link">Copy link</string>
+    <!-- Toast surfaced after the user taps "Copy link" so the
+         action is visibly acknowledged even though the clipboard is
+         silent on most devices. Kept short so it fits into a
+         LENGTH_SHORT toast on a single line. -->
+    <string name="show_qr_link_copied">Link copied</string>
 
     <!-- Consent trampoline (#22). -->
     <string name="consent_activity_label">Incoming transfer</string>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Replacement for the platform `?attr/actionBarItemBackground` on
+  MainActivity's MaterialToolbar action items (today: just the kebab
+  / overflow icon). The default is a circular ripple that pulses out
+  from the touch point and a rectangular hover wash — both render as
+  a visible "press boundary" the user did not want.
+
+  This drawable strips the press feedback off the BACKGROUND entirely
+  (every state is transparent, so the toolbar surface always shows
+  through unchanged). The press feedback is instead delivered by the
+  overflow icon glyph itself: see `ic_overflow_kebab.xml` whose tint
+  is wired to the `toolbar_overflow_tint` ColorStateList — the icon
+  fades to a brighter shade on `state_pressed` so the user reads the
+  press as "the icon lit up" rather than "a button got highlighted".
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</selector>
