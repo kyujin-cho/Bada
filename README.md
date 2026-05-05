@@ -26,7 +26,29 @@ stock Android peers.
 
 ## Install
 
-There is not yet a packaged store release. Build and sideload the debug APK:
+LibreDrop supports Android 7.0 or newer (`minSdk = 24`).
+
+### Download a pre-built APK
+
+End users can install the signed release APK from the
+[GitHub Releases page](https://github.com/kyujin-cho/LibreDrop/releases).
+Release assets are published by the release pipeline tracked in
+[#156](https://github.com/kyujin-cho/LibreDrop/issues/156).
+
+1. Open the latest release and download the `.apk` asset.
+2. If Android prompts for it, allow your browser or file manager to install
+   apps from unknown sources. Google's Android help page for
+   [downloading apps from other sources](https://support.google.com/android/answer/9457058?hl=en)
+   covers the stock flow.
+3. Open the downloaded APK and confirm the install prompt.
+
+Release APKs are signed with LibreDrop's release key. Android verifies the
+signature during install and update, and future releases will only install as
+updates if they are signed by the same key.
+
+### Build from source
+
+Contributors and developers can build and sideload the debug APK:
 
 ```bash
 ./gradlew :app:assembleDebug
@@ -35,8 +57,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Requirements:
 
-- Android 7.0 or newer (`minSdk = 24`).
-- JDK 17 and an Android SDK when building from source.
+- JDK 17 and an Android SDK.
 - Wi-Fi and Bluetooth enabled for the best interop coverage.
 
 The debug package id is `dev.bluehouse.libredrop.debug`; release builds use
