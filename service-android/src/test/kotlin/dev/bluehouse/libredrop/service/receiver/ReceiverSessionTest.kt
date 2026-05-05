@@ -364,7 +364,7 @@ class ReceiverSessionTest {
         }
 
     @Test
-    fun `gated publish rolls back initial control servers when mDNS advertise fails`() =
+    fun `gated publish keeps initial control active when mDNS advertise fails`() =
         runBlocking {
             val initialControlServer = RecordingInitialControlServer()
             val session =
@@ -384,10 +384,16 @@ class ReceiverSessionTest {
 
             assertThrows<IllegalStateException> { session.publishAdvertisement() }
             assertThat(session.isAdvertising).isFalse()
-            assertThat(initialControlServer.stopCount).isEqualTo(1)
-            assertThat(initialControlServer.isActive).isFalse()
+            assertThat(initialControlServer.stopCount).isEqualTo(0)
+            assertThat(initialControlServer.startCalls).hasSize(1)
+            assertThat(initialControlServer.isActive).isTrue()
+
+            assertThrows<IllegalStateException> { session.publishAdvertisement() }
+            assertThat(initialControlServer.stopCount).isEqualTo(0)
+            assertThat(initialControlServer.startCalls).hasSize(1)
 
             session.stop()
+            assertThat(initialControlServer.stopCount).isEqualTo(1)
         }
 
     @Test

@@ -23,7 +23,6 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
-import dev.bluehouse.libredrop.protocol.endpoint.BleAdvertisement
 import dev.bluehouse.libredrop.protocol.endpoint.BleServiceData
 import dev.bluehouse.libredrop.protocol.endpoint.DctAdvertisement
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
@@ -57,14 +56,17 @@ import java.util.concurrent.atomic.AtomicReference
  * ```
  *
  * Vivo/OriginOS devices can run Google Play services' own Nearby GATT
- * provider beside LibreDrop. Advertising a GATT advertisement header while
- * receiver mode intentionally withholds the regular slot service makes stock
- * Galaxy probe a slot that cannot be read; the sender then caches that failed
- * GATT-advertisement read and subsequent taps can be routed to the GMS-owned
- * regular socket before LibreDrop sees consent. The primary compact payload
- * avoids that slot-fetch path entirely, while the connectable extended payload
- * carries the visible receiver name and RX instant-connection advertisement
- * used for the selected-peer handoff.
+ * provider beside LibreDrop. Advertising a GATT advertisement header as the
+ * primary BLE pulse made stock Galaxy cache that header as the selected
+ * identity and route later taps through the GMS-owned regular socket before
+ * LibreDrop saw consent. The primary compact payload avoids that cached-header
+ * path entirely, while the receiver's regular GATT slot service remains
+ * available for Samsung to resolve the selected peer into LibreDrop's
+ * second-profile socket. The connectable extended payload
+ * carries the visible receiver name only. Do not append the RX
+ * instant-connection extra field here: on One UI 8.0.5 it promotes the tap
+ * into a separate Mosey/link-local path on port 8770, bypassing LibreDrop's
+ * BLE GATT bootstrap server.
  *
  * LibreDrop does not submit the optional DCT (`0xFC73`) advertisement in
  * receiver mode. Samsung ShareLive was observed to probe the DCT advertiser
@@ -663,22 +665,12 @@ public object DefaultVisiblePayloadFactory : OptionalPayloadFactory {
         endpointInfo: EndpointInfo,
     ): ByteArray? {
         if (endpointInfo.hidden || endpointInfo.deviceName == null) return null
-        val psm = BleDctPsmHolder.currentPsm
-        val activePsm = psm?.takeIf { it != DctAdvertisement.DEFAULT_PSM }
-        // Keep the inner GATT advertisement self-contained. PSM 0 is Nearby's
-        // no-L2CAP sentinel, so the outer extra-field PSM can still be omitted.
-        val rxAdvertisement =
-            BleAdvertisement.encodeGattAdvertisement(
-                endpointId = endpointId,
-                endpointInfo = endpointInfo,
-                psm = activePsm ?: DctAdvertisement.DEFAULT_PSM,
-                secondProfile = true,
-            )
+        val activePsm = BleDctPsmHolder.currentPsm?.takeIf { it != DctAdvertisement.DEFAULT_PSM }
         return BleServiceData.encodeFramedWithExtraFields(
             endpointId = endpointId,
             endpointInfo = endpointInfo,
             psm = activePsm,
-            rxInstantConnectionAdvertisement = rxAdvertisement,
+            rxInstantConnectionAdvertisement = null,
             secondProfile = true,
         )
     }

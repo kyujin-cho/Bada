@@ -99,7 +99,7 @@ class BleQuickShareAdvertiserTest {
     }
 
     @Test
-    fun `start exposes visible EndpointInfo through direct and extended payloads`() {
+    fun `start exposes visible EndpointInfo without RX instant extra field`() {
         val gate = RecordingGate(failOnStart = false)
         val advertiser =
             BleQuickShareAdvertiser.forTesting(
@@ -137,10 +137,7 @@ class BleQuickShareAdvertiserTest {
         assertThat(visibleInfo.hidden).isFalse()
         assertThat(visibleInfo.deviceName).isEqualTo("LibreDrop")
         assertThat(BleServiceData.parsePsmExtraField(visiblePayload)).isNull()
-        val rxAdvertisement = BleAdvertisement.parse(visibleAdvertisement.rxInstantConnectionAdvertisement)
-        assertThat(rxAdvertisement).isNotNull()
-        assertThat(rxAdvertisement!!.secondProfile).isTrue()
-        assertThat(rxAdvertisement.fastAdvertisement).isFalse()
+        assertThat(visibleAdvertisement.rxInstantConnectionAdvertisement).isEmpty()
         assertThat(visiblePayload.size).isGreaterThan(27)
     }
 
@@ -166,9 +163,8 @@ class BleQuickShareAdvertiserTest {
             assertThat(call.dctPayload).isNull()
             assertThat(BleServiceData.parsePsmExtraField(call.visiblePayload!!)).isEqualTo(0x1234)
             val visibleAdvertisement = BleAdvertisement.parse(call.visiblePayload!!)!!
-            val rxAdvertisement = BleAdvertisement.parse(visibleAdvertisement.rxInstantConnectionAdvertisement)
-            assertThat(rxAdvertisement!!.psm).isEqualTo(0x1234)
-            assertThat(rxAdvertisement.secondProfile).isTrue()
+            assertThat(visibleAdvertisement.psm).isEqualTo(0x1234)
+            assertThat(visibleAdvertisement.rxInstantConnectionAdvertisement).isEmpty()
         } finally {
             BleDctPsmHolder.clear()
         }

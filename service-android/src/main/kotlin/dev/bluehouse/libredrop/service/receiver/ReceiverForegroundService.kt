@@ -1024,7 +1024,6 @@ public class ReceiverForegroundService : Service() {
                             BleGattInitialControlServer(
                                 context = context.applicationContext,
                                 endpointIdProvider = { BleEndpointIdHolder.bytesFor() },
-                                publishAdvertisementSlotService = false,
                             ),
                         ),
                     // Issue #34: defer mDNS publish to the

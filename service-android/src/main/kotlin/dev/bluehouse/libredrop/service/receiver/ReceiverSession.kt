@@ -313,7 +313,11 @@ public class ReceiverSession(
             check(!stopped.get()) { "ReceiverSession has been stopped" }
             if (advertiseHandle?.isActive == true) return
             val tcpServer = server ?: error("TCP server is not bound")
-            publishAdvertisementLocked(tcpServer, tcpServer.boundPort)
+            publishAdvertisementLocked(
+                tcpServer = tcpServer,
+                port = tcpServer.boundPort,
+                keepInitialControlOnAdvertiseFailure = advertiseGated,
+            )
         }
     }
 
