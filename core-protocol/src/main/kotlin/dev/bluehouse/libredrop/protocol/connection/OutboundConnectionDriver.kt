@@ -115,6 +115,9 @@ internal class OutboundConnectionDriver(
     /** The most recent active payload, for progress UI. */
     private var currentItemPayloadId: Long? = null
 
+    /** Buffered inbound frames to service while the dispatch loop is streaming files. */
+    private var streamingWireChannel: Channel<OutboundWireMessage>? = null
+
     /**
      * Drive the entire sender-side lifecycle. Returns the terminal
      * [OutboundResult]; throws on coroutine cancellation (handled by
@@ -450,10 +453,14 @@ internal class OutboundConnectionDriver(
         initialWireFrames: List<OfflineFrame> = emptyList(),
     ): OutboundResult =
         coroutineScope {
-            // RENDEZVOUS capacity — same back-pressure rationale as
-            // InboundConnectionDriver.
-            val wireChannel: Channel<OutboundWireMessage> = Channel(Channel.RENDEZVOUS)
+            // FILE streaming temporarily monopolizes the dispatch loop, so a
+            // rendezvous wire channel can wedge the inbound pump on the
+            // first receiver KEEP_ALIVE that lands mid-transfer. Buffer small
+            // control frames here so the pump keeps draining the socket while
+            // streamOneFile() is busy pushing outbound chunks.
+            val wireChannel: Channel<OutboundWireMessage> = Channel(Channel.UNLIMITED)
             val pumpJob: Job = launch { runInboundPump(channel, wireChannel) }
+            streamingWireChannel = wireChannel
             // Outbound KEEP_ALIVE ticker (issue #37). PROTOCOL.md:
             // "Android sends offline frames of type KEEP_ALIVE every
             // 10 seconds and expects the server to do the same. If you
@@ -497,6 +504,7 @@ internal class OutboundConnectionDriver(
                 }
                 publishCompletedIfNeeded(result)
             } finally {
+                streamingWireChannel = null
                 // Cancel the KEEP_ALIVE ticker FIRST, before any socket
                 // close: the ticker spends almost all its life parked
                 // in delay() (which is cancellable, unlike a blocking
@@ -643,7 +651,10 @@ internal class OutboundConnectionDriver(
                             coroutineScope {
                                 val keepAliveJob = launch { runKeepAliveTicker(activeChannel) }
                                 try {
-                                    val result = streamFilesAndComplete(activeChannel)
+                                    val result =
+                                        streamFilesAndComplete(activeChannel) {
+                                            drainDirectInboundWhileStreaming(activeChannel)
+                                        }
                                     if (shouldDrainForSafeDisconnect(result)) {
                                         drainSafeDisconnectAckDirect(activeChannel)
                                     }
@@ -1168,22 +1179,27 @@ internal class OutboundConnectionDriver(
         val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(sharingFrame))
         applyEffects(channel, effects)
         if (effects.any { it is SharingFsmEffect.ReadyToSendPayloads }) {
-            return streamFilesAndComplete(channel)
+            return streamFilesAndComplete(channel) {
+                drainBufferedInboundWhileStreaming(streamingWireChannel)
+            }
         }
         return null
     }
 
     /**
-     * Stream every announced file in 512 KiB chunks, then send
-     * `Disconnection`. This is the happy-path terminal: returns
-     * [OutboundResult.Completed] on success.
+     * Stream every announced file in deterministic, size-based chunks,
+     * then send `Disconnection`. This is the happy-path terminal:
+     * returns [OutboundResult.Completed] on success.
      *
      * Cancellation during streaming is cooperative: the dispatch loop
      * is suspended while we run, but [externalEvents] is polled on
      * each chunk so a `cancel()` call still emits a CANCEL frame
      * before we close.
      */
-    private suspend fun streamFilesAndComplete(channel: SecureChannel): OutboundResult {
+    private suspend fun streamFilesAndComplete(
+        channel: SecureChannel,
+        pollInboundWhileStreaming: suspend () -> OutboundResult? = { null },
+    ): OutboundResult {
         logger("fsm: streamFilesAndComplete START files=${files.size} totalSize=$totalSize")
         // Seed the rate estimator with a zero-bytes sample so the
         // first chunk write produces a non-degenerate Δt for the EMA.
@@ -1203,7 +1219,7 @@ internal class OutboundConnectionDriver(
         for (file in files) {
             currentItemPayloadId = file.payloadId
             logger("fsm: streamOneFile START name=${file.name} size=${file.size} payloadId=${file.payloadId}")
-            val cancelled = streamOneFile(channel, file)
+            val cancelled = streamOneFile(channel, file, pollInboundWhileStreaming)
             if (cancelled != null) {
                 logger("fsm: streamOneFile EARLY-RETURN ${cancelled::class.simpleName}")
                 return cancelled
@@ -1229,9 +1245,11 @@ internal class OutboundConnectionDriver(
      * Returns a non-null terminal result if the user cancelled mid-file;
      * null on successful completion of this single file.
      */
+    @Suppress("ReturnCount") // The streaming loop must bail out immediately on cancel or peer terminal frames.
     private suspend fun streamOneFile(
         channel: SecureChannel,
         file: FileSource,
+        pollInboundWhileStreaming: suspend () -> OutboundResult?,
     ): OutboundResult? {
         val source = file.openChannel()
         var chunkIdx = 0
@@ -1259,6 +1277,7 @@ internal class OutboundConnectionDriver(
                     parentFolder = file.parentFolder,
                 )
             for (frame in frames) {
+                pollInboundWhileStreaming()?.let { return it }
                 // Poll for cancellation between chunks. trySend semantics
                 // for an UNLIMITED channel never block — receive() also
                 // never blocks if there's no event waiting.
@@ -1273,12 +1292,75 @@ internal class OutboundConnectionDriver(
                     logger("fsm: streamOneFile first chunk written bytesSent=$bytesSent")
                 }
                 chunkIdx++
+                pollInboundWhileStreaming()?.let { return it }
             }
             logger("fsm: streamOneFile loop end chunks=$chunkIdx bytesSent=$bytesSent")
         } finally {
             runCatching { source.close() }
         }
         return null
+    }
+
+    @Suppress("ReturnCount") // Early returns keep the non-blocking queue-drain readable.
+    private suspend fun drainBufferedInboundWhileStreaming(
+        wireChannel: Channel<OutboundWireMessage>?,
+    ): OutboundResult? {
+        if (wireChannel == null) return null
+        while (true) {
+            when (val message = wireChannel.tryReceive().getOrNull() ?: return null) {
+                is OutboundWireMessage.Frame -> {
+                    handleInboundFrameWhileStreaming(message.frame)?.let { return it }
+                }
+                OutboundWireMessage.Closed -> return handlePeerClosed()
+                is OutboundWireMessage.Error -> return inboundPumpFailed(message.cause)
+            }
+        }
+    }
+
+    @Suppress(
+        "ReturnCount",
+        "SwallowedException",
+    ) // EndOfFrameStream is intentionally mapped to the peer-closed terminal.
+    private suspend fun drainDirectInboundWhileStreaming(channel: SecureChannel): OutboundResult? {
+        while (channel.hasBufferedInput()) {
+            val frame =
+                try {
+                    channel.receiveOfflineFrame()
+                } catch (e: EndOfFrameStream) {
+                    return handlePeerClosed()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") e: Throwable,
+                ) {
+                    return inboundPumpFailed(e)
+                }
+            handleInboundFrameWhileStreaming(frame)?.let { return it }
+        }
+        return null
+    }
+
+    @Suppress("ReturnCount") // Mid-stream control handling is clearest as one branch per frame shape.
+    private fun handleInboundFrameWhileStreaming(frame: OfflineFrame): OutboundResult? {
+        if (frame.isDisconnection()) {
+            return cancelFromPeer()
+        }
+        if (!frame.hasV1()) return null
+
+        return when (frame.v1.type) {
+            V1Frame.FrameType.KEEP_ALIVE -> null
+            V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION -> {
+                logger(
+                    "fsm: streaming drain ignored BANDWIDTH_UPGRADE_NEGOTIATION event_type=" +
+                        frame.v1.bandwidthUpgradeNegotiation.eventType,
+                )
+                null
+            }
+            else -> {
+                logger("fsm: streaming drain buffered ${frame.describeFrameType()} for post-send handling")
+                null
+            }
+        }
     }
 
     /** Returns the body size (data bytes) of the chunk in [frame]. */
@@ -1364,6 +1446,12 @@ internal class OutboundConnectionDriver(
         logger("fsm: cancelFromPeer (peer Disconnection observed)")
         publishCancelled(CancelCause.PEER)
         return OutboundResult.Cancelled(CancelCause.PEER)
+    }
+
+    private fun inboundPumpFailed(cause: Throwable): OutboundResult.Failed {
+        val reason = "Inbound pump error: ${cause::class.simpleName}: ${cause.message}"
+        mutableState.value = OutboundConnectionState.Failed(reason)
+        return OutboundResult.Failed(reason)
     }
 
     /**
