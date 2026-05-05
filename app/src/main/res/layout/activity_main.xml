@@ -266,6 +266,21 @@
             android:text="@string/main_always_visible_subtitle"
             android:textAppearance="?android:attr/textAppearanceSmall" />
 
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/main_bug_report_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/main_bug_report_title" />
+
+        <TextView
+            android:id="@+id/main_bug_report_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/main_bug_report_subtitle"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
         <!--
           Folder-send entry point (#38). The system share sheet does not
           expose a way to share a directory — it only routes individual

@@ -8,12 +8,12 @@ package dev.bluehouse.libredrop.send
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import dev.bluehouse.libredrop.R
+import dev.bluehouse.libredrop.bugreport.BugReportFlowSupport
 import dev.bluehouse.libredrop.databinding.ActivitySendBinding
 import dev.bluehouse.libredrop.discovery.NearbyPeer
 import dev.bluehouse.libredrop.discovery.NearbyPeerRoute
@@ -22,6 +22,7 @@ import dev.bluehouse.libredrop.discovery.bootstrap.BleGattInitialControlClient
 import dev.bluehouse.libredrop.discovery.bootstrap.BleGattInitialControlServer
 import dev.bluehouse.libredrop.discovery.bootstrap.BleL2capInitialControlClient
 import dev.bluehouse.libredrop.discovery.bootstrap.BluetoothClassicBootstrapClient
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.libredrop.discovery.medium.MediumRegistries
 import dev.bluehouse.libredrop.protocol.connection.CancelCause
 import dev.bluehouse.libredrop.protocol.connection.FileSource
@@ -70,6 +71,7 @@ import java.security.SecureRandom
 @Suppress("TooManyFunctions")
 public class SendActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySendBinding
+    private lateinit var bugReportFlowSupport: BugReportFlowSupport
     private lateinit var fileSourceFactory: UriFileSourceFactory
     private lateinit var documentTreeFactory: DocumentTreeFileSourceFactory
     private lateinit var payloadResolver: SendPayloadResolver
@@ -100,6 +102,7 @@ public class SendActivity : AppCompatActivity() {
         OutboundSessionActiveHolder.setOutboundSessionActive(true)
         binding = ActivitySendBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        bugReportFlowSupport = BugReportFlowSupport.install(this)
 
         fileSourceFactory = UriFileSourceFactory(contentResolver)
         documentTreeFactory = DocumentTreeFileSourceFactory(contentResolver)
@@ -306,7 +309,7 @@ public class SendActivity : AppCompatActivity() {
         // address list (so we can spot IPv6 vs IPv4 selection bugs),
         // and the parsed EndpointInfo header byte / device name.
         val targetSnapshot = peerPickerController.formatPeerSnapshot(peer, chosenRoute)
-        Log.e(OUTBOUND_TAG, "picked target: $targetSnapshot")
+        DiagnosticLog.e(OUTBOUND_TAG, "picked target: $targetSnapshot")
         appendOutboundLog("picked target: $targetSnapshot")
         // Stop discovery and the wake-up pulse once we've made our pick.
         // BLE GATT bootstrap reuses the Bluetooth controller immediately;
@@ -635,12 +638,12 @@ public class SendActivity : AppCompatActivity() {
     }
 
     private fun logOutboundDiagnostic(line: String) {
-        Log.e(OUTBOUND_TAG, line)
+        DiagnosticLog.e(OUTBOUND_TAG, line)
         appendOutboundLog(line)
     }
 
     private fun logOutboundWireMessage(line: String) {
-        Log.e(OUTBOUND_TAG, line)
+        DiagnosticLog.e(OUTBOUND_TAG, line)
         appendOutboundLog(line)
     }
 

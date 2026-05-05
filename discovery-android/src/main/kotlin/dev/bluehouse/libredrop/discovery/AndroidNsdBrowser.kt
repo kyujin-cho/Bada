@@ -8,7 +8,6 @@ package dev.bluehouse.libredrop.discovery
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
-import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog as Log
 
 /**
  * Production [NsdBrowser] backed by Android's [NsdManager].

@@ -7,6 +7,7 @@ package dev.bluehouse.libredrop.send
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import dev.bluehouse.libredrop.bugreport.BugReportFlowSupport
 import dev.bluehouse.libredrop.databinding.ActivityShowQrBinding
 import dev.bluehouse.libredrop.protocol.qr.QrKeyData
 import dev.bluehouse.libredrop.protocol.qr.QrUrl
@@ -42,11 +43,13 @@ import kotlin.math.min
  */
 public class ShowQrActivity : AppCompatActivity() {
     private lateinit var binding: ActivityShowQrBinding
+    private lateinit var bugReportFlowSupport: BugReportFlowSupport
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityShowQrBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        bugReportFlowSupport = BugReportFlowSupport.install(this)
 
         val generated = QrKeyData.generate()
         val url = QrUrl.build(generated.qrKeyData)

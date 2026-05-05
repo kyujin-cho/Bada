@@ -8,6 +8,8 @@
          wants to be discoverable to nearby senders. -->
     <string name="main_always_visible_title">Always visible</string>
     <string name="main_always_visible_subtitle">Keep this device discoverable on Wi-Fi even without a Bluetooth pulse from a nearby sender. Turn off to save power; the receiver will only appear briefly while a sender is scanning.</string>
+    <string name="main_bug_report_title">Shake to report a bug</string>
+    <string name="main_bug_report_subtitle">When enabled, shaking the phone while LibreDrop is open offers to package recent diagnostics, device state, and a screenshot into a zip that you save yourself. Nothing is uploaded automatically.</string>
 
     <!-- Save location settings (#42). The "current location" line shows
          either the picked folder's display name or "Downloads" as the
@@ -169,6 +171,23 @@
     <string name="send_status_duration_seconds" tools:ignore="PluralsCandidate">%1$d seconds</string>
     <string name="send_status_duration_about_minutes" tools:ignore="PluralsCandidate">about %1$d minutes</string>
     <string name="send_status_duration_about_hours" tools:ignore="PluralsCandidate">about %1$d hours</string>
+
+    <!-- Shake-to-report bug-report flow (#162). -->
+    <string name="bug_report_confirm_title">Trying to report a bug?</string>
+    <string name="bug_report_confirm_body">LibreDrop will collect recent app diagnostics, device state, and a screenshot into a zip that stays on this device until you choose where to save it.</string>
+    <string name="bug_report_confirm_yes">Yes</string>
+    <string name="bug_report_confirm_no">No</string>
+    <string name="bug_report_include_bssid_label">Include the current Wi-Fi BSSID (more identifying)</string>
+    <string name="bug_report_collecting">Preparing bug report…</string>
+    <string name="bug_report_collect_failed">Could not prepare the bug report: %1$s</string>
+    <string name="bug_report_save_cancelled">Bug report save cancelled.</string>
+    <string name="bug_report_save_failed">Could not save the bug report: %1$s</string>
+    <string name="bug_report_saved_title">Bug report saved</string>
+    <string name="bug_report_saved_body">The bug report zip is saved. You can open GitHub now and attach it to a new issue manually.</string>
+    <string name="bug_report_saved_open_issue">Open GitHub issue</string>
+    <string name="bug_report_saved_dismiss">Dismiss</string>
+    <string name="bug_report_issue_chooser">Open with</string>
+    <string name="bug_report_issue_unavailable">No browser or compatible app is available to open GitHub.</string>
 
     <!-- QR-code (#20 + #84) screen. -->
     <string name="show_qr_title">Scan from receiver</string>

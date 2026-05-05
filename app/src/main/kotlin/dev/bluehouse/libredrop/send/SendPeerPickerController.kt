@@ -6,7 +6,6 @@
 package dev.bluehouse.libredrop.send
 
 import android.content.Context
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import androidx.lifecycle.Lifecycle
@@ -25,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog as Log
 
 internal class SendPeerPickerController(
     private val context: Context,

@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import dev.bluehouse.libredrop.R
+import dev.bluehouse.libredrop.bugreport.BugReportFlowSupport
 import dev.bluehouse.libredrop.databinding.ActivityPermissionsOnboardingBinding
 import dev.bluehouse.libredrop.databinding.ItemPermissionRowBinding
 
@@ -39,6 +40,7 @@ import dev.bluehouse.libredrop.databinding.ItemPermissionRowBinding
  */
 class PermissionsOnboardingActivity : AppCompatActivity() {
     private lateinit var binding: ActivityPermissionsOnboardingBinding
+    private lateinit var bugReportFlowSupport: BugReportFlowSupport
     private val rowsByPermission: MutableMap<String, ItemPermissionRowBinding> = mutableMapOf()
 
     /**
@@ -77,6 +79,7 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityPermissionsOnboardingBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        bugReportFlowSupport = BugReportFlowSupport.install(this)
 
         // Restore launch state across configuration changes so we don't
         // mistakenly treat a rotation as a fresh first run.

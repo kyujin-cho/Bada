@@ -19,10 +19,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelUuid
-import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog
 import java.io.Closeable
 import java.security.SecureRandom
 import java.util.UUID
@@ -128,7 +128,7 @@ public class BleAdvertiser internal constructor(
                     onClosed = { active.compareAndSet(it, null) },
                 )
             active.set(handle)
-            Log.w(
+            DiagnosticLog.w(
                 TAG,
                 "BLE advertise: startAdvertising submitted bytes=" + payload.size +
                     " uuid=" + BleAdvertisePayload.SERVICE_UUID_128,
@@ -142,7 +142,7 @@ public class BleAdvertiser internal constructor(
             // them mean "we couldn't start"; collapse to null + warn.
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
-            Log.w(TAG, "BLE advertise: startAdvertising threw — pulse skipped", t)
+            DiagnosticLog.w(TAG, "BLE advertise: startAdvertising threw — pulse skipped", t)
             null
         }
     }
@@ -155,12 +155,12 @@ public class BleAdvertiser internal constructor(
      */
     private fun preflight(): BluetoothLeAdvertiser? {
         if (!provider.hasAdvertisePermission()) {
-            Log.w(TAG, "BLE advertise: BLUETOOTH_ADVERTISE not granted — pulse skipped")
+            DiagnosticLog.w(TAG, "BLE advertise: BLUETOOTH_ADVERTISE not granted — pulse skipped")
             return null
         }
         val advertiser = provider.advertiser()
         if (advertiser == null) {
-            Log.w(TAG, "BLE advertise: no BluetoothLeAdvertiser available — pulse skipped")
+            DiagnosticLog.w(TAG, "BLE advertise: no BluetoothLeAdvertiser available — pulse skipped")
         }
         return advertiser
     }
@@ -281,7 +281,7 @@ public class BleAdvertiser internal constructor(
             if (!activeFlag.compareAndSet(true, false)) return
             try {
                 advertiser.stopAdvertising(callback)
-                Log.w(TAG, "BLE advertise: stopAdvertising complete")
+                DiagnosticLog.w(TAG, "BLE advertise: stopAdvertising complete")
             } catch (
                 // stopAdvertising can throw SecurityException if the user
                 // revoked BLUETOOTH_ADVERTISE while we were running, or
@@ -290,7 +290,7 @@ public class BleAdvertiser internal constructor(
                 // there is nothing to recover.
                 @Suppress("TooGenericExceptionCaught") t: Throwable,
             ) {
-                Log.w(TAG, "BLE advertise: stopAdvertising threw; ignoring", t)
+                DiagnosticLog.w(TAG, "BLE advertise: stopAdvertising threw; ignoring", t)
             }
             onClosed(this)
         }
@@ -309,12 +309,12 @@ public class BleAdvertiser internal constructor(
             private set
 
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.w(TAG, "BLE advertise: onStartSuccess settings=$settingsInEffect")
+            DiagnosticLog.w(TAG, "BLE advertise: onStartSuccess settings=$settingsInEffect")
         }
 
         override fun onStartFailure(errorCode: Int) {
             lastError = errorCode
-            Log.w(TAG, "BLE advertise: onStartFailure code=$errorCode (${describeError(errorCode)})")
+            DiagnosticLog.w(TAG, "BLE advertise: onStartFailure code=$errorCode (${describeError(errorCode)})")
         }
 
         private fun describeError(code: Int): String =

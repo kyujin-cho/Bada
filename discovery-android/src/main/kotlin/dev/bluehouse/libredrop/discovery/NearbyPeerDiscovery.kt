@@ -8,9 +8,9 @@
 package dev.bluehouse.libredrop.discovery
 
 import android.content.Context
-import android.util.Log
 import dev.bluehouse.libredrop.discovery.ble.BleFastAdvertisementScanner
 import dev.bluehouse.libredrop.discovery.classic.BluetoothClassicPeerScanner
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -266,7 +266,7 @@ private class PeerAggregator {
     }
 
     private fun logFilteredPeer(peer: NearbyPeer) {
-        Log.i(
+        DiagnosticLog.i(
             DISCOVERY_TAG,
             "picker filter: hiding peer=${peer.stableId} " +
                 "endpointId=${peer.endpointId ?: "<none>"} reason=${filterReason(peer)}",

@@ -11,11 +11,11 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.MediaStore
 import android.provider.OpenableColumns
-import android.util.Log
 import dev.bluehouse.libredrop.protocol.connection.FileSource
 import java.nio.channels.Channels
 import java.nio.channels.ReadableByteChannel
 import kotlin.math.absoluteValue
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog as Log
 
 /**
  * Translates Android `content://` URIs (received from the system share

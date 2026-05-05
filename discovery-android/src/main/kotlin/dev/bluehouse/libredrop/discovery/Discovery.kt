@@ -7,7 +7,6 @@ package dev.bluehouse.libredrop.discovery
 
 import android.content.Context
 import android.net.nsd.NsdManager
-import android.util.Log
 import dev.bluehouse.libredrop.protocol.endpoint.Base64Url
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +22,7 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog as Log
 
 /**
  * High-level Quick Share mDNS API.

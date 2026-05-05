@@ -21,6 +21,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import dev.bluehouse.libredrop.battery.BatteryOptimizationOemHelper
 import dev.bluehouse.libredrop.battery.BatteryOptimizationPreferences
+import dev.bluehouse.libredrop.bugreport.BugReportFlowSupport
+import dev.bluehouse.libredrop.bugreport.BugReportPreferences
 import dev.bluehouse.libredrop.migration.LegacyPackageDetectorAndroid
 import dev.bluehouse.libredrop.onboarding.PermissionRequirements
 import dev.bluehouse.libredrop.onboarding.PermissionsOnboardingActivity
@@ -109,10 +111,12 @@ class MainActivity : AppCompatActivity() {
      * both `wvmg` and `wvmg.debug` are present).
      */
     private var legacyPackageInBanner: String? = null
+    private lateinit var bugReportFlowSupport: BugReportFlowSupport
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        bugReportFlowSupport = BugReportFlowSupport.install(this)
         // Restore the flag across configuration changes so we don't
         // re-route on rotate.
         savedInstanceState?.let {
@@ -125,6 +129,13 @@ class MainActivity : AppCompatActivity() {
         switch.isChecked = MdnsVisibilityOverrideHolder.isActive
         switch.setOnCheckedChangeListener { _, checked ->
             MdnsVisibilityOverrideHolder.setAlwaysVisible(checked)
+        }
+
+        val bugReportSwitch = findViewById<SwitchCompat>(R.id.main_bug_report_switch)
+        val bugReportPreferences = BugReportPreferences.from(this)
+        bugReportSwitch.isChecked = bugReportPreferences.isShakeToReportEnabled()
+        bugReportSwitch.setOnCheckedChangeListener { _, checked ->
+            bugReportPreferences.setShakeToReportEnabled(checked)
         }
 
         // SAF tree-picker (#38). The launcher must be registered during
@@ -235,6 +246,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<SwitchCompat>(R.id.main_always_visible_switch)?.let {
             if (it.isChecked != MdnsVisibilityOverrideHolder.isActive) {
                 it.isChecked = MdnsVisibilityOverrideHolder.isActive
+            }
+        }
+        findViewById<SwitchCompat>(R.id.main_bug_report_switch)?.let {
+            val enabled = BugReportPreferences.from(this).isShakeToReportEnabled()
+            if (it.isChecked != enabled) {
+                it.isChecked = enabled
             }
         }
 

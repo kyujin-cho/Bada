@@ -18,7 +18,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -28,6 +27,7 @@ import dev.bluehouse.libredrop.discovery.Discovery
 import dev.bluehouse.libredrop.discovery.ble.BleQuickShareAdvertiser
 import dev.bluehouse.libredrop.discovery.ble.BleQuickShareScanner
 import dev.bluehouse.libredrop.discovery.bootstrap.BleGattInitialControlServer
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.libredrop.discovery.medium.MediumRegistries
 import dev.bluehouse.libredrop.protocol.endpoint.BleServiceData
 import dev.bluehouse.libredrop.protocol.endpoint.EndpointInfo
@@ -396,7 +396,7 @@ public class ReceiverForegroundService : Service() {
             nextIdentityProvider = { AdvertisedDeviceNames.createEndpointInfo(applicationContext) },
             bleBroadcasterFactory = { buildBleBroadcaster() },
             logger = { line ->
-                Log.e(INBOUND_DIAG_TAG, line)
+                DiagnosticLog.e(INBOUND_DIAG_TAG, line)
                 appendInboundLog(line)
             },
         ).start(serviceScope, newSession)
@@ -570,7 +570,7 @@ public class ReceiverForegroundService : Service() {
                     val discovery = ActiveDiscoveryHolder.current()
                     if (discovery != null) {
                         val snap = discovery.snapshot()
-                        Log.i(
+                        DiagnosticLog.i(
                             DIAGNOSTICS_TAG,
                             "discovery snapshot: " +
                                 "advertising=${snap.advertising} browsing=${snap.browsing} " +
@@ -593,7 +593,7 @@ public class ReceiverForegroundService : Service() {
                     "completion id=${completion.connectionId} " +
                         "ref=${System.identityHashCode(completion.connection)} " +
                         "result=${completion.result}"
-                Log.e(INBOUND_DIAG_TAG, line)
+                DiagnosticLog.e(INBOUND_DIAG_TAG, line)
                 appendInboundLog(line)
             }
         }
@@ -601,12 +601,12 @@ public class ReceiverForegroundService : Service() {
             session.activeConnections.collect { conn ->
                 val ref = System.identityHashCode(conn)
                 val accepted = "accepted ref=$ref"
-                Log.e(INBOUND_DIAG_TAG, accepted)
+                DiagnosticLog.e(INBOUND_DIAG_TAG, accepted)
                 appendInboundLog(accepted)
                 serviceScope.launch {
                     conn.state.collect { st ->
                         val line = "state ref=$ref -> $st"
-                        Log.e(INBOUND_DIAG_TAG, line)
+                        DiagnosticLog.e(INBOUND_DIAG_TAG, line)
                         appendInboundLog(line)
                     }
                 }
@@ -741,7 +741,7 @@ public class ReceiverForegroundService : Service() {
             // launches even from foreground services. Fall through
             // silently — the heads-up notification path is the
             // documented fallback for exactly this case.
-            Log.w(MODAL_TAG, "Could not launch consent trampoline as modal: ${e.message}", e)
+            DiagnosticLog.w(MODAL_TAG, "Could not launch consent trampoline as modal: ${e.message}", e)
             ConsentDiagnostic.log(
                 this,
                 "service.launchModal id=$connectionId startActivity=SecurityException msg=${e.message}",
@@ -1068,7 +1068,7 @@ public class ReceiverForegroundService : Service() {
             context: Context,
             line: String,
         ) {
-            Log.e(INBOUND_DIAG_TAG, line)
+            DiagnosticLog.e(INBOUND_DIAG_TAG, line)
             runCatching {
                 val dir = context.getExternalFilesDir(null) ?: return
                 val file = java.io.File(dir, "libredrop-inbound.log")

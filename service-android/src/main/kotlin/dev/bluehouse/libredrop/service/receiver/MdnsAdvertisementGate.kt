@@ -5,8 +5,8 @@
  */
 package dev.bluehouse.libredrop.service.receiver
 
-import android.util.Log
 import dev.bluehouse.libredrop.discovery.ble.ScanActivity
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -221,9 +221,9 @@ public class MdnsAdvertisementGate(
             if (session.isAdvertising) {
                 try {
                     session.unpublishAdvertisement()
-                    Log.w(TAG, "unpublish: outbound send active; mDNS taken down immediately")
+                    DiagnosticLog.w(TAG, "unpublish: outbound send active; mDNS taken down immediately")
                 } catch (t: Throwable) {
-                    Log.w(TAG, "unpublish: threw during outbound veto", t)
+                    DiagnosticLog.w(TAG, "unpublish: threw during outbound veto", t)
                 }
             }
             stopBleSafely(reason = "outbound send active")
@@ -244,13 +244,13 @@ public class MdnsAdvertisementGate(
             if (!session.isAdvertising) {
                 try {
                     session.publishAdvertisement()
-                    Log.w(TAG, "publish: published mDNS (decision=$decision)")
+                    DiagnosticLog.w(TAG, "publish: published mDNS (decision=$decision)")
                 } catch (t: Throwable) {
                     // The session may have been stopped between the
                     // collector firing and the publish call. Treat as
                     // benign — the decision will be re-evaluated if the
                     // session is restarted.
-                    Log.w(TAG, "publish: failed (decision=$decision)", t)
+                    DiagnosticLog.w(TAG, "publish: failed (decision=$decision)", t)
                 }
             }
             return
@@ -274,12 +274,12 @@ public class MdnsAdvertisementGate(
                 if (isActive) {
                     try {
                         session.unpublishAdvertisement()
-                        Log.w(TAG, "unpublish: idle for ${debounceIdleMillis}ms; mDNS taken down")
+                        DiagnosticLog.w(TAG, "unpublish: idle for ${debounceIdleMillis}ms; mDNS taken down")
                     } catch (t: Throwable) {
                         // Best-effort: the session may have been stopped
                         // first, in which case the advertisement is
                         // already torn down.
-                        Log.w(TAG, "unpublish: threw", t)
+                        DiagnosticLog.w(TAG, "unpublish: threw", t)
                     }
                     // Symmetric BLE teardown — same debounce window so
                     // the BLE advertiser does not flap on intermittent
@@ -303,12 +303,12 @@ public class MdnsAdvertisementGate(
             val started = bleBroadcaster.start()
             if (started) {
                 bleAdvertising = true
-                Log.w(TAG, "publish: BLE pulse advertise started (decision=$decision)")
+                DiagnosticLog.w(TAG, "publish: BLE pulse advertise started (decision=$decision)")
             } else {
-                Log.w(TAG, "publish: BLE pulse advertise unavailable (decision=$decision)")
+                DiagnosticLog.w(TAG, "publish: BLE pulse advertise unavailable (decision=$decision)")
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "publish: BLE pulse advertise threw (decision=$decision)", t)
+            DiagnosticLog.w(TAG, "publish: BLE pulse advertise threw (decision=$decision)", t)
         }
     }
 
@@ -323,9 +323,9 @@ public class MdnsAdvertisementGate(
         try {
             bleBroadcaster.stop()
             bleAdvertising = false
-            Log.w(TAG, "unpublish: BLE pulse advertise stopped ($reason)")
+            DiagnosticLog.w(TAG, "unpublish: BLE pulse advertise stopped ($reason)")
         } catch (t: Throwable) {
-            Log.w(TAG, "unpublish: BLE pulse advertise stop threw ($reason)", t)
+            DiagnosticLog.w(TAG, "unpublish: BLE pulse advertise stop threw ($reason)", t)
         }
     }
 

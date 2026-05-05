@@ -6,7 +6,7 @@
 package dev.bluehouse.libredrop.service.receiver.consent
 
 import android.content.Context
-import android.util.Log
+import dev.bluehouse.libredrop.discovery.diagnostics.DiagnosticLog
 import java.io.File
 
 /**
@@ -62,7 +62,7 @@ public object ConsentDiagnostic {
         context: Context,
         line: String,
     ) {
-        Log.e(TAG, line)
+        DiagnosticLog.e(TAG, line)
         try {
             val dir = context.getExternalFilesDir(null) ?: return
             val f = File(dir, FILE_NAME)
@@ -70,7 +70,7 @@ public object ConsentDiagnostic {
         } catch (t: Throwable) {
             // Best-effort instrumentation; never propagate a failure
             // to the caller.
-            Log.w(TAG, "ConsentDiagnostic.log: could not append to file", t)
+            DiagnosticLog.w(TAG, "ConsentDiagnostic.log: could not append to file", t)
         }
     }
 }

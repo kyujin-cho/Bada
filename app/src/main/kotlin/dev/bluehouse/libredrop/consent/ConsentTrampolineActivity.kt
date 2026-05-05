@@ -15,6 +15,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import dev.bluehouse.libredrop.R
+import dev.bluehouse.libredrop.bugreport.BugReportFlowSupport
 import dev.bluehouse.libredrop.protocol.connection.TransferItem
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentBroadcastReceiver
 import dev.bluehouse.libredrop.service.receiver.consent.ConsentDiagnostic
@@ -87,6 +88,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private var connectionId: Long = ConsentIntents.MISSING_CONNECTION_ID
     private var decisionSubmitted: Boolean = false
     private var modalRegistered: Boolean = false
+    private lateinit var bugReportFlowSupport: BugReportFlowSupport
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // setShowWhenLocked / setTurnScreenOn must be called BEFORE
@@ -97,6 +99,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         applyIncomingCallFlags()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_consent_trampoline)
+        bugReportFlowSupport = BugReportFlowSupport.install(this)
 
         ConsentDiagnostic.log(this, "trampoline.onCreate intent.id=${incomingId(intent)}")
         bindIntent(intent)
