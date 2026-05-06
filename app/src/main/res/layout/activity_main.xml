@@ -49,7 +49,7 @@
       the (transparent) toolbar so the entire screen reads as one
       ambient surface, per spec.
     -->
-    <dev.bluehouse.libredrop.ui.VisibilityPulseView
+    <dev.bluehouse.bada.ui.VisibilityPulseView
         android:id="@+id/main_always_visible_pulse"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />

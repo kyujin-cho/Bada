@@ -1,6 +1,6 @@
 # Release Builds
 
-LibreDrop release builds are produced by `.github/workflows/release.yml`.
+Bada release builds are produced by `.github/workflows/release.yml`.
 The workflow is separate from normal CI and runs when:
 
 - a tag matching `v*` is pushed, such as `v1.2.3`
@@ -10,7 +10,7 @@ supplied through GitHub Actions secrets, uploads the signed APK as a workflow
 artifact, and attaches it to a matching GitHub Release when one exists for the
 tag. Release APK filenames come from the Gradle release variant and follow
 `<applicationId>-<versionName>.apk`, for example
-`dev.bluehouse.libredrop-0.1.0-alpha01.apk`. The decoded keystore lives in
+`dev.bluehouse.bada-0.1.0-alpha01.apk`. The decoded keystore lives in
 `$RUNNER_TEMP/release.keystore` for the Gradle step only and is removed before
 artifact upload.
 
@@ -37,7 +37,7 @@ Create a keystore locally if you do not already have one:
 keytool -genkeypair \
   -v \
   -keystore release.keystore \
-  -alias libredrop \
+  -alias bada \
   -keyalg RSA \
   -keysize 2048 \
   -validity 10000

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-BUGREPORT_DIR="$ROOT_DIR/app/src/main/kotlin/dev/bluehouse/libredrop/bugreport"
+BUGREPORT_DIR="$ROOT_DIR/app/src/main/kotlin/dev/bluehouse/bada/bugreport"
 ALLOWED_FILE="$BUGREPORT_DIR/BugReportSocDiagnostics.kt"
 
 matches=()
