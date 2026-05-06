@@ -219,6 +219,8 @@ internal class BugReportCollector(
                 "release"
             }
 
+        val socDiagnostics = BugReportSocDiagnostics.read()
+
         return buildString {
             appendLine("manufacturer=${Build.MANUFACTURER}")
             appendLine("brand=${Build.BRAND}")
@@ -228,8 +230,8 @@ internal class BugReportCollector(
             appendLine("fingerprint=${Build.FINGERPRINT}")
             appendLine("hardware=${Build.HARDWARE}")
             appendLine("board=${Build.BOARD}")
-            appendLine("socManufacturer=${Build.SOC_MANUFACTURER}")
-            appendLine("socModel=${Build.SOC_MODEL}")
+            appendLine("socManufacturer=${socDiagnostics.manufacturer}")
+            appendLine("socModel=${socDiagnostics.model}")
             appendLine("release=${Build.VERSION.RELEASE}")
             appendLine("sdkInt=${Build.VERSION.SDK_INT}")
             appendLine("incremental=${Build.VERSION.INCREMENTAL}")
