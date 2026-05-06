@@ -70,7 +70,7 @@
             android:id="@+id/consent_card_overlay"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#80FFFFFF"
+            android:background="@color/card_blur_overlay"
             android:visibility="gone" />
 
         <!-- Consent state — initial. -->
@@ -184,8 +184,10 @@
                     android:id="@+id/consent_reject_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:gravity="center"
                     android:minWidth="140dp"
-                    android:text="@string/consent_button_reject" />
+                    android:text="@string/consent_button_reject"
+                    android:textAlignment="center" />
 
                 <Space
                     android:layout_width="12dp"
@@ -195,8 +197,10 @@
                     android:id="@+id/consent_accept_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:gravity="center"
                     android:minWidth="140dp"
-                    android:text="@string/consent_button_accept" />
+                    android:text="@string/consent_button_accept"
+                    android:textAlignment="center" />
 
             </LinearLayout>
 
@@ -327,19 +331,62 @@
               View button is hidden, Close stands alone, still
               centered horizontally by the parent's gravity.
             -->
+            <!--
+              Button row implemented as FrameLayout-wrapped
+              TextView pairs instead of plain `<Button>`. Multiple
+              attempts at centering Button text via the
+              `Widget.LibreDrop.Button` style (gravity=center,
+              textAlignment=center, paddingStart/End reset,
+              drawablePadding=0dp, iconGravity=textTop, etc.) all
+              left Korean labels visibly LEFT of the button
+              centerline on this Bridge-theme AppCompatButton
+              build — root cause never isolated.
+
+              The wrapper pattern sidesteps the issue entirely: the
+              FrameLayout carries the frosted background + click
+              behavior, while the inner wrap_content TextView is
+              positioned via `android:layout_gravity="center"`,
+              which is FrameLayout's own centering logic — that
+              path always produces a true geometric center
+              regardless of text content, locale, or font metrics.
+              The TextView's intrinsic width matches its glyph
+              run, so visual center == geometric center == layout
+              center.
+
+              `consent_completed_view_button` (the FrameLayout id)
+              starts hidden; ConsentTrampolineActivity reveals it
+              only after the MediaStore lookup resolves to an
+              image Uri. When the View button is hidden the spacer
+              hides too and Close fills the row alone via the
+              shared `weight=1`.
+            -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:gravity="center"
                 android:orientation="horizontal">
 
-                <Button
+                <FrameLayout
                     android:id="@+id/consent_completed_close_button"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:minWidth="140dp"
-                    android:text="@string/consent_state_close" />
+                    android:layout_weight="1"
+                    android:background="@drawable/btn_frosted_background"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:minHeight="48dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:paddingHorizontal="24dp"
+                        android:paddingVertical="12dp"
+                        android:text="@string/consent_state_close"
+                        android:textAppearance="@style/TextAppearance.LibreDrop.Button"
+                        android:textColor="?android:attr/textColorPrimary" />
+
+                </FrameLayout>
 
                 <Space
                     android:id="@+id/consent_completed_button_gap"
@@ -347,13 +394,28 @@
                     android:layout_height="wrap_content"
                     android:visibility="gone" />
 
-                <Button
+                <FrameLayout
                     android:id="@+id/consent_completed_view_button"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:minWidth="140dp"
-                    android:text="@string/consent_state_view_image"
-                    android:visibility="gone" />
+                    android:layout_weight="1"
+                    android:background="@drawable/btn_frosted_background"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:minHeight="48dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:paddingHorizontal="24dp"
+                        android:paddingVertical="12dp"
+                        android:text="@string/consent_state_view_image"
+                        android:textAppearance="@style/TextAppearance.LibreDrop.Button"
+                        android:textColor="?android:attr/textColorPrimary" />
+
+                </FrameLayout>
 
             </LinearLayout>
 

@@ -92,7 +92,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            app:cardBackgroundColor="@android:color/white"
+            app:cardBackgroundColor="@color/surface_card"
             app:cardCornerRadius="24dp"
             app:cardElevation="4dp">
 
@@ -246,7 +246,7 @@
                     android:id="@+id/send_card_overlay"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:background="#80FFFFFF"
+                    android:background="@color/card_blur_overlay"
                     android:visibility="gone" />
 
                 <LinearLayout
@@ -765,8 +765,10 @@
                                 style="@style/Widget.LibreDrop.Button"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
+                                android:gravity="center"
                                 android:minWidth="140dp"
-                                android:text="@string/show_qr_close" />
+                                android:text="@string/show_qr_close"
+                                android:textAlignment="center" />
 
                             <Space
                                 android:layout_width="12dp"
@@ -777,8 +779,10 @@
                                 style="@style/Widget.LibreDrop.Button"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
+                                android:gravity="center"
                                 android:minWidth="140dp"
-                                android:text="@string/show_qr_copy_link" />
+                                android:text="@string/show_qr_copy_link"
+                                android:textAlignment="center" />
 
                         </LinearLayout>
 

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Night-mode color overrides. Applied automatically by the resource
+  system whenever the platform reports `Configuration.uiMode &
+  UI_MODE_NIGHT_YES` — i.e. when the user has system-wide dark mode
+  on, or per-app dark mode for LibreDrop.
+
+  Only colors that need to differ between day and night live here;
+  brand_primary, the QR bitmap white, and other mode-agnostic
+  values stay in `values/colors.xml`. When adding a new color
+  token, add it to the day file FIRST (so the fallback always
+  resolves), then override here only if night needs different
+  values.
+
+  Layering convention (night mode):
+    * Page background — `?attr/colorBackground` resolves to dark
+      gray via the DayNight theme (no override needed here).
+    * `surface_card` (#1F1F1F) — card surface that stands ~one step
+      brighter than the page bg. Reads as a "lit card" against the
+      dark page, mirroring how the white card reads against the
+      light gray page in day mode.
+    * `surface_chip` (#2A2A2A) — chip / inset surface one step
+      brighter still, so the same "card-on-card" hierarchy carries
+      from day to night.
+    * Hairline strokes — flipped to white at low alpha so they
+      remain visible against the dark surfaces. The day-mode
+      values (alpha black) would disappear entirely on a dark
+      surface.
+-->
+<resources>
+    <!-- Bottom-navigation surface flips dark so the nav bar reads
+         against the dark page bg without being a bright stripe. -->
+    <color name="nav_surface">#FF1F1F1F</color>
+    <color name="nav_item_inactive">#FFAAAAAA</color>
+
+    <!-- Card / chip surfaces. -->
+    <color name="surface_card">#FF1F1F1F</color>
+    <color name="surface_chip">#FF2A2A2A</color>
+    <color name="surface_card_stroke">#1FFFFFFF</color>
+    <color name="surface_chip_stroke">#33FFFFFF</color>
+
+    <!-- Frosted button. White-on-dark translucent at lower alpha so
+         the soft glass feel survives without becoming a bright pill
+         on a dark page. Ripple uses the lighter brand tint at higher
+         alpha for legibility against the darker plate. -->
+    <color name="frosted_button_fill">#1FFFFFFF</color>
+    <color name="frosted_button_stroke">#33FFFFFF</color>
+    <color name="frosted_button_disabled">#1A000000</color>
+    <color name="frosted_button_ripple">#3D5B82FF</color>
+
+    <!-- Popup menu surface flips dark too — keeping it white on
+         dark would create a glaring rectangle when the toolbar
+         overflow opens. -->
+    <color name="popup_menu_surface">#FF2A2A2A</color>
+
+    <!-- Card gradient endpoints. Slight navy tint at top fading to
+         the standard dark surface at the bottom so the consent /
+         send card still reads as a soft gradient surface in night
+         mode rather than a flat dark plate. -->
+    <color name="card_dialog_gradient_top">#FF252A30</color>
+    <color name="card_dialog_gradient_bottom">#FF1F1F1F</color>
+
+    <!-- PIN pairing surface. Tone down both endpoints so the PIN
+         backdrop isn't the brightest thing on a dark screen, but
+         keep enough sky-blue tint that it still reads as the
+         "calm pairing" surface. -->
+    <color name="pin_state_gradient_inner">#FF2A3340</color>
+    <color name="pin_state_gradient_outer">#FF1B2330</color>
+
+    <!-- Drag handle on the help sheet. Mid-white reads as a "drag
+         me" affordance against the dark sheet. -->
+    <color name="bottom_sheet_drag_handle">#80FFFFFF</color>
+
+    <!-- Avatar stroke flips to a soft white. -->
+    <color name="credit_avatar_stroke">#33FFFFFF</color>
+
+    <!-- Card blur overlay flips to translucent black so the
+         blurred backdrop is darkened (not lightened) on a dark
+         page; foreground panel text stays readable on top. -->
+    <color name="card_blur_overlay">#80000000</color>
+</resources>

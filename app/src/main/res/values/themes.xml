@@ -102,10 +102,51 @@
         <item name="android:textAllCaps">false</item>
         <item name="textAllCaps">false</item>
         <item name="android:textStyle">bold</item>
+        <!--
+          Centering belt-and-suspenders. AppCompatButton (Bridge
+          theme keeps it on AppCompat, no MaterialButton promotion)
+          was rendering text shifted noticeably LEFT of the button's
+          geometric center on this device. Root cause not fully
+          isolated, but combinations of these symptoms suggest
+          inherited padding asymmetry from `Widget.AppCompat.Button`
+          interacting with `paddingLeft`/`Right` set in dp:
+            * Reset all padding to 0 first, then explicitly
+              re-apply as paddingStart/paddingEnd (RTL-aware) so
+              the parent style's defaults can't bleed through.
+            * Both `android:gravity="center"` AND
+              `android:textAlignment="center"` so whichever path the
+              runtime resolves alignment from, it reads "center".
+        -->
         <item name="android:gravity">center</item>
+        <item name="android:textAlignment">center</item>
+        <item name="android:textDirection">ltr</item>
         <item name="android:minHeight">48dp</item>
-        <item name="android:paddingLeft">24dp</item>
-        <item name="android:paddingRight">24dp</item>
+        <item name="android:padding">0dp</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="android:singleLine">true</item>
+        <!--
+          Zero out drawable-related space the platform Button's
+          parent style typically reserves. `drawablePadding` is the
+          gap between an inline compound drawable and the text;
+          even with no drawable set, the platform allocates this
+          space for layout stability. On Korean bold text long
+          enough to need most of the button width, that reserved
+          gap pushed the text visibly LEFT of the button's
+          geometric center. Forcing `drawablePadding=0dp` removes
+          the asymmetric reservation so `gravity=center` actually
+          centers the text against the button centerline.
+        -->
+        <item name="android:drawablePadding">0dp</item>
+        <!--
+          When MaterialComponents *does* promote (e.g. inside the
+          consent dialog's Material theme overlay), these
+          MaterialButton-specific attrs pull the (empty) icon slot
+          out of the horizontal layout so it cannot push the text
+          off-center.
+        -->
+        <item name="iconGravity">textTop</item>
+        <item name="iconPadding">0dp</item>
     </style>
 
     <style name="PopupMenu.LibreDrop" parent="Widget.AppCompat.PopupMenu.Overflow">
@@ -224,14 +265,20 @@
       from the AOSP default — so each overflow row becomes more
       compact, matching the vivo / OriginOS popup density.
 
-      The override is applied to BOTH the AppCompat-namespaced and
-      android-namespaced versions of the attribute because the
+      Parented on `ThemeOverlay.AppCompat.DayNight` (NOT the older
+      `…AppCompat.Light` we used initially) so popup item text /
+      surface follow the system mode. Forcing `Light` made the
+      kebab popup render with a black-on-dark item label in night
+      mode — invisible against the dark popup_menu_surface.
+
+      The height override is applied to BOTH the AppCompat-namespaced
+      and android-namespaced versions of the attribute because the
       MaterialComponents popup item layout reads the AppCompat one
       while older AppCompat fallbacks read the platform one; setting
       both keeps behavior identical regardless of which path the
       runtime picks.
     -->
-    <style name="ThemeOverlay.LibreDrop.PopupMenu" parent="ThemeOverlay.AppCompat.Light">
+    <style name="ThemeOverlay.LibreDrop.PopupMenu" parent="ThemeOverlay.AppCompat.DayNight">
         <item name="listPreferredItemHeightSmall">38dp</item>
         <item name="android:listPreferredItemHeightSmall">38dp</item>
     </style>

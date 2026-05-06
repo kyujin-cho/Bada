@@ -15,8 +15,8 @@
     <gradient
         android:centerX="50%"
         android:centerY="40%"
-        android:endColor="#C8DCEE"
+        android:endColor="@color/pin_state_gradient_outer"
         android:gradientRadius="80%p"
-        android:startColor="#F5FAFF"
+        android:startColor="@color/pin_state_gradient_inner"
         android:type="radial" />
 </shape>

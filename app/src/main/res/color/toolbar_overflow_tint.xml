@@ -2,14 +2,17 @@
 <!--
   Tint state list applied to MainActivity's overflow (kebab) icon
   via `ic_overflow_kebab.xml`'s `android:tint`. The pressed entry
-  shifts the icon glyph from the default near-black tone to a
-  mid-gray tone, so on touch-down the icon visibly "lights up" /
-  fades brighter without ever painting a rectangular background
-  press wash behind it. The non-pressed default mirrors the
-  AppCompat overflow icon's standard ink colour so the resting
-  state matches every other dark-glyph icon on the toolbar.
+  shifts the icon glyph to a mid-gray secondary tone so on touch-
+  down the icon visibly "lights up" / fades brighter without ever
+  painting a rectangular background press wash behind it. The
+  non-pressed default uses the platform's primary text color so
+  the icon adapts automatically to day/night mode — near-black on
+  light, near-white on dark. (The earlier hard-coded `#FF1A1A1A`
+  was invisible against the dark page bg in night mode; routing
+  through the theme attribute keeps that contrast healthy on
+  whatever surface the toolbar paints in either mode.)
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_pressed="true" android:color="#FF8E8E93" />
-    <item android:color="#FF1A1A1A" />
+    <item android:state_pressed="true" android:color="?android:attr/textColorSecondary" />
+    <item android:color="?android:attr/textColorPrimary" />
 </selector>

@@ -9,26 +9,120 @@
       the app icon. `brand_on_primary` is the foreground used on top of
       the accent (white reads cleanly against #0F62FE).
 
-      `nav_*` colors style the bottom navigation bar surface so it
-      reads as a clean light bar — both states visible — on top of
-      vivo / OriginOS's light system theme. Bumping these is the
-      single point of change if the app ever moves to a custom
-      dark-mode palette.
+      Brand blue stays the same in night mode — it reads cleanly
+      against both light and dark surfaces, and matching the icon
+      across modes keeps the brand recognition consistent.
     -->
     <color name="brand_primary">#0F62FE</color>
     <color name="brand_on_primary">#FFFFFFFF</color>
 
+    <!--
+      Bottom-navigation surface. Light gray bar in day, dark gray in
+      night — the corresponding values-night override flips this to a
+      surface that reads against the dark page background without
+      competing with the active-state brand blue tint.
+    -->
     <color name="nav_surface">#FFFFFFFF</color>
     <color name="nav_item_active">#0F62FE</color>
     <color name="nav_item_inactive">#FF5F6368</color>
 
     <!--
-      Hairline stroke applied to every Credit-screen avatar
-      (`com.google.android.material.imageview.ShapeableImageView` with
-      `app:strokeWidth="1dp"`). 12% black on a light card surface
-      reads as a soft mid-gray edge — visible enough to delineate
-      each avatar from the white background, faint enough to not
-      compete with the photo content inside.
+      Surface tokens for cards, chips, and inputs. The whole app's
+      drawable surfaces (`@drawable/settings_card_background`,
+      `@drawable/qr_url_background`, etc.) and any layout that paints
+      a "this is a card" rectangle reference these tokens so a single
+      values-night override flips every surface in lockstep instead
+      of leaving a half-dark-mode app where some cards stay white.
+
+      Layering convention (light mode):
+        * `surface_card` (#FFFFFF) — primary white card surface
+          (Settings panels, Credit panels, photo polaroids).
+        * `surface_chip` (#F2F4F7) — recessed inset surface for
+          read-only chips and rounded text inputs (URL chip, "Currently:
+          …" pill, advertised-name EditText).
+        * `surface_chip_stroke` / `surface_card_stroke` — hairline
+          edges that separate the surface from the page bg without
+          adding visual weight.
+
+      Night mode flips these to dark grays so the same tokens light
+      up a coherent dark surface palette without any drawable having
+      to know which mode it's in.
+    -->
+    <color name="surface_card">#FFFFFFFF</color>
+    <color name="surface_chip">#FFF2F4F7</color>
+    <color name="surface_card_stroke">#14000000</color>
+    <color name="surface_chip_stroke">#1A000000</color>
+
+    <!--
+      Frosted-glass button palette. The default button background
+      (`@drawable/btn_frosted_background`) is a translucent white
+      plate with a low-alpha brand ripple. Night mode swaps to a
+      translucent white-on-dark plate at lower alpha so the same
+      "soft glass" feel survives both modes.
+    -->
+    <color name="frosted_button_fill">#99FFFFFF</color>
+    <color name="frosted_button_stroke">#22000000</color>
+    <color name="frosted_button_disabled">#33000000</color>
+    <color name="frosted_button_ripple">#1F0F62FE</color>
+
+    <!--
+      Popup menu (toolbar overflow). Same surface_card token in spirit
+      but kept separate because the popup intentionally uses a fully
+      opaque surface (the system PopupWindow drops a shadow on top).
+    -->
+    <color name="popup_menu_surface">#FFFFFFFF</color>
+
+    <!--
+      ConsentTrampolineActivity / SendActivity card gradient endpoints.
+      A barely-tinted sky blue at one end fading to neutral surface
+      at the other. Night mode mirrors this with a barely-tinted
+      navy at one end and the dark surface at the other so the
+      "alive, not flat" gradient effect carries across both modes.
+    -->
+    <color name="card_dialog_gradient_top">#FFEFF5FC</color>
+    <color name="card_dialog_gradient_bottom">#FFFFFFFF</color>
+
+    <!--
+      PIN-pairing radial gradient. Stays light in night mode too —
+      the PIN state is meant to read as a "calm pairing surface"
+      and a fully-dark PIN backdrop loses that softness. We slightly
+      darken it in night mode to avoid being the brightest thing on
+      the screen.
+    -->
+    <color name="pin_state_gradient_inner">#F5FAFF</color>
+    <color name="pin_state_gradient_outer">#C8DCEE</color>
+
+    <!--
+      Bottom sheet drag handle pill at the top of the help sheet.
+      Mid-gray on light, mid-white on dark — both read as "drag me"
+      affordances against their respective sheet backgrounds.
+    -->
+    <color name="bottom_sheet_drag_handle">#5F000000</color>
+
+    <!--
+      Rejection banner background (3-second toast over the picker
+      after the receiver declines). Dark translucent regardless of
+      mode — the banner is intentionally always darker than the
+      surrounding card so it reads as a temporary overlay, not a
+      panel.
+    -->
+    <color name="rejection_banner_bg">#CC323232</color>
+
+    <!--
+      Translucent overlay painted on top of the blurred sent-image
+      backdrop in the success cards (sender + consent dialog). Its
+      job is to dampen the colorful blur so the foreground panel
+      content (title, preview, buttons) stays readable. White at
+      50% on light surfaces, black at 50% on dark — on either
+      mode the dampening direction tracks the page contrast.
+    -->
+    <color name="card_blur_overlay">#80FFFFFF</color>
+
+    <!--
+      Hairline stroke applied to every Credit-screen avatar. A bit
+      stronger than `surface_card_stroke` because the avatar circle
+      sits over a colorful photo (not just over a card surface), so
+      the edge needs more visual weight to delineate.
     -->
     <color name="credit_avatar_stroke">#1F000000</color>
 </resources>

@@ -86,7 +86,7 @@
 
     <!-- Save-location settings (#42). -->
     <string name="main_save_location_title">받은 파일 저장 위치</string>
-    <string name="main_save_location_subtitle">받은 파일을 어디에 저장할지 선택합니다. 기본값은 시스템의 다운로드 폴더입니다.</string>
+    <string name="main_save_location_subtitle">받은 파일을 어디에 저장할지 선택합니다.</string>
     <string name="main_save_location_default">다운로드 (기본값)</string>
     <string name="main_save_location_current">현재: %1$s</string>
     <string name="main_save_location_pick">폴더 선택…</string>

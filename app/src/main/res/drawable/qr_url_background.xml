@@ -1,19 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Soft chip-style background for the URL row inside the QR sharing
-  panel (see `send_qr_url`). 12dp rounded corners and a very light
-  gray fill (`#F2F4F7`, ~5% black) read as a subtle "selectable
-  field" container without adding visual weight that competes with
-  the QR bitmap above. A 1dp hairline at `#1A000000` (~10% black)
-  gives the chip a defined edge against the white card surface
-  beneath it; without the stroke the chip nearly disappears on
-  bright displays.
+  Soft chip-style background for read-only "current value" pills —
+  the URL row inside the QR sharing panel, the "Currently
+  advertised" / "Current save location" chips on the Settings tab,
+  and the consent dialog's PIN read-out. 12dp rounded corners and a
+  recessed light-gray fill in day mode (mid-gray in night mode),
+  via `@color/surface_chip`, read as a "selectable field" container
+  without adding visual weight that competes with surrounding card
+  content. A 1dp hairline at `@color/surface_chip_stroke` keeps the
+  chip's edge defined on bright (day) and against the slightly
+  darker card surface (night).
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="12dp" />
-    <solid android:color="#F2F4F7" />
+    <solid android:color="@color/surface_chip" />
     <stroke
         android:width="1dp"
-        android:color="#1A000000" />
+        android:color="@color/surface_chip_stroke" />
 </shape>

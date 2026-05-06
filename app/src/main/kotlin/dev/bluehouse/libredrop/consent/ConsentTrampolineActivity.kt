@@ -631,7 +631,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
                 }
             findViewById<TextView>(R.id.consent_completed_summary)?.text = summary
 
-            findViewById<Button>(R.id.consent_completed_close_button).setOnClickListener { finish() }
+            findViewById<View>(R.id.consent_completed_close_button).setOnClickListener { finish() }
 
             if (previewUri != null) {
                 bindCompletedPreview(previewUri)
@@ -643,7 +643,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private fun bindCompletedPreview(uri: Uri) {
         val previewView = findViewById<ImageView>(R.id.consent_completed_preview) ?: return
         val previewCard = findViewById<FrameLayout>(R.id.consent_completed_preview_card) ?: return
-        val viewButton = findViewById<Button>(R.id.consent_completed_view_button) ?: return
+        val viewButton = findViewById<View>(R.id.consent_completed_view_button) ?: return
         try {
             previewView.setImageURI(uri)
             previewCard.visibility = View.VISIBLE
