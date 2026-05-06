@@ -4,7 +4,7 @@
 **Subject:** Samsung One UI Quick Share BLE GATT acceptance behavior
 **Status:** Invalidated by live device testing on 2026-05-05
 **Validated devices:** vivo X300 Ultra (`V2547A`, LibreDrop debug) -> Galaxy S26 Ultra (`SM-S948N`, stock Quick Share / ShareLive)
-**Companion code:** `discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/bootstrap/BleGattInitialControlClient.kt`, `discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/ble/BleAdvertisePayload.kt`, `app/src/main/kotlin/dev/bluehouse/libredrop/send/SendBootstrapPlan.kt`, `app/src/main/kotlin/dev/bluehouse/libredrop/send/SendActivity.kt`
+**Companion code:** `discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery/bootstrap/BleGattInitialControlClient.kt`, `discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery/ble/BleAdvertisePayload.kt`, `app/src/main/kotlin/dev/bluehouse/bada/send/SendBootstrapPlan.kt`, `app/src/main/kotlin/dev/bluehouse/bada/send/SendActivity.kt`
 
 ## Current conclusion
 
@@ -31,7 +31,7 @@ Environment:
 
 - Galaxy S26 Ultra was on the stock Quick Share receive screen and showed
   `Ready to receive`.
-- vivo X300 Ultra ran `dev.bluehouse.libredrop.debug`.
+- vivo X300 Ultra ran `dev.bluehouse.bada.debug`.
 - Both devices had Bluetooth enabled.
 - Neither phone was connected to Wi-Fi for the successful transfer, so
   LibreDrop selected `route=ble-gatt`; no Wi-Fi LAN route was available.
@@ -102,7 +102,7 @@ payloads unless the app can read them with a real grant. A reliable harness
 payload is an app-private external file such as:
 
 ```text
-/sdcard/Android/data/dev.bluehouse.libredrop.debug/files/samsung-cert-gate.bin
+/sdcard/Android/data/dev.bluehouse.bada.debug/files/samsung-cert-gate.bin
 ```
 
 Launch it with `ACTION_SEND`, then verify in LibreDrop logs that the resolved

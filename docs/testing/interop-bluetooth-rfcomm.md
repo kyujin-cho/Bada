@@ -3,7 +3,7 @@
 This is a manual interoperability runbook for verifying issue
 [#51](https://github.com/kyujin-cho/LibreDrop/issues/51) —
 the Phase 4 Bluetooth RFCOMM bandwidth-upgrade medium implemented by
-[`BluetoothRfcommMediumProvider`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/medium/BluetoothRfcommMediumProvider.kt).
+[`BluetoothRfcommMediumProvider`](../../discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery/medium/BluetoothRfcommMediumProvider.kt).
 
 This is part of the
 [Phase 4 epic](https://github.com/kyujin-cho/LibreDrop/issues/4)

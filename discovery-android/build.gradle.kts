@@ -10,7 +10,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.bluehouse.libredrop.discovery"
+    namespace = "dev.bluehouse.bada.discovery"
     compileSdk =
         libs.versions.compileSdk
             .get()

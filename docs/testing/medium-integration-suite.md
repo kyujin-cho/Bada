@@ -34,7 +34,7 @@ Run the device-gated support-probe smoke tests on each candidate device:
 
 The suite class is:
 
-- `dev.bluehouse.libredrop.discovery.medium.RealDeviceMediumSupportIntegrationTest`
+- `dev.bluehouse.bada.discovery.medium.RealDeviceMediumSupportIntegrationTest`
 
 Each test skips unless the device actually supports the medium and the app
 holds the required runtime permission:

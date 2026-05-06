@@ -61,14 +61,14 @@ fun releaseSigningInputs(releaseTaskRequested: Boolean): ReleaseSigningInputs? {
 val releaseSigningInputs = releaseSigningInputs(isReleaseTaskRequested())
 
 android {
-    namespace = "dev.bluehouse.libredrop"
+    namespace = "dev.bluehouse.bada"
     compileSdk =
         libs.versions.compileSdk
             .get()
             .toInt()
 
     defaultConfig {
-        applicationId = "dev.bluehouse.libredrop"
+        applicationId = "dev.bluehouse.bada"
         minSdk =
             libs.versions.minSdk
                 .get()

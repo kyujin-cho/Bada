@@ -74,7 +74,7 @@ also brings the service up; or wire a "stay open" entry in MainActivity):
 
 ```bash
 ./gradlew :app:installDebug
-adb shell am start -n dev.bluehouse.libredrop.debug/dev.bluehouse.libredrop.MainActivity
+adb shell am start -n dev.bluehouse.bada.debug/dev.bluehouse.bada.MainActivity
 # Trigger any flow that calls ReceiverForegroundService.start() —
 # in the current build the share-intent path will do.
 ```
@@ -128,17 +128,17 @@ adb shell dumpsys batterystats --checkin > batterystats-$(date +%Y%m%d-%H%M).txt
 ```
 
 The relevant line in the checkin format is the per-UID `wbl` (wake-lock
-+ BLE) breakdown. The package UID is `dev.bluehouse.libredrop.debug`;
++ BLE) breakdown. The package UID is `dev.bluehouse.bada.debug`;
 look up its UID with:
 
 ```bash
-adb shell dumpsys package dev.bluehouse.libredrop.debug | grep userId=
+adb shell dumpsys package dev.bluehouse.bada.debug | grep userId=
 ```
 
 Alternatively, the human-readable form is easier to read:
 
 ```bash
-adb shell dumpsys batterystats dev.bluehouse.libredrop.debug
+adb shell dumpsys batterystats dev.bluehouse.bada.debug
 ```
 
 Look for the `Bluetooth scan results received:` and

@@ -110,9 +110,9 @@ each test, and record which:
       notification.
 - [ ] mDNS advertise is up. The TXT `n` record contains a valid packed
       `EndpointInfo` per
-      [`core-protocol/.../endpoint/EndpointInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/endpoint/EndpointInfo.kt).
+      [`core-protocol/.../endpoint/EndpointInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/bada/protocol/endpoint/EndpointInfo.kt).
 - [ ] Service type is `_FC9F5ED42C8A._tcp.local.` (see
-      [`core-protocol/.../ProtocolInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/ProtocolInfo.kt)).
+      [`core-protocol/.../ProtocolInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/bada/protocol/ProtocolInfo.kt)).
 - [ ] Wi-Fi `MulticastLock` is held (validated via `adb shell dumpsys
       wifi | grep -i multicast` showing the LibreDrop package as a holder).
 
@@ -285,11 +285,11 @@ discovery/bootstrap failures from later protocol failures.
 - [ ] On the **LibreDrop device**: open the system share sheet for the file
       under test (e.g. long-press a photo in Files, share to LibreDrop).
       LibreDrop's `ShareIntentRouter`
-      ([`app/.../send/ShareIntentRouter.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/ShareIntentRouter.kt))
+      ([`app/.../send/ShareIntentRouter.kt`](../../app/src/main/kotlin/dev/bluehouse/bada/send/ShareIntentRouter.kt))
       should route the intent into `SendActivity`.
 - [ ] In `SendActivity`, choose the **"Show QR code"** option. LibreDrop
       shows a QR rendered by `ShowQrActivity`
-      ([`app/.../send/ShowQrActivity.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/ShowQrActivity.kt)).
+      ([`app/.../send/ShowQrActivity.kt`](../../app/src/main/kotlin/dev/bluehouse/bada/send/ShowQrActivity.kt)).
 - [ ] On the **stock peer**: open the **system camera app** (or Google
       Lens) and aim at the QR. Stock Quick Share intercepts the
       `https://qsr.gs/...` deep-link and opens the Quick Share receive
@@ -352,7 +352,7 @@ discovery/bootstrap failures from later protocol failures.
         over whichever LibreDrop activity is on screen. Tap "Accept" or
         "Reject" directly in the modal.
       - **App in background** — a heads-up notification appears (handled by
-        [`service-android/.../consent/ConsentNotification.kt`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver/consent/ConsentNotification.kt)).
+        [`service-android/.../consent/ConsentNotification.kt`](../../service-android/src/main/kotlin/dev/bluehouse/bada/service/receiver/consent/ConsentNotification.kt)).
         Tap "Accept" in the notification, or open LibreDrop to have the
         coordinator automatically switch to the in-app modal.
       If you background the app while the modal is up, the coordinator
@@ -363,7 +363,7 @@ discovery/bootstrap failures from later protocol failures.
 - [ ] Wait for the transfer to complete.
 - [ ] On the **LibreDrop device**, the file lands under **Downloads** via
       `MediaStoreDownloadsFactory`
-      ([`service-android/.../downloads`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/downloads)).
+      ([`service-android/.../downloads`](../../service-android/src/main/kotlin/dev/bluehouse/bada/service/downloads)).
 - [ ] `sha256sum` the source on the peer and the received file on
       LibreDrop. They **must match**.
 
@@ -532,20 +532,20 @@ adb shell dumpsys nsd > libredrop-nsd.txt
 ## Related project files
 
 - mDNS / discovery wrapper:
-  [`discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery)
+  [`discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery`](../../discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery)
 - Receiver foreground service + consent UI:
-  [`service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver)
+  [`service-android/src/main/kotlin/dev/bluehouse/bada/service/receiver`](../../service-android/src/main/kotlin/dev/bluehouse/bada/service/receiver)
 - MediaStore Downloads writer:
-  [`service-android/src/main/kotlin/dev/bluehouse/libredrop/service/downloads`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/downloads)
+  [`service-android/src/main/kotlin/dev/bluehouse/bada/service/downloads`](../../service-android/src/main/kotlin/dev/bluehouse/bada/service/downloads)
 - Outbound (sender) connection driver:
-  [`core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/OutboundConnection.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/OutboundConnection.kt)
+  [`core-protocol/src/main/kotlin/dev/bluehouse/bada/protocol/connection/OutboundConnection.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/bada/protocol/connection/OutboundConnection.kt)
 - Inbound (receiver) connection:
-  [`core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/InboundConnection.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/connection/InboundConnection.kt)
+  [`core-protocol/src/main/kotlin/dev/bluehouse/bada/protocol/connection/InboundConnection.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/bada/protocol/connection/InboundConnection.kt)
 - `EndpointInfo` packed binary descriptor (interop-critical):
-  [`core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/endpoint/EndpointInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/libredrop/protocol/endpoint/EndpointInfo.kt)
+  [`core-protocol/src/main/kotlin/dev/bluehouse/bada/protocol/endpoint/EndpointInfo.kt`](../../core-protocol/src/main/kotlin/dev/bluehouse/bada/protocol/endpoint/EndpointInfo.kt)
 - QR-code generation (Phase 1 trigger):
-  [`app/src/main/kotlin/dev/bluehouse/libredrop/send/ShowQrActivity.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/ShowQrActivity.kt)
+  [`app/src/main/kotlin/dev/bluehouse/bada/send/ShowQrActivity.kt`](../../app/src/main/kotlin/dev/bluehouse/bada/send/ShowQrActivity.kt)
 - Share-intent router:
-  [`app/src/main/kotlin/dev/bluehouse/libredrop/send/ShareIntentRouter.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/ShareIntentRouter.kt)
+  [`app/src/main/kotlin/dev/bluehouse/bada/send/ShareIntentRouter.kt`](../../app/src/main/kotlin/dev/bluehouse/bada/send/ShareIntentRouter.kt)
 - Companion runbook for NearDrop / macOS interop (issue #29):
   [`docs/testing/interop-neardrop-macos.md`](./interop-neardrop-macos.md)

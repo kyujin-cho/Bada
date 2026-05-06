@@ -1,6 +1,6 @@
-# LibreDrop
+# Bada
 
-LibreDrop is an Android app for sending and receiving files with **Quick
+Bada is an Android app for sending and receiving files with **Quick
 Share / Nearby Share** peers without using Google Play Services for the
 protocol implementation.
 
@@ -8,7 +8,7 @@ It targets interop with stock Android Quick Share, NearDrop on macOS, and
 Quick Share on Windows. AirDrop, AWDL, iPhone discovery, and Apple-side
 interop are out of scope.
 
-<img src="docs/assets/receive-ui.png" alt="LibreDrop receive UI screenshot" width="360">
+<img src="docs/assets/receive-ui.png" alt="Bada receive UI screenshot" width="360">
 
 ## What It Does
 
@@ -20,13 +20,13 @@ interop are out of scope.
 - Shows the same 4-digit confirmation PIN flow users expect from Quick Share.
 - Lets you choose the advertised Quick Share device name shown to senders.
 
-LibreDrop is still an early project. Phase 1 Wi-Fi LAN parity with NearDrop is
+Bada is still an early project. Phase 1 Wi-Fi LAN parity with NearDrop is
 complete, and current builds include BLE-assisted discovery/bootstrap work for
 stock Android peers.
 
 ## Install
 
-LibreDrop supports Android 7.0 or newer (`minSdk = 24`).
+Bada supports Android 7.0 or newer (`minSdk = 24`).
 
 ### Download a pre-built APK
 
@@ -54,16 +54,16 @@ Requirements:
 - JDK 17 and an Android SDK.
 - Wi-Fi and Bluetooth enabled for the best interop coverage.
 
-The debug package id is `dev.bluehouse.libredrop.debug`; release builds use
-`dev.bluehouse.libredrop`.
+The debug package id is `dev.bluehouse.bada.debug`; release builds use
+`dev.bluehouse.bada`.
 
 ## Use It
 
 ### Receive
 
-1. Open LibreDrop and grant the requested permissions.
+1. Open Bada and grant the requested permissions.
 2. Leave the receiver service running. The persistent notification shows the
-   Wi-Fi network LibreDrop is receiving on.
+   Wi-Fi network Bada is receiving on.
 3. Use **Always visible** when you want other devices to see this phone even
    when no sender pulse is active.
 4. Keep the default save location, or choose another folder from **Save
@@ -79,7 +79,7 @@ Downloads folder.
 2. Wait for a nearby peer row to appear.
 3. Tap the peer, compare the PIN, and complete the transfer.
 
-To send a whole folder, open LibreDrop and tap **Send folder**.
+To send a whole folder, open Bada and tap **Send folder**.
 
 ## Compatibility
 
@@ -99,7 +99,7 @@ Networking notes:
 
 ## Permissions
 
-LibreDrop asks only for permissions tied to receiving, discovery, and transfer
+Bada asks only for permissions tied to receiving, discovery, and transfer
 visibility:
 
 - **Nearby Wi-Fi devices**: discovers and advertises Quick Share peers on the
@@ -111,7 +111,7 @@ visibility:
 - **Notifications**: shows the foreground receiver, incoming consent prompts,
   and transfer progress.
 - **Location on older Android versions**: Android 11 and lower route BLE scan
-  results and some Wi-Fi APIs through location permissions. LibreDrop does not
+  results and some Wi-Fi APIs through location permissions. Bada does not
   use physical location.
 - **Battery optimization exemption**: optional, but useful on OEM builds that
   aggressively stop background foreground services.
@@ -120,7 +120,7 @@ visibility:
 
 - If no peers appear, first put both devices on the same Wi-Fi network and
   disable guest/client isolation.
-- If a stock Android sender cannot see LibreDrop, open LibreDrop and enable
+- If a stock Android sender cannot see Bada, open Bada and enable
   **Always visible**.
 - If Samsung logs show `No handler registered`, check whether the sender or
   receiver UI is still progressing before treating it as a failure.

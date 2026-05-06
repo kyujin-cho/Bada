@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.bluehouse.libredrop.service"
+    namespace = "dev.bluehouse.bada.service"
     compileSdk =
         libs.versions.compileSdk
             .get()

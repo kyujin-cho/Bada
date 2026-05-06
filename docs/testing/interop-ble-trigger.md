@@ -24,9 +24,9 @@ the [Phase 2 epic](https://github.com/kyujin-cho/LibreDrop/issues/2).
 Three independent code paths cooperate to produce the auto-pop-up:
 
 1. **Sender BLE advertise** —
-   [`BleAdvertiser`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/ble/BleAdvertiser.kt)
+   [`BleAdvertiser`](../../discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery/ble/BleAdvertiser.kt)
    broadcasts the 24-byte service-data payload built by
-   [`BleAdvertisePayload`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/ble/BleAdvertisePayload.kt)
+   [`BleAdvertisePayload`](../../discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery/ble/BleAdvertisePayload.kt)
    under the Quick Share service UUID `0000fe2c-0000-1000-8000-00805f9b34fb`.
 2. **Stock receiver BLE scan + pop-up** — Google Play services on the
    peer device sees our advertisement, recognises the service UUID, and
@@ -76,7 +76,7 @@ the matrix below deliberately exercise the BLE-pulse-only state.
       legacy install-time `BLUETOOTH` / `BLUETOOTH_ADMIN` on API 24–30).
       Onboarding requests this in Phase 2 (#31). Confirm with:
       ```bash
-      adb shell dumpsys package dev.bluehouse.libredrop.debug \
+      adb shell dumpsys package dev.bluehouse.bada.debug \
           | grep -E 'BLUETOOTH_ADVERTISE|BLUETOOTH_SCAN'
       ```
 - [ ] Bluetooth is **on** on the sender. The advertiser returns `null`
@@ -152,11 +152,11 @@ without a Wi-Fi LAN path are not in scope to fix.
    permissions:
    ```bash
    ./gradlew :app:installDebug
-   adb shell pm grant dev.bluehouse.libredrop.debug \
+   adb shell pm grant dev.bluehouse.bada.debug \
        android.permission.BLUETOOTH_ADVERTISE 2>/dev/null
-   adb shell pm grant dev.bluehouse.libredrop.debug \
+   adb shell pm grant dev.bluehouse.bada.debug \
        android.permission.BLUETOOTH_SCAN 2>/dev/null
-   adb shell pm grant dev.bluehouse.libredrop.debug \
+   adb shell pm grant dev.bluehouse.bada.debug \
        android.permission.BLUETOOTH_CONNECT 2>/dev/null
    ```
    `pm grant` is silently a no-op on API 24–30 where the permissions
@@ -361,7 +361,7 @@ within 5 s of the BLE pulse landing on vivo hardware.
    adb shell dumpsys wifi | grep -A 10 "Multicast Locks held"
    ```
    The section should either be absent or show zero locks held by
-   `dev.bluehouse.libredrop.debug`. If a lock entry still appears,
+   `dev.bluehouse.bada.debug`. If a lock entry still appears,
    the migration is incomplete on this build.
 3. Confirm the LibreDrop peer picker populates within 5 s of a Pixel or
    Samsung Quick Share sender issuing a BLE pulse (cells 1 and 2 of
@@ -529,7 +529,7 @@ adb logcat -d \
 
 # vivo Funtouch OS swallows non-system logcat output; pull the
 # OutboundConnection fallback log too.
-adb pull /sdcard/Android/data/dev.bluehouse.libredrop.debug/files/libredrop-outbound.log
+adb pull /sdcard/Android/data/dev.bluehouse.bada.debug/files/libredrop-outbound.log
 
 # Capture the platform's view of advertising slots.
 adb shell dumpsys bluetooth_manager > libredrop-bt-dumpsys.txt
@@ -564,16 +564,16 @@ correlate the timestamps to the LibreDrop `submitted` log line.
 ## Related project files
 
 - Sender BLE advertiser:
-  [`discovery-android/.../ble/BleAdvertiser.kt`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/ble/BleAdvertiser.kt)
+  [`discovery-android/.../ble/BleAdvertiser.kt`](../../discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery/ble/BleAdvertiser.kt)
 - 24-byte service-data payload:
-  [`discovery-android/.../ble/BleAdvertisePayload.kt`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/ble/BleAdvertisePayload.kt)
+  [`discovery-android/.../ble/BleAdvertisePayload.kt`](../../discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery/ble/BleAdvertisePayload.kt)
 - Receiver BLE pulse scanner (used to gate our own mDNS, not exercised
   here but the symmetric counterpart of stock Quick Share's behaviour):
-  [`discovery-android/.../ble/BleQuickShareScanner.kt`](../../discovery-android/src/main/kotlin/dev/bluehouse/libredrop/discovery/ble/BleQuickShareScanner.kt)
+  [`discovery-android/.../ble/BleQuickShareScanner.kt`](../../discovery-android/src/main/kotlin/dev/bluehouse/bada/discovery/ble/BleQuickShareScanner.kt)
 - mDNS gating (publish on BLE pulse, debounced unpublish):
-  [`service-android/.../receiver/MdnsAdvertisementGate.kt`](../../service-android/src/main/kotlin/dev/bluehouse/libredrop/service/receiver/MdnsAdvertisementGate.kt)
+  [`service-android/.../receiver/MdnsAdvertisementGate.kt`](../../service-android/src/main/kotlin/dev/bluehouse/bada/service/receiver/MdnsAdvertisementGate.kt)
 - Sender lifecycle wiring (start/stop advertise on share intent):
-  [`app/.../send/SendActivity.kt`](../../app/src/main/kotlin/dev/bluehouse/libredrop/send/SendActivity.kt)
+  [`app/.../send/SendActivity.kt`](../../app/src/main/kotlin/dev/bluehouse/bada/send/SendActivity.kt)
   (`startBleAdvertise` / `stopBleAdvertise`)
 - Quick Share protocol spec (BLE advertise format, mDNS service type):
   <https://github.com/grishka/NearDrop/blob/master/PROTOCOL.md>
