@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ColorStateList for BottomNavigationView icon + label tint.
+
+  The selector covers the two states the user sees in practice:
+    * `state_checked="true"` — the currently-selected tab; rendered in
+      the brand accent so it visually pops against the inactive ones.
+    * default — the inactive tabs; rendered in a muted gray so they
+      stay legible against the white nav surface but read as
+      non-primary. This is the case the previous build got wrong
+      (icons effectively invisible against a near-black tint), so it
+      is pinned to a high-contrast neutral here.
+
+  Used by BottomNavigationView for both `app:itemIconTint` and
+  `app:itemTextColor`, so an active tab tints both icon and label
+  consistently.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:state_checked="true"
+        android:color="@color/nav_item_active" />
+    <item android:color="@color/nav_item_inactive" />
+</selector>

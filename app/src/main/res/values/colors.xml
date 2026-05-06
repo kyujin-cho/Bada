@@ -1,4 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#0F62FE</color>
+
+    <!--
+      Brand palette consumed by the app theme + BottomNavigationView
+      tint selectors. The accent (`brand_primary`) is the same blue as
+      the launcher icon so the bottom-nav active-state color matches
+      the app icon. `brand_on_primary` is the foreground used on top of
+      the accent (white reads cleanly against #0F62FE).
+
+      `nav_*` colors style the bottom navigation bar surface so it
+      reads as a clean light bar — both states visible — on top of
+      vivo / OriginOS's light system theme. Bumping these is the
+      single point of change if the app ever moves to a custom
+      dark-mode palette.
+    -->
+    <color name="brand_primary">#0F62FE</color>
+    <color name="brand_on_primary">#FFFFFFFF</color>
+
+    <color name="nav_surface">#FFFFFFFF</color>
+    <color name="nav_item_active">#0F62FE</color>
+    <color name="nav_item_inactive">#FF5F6368</color>
+
+    <!--
+      Hairline stroke applied to every Credit-screen avatar
+      (`com.google.android.material.imageview.ShapeableImageView` with
+      `app:strokeWidth="1dp"`). 12% black on a light card surface
+      reads as a soft mid-gray edge — visible enough to delineate
+      each avatar from the white background, faint enough to not
+      compete with the photo content inside.
+    -->
+    <color name="credit_avatar_stroke">#1F000000</color>
 </resources>

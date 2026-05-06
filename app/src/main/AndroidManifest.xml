@@ -138,6 +138,51 @@
          depend on a runtime grant. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!--
+      Full-screen-intent permission for the consent trampoline (#22).
+      The notification posted by ConsentNotification carries
+      `setFullScreenIntent(..., highPriority=true)` so the platform
+      raises ConsentTrampolineActivity directly over whatever the user
+      is doing — same UX as an incoming phone call. Without this
+      declaration the platform silently degrades the
+      full-screen-intent to a regular heads-up notification on every
+      Android version.
+
+      On Android 14+ (API 34) the permission is declared at install
+      time but auto-restricted to default phone / SMS / calendar /
+      alarm apps; Quick Share senders / file-receiver apps fall outside
+      that whitelist and the user has to grant access manually via
+      Settings → Apps → Special app access → "Send full-screen
+      notifications". When the grant is missing the platform falls
+      back to the existing heads-up + tap-to-open trampoline path —
+      both Accept / Reject buttons stay reachable inline so the
+      consent flow is never stuck behind the missing permission.
+    -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!--
+      Gallery thumbnail preview on the Send/Receive tab. Used purely
+      to read two random images from the device's MediaStore so we
+      can render them as a decorative "ready to receive" cue. We
+      ship both the modern `READ_MEDIA_IMAGES` (Android 13+) and the
+      legacy `READ_EXTERNAL_STORAGE` (Android 12-) split by SDK
+      bounds because the platform changed media-permission models in
+      API 33; declaring both keeps the same single runtime permission
+      ask working from API 24 through API 36.
+
+      The decorative use is non-essential: when the user denies the
+      permission, SendReceiveFragment leaves the polaroid cards as
+      empty white frames and the rest of the screen functions
+      normally. We never read EXIF, location data, or anything other
+      than the image bytes themselves.
+    -->
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_IMAGES"
+        tools:targetApi="33" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <!-- #47 battery-optimization onboarding. Required for the user to
          actually accept the exemption from the
          ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS dialog the helper
@@ -191,6 +236,20 @@
             android:name=".onboarding.PermissionsOnboardingActivity"
             android:exported="false"
             android:label="@string/onboarding_title" />
+
+        <!--
+          Credit screen reachable from MainActivity's overflow menu.
+          Currently a placeholder; the real contributors /
+          acknowledgements content lands here later. parentActivityName
+          is set so Android's Up navigation routes back to MainActivity
+          even when the activity is launched from a notification deep
+          link in the future.
+        -->
+        <activity
+            android:name=".ui.CreditActivity"
+            android:exported="false"
+            android:label="@string/credit_activity_label"
+            android:parentActivityName=".MainActivity" />
 
         <!--
           Sender share-intent target (#24).
@@ -258,6 +317,7 @@
             android:launchMode="singleTop"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
+            android:theme="@style/Theme.LibreDrop.ConsentDialog"
             android:label="@string/consent_activity_label" />
 
     </application>

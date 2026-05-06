@@ -1,6 +1,268 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.LibreDrop" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="android:statusBarColor" tools:targetApi="l">?attr/colorPrimary</item>
+    <!--
+      Theme parent uses the MaterialComponents `.Bridge` variant so
+      MainActivity can host a BottomNavigationView (which requires a
+      MaterialComponents-derived theme) while every existing
+      AppCompat-based widget keeps its current behavior. The Bridge
+      theme intentionally does NOT override AppCompat widget styles, so
+      SwitchCompat / EditText / Button etc. continue to look the same;
+      only widgets that explicitly opt into Material styles (e.g.
+      BottomNavigationView) get the Material treatment.
+
+      Theme-level color + system-bar settings:
+        * `colorPrimary` is wired to the brand blue so any Material
+          widget that reads the primary token (BottomNavigationView's
+          active-state defaults, ripple highlights, etc.) picks it up
+          without needing per-widget overrides.
+        * `android:statusBarColor` is set to the window background so
+          the system status bar blends with the activity surface
+          rather than rendering as a dark band on Android 12 / 13 / 14.
+          On Android 15+ (API 35+) this attribute is a no-op because
+          edge-to-edge is enforced; we rely on the layout-side
+          `fitsSystemWindows` opt-in for the inset handling instead.
+        * `windowLightStatusBar` true so the status bar icons render
+          in dark ink against the light window background. Without
+          this the time / signal icons would disappear on light
+          backgrounds.
+    -->
+    <style name="Theme.LibreDrop" parent="Theme.MaterialComponents.DayNight.NoActionBar.Bridge">
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorPrimaryDark">@color/brand_primary</item>
+        <item name="colorOnPrimary">@color/brand_on_primary</item>
+
+        <item name="android:statusBarColor" tools:targetApi="l">?android:attr/colorBackground</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+
+        <!--
+          Custom popup style for the toolbar overflow menu. Replaces
+          the default near-square popup background with a 16dp rounded
+          rectangle so the kebab popup matches the vivo / OriginOS
+          native look. Both `actionOverflowMenuStyle` (the toolbar's
+          own overflow) and `popupMenuStyle` (any in-code PopupMenu
+          we open later) point to the same style for consistency.
+        -->
+        <item name="actionOverflowMenuStyle">@style/PopupMenu.LibreDrop</item>
+        <item name="popupMenuStyle">@style/PopupMenu.LibreDrop</item>
+
+        <!--
+          Global button styling. Replaces AppCompat's default flat
+          gray rectangle with a frosted-glass-style background
+          (`btn_frosted_background`) at 24dp corner radius — applied
+          automatically to every plain `<Button>` in the app via the
+          AppCompat `buttonStyle` attribute. Borderless variants
+          (`?android:attr/borderlessButtonStyle`) opt out
+          per-Button.
+        -->
+        <item name="buttonStyle">@style/Widget.LibreDrop.Button</item>
+        <item name="android:buttonStyle">@style/Widget.LibreDrop.Button</item>
+
+        <!--
+          Override the platform-default Button text appearance
+          (`TextAppearance.AppCompat.Widget.Button`) which forces
+          `textAllCaps=true`. Using `?android:attr/textAppearanceButton`
+          as the resolution path means even Buttons that opt out of
+          our `Widget.LibreDrop.Button` style (e.g. the
+          `?android:attr/borderlessButtonStyle` Skip / Reset variants)
+          still get the casing-preserved text.
+        -->
+        <item name="android:textAppearanceButton">@style/TextAppearance.LibreDrop.Button</item>
+    </style>
+
+    <!--
+      Button text appearance with `textAllCaps=false` baked in. Every
+      Button in the app reads its text style from this appearance via
+      either `Widget.LibreDrop.Button` (the buttonStyle override
+      above) or the activity-theme `android:textAppearanceButton`
+      attribute, so the previously-uppercased labels render in their
+      natural string-resource casing ("Send files" stays "Send files"
+      instead of becoming "SEND FILES"). Bold weight is kept here so
+      borderless variants — which inherit this appearance but not the
+      Widget.LibreDrop.Button style — still read with the same visual
+      weight as the framed buttons.
+    -->
+    <style name="TextAppearance.LibreDrop.Button" parent="TextAppearance.AppCompat.Widget.Button">
+        <item name="android:textAllCaps">false</item>
+        <item name="textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Widget.LibreDrop.Button" parent="Widget.AppCompat.Button">
+        <item name="android:background">@drawable/btn_frosted_background</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+        <item name="android:textAppearance">@style/TextAppearance.LibreDrop.Button</item>
+        <!--
+          Two-pronged textAllCaps override (android: + bare attr)
+          guarantees the casing is preserved no matter which
+          framework path the Button reads from on the running
+          platform — some Android builds prefer the bare appcompat
+          attr resolution, others go straight to the platform
+          android: namespace.
+        -->
+        <item name="android:textAllCaps">false</item>
+        <item name="textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:gravity">center</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingLeft">24dp</item>
+        <item name="android:paddingRight">24dp</item>
+    </style>
+
+    <style name="PopupMenu.LibreDrop" parent="Widget.AppCompat.PopupMenu.Overflow">
+        <item name="android:popupBackground">@drawable/popup_menu_background</item>
+        <!--
+          `overlapAnchor=false` pushes the popup down below the
+          overflow icon instead of overlapping it; matches vivo's
+          drop-down placement so the kebab stays visible while the
+          menu is open.
+        -->
+        <item name="overlapAnchor">false</item>
+    </style>
+
+    <!--
+      Theme for ConsentTrampolineActivity (#22). The activity is raised
+      via the consent notification's `setFullScreenIntent` (see
+      ConsentNotification.kt) so it appears as a floating card over
+      whatever the user is doing — incoming-call UX. The dialog parent
+      gives us:
+
+        * A windowed (non-fullscreen) layout the platform sizes via
+          windowMinWidthMajor / Minor — typically ~85% of the screen.
+        * A platform dim layer behind the window for the modal feel.
+        * Material widget tinting consistent with the rest of the app
+          (colorPrimary etc.) without breaking the AppCompat-based
+          widgets the layout uses.
+
+      The rounded-card surface is painted by `consent_dialog_background`
+      so the dialog reads as a clean card rather than the
+      Material-default rectangular dialog. `windowIsFloating=true` is
+      inherited from the Dialog parent and is what tells the platform
+      to dim the underlying surface and constrain the window to dialog
+      dimensions; we leave it as inherited.
+    -->
+    <style name="Theme.LibreDrop.ConsentDialog" parent="Theme.MaterialComponents.DayNight.Dialog.Bridge">
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorPrimaryDark">@color/brand_primary</item>
+        <item name="colorOnPrimary">@color/brand_on_primary</item>
+        <item name="android:windowBackground">@drawable/consent_dialog_background</item>
+
+        <!--
+          Mirror the Theme.LibreDrop button-style overrides here too —
+          the dialog activity uses this theme directly (it extends the
+          Material Bridge dialog parent, NOT Theme.LibreDrop), so
+          without these declarations the consent / receiving /
+          completed / failed panel buttons fall back to the platform's
+          default flat gray rectangle and uppercase text. Keep these
+          two blocks in sync with Theme.LibreDrop.
+        -->
+        <item name="buttonStyle">@style/Widget.LibreDrop.Button</item>
+        <item name="android:buttonStyle">@style/Widget.LibreDrop.Button</item>
+        <item name="android:textAppearanceButton">@style/TextAppearance.LibreDrop.Button</item>
+        <!--
+          Suppress the platform-drawn dialog title. Without this, the
+          Activity's `android:label` ("Incoming transfer") shows as a
+          gray bar above our panel content, which reads stale once the
+          flow has moved past consent into receiving / completed
+          states. Each panel already carries its own headline TextView,
+          so the activity-level title is redundant.
+
+          Both the AppCompat-namespaced and android-namespaced versions
+          are set: the Material dialog parent's window decoration goes
+          through the AppCompat path on most APIs, and the platform
+          path is the one PhoneWindow honors when the activity is laid
+          out before AppCompat's decor inflater runs.
+        -->
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <!--
+          Match the dialog's width to the SendActivity card: 16dp
+          horizontal margin from the screen edge ≈ 90% of screen
+          width on every standard portrait Android device, which keeps
+          the consent dialog visually congruent with the rest of the
+          app's card-style surfaces. `Minor` covers portrait, `Major`
+          covers landscape; both at the same percentage produces a
+          consistent footprint regardless of orientation.
+        -->
+        <item name="android:windowMinWidthMinor">90%</item>
+        <item name="android:windowMinWidthMajor">90%</item>
+    </style>
+
+    <!--
+      Toolbar title text style — larger and bolder than the platform
+      default to match the vivo / OriginOS native header pattern (the
+      "연락처" title on a vivo Contacts screen sits at ~26sp bold,
+      noticeably bigger than AOSP's 20sp regular). The toolbar also
+      uses an 88dp height with `paddingTop=32dp` so the title /
+      action row hugs the bottom of the toolbar surface, which is
+      where vivo positions theirs.
+    -->
+    <style name="TextAppearance.LibreDrop.ToolbarTitle" parent="TextAppearance.AppCompat.Widget.ActionBar.Title">
+        <item name="android:textSize">32sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!--
+      Bottom-nav label text style. Pinned to a single 12sp regular
+      appearance so the active and inactive tab labels render at the
+      identical size — Material's default is to render the active
+      label slightly larger ("shifting" labels), which the user
+      explicitly does not want; on vivo native bars the label size
+      is constant and only the color changes between states.
+
+      Applied to both `app:itemTextAppearanceActive` and
+      `app:itemTextAppearanceInactive` on BottomNavigationView so
+      neither state overrides the size.
+    -->
+    <style name="TextAppearance.LibreDrop.BottomNavLabel" parent="TextAppearance.AppCompat.Caption">
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <!--
+      Popup theme overlay applied to MainActivity's MaterialToolbar via
+      `app:popupTheme`. Overrides `listPreferredItemHeightSmall`
+      (default 48dp on MaterialComponents) to 38dp — about a 20% cut
+      from the AOSP default — so each overflow row becomes more
+      compact, matching the vivo / OriginOS popup density.
+
+      The override is applied to BOTH the AppCompat-namespaced and
+      android-namespaced versions of the attribute because the
+      MaterialComponents popup item layout reads the AppCompat one
+      while older AppCompat fallbacks read the platform one; setting
+      both keeps behavior identical regardless of which path the
+      runtime picks.
+    -->
+    <style name="ThemeOverlay.LibreDrop.PopupMenu" parent="ThemeOverlay.AppCompat.Light">
+        <item name="listPreferredItemHeightSmall">38dp</item>
+        <item name="android:listPreferredItemHeightSmall">38dp</item>
+    </style>
+
+    <!--
+      Theme overlay applied to MainActivity's MaterialToolbar via
+      `app:theme`. Swaps the platform-default circular ripple
+      (`?attr/actionBarItemBackground`) on toolbar action items
+      (currently the kebab / overflow icon) for a flat rectangular
+      state-list wash (`@drawable/toolbar_action_background`) so
+      tapping the kebab reads as "the icon brightens slightly" rather
+      than firing a circular ripple animation. The override is
+      isolated to a theme overlay (rather than the global app theme)
+      so popup menus and dialog action items elsewhere keep their
+      default Material ripples.
+    -->
+    <style name="ThemeOverlay.LibreDrop.ToolbarNoRipple" parent="">
+        <item name="actionBarItemBackground">@drawable/toolbar_action_background</item>
+        <item name="android:actionBarItemBackground">@drawable/toolbar_action_background</item>
+    </style>
+
+    <!--
+      Shape overlay used by the Credit screen's avatar ShapeableImageViews
+      so the contributor photos clip with the same 12dp rounded corners as
+      the gradient `credit_avatar_placeholder` drawable. Without this
+      overlay a raster avatar would render as a hard-edged square next to
+      the placeholder's soft corners and the rows would read as visually
+      inconsistent.
+    -->
+    <style name="ShapeAppearanceOverlay.LibreDrop.CreditAvatar" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
     </style>
 </resources>

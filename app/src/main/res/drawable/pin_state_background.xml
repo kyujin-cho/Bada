@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sky-blue gradient backdrop for the PIN-pairing card state. Soft
+  radial gradient that's near-white at the top-center and fades to
+  a pastel sky blue at the edges — matches the calm "ready to pair"
+  feel of the reference design.
+
+  Toggled on/off by SendActivity in `renderConnectionState`: visible
+  while the OutboundConnectionState is `AwaitingRemoteAcceptance`,
+  hidden otherwise so the card returns to its neutral white surface
+  during picker / sending / completed states.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:centerX="50%"
+        android:centerY="40%"
+        android:endColor="#C8DCEE"
+        android:gradientRadius="80%p"
+        android:startColor="#F5FAFF"
+        android:type="radial" />
+</shape>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Toast-style background for the in-card rejection banner that
+  appears above the Cancel button after the receiver declines a
+  transfer. Dark translucent fill (#CC323232 ≈ 80% opacity over a
+  near-black) + 12dp rounded corners reads as a system toast pill,
+  not a Material chip — matches the Android system Toast surface
+  the user already associates with "ephemeral non-modal feedback".
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="12dp" />
+    <solid android:color="#CC323232" />
+</shape>

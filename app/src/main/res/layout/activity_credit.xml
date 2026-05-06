@@ -1,0 +1,403 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Credit screen. Three primary categories (Developer, Polisher, QA)
+  plus a "Special Thanks to" footer.
+
+  Visual rhythm matches the Settings tab: each category sits inside
+  its own white panel (`@drawable/settings_card_background`) on the
+  page's gray surface (`?colorBackground`), so the screen reads as
+  the same family as Settings rather than as a plain text page on
+  white. Section title lives at the top of each card; person rows
+  follow inside the same panel. The QA card houses both QA
+  contributors as sibling rows.
+
+  Each person row pairs a 56dp circular avatar (left) with a
+  nickname + one-line description stack (right). The outer
+  horizontal LinearLayout uses `gravity="center_vertical"` so the
+  avatar and text stack share a vertical center line — without this
+  the LinearLayout would top-align both children and the avatar
+  would jut up past a single-line text stack.
+
+  The nickname TextView IDs are exposed individually so
+  CreditActivity can install the diagonal blue-gradient sweep
+  animation per name on a 500ms staggered schedule.
+
+  Toolbar geometry matches the rest of the app's vivo-style header
+  (88dp tall + 32dp top padding + 32sp bold title) so the screen
+  feels like part of the main app shell when the user lands here
+  from MainActivity's overflow menu.
+-->
+<!--
+  Outer container background is the same `colorBackground` (~#fafafa)
+  the toolbar uses, NOT pure white. Combined with `fitsSystemWindows`
+  this lets the LinearLayout absorb the status bar inset as TOP
+  PADDING and paint the same gray strip the toolbar paints, so the
+  system status bar reads as one continuous surface with the toolbar
+  instead of a stark white band sitting above a gray bar.
+
+  The page body (the ScrollView below) inherits the same
+  colorBackground so the contributor cards float on the gray sheet
+  the same way Settings's cards do. The earlier "white page" idiom
+  was replaced when the contributor sections moved into white
+  panels — keeping the page white would have made the panels
+  invisible against the surface.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/credit_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="88dp"
+        android:background="?android:attr/colorBackground"
+        android:paddingEnd="12dp"
+        android:paddingTop="32dp"
+        app:navigationIcon="?attr/homeAsUpIndicator"
+        app:title="@string/credit_activity_label"
+        app:titleCentered="false"
+        app:titleTextAppearance="@style/TextAppearance.LibreDrop.ToolbarTitle"
+        app:titleTextColor="?android:attr/textColorPrimary" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="24dp">
+
+            <!-- ============ Card: Developer ============ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/settings_card_background"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/credit_section_developer"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/credit_kevin_avatar"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:contentDescription="@string/credit_avatar_description"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/credit_kevin_avatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:strokeColor="@color/credit_avatar_stroke"
+                        app:strokeWidth="1dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/credit_kevin_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/credit_kevin_name"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textColor="?android:attr/textColorPrimary"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/credit_kevin_desc"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textColor="?android:attr/textColorSecondary" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ============ Card: Polisher ============ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/settings_card_background"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/credit_section_polisher"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/credit_yeonfeel_avatar"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:contentDescription="@string/credit_avatar_description"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/credit_yeonfeel_avatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:strokeColor="@color/credit_avatar_stroke"
+                        app:strokeWidth="1dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/credit_yeonfeel_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/credit_yeonfeel_name"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textColor="?android:attr/textColorPrimary"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/credit_yeonfeel_desc"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textColor="?android:attr/textColorSecondary" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ============ Card: QA (two contributors) ============ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/settings_card_background"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/credit_section_qa"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/credit_chiyak_avatar"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:contentDescription="@string/credit_avatar_description"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/credit_chiyak_avatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:strokeColor="@color/credit_avatar_stroke"
+                        app:strokeWidth="1dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/credit_chiyak_qa_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/credit_chiyak_name"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textColor="?android:attr/textColorPrimary"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/credit_chiyak_qa_desc"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textColor="?android:attr/textColorSecondary" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/credit_teqhnikacross_avatar"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:contentDescription="@string/credit_avatar_description"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/credit_teqhnikacross_avatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:strokeColor="@color/credit_avatar_stroke"
+                        app:strokeWidth="1dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/credit_teqhnikacross_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/credit_teqhnikacross_name"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textColor="?android:attr/textColorPrimary"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/credit_teqhnikacross_desc"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textColor="?android:attr/textColorSecondary" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/credit_parami_avatar"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:contentDescription="@string/credit_avatar_description"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/credit_parami_avatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:strokeColor="@color/credit_avatar_stroke"
+                        app:strokeWidth="1dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/credit_parami_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/credit_parami_name"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textColor="?android:attr/textColorPrimary"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/credit_parami_desc"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textColor="?android:attr/textColorSecondary" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ============ Card: Special Thanks ============ -->
+            <!--
+              Footer reads as a quiet thank-you note rather than a
+              fourth contributor row. Compact card, two centered
+              caption lines: small uppercase "Special thanks to"
+              header above a bold name line. The card style is the
+              same as the contributor cards above so the footer
+              visually belongs to the same family without competing
+              with the named-contributor sections.
+            -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/settings_card_background"
+                android:orientation="vertical"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/credit_section_thanks"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center"
+                    android:text="@string/credit_thanks_compact"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

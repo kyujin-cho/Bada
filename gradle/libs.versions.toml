@@ -14,6 +14,13 @@ androidxCore = "1.13.1"
 androidxAppcompat = "1.7.0"
 androidxActivity = "1.9.3"
 androidxLifecycle = "2.8.7"
+androidxFragment = "1.8.5"
+
+# Material Components for Android — ships BottomNavigationView and the
+# MaterialComponents themes that BottomNavigationView's styles inherit
+# from. Pulled in by :app for the in-app bottom navigation between the
+# send/receive tab and the settings tab.
+material = "1.12.0"
 
 # Coroutines
 kotlinxCoroutines = "1.9.0"
@@ -54,6 +61,8 @@ androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidxAppcompat" }
 androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "androidxActivity" }
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }
+androidx-fragment-ktx = { module = "androidx.fragment:fragment-ktx", version.ref = "androidxFragment" }
+material = { module = "com.google.android.material:material", version.ref = "material" }
 # `lifecycle-process` exposes [androidx.lifecycle.ProcessLifecycleOwner],
 # the singleton LifecycleOwner that tracks "is any activity of this app
 # foreground". The receiver foreground service uses it (#35) to switch

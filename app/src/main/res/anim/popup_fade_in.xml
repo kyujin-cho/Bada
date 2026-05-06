@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Activity-level enter animation for popup-style activities. Combines
+  a gentle alpha fade with a small scale-up so the dialog feels like
+  it's emerging from its center rather than snapping into place. The
+  decelerate interpolator slows the motion as it lands, matching
+  iOS / vivo native popup ease curves.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="200"
+    android:interpolator="@android:interpolator/decelerate_quad">
+
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0" />
+
+    <scale
+        android:fromXScale="0.94"
+        android:toXScale="1.0"
+        android:fromYScale="0.94"
+        android:toYScale="1.0"
+        android:pivotX="50%"
+        android:pivotY="50%" />
+
+</set>

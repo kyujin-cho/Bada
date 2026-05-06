@@ -251,12 +251,21 @@ internal class SendPeerPickerController(
     }
 
     private fun updateEmptyPeerHintVisibility() {
-        val show =
-            emptyPeerHintTimer.shouldShowHint(
-                nowMillis = System.currentTimeMillis(),
-                peerListEmpty = peers.isEmpty(),
-            )
-        binding.sendNetworkHint.visibility = if (show) View.VISIBLE else View.GONE
+        // The "Same Wi-Fi network required" inline card is intentionally
+        // disabled in favour of the help link + bottom-sheet flow added
+        // alongside `send_help_link`. The two surfaces were colliding
+        // visually whenever the peer list stayed empty long enough to
+        // pop the inline card — the link below it overlapped the
+        // dismiss button on the card. The bottom sheet covers the same
+        // guidance (and adds the QR fallback section), so the inline
+        // card is kept in the layout for now but never raised.
+        //
+        // Keeping the timer running so resume + the "show again on
+        // re-entry" semantics stay in place; the caller also still
+        // calls this on every peer-list mutation. A future change can
+        // remove the inline card layout if we decide the bottom sheet
+        // fully supersedes it.
+        binding.sendNetworkHint.visibility = View.GONE
     }
 
     @Suppress("MissingPermission")

@@ -2,58 +2,153 @@
 <!--
   Single-screen runtime-permission onboarding for Phase 1 (#26).
 
-  Layout shape:
-    * Header explains why Quick Share over LAN needs the permissions.
-    * Scrollable list of permission rows (one per Requirement).
-    * Footer with "Grant permissions" + "Continue" + "Open settings"
-      (settings is hidden until we detect a permanent denial).
+  Layout shape (top to bottom):
+    1. MaterialToolbar — pinned, matches MainActivity's vivo-style
+       header (88dp height with paddingTop=32dp, 32sp bold title from
+       `onboarding_title`). No overflow menu.
+    2. NestedScrollView (weight=1) — the only scrollable region.
+       Contains the rationale intro, the dynamic per-permission rows,
+       and the same-Wi-Fi-network requirement card. The toolbar above
+       and the action bar below stay fixed regardless of scroll
+       position.
+    3. Pinned button bar — Grant / Open settings / Continue. The
+       buttons start disabled and get re-enabled by
+       PermissionsOnboardingActivity once the user has scrolled the
+       content area to the end (or once the activity detects the
+       content already fits without scrolling, e.g. on a pre-33
+       device with no permissions to render). This guarantees the
+       user has at least scrolled past every rationale before we
+       offer a way out of the screen.
+
+  System-bar inset handling: `fitsSystemWindows="true"` on the root
+  LinearLayout absorbs the status-bar inset on top (so the toolbar
+  does not jam against the status bar) and the navigation-bar inset
+  on the bottom (so the pinned button row sits above the gesture
+  handle).
 -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
 
-    <LinearLayout
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/onboarding_toolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:layout_height="88dp"
+        android:background="?android:attr/colorBackground"
+        android:paddingEnd="12dp"
+        android:paddingTop="32dp"
+        app:title="@string/onboarding_title"
+        app:titleCentered="false"
+        app:titleTextAppearance="@style/TextAppearance.LibreDrop.ToolbarTitle"
+        app:titleTextColor="?android:attr/textColorPrimary" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/onboarding_title"
-            android:textAppearance="@style/TextAppearance.AppCompat.Headline"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/onboarding_intro"
-            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
-
-        <TextView
-            android:id="@+id/onboarding_empty_state"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/onboarding_empty_state"
-            android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-            android:visibility="gone" />
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/onboarding_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
 
         <LinearLayout
-            android:id="@+id/onboarding_permission_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:orientation="vertical" />
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/onboarding_intro"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+            <TextView
+                android:id="@+id/onboarding_empty_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/onboarding_empty_state"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/onboarding_permission_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:orientation="vertical" />
+
+            <!--
+              Same-Wi-Fi-network requirement card (#85). Sits below the
+              permission grid (after the runtime-permission grants) so the
+              user reads the Phase 1 networking requirement before landing
+              in the share flow. Hidden by default and revealed by
+              PermissionsOnboardingActivity once the activity inflates.
+            -->
+            <LinearLayout
+                android:id="@+id/onboarding_network_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:background="?android:attr/colorBackgroundFloating"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/onboarding_network_card_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/onboarding_network_card_title"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/onboarding_network_card_body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/onboarding_network_card_body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+                <Button
+                    android:id="@+id/onboarding_network_card_dismiss"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/onboarding_network_card_dismiss" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+    <!--
+      Pinned action bar at the bottom of the screen. Buttons start
+      disabled; PermissionsOnboardingActivity flips `isEnabled=true`
+      on every button only after the NestedScrollView above reports
+      that the content has been scrolled to the end (or, for short
+      pages, that no scrolling is needed at all). The 8dp elevation
+      provides a subtle separator from the scroll content while keeping
+      the action surface visually anchored.
+    -->
+    <LinearLayout
+        android:id="@+id/onboarding_button_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?android:attr/colorBackground"
+        android:elevation="8dp"
+        android:orientation="vertical"
+        android:padding="16dp">
 
         <Button
             android:id="@+id/onboarding_grant_button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:enabled="false"
             android:text="@string/onboarding_grant_button" />
 
         <Button
@@ -61,6 +156,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:enabled="false"
             android:text="@string/onboarding_open_settings"
             android:visibility="gone" />
 
@@ -68,51 +164,10 @@
             android:id="@+id/onboarding_continue_button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
             android:text="@string/onboarding_continue" />
-
-        <!--
-          Same-Wi-Fi-network requirement card (#85). Sits below the
-          permission grid (after the runtime-permission grants) so the
-          user reads the Phase 1 networking requirement before landing
-          in the share flow. Hidden by default and revealed by
-          PermissionsOnboardingActivity once the activity inflates.
-        -->
-        <LinearLayout
-            android:id="@+id/onboarding_network_card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:background="?android:attr/colorBackgroundFloating"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <TextView
-                android:id="@+id/onboarding_network_card_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/onboarding_network_card_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Title"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/onboarding_network_card_body"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/onboarding_network_card_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
-
-            <Button
-                android:id="@+id/onboarding_network_card_dismiss"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="end"
-                android:layout_marginTop="12dp"
-                android:text="@string/onboarding_network_card_dismiss" />
-
-        </LinearLayout>
 
     </LinearLayout>
 
-</ScrollView>
+</LinearLayout>

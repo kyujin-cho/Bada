@@ -1,310 +1,144 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Phase 1 / 2 launcher activity layout.
+  MainActivity layout. Three-row vertical stack:
 
-    The launcher is a thin scaffold (the real device list, transfer
-    status, and full settings screens are still tracked elsewhere).
-    Today it carries:
-      * #141 advertised Quick Share name setting.
-      * #34 always-visible override toggle.
-      * #38 folder-send entry point (SAF DocumentTree picker).
-      * #47 battery-optimization banner — one-time, OEM-aware prompt
-        that opens the vendor's "exempt from background killing"
-        Settings page (or the stock Android dialog as fallback).
+    1. @id/main_toolbar — MaterialToolbar at the top. Hosts the app
+       title and the kebab overflow menu (defined in
+       res/menu/main_overflow_menu.xml). Wired via
+       `setSupportActionBar` in MainActivity.onCreate.
+    2. @id/main_fragment_container — hosts SendReceiveFragment
+       (default) or SettingsFragment.
+    3. @id/main_bottom_nav — the persistent tab bar; menu definition
+       in res/menu/bottom_nav_menu.xml.
+
+  All of the per-tab UI lives inside the two fragments. MainActivity
+  itself is a thin shell: it handles the onboarding gate, the
+  receiver-foreground-service kick, and the tab/overflow wiring.
+
+  System-bar inset handling:
+    * `fitsSystemWindows="true"` on the root LinearLayout makes the
+      view absorb the status-bar inset on top and the navigation-bar
+      inset on bottom as `padding`. Without this the activity draws
+      under the system bars on Android 15+ (compileSdk 36 enforces
+      edge-to-edge).
+    * The bottom inset lands on the BottomNavigationView via the
+      LinearLayout's bottom padding so the tab bar does not collide
+      with the gesture handle.
+
+  Visual styling:
+    * The toolbar uses the same light surface as the rest of the
+      activity (`?attr/colorBackground`) so it blends with the
+      content area; the kebab overflow icon picks up
+      `?attr/colorControlNormal` automatically and reads as a dark
+      glyph against the light bar.
+    * The bottom bar uses `nav_surface` with `bottom_nav_item_color`
+      tinting so active + inactive tabs both stay visible against a
+      clean light surface, matching the vivo / OriginOS system theme.
 -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:layout_height="match_parent">
+
+    <!--
+      Activity-level ambient pulse layer. Drawn first inside this
+      FrameLayout so the toolbar, fragment, and bottom-nav all paint
+      on top of it. While the always-visible mode is ON,
+      VisibilityPulseView renders a small set of soft drifting
+      gradient blobs across the whole window — they bleed up behind
+      the (transparent) toolbar so the entire screen reads as one
+      ambient surface, per spec.
+    -->
+    <dev.bluehouse.libredrop.ui.VisibilityPulseView
+        android:id="@+id/main_always_visible_pulse"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:layout_height="match_parent"
+        android:fitsSystemWindows="true"
+        android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/main_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textAppearance="?android:attr/textAppearanceLarge" />
+    <!--
+      Toolbar geometry follows the vivo / OriginOS native pattern:
+        * `layout_height="88dp"` — taller than the AOSP default 56dp.
+        * `paddingTop="32dp"` — pushes the title + action row to the
+          bottom 56dp of the toolbar so the title sits near the
+          content below it, not floating in the center.
+        * `paddingEnd="12dp"` — moves the kebab icon further inward
+          from the right edge so it does not hug the screen border;
+          matches vivo's native action-icon offset.
+        * `app:titleTextAppearance` — 26sp bold title, matching the
+          weighty header text on a vivo native screen. The title
+          color is wired to `?android:attr/textColorPrimary` so it
+          stays legible across DayNight switches.
+        * `android:background="@android:color/transparent"` —
+          intentionally NO solid surface here so the activity-level
+          pulse layer (above) bleeds through the toolbar. The toolbar
+          previously used `?attr/colorBackground`, but with the
+          ambient pulse drifting under the entire window the toolbar
+          should read as part of the same backdrop, not a separate
+          opaque strip.
+    -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/main_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="88dp"
+        android:background="@android:color/transparent"
+        android:paddingEnd="12dp"
+        android:paddingTop="32dp"
+        android:theme="@style/ThemeOverlay.LibreDrop.ToolbarNoRipple"
+        app:popupTheme="@style/ThemeOverlay.LibreDrop.PopupMenu"
+        app:title="@string/app_name"
+        app:titleCentered="false"
+        app:titleTextAppearance="@style/TextAppearance.LibreDrop.ToolbarTitle"
+        app:titleTextColor="?android:attr/textColorPrimary" />
 
-        <!--
-          Legacy-WhenVivoMeetsGoogle banner (#145). Hidden by default;
-          MainActivity reveals it only when the migration detector finds
-          a coresident pre-rename install still on the device. The
-          banner is non-dismissible — the legacy install registers a
-          duplicate 0xFEF3 GATT service that defeats the Quick Share
-          slot-redirect, so the user must actually uninstall the old
-          package for off-LAN BLE bootstrap to work. The banner
-          disappears automatically the next time onStart fires after the
-          uninstall completes.
-        -->
-        <LinearLayout
-            android:id="@+id/main_legacy_wvmg_banner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:background="?android:attr/colorBackgroundFloating"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:visibility="gone">
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@+id/main_fragment_container"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 
-            <TextView
-                android:id="@+id/main_legacy_wvmg_banner_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/main_legacy_wvmg_banner_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Title"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/main_legacy_wvmg_banner_body"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/main_legacy_wvmg_banner_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="end"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/main_legacy_wvmg_banner_uninstall"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/main_legacy_wvmg_banner_uninstall" />
-
-            </LinearLayout>
-
-        </LinearLayout>
-
-        <!--
-          Battery-optimization banner (#47). Hidden by default so the
-          activity does not flicker on launch; MainActivity reveals it
-          only when the helper detects the app is not yet exempt and
-          the user has not previously dismissed the prompt.
-        -->
-        <LinearLayout
-            android:id="@+id/main_battery_banner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:background="?android:attr/colorBackgroundFloating"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/main_battery_banner_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/main_battery_banner_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Title"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/main_battery_banner_body"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/main_battery_banner_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="end"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/main_battery_banner_skip"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/main_battery_banner_skip" />
-
-                <Button
-                    android:id="@+id/main_battery_banner_open"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="@string/main_battery_banner_open" />
-
-            </LinearLayout>
-
-        </LinearLayout>
-
-        <!--
-          Save-location settings (#42). Lets the user pick a custom
-          save folder via SAF and persist the URI grant. Falls back to
-          Downloads when cleared.
-        -->
-        <TextView
-            android:id="@+id/main_save_location_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/main_save_location_title"
-            android:textAppearance="?android:attr/textAppearanceMedium"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/main_save_location_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/main_save_location_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
-
-        <TextView
-            android:id="@+id/main_save_location_current"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textAppearance="?android:attr/textAppearanceSmall"
-            android:textStyle="italic" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/main_save_location_pick"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/main_save_location_pick" />
-
-            <Button
-                android:id="@+id/main_save_location_clear"
-                style="?android:attr/borderlessButtonStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="@string/main_save_location_clear" />
-
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/main_advertised_name_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/main_advertised_name_title"
-            android:textAppearance="?android:attr/textAppearanceMedium"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/main_advertised_name_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/main_advertised_name_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
-
-        <EditText
-            android:id="@+id/main_advertised_name_input"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="@string/main_advertised_name_hint"
-            android:inputType="textCapWords"
-            android:maxLines="1" />
-
-        <TextView
-            android:id="@+id/main_advertised_name_current"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textAppearance="?android:attr/textAppearanceSmall"
-            android:textStyle="italic" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/main_advertised_name_save"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/main_advertised_name_save" />
-
-            <Button
-                android:id="@+id/main_advertised_name_reset"
-                style="?android:attr/borderlessButtonStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="@string/main_advertised_name_reset" />
-
-        </LinearLayout>
-
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/main_always_visible_switch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/main_always_visible_title" />
-
-        <TextView
-            android:id="@+id/main_always_visible_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/main_always_visible_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
-
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/main_bug_report_switch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/main_bug_report_title" />
-
-        <TextView
-            android:id="@+id/main_bug_report_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/main_bug_report_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
-
-        <!--
-          Folder-send entry point (#38). The system share sheet does not
-          expose a way to share a directory — it only routes individual
-          files via ACTION_SEND / ACTION_SEND_MULTIPLE. To send a whole
-          folder (preserving its directory layout via FileMetadata's
-          `parent_folder` field), the user starts here, picks a folder via
-          ACTION_OPEN_DOCUMENT_TREE, and we forward the resulting tree URI
-          to SendActivity.
-        -->
-        <Button
-            android:id="@+id/main_send_folder_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/main_send_folder_button" />
-
-        <TextView
-            android:id="@+id/main_send_folder_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/main_send_folder_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
+    <!--
+      Bottom-bar geometry follows the vivo / OriginOS native pattern:
+        * `layout_height="64dp"` — taller than the AOSP 56dp default
+          to match the vivo native bar; the system bottom inset
+          (gesture-handle area) is added on top of this via the
+          parent LinearLayout's `fitsSystemWindows`, so the visual
+          footprint comes out at ~88dp.
+        * `app:elevation="0dp"` — kills the bar's top-edge drop
+          shadow. vivo's native bar sits flush with the content
+          above it; the shadow on the previous build came from the
+          default 8dp elevation.
+        * `app:itemBackground` and `app:itemRippleColor` both
+          transparent — kills both the press ripple AND the active
+          item background highlight, so tabs change only their
+          icon / label color between states (no surface flash, no
+          rounded backdrop).
+        * `app:itemTextAppearance{Active,Inactive}` both pointing at
+          the same 12sp style — locks the label size so it does not
+          grow when a tab is selected (Material's default "shifting"
+          behavior).
+        * The press-time icon scale animation is wired up
+          programmatically in MainActivity.installItemPressAnimations.
+    -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/main_bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:background="@android:color/transparent"
+        app:elevation="0dp"
+        app:itemBackground="@android:color/transparent"
+        app:itemIconTint="@color/bottom_nav_item_color"
+        app:itemRippleColor="@android:color/transparent"
+        app:itemTextAppearanceActive="@style/TextAppearance.LibreDrop.BottomNavLabel"
+        app:itemTextAppearanceInactive="@style/TextAppearance.LibreDrop.BottomNavLabel"
+        app:itemTextColor="@color/bottom_nav_item_color"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/bottom_nav_menu" />
 
     </LinearLayout>
 
-</ScrollView>
+</FrameLayout>

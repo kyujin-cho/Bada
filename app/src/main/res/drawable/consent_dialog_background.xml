@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Window background for the ConsentTrampolineActivity dialog theme.
+  20dp corner radius surface so the activity reads as a card
+  floating over whatever's underneath when Full-Screen-Intent raises
+  it on top of another app or the lock screen.
+
+  The fill is a very subtle vertical gradient — `#EFF5FC` (a barely
+  tinted sky blue, ~3% saturation) at the top fading to pure white at
+  the bottom. The intent is "this surface is alive, not flat" without
+  reading as a colored card; on most displays the tint is only
+  perceptible in direct comparison to a solid white surface. The
+  corresponding gradient on the sender card lives in
+  `dialog_gradient_background.xml`; the two drawables share a colour
+  ramp so the consent and send surfaces feel like the same family.
+
+  Gradient `angle="270"` is "top → bottom" in Android's drawable
+  convention (90° clockwise from "left → right"), which matches the
+  "sky-tinted top fading to white floor" sky-blue motif.
+
+  The platform draws its own dim layer behind the dialog window, so
+  this drawable only paints the foreground card.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="20dp" />
+    <gradient
+        android:angle="270"
+        android:endColor="#FFFFFFFF"
+        android:startColor="#FFEFF5FC"
+        android:type="linear" />
+</shape>

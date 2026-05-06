@@ -2,171 +2,822 @@
 <!--
   Layout for SendActivity (#24) — the share-intent landing screen.
 
-  Layout shape:
-    * Header: short summary of what is being shared (e.g. "1 file • 4.2 MB")
-      and a subtitle that switches between "Discovering peers..." while the
-      list is empty and the prompt to pick a peer once at least one shows up.
-    * Empty/picker container: holds the peer list (LinearLayout filled at
-      runtime by SendActivity) and an empty-state line shown until the first
-      peer arrives.
-    * Action row: "Show QR" (always visible while picking) opens the QR-code
-      handshake screen; "Cancel" closes the activity.
-    * Status panel: shown once a peer is selected. Carries the connection
-      phase, the 4-digit PIN once known, and a terminal-state message.
+  Top-to-bottom shape:
+    1. MaterialToolbar — pinned, matches MainActivity's vivo-style
+       header (88dp height with paddingTop=32dp, 32sp bold title).
+       Carries `send_activity_label` ("Send via Quick Share") as the
+       title; no overflow menu.
+    2. NestedScrollView (weight=1) — scrolls when the card overflows.
+       The card inside is `layout_gravity="center"`, so on screens
+       with short content (one peer, no status panel yet) the card
+       sits vertically centered; on longer content it scrolls
+       naturally inside the viewport.
+    3. MaterialCardView — 20dp rounded white surface that holds every
+       piece of state the activity used to render full-bleed:
+         * Header: short summary of what is being shared
+           (e.g. "1 file • 4.2 MB") and a subtitle that switches
+           between "Discovering peers..." while the list is empty
+           and the prompt to pick a peer once at least one shows up.
+         * Empty/picker container: holds the peer list (LinearLayout
+           filled at runtime by SendActivity) and an empty-state line
+           shown until the first peer arrives.
+         * Same-Wi-Fi-network hint card (#85). Surfaced after ~3
+           seconds of empty peer list; dismissable.
+         * Action row: "Show QR" (always visible while picking) opens
+           the QR-code handshake screen; "Cancel" closes the activity.
+         * Status panel: shown once a peer is selected. Carries the
+           connection phase, the 4-digit PIN once known, and a
+           terminal-state message.
+
+  System-bar inset handling: `fitsSystemWindows="true"` on the root
+  LinearLayout absorbs the status-bar inset on top so the toolbar
+  does not jam against the status bar on Android 15+ edge-to-edge.
 -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
 
-    <LinearLayout
+    <!--
+      Send-screen toolbar. The default `app:title` is intentionally
+      omitted — instead we host a centered, pill-shaped MaterialCardView
+      ("device pill") inside the toolbar that surfaces the current
+      advertised device name. This matches the vivo / Quick Share
+      native pattern where the top of the share dialog carries a
+      floating pill with the local device identity rather than a
+      static "Send via Quick Share" header.
+
+      Pill geometry:
+        * `wrap_content` width with internal horizontal padding so the
+          pill sizes to its text + a comfortable margin.
+        * `cardCornerRadius` set to half the rendered height so the
+          ends are perfectly round (true pill shape).
+        * `cardElevation` for the floating drop-shadow.
+        * `layout_gravity="center"` to center inside the toolbar's
+          content area; the surrounding toolbar paddingTop=32dp keeps
+          the pill nudged toward the bottom half of the bar so it sits
+          above the rest of the screen content rather than jamming
+          against the status bar.
+    -->
+    <!--
+      Toolbar insets / padding are forced symmetric (all four content
+      insets = 0, only paddingTop carries the status-bar offset)
+      because `layout_gravity="center"` on a Toolbar child centers the
+      child within the toolbar's *inset-adjusted content area*, not
+      its full width. With the AppCompat default
+      `contentInsetStart=16dp` and the previous `paddingEnd=12dp`,
+      that content area was offset right of the screen's geometric
+      center, dragging the pill ~23 px left of true center. Zeroing
+      the insets + padding makes the content area span the full
+      toolbar width, so a centered child snaps to true screen center
+      regardless of its width — meaning the pill stays geometrically
+      centered no matter how short or long the device name is.
+    -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/send_toolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:layout_height="88dp"
+        android:background="?android:attr/colorBackground"
+        android:paddingTop="32dp"
+        app:contentInsetEnd="0dp"
+        app:contentInsetLeft="0dp"
+        app:contentInsetRight="0dp"
+        app:contentInsetStart="0dp">
 
-        <TextView
-            android:id="@+id/send_payload_summary"
-            android:layout_width="match_parent"
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/send_device_pill"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAppearance="@style/TextAppearance.AppCompat.Headline"
-            android:textStyle="bold"
-            tools:text="1 file • 4.2 MB" />
+            android:layout_gravity="center"
+            app:cardBackgroundColor="@android:color/white"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="4dp">
 
-        <TextView
-            android:id="@+id/send_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-            android:text="@string/send_subtitle_discovering" />
-
-        <LinearLayout
-            android:id="@+id/send_peer_list"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:orientation="vertical" />
-
-        <TextView
-            android:id="@+id/send_empty_state"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/send_empty_state"
-            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
-
-        <!--
-          Same-Wi-Fi-network hint card (#85). Surfaced after ~3 seconds
-          of empty peer list (see EmptyPeerHintTimer) so the user
-          understands why nothing has appeared. Dismissable via the
-          button; once dismissed, stays hidden for the rest of the
-          activity's lifetime.
-        -->
-        <LinearLayout
-            android:id="@+id/send_network_hint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:background="?android:attr/colorBackgroundFloating"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:visibility="gone">
-
+            <!--
+              `gravity="center"` + `textAlignment="center"` belt-and-
+              suspenders: with `wrap_content` width and symmetric
+              horizontal padding the text already centers visually,
+              but explicit centering keeps the rendering deterministic
+              if a future change ever stretches the TextView width
+              (e.g. fixed minimum width for very short names).
+            -->
             <TextView
-                android:id="@+id/send_network_hint_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/send_network_hint_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/send_network_hint_body"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/send_network_hint_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
-
-            <Button
-                android:id="@+id/send_network_hint_dismiss"
+                android:id="@+id/send_device_pill_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="end"
-                android:layout_marginTop="8dp"
-                android:text="@string/send_network_hint_dismiss" />
-
-        </LinearLayout>
-
-        <Button
-            android:id="@+id/send_show_qr_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/send_show_qr" />
-
-        <Button
-            android:id="@+id/send_cancel_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/send_cancel" />
-
-        <LinearLayout
-            android:id="@+id/send_status_panel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/send_status_phase"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.AppCompat.Title"
-                tools:text="Awaiting acceptance" />
-
-            <TextView
-                android:id="@+id/send_status_target"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-                tools:text="Sending to Pixel 8" />
-
-            <TextView
-                android:id="@+id/send_pin"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
                 android:gravity="center"
-                android:letterSpacing="0.4"
-                android:textAppearance="@style/TextAppearance.AppCompat.Display1"
-                android:textStyle="bold"
-                android:visibility="gone"
-                tools:text="1234" />
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="10dp"
+                android:textAlignment="center"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textColor="?android:attr/textColorPrimary"
+                tools:text="Pixel 8" />
 
-            <TextView
-                android:id="@+id/send_status_message"
+        </com.google.android.material.card.MaterialCardView>
+
+    </com.google.android.material.appbar.MaterialToolbar>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:fillViewport="true">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:padding="16dp">
+
+            <!--
+              Card shadow tuning: the AOSP elevation shadow combines an
+              ambient component (symmetric on all four sides) with a
+              spot component (offset toward the implied light, i.e.
+              biased toward the bottom edge). The spot bias is what
+              made earlier builds look like the shadow only existed
+              under one side of the card; setting the spot color to
+              transparent kills the bias entirely, and ambient is left
+              at a low-alpha neutral so the resulting shadow is soft
+              and even on every side. `outlineAmbientShadowColor` /
+              `outlineSpotShadowColor` are API 28+ — on older builds
+              the platform falls back to its default tinting; the
+              vivo X300 line we test on runs API 36 so the override
+              applies as designed.
+            -->
+            <!--
+              Card has a FIXED height of 480dp so the popup never
+              changes size between states (picker / sending / QR /
+              success / failure). All inner content is laid out
+              vertically inside the same fixed 480dp box and
+              center-aligned via the picker_content / qr_panel
+              `gravity="center"` + match_parent, so empty space lands
+              symmetrically above and below regardless of which state
+              is active. Keeps the success-card-grew-too-tall problem
+              from coming back: even with a heavily-portrait blurred
+              backdrop image, the card stays anchored to 480dp.
+            -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-                tools:text="Confirm this code matches the receiver's screen." />
+                android:layout_height="480dp"
+                android:layout_gravity="center"
+                android:outlineAmbientShadowColor="#14000000"
+                android:outlineSpotShadowColor="@android:color/transparent"
+                app:cardBackgroundColor="@android:color/transparent"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="8dp"
+                tools:targetApi="p">
 
-            <Button
-                android:id="@+id/send_done_button"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/send_done"
-                android:visibility="gone" />
+                <!--
+                  Single-card, multi-layer content. From back to front:
+                    1. send_card_blur — a heavily-blurred copy of the
+                       sent image, painted across the full card surface
+                       on a successful Completed terminal as a soft
+                       background that visually distinguishes the
+                       success state from the regular picker state.
+                       Hidden until SendActivity flips it on; uses
+                       `centerCrop` so the image fills the card while
+                       preserving its native aspect ratio.
+                    2. send_card_overlay — a translucent white sheet
+                       laid over the blur to keep the foreground
+                       content readable. Hidden in lockstep with
+                       send_card_blur.
+                    3. send_picker_content — the picker / status panel.
+                    4. send_qr_panel — the QR-scan panel that swaps in
+                       for picker_content when the user taps Show QR.
+                  SendActivity toggles 3+4's visibility (with an elastic
+                  scale + fade animation pivoted at the card's center)
+                  when the user taps "Show QR" or "Done".
+                -->
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent">
 
-        </LinearLayout>
+                <!--
+                  Always-on subtle sky-blue gradient backdrop for the
+                  card surface. Drawn first so every other layer
+                  (PIN-state radial, blur image, panels) paints on
+                  top of it. The MaterialCardView's
+                  `cardBackgroundColor` was switched from solid white
+                  to transparent so this drawable provides the
+                  visible card colour; doing it via a backing View
+                  rather than `cardBackgroundColor` is what lets us
+                  use a *gradient* drawable here (the
+                  `cardBackgroundColor` attribute only accepts a flat
+                  colour or `ColorStateList`).
+                -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/dialog_gradient_background" />
 
-    </LinearLayout>
+                <!--
+                  Sky-blue radial gradient backdrop for the
+                  AwaitingRemoteAcceptance ("PIN pairing") state.
+                  Sits at the back of the FrameLayout so all other
+                  content (picker_content, qr_panel, the QR icon
+                  button, blur layers) draws on top. Hidden by
+                  default; SendActivity flips it visible while the
+                  PIN is showing and back to GONE on every other
+                  state.
+                -->
+                <View
+                    android:id="@+id/send_pin_state_background"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/pin_state_background"
+                    android:visibility="gone" />
 
-</ScrollView>
+                <ImageView
+                    android:id="@+id/send_card_blur"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone"
+                    tools:ignore="ContentDescription" />
+
+                <View
+                    android:id="@+id/send_card_overlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#80FFFFFF"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/send_picker_content"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:orientation="vertical"
+                    android:padding="24dp">
+
+                    <TextView
+                        android:id="@+id/send_payload_summary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                        android:textStyle="bold"
+                        tools:text="1 file • 4.2 MB" />
+
+                    <TextView
+                        android:id="@+id/send_subtitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/send_subtitle_discovering"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+                    <!--
+                      Weighted middle slot. Hosts the picker scroll
+                      AND the status panel layered on top of each
+                      other; only one is visible per state. Claiming
+                      `weight=1` between the header (payload summary +
+                      subtitle) above and the Cancel / Done button row
+                      below pins those bottom buttons to the card's
+                      lower edge across every state — picker, awaiting,
+                      sending, terminal — so the user always taps the
+                      same physical spot for "back out".
+
+                      `send_status_panel` uses `layout_gravity=center`
+                      so its content (phase / target / progress disc /
+                      success preview / PIN / status message) sits
+                      vertically centered inside this slot rather than
+                      hugging the slot's top edge.
+                    -->
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:clipChildren="false"
+                        android:clipToPadding="false">
+
+                        <ScrollView
+                            android:id="@+id/send_peer_scroll"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:fillViewport="true">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical">
+
+                                <LinearLayout
+                                    android:id="@+id/send_peer_list"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="vertical" />
+
+                                <TextView
+                                    android:id="@+id/send_empty_state"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="24dp"
+                                    android:text="@string/send_empty_state"
+                                    android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+                                <!--
+                                  Same-Wi-Fi-network hint card (#85). Surfaced after ~3 seconds
+                                  of empty peer list (see EmptyPeerHintTimer) so the user
+                                  understands why nothing has appeared. Dismissable via the
+                                  button; once dismissed, stays hidden for the rest of the
+                                  activity's lifetime.
+                                -->
+                                <LinearLayout
+                                    android:id="@+id/send_network_hint"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="16dp"
+                                    android:background="?android:attr/colorBackgroundFloating"
+                                    android:orientation="vertical"
+                                    android:padding="16dp"
+                                    android:visibility="gone">
+
+                                    <TextView
+                                        android:id="@+id/send_network_hint_title"
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:text="@string/send_network_hint_title"
+                                        android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:id="@+id/send_network_hint_body"
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="8dp"
+                                        android:text="@string/send_network_hint_body"
+                                        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+                                    <Button
+                                        android:id="@+id/send_network_hint_dismiss"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_gravity="end"
+                                        android:layout_marginTop="8dp"
+                                        android:text="@string/send_network_hint_dismiss" />
+
+                                </LinearLayout>
+
+                            </LinearLayout>
+
+                        </ScrollView>
+
+                        <LinearLayout
+                            android:id="@+id/send_status_panel"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:clipChildren="false"
+                            android:clipToPadding="false"
+                            android:orientation="vertical"
+                            android:visibility="gone">
+
+                            <!--
+                              Status panel headline + target subtitle are
+                              center-aligned to match the consent dialog
+                              and the post-rejection terminal: every
+                              terminal-state surface in the app reads
+                              with a centered title block over a centered
+                              media element (photo card / PIN digits /
+                              progress disc), so left-aligning these two
+                              would break the visual axis the rest of
+                              the panel inherits.
+                            -->
+                            <TextView
+                                android:id="@+id/send_status_phase"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:textAlignment="center"
+                                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                                tools:text="Awaiting acceptance" />
+
+                            <TextView
+                                android:id="@+id/send_status_target"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:gravity="center"
+                                android:textAlignment="center"
+                                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                tools:text="Sending to Pixel 8" />
+
+                            <!--
+                              Circular progress with a centered integer
+                              percentage ("42%"). Shown only during the
+                              `OutboundConnectionState.Sending` state; the
+                              PIN / status-message lines are hidden in
+                              parallel so the in-flight UI is just the
+                              phase headline + this progress disc. Both
+                              sender and receiver use the same disc-with-%
+                              shape so the two flows read as the same
+                              family.
+                            -->
+                            <FrameLayout
+                                android:id="@+id/send_status_circle_wrapper"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="center_horizontal"
+                                android:layout_marginTop="16dp"
+                                android:visibility="gone">
+
+                                <com.google.android.material.progressindicator.CircularProgressIndicator
+                                    android:id="@+id/send_status_circle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:indeterminate="false"
+                                    app:indicatorSize="72dp"
+                                    app:trackThickness="6dp" />
+
+                                <TextView
+                                    android:id="@+id/send_status_circle_pct"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="center"
+                                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                    android:textStyle="bold"
+                                    tools:text="42%" />
+
+                            </FrameLayout>
+
+                            <!--
+                              Square preview of the sent image (success
+                              terminal only). Wrapped in a polaroid-style
+                              FrameLayout with the same `photo_card_background`
+                              + padding + elevation as the gallery preview
+                              cards so the success surface reads as part
+                              of the same visual family.
+                            -->
+                            <FrameLayout
+                                android:id="@+id/send_terminal_preview_card"
+                                android:layout_width="140dp"
+                                android:layout_height="140dp"
+                                android:layout_gravity="center_horizontal"
+                                android:layout_marginTop="16dp"
+                                android:background="@drawable/photo_card_background"
+                                android:elevation="4dp"
+                                android:padding="6dp"
+                                android:visibility="gone">
+
+                                <ImageView
+                                    android:id="@+id/send_terminal_preview"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="match_parent"
+                                    android:contentDescription="@string/main_send_preview_photo_description"
+                                    android:scaleType="centerCrop" />
+
+                            </FrameLayout>
+
+                            <TextView
+                                android:id="@+id/send_pin"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="16dp"
+                                android:gravity="center"
+                                android:letterSpacing="0.4"
+                                android:textAppearance="@style/TextAppearance.AppCompat.Display1"
+                                android:textStyle="bold"
+                                android:visibility="gone"
+                                tools:text="1234" />
+
+                            <TextView
+                                android:id="@+id/send_status_message"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp"
+                                android:gravity="center"
+                                android:textAlignment="center"
+                                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                tools:text="Confirm this code matches the receiver's screen." />
+
+                        </LinearLayout>
+
+                    </FrameLayout>
+
+                    <!--
+                      Ephemeral toast-style banner that appears
+                      between the weighted middle slot and the Cancel
+                      button after the receiver declines a transfer.
+                      `SendActivity.bounceBackToPickerAfterRejection`
+                      flips this VISIBLE with a fade-in for ~3s, then
+                      fades it out and back to GONE. While it is GONE
+                      it consumes zero vertical space, so the picker
+                      layout looks unchanged when no rejection is
+                      pending.
+
+                      The dark pill background matches the system
+                      Toast aesthetic the user already associates
+                      with non-modal feedback; centring it horizontally
+                      keeps it from sitting awkwardly under either
+                      side button.
+                    -->
+                    <TextView
+                        android:id="@+id/send_rejection_banner"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center_horizontal"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/rejection_banner_background"
+                        android:elevation="2dp"
+                        android:paddingStart="16dp"
+                        android:paddingTop="10dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="10dp"
+                        android:textColor="#FFFFFFFF"
+                        android:textSize="14sp"
+                        android:visibility="gone"
+                        tools:text="V2547A 님이 파일 전송을 거절했습니다." />
+
+                    <!--
+                      "Can't find the device?" help link rendered just
+                      above the Cancel button while the picker is
+                      visible. Tapping it opens a bottom sheet with
+                      two short troubleshooting sections (receiver
+                      visibility mode + QR fallback). Underline is
+                      applied programmatically in
+                      `SendActivity.wireHelpLink` because the AppCompat
+                      `paintFlags` XML attribute is not exposed; using
+                      a SpannableString or `<u>` HTML in the resource
+                      would also work but the runtime flag is simpler
+                      and survives locale switches without re-parsing.
+                      `selectableItemBackground` provides the standard
+                      tap-feedback ripple. Sized at the small caption
+                      style + secondary text colour so the link reads
+                      as a quiet helper rather than competing with
+                      the Cancel button below.
+                    -->
+                    <TextView
+                        android:id="@+id/send_help_link"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:text="@string/send_help_link"
+                        android:textAppearance="?android:attr/textAppearanceSmall"
+                        android:textColor="?android:attr/textColorSecondary" />
+
+                    <!--
+                      The Show QR action used to live here as a
+                      full-width Button. It moved to a small
+                      icon-style ImageButton pinned at the card's
+                      top-right corner (see `send_show_qr_button`
+                      below, alongside picker_content / qr_panel).
+
+                      Cancel and Done are both anchored at the card's
+                      bottom edge as siblings here. They are mutually
+                      exclusive across all states (picker / awaiting /
+                      sending → Cancel; success / failure / cancelled
+                      → Done), so only one is visible at a time and
+                      the bottom row reads as a single fixed-position
+                      button regardless of state.
+                    -->
+                    <Button
+                        android:id="@+id/send_cancel_button"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/send_cancel" />
+
+                    <Button
+                        android:id="@+id/send_done_button"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/send_done"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+                <!--
+                  In-card QR panel. Hidden by default; SendActivity
+                  toggles `visibility=VISIBLE` and animates a scale +
+                  fade transition from the card's center when the user
+                  taps "Show QR". Tapping "Done" reverses the animation
+                  back to the picker view. The QR bitmap's intrinsic
+                  size is set programmatically to ~75% of the shorter
+                  screen edge each time the panel is shown so the code
+                  stays scannable on both portrait and landscape.
+                -->
+                <!--
+                  Scrollable wrapper around the QR panel. The card is a
+                  fixed 480dp tall to keep state-to-state geometry
+                  consistent, but the QR content (title + intro + the
+                  dynamically-sized QR bitmap + URL + Done button) can
+                  exceed that on real devices. Without a scroll wrapper
+                  a centered LinearLayout would clip the title at the
+                  top AND the Done button at the bottom whenever the
+                  total content height crossed 480dp — which is what
+                  happened after the QR icon was promoted to a floating
+                  top-right button. The NestedScrollView lets overflow
+                  scroll inside the card while keeping the panel show /
+                  hide animation on the inner LinearLayout untouched.
+                -->
+                <androidx.core.widget.NestedScrollView
+                    android:id="@+id/send_qr_scroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:fillViewport="true"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:id="@+id/send_qr_panel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="top|center_horizontal"
+                        android:orientation="vertical"
+                        android:padding="24dp">
+
+                        <!--
+                          Title and body run the full panel content
+                          width. They previously carried a 56dp
+                          right-side `paddingEnd` to avoid the floating
+                          QR icon button, but now that
+                          `onShowQrClicked` flips that icon to `GONE`
+                          for the duration of the QR panel, the
+                          reserved strip just forces premature line
+                          wraps on multi-line copy (especially the
+                          Korean body translation).
+                        -->
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/show_qr_title"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/show_qr_intro"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+                        <!--
+                          QR display size pinned to 200dp so the panel
+                          content (title + body + QR + URL + buttons)
+                          fits within the card's fixed 480dp height
+                          without triggering a scroll. The bitmap
+                          itself is rendered at the much higher
+                          `QR_SCREEN_FRACTION × min(screenW,screenH)`
+                          resolution (see SendActivity.onShowQrClicked)
+                          so even after scaling down to 200dp on draw
+                          the code stays crisp enough for receivers to
+                          scan from ~15-20cm away.
+                        -->
+                        <ImageView
+                            android:id="@+id/send_qr_bitmap"
+                            android:layout_width="200dp"
+                            android:layout_height="200dp"
+                            android:layout_gravity="center_horizontal"
+                            android:layout_marginTop="16dp"
+                            android:background="@android:color/white"
+                            android:contentDescription="@string/show_qr_image_description" />
+
+                        <!--
+                          URL row stays on a single line (the pairing
+                          URL is meaningless if visually wrapped — the
+                          host portion would split mid-word on narrow
+                          chips), but instead of end-ellipsizing the
+                          tail we wrap the TextView in a horizontal
+                          ScrollView. The full URL is laid out at its
+                          intrinsic width inside the chip and the user
+                          can swipe the chip left/right to read the
+                          tail, or long-press to invoke the system
+                          selection toolbar (Select all + Copy) on the
+                          full string in-place — no need to use the
+                          Copy link button just to grab the suffix.
+
+                          The chip-style `@drawable/qr_url_background`
+                          moves up to the ScrollView so the rounded
+                          chip is the *viewport* the URL scrolls
+                          within, not a frame around an over-wide
+                          TextView that would visually clip past the
+                          card edge. Internal padding stays on the
+                          TextView (12dp horizontal / 10dp vertical) so
+                          padding scrolls with the content — a tail
+                          tail-padding remains after a full right
+                          scroll, matching the head-padding visible at
+                          rest position.
+
+                          `scrollbars="none"` hides the default thin
+                          scrollbar; the chip is short and the pill
+                          shape already telegraphs scrollability when
+                          text overflows. `fillViewport=true` lets the
+                          inner TextView's intrinsic width exceed the
+                          chip width without being clamped to it.
+                        -->
+                        <HorizontalScrollView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:background="@drawable/qr_url_background"
+                            android:fillViewport="true"
+                            android:scrollbars="none">
+
+                            <TextView
+                                android:id="@+id/send_qr_url"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="monospace"
+                                android:paddingHorizontal="12dp"
+                                android:paddingVertical="10dp"
+                                android:singleLine="true"
+                                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                                android:textIsSelectable="true" />
+
+                        </HorizontalScrollView>
+
+                        <!--
+                          Bottom action row. Close (left) dismisses
+                          the QR panel back to the picker view; Copy
+                          link (right) puts the pairing URL into the
+                          system clipboard for chat / email fallback
+                          when scanning isn't an option. Both buttons
+                          share `layout_weight=1` so they split the
+                          row evenly; a 12dp Space between them
+                          mirrors the Send files / Send folder row's
+                          spacing on the home tab so the two-button
+                          motif reads consistently across the app.
+                        -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:gravity="center"
+                            android:orientation="horizontal">
+
+                            <Button
+                                android:id="@+id/send_qr_close"
+                                style="@style/Widget.LibreDrop.Button"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:minWidth="140dp"
+                                android:text="@string/show_qr_close" />
+
+                            <Space
+                                android:layout_width="12dp"
+                                android:layout_height="wrap_content" />
+
+                            <Button
+                                android:id="@+id/send_qr_copy_link"
+                                style="@style/Widget.LibreDrop.Button"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:minWidth="140dp"
+                                android:text="@string/show_qr_copy_link" />
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                </androidx.core.widget.NestedScrollView>
+
+                <!--
+                  Compact QR-share icon button at the card's
+                  top-right corner. Replaces the previous full-width
+                  bottom button. Sits as the topmost child of the
+                  card's FrameLayout so it floats over picker /
+                  status / QR content; the deep-blue gradient
+                  background + simplified QR glyph keeps it visually
+                  distinct from the frosted action buttons inside
+                  the card. Visibility logic is unchanged from the
+                  old button — it follows
+                  `binding.sendShowQrButton` references throughout
+                  SendActivity.
+                -->
+                <ImageButton
+                    android:id="@+id/send_show_qr_button"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="@drawable/qr_button_background"
+                    android:contentDescription="@string/send_show_qr"
+                    android:elevation="4dp"
+                    android:padding="10dp"
+                    android:src="@drawable/ic_qr_simplified" />
+
+                </FrameLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+        </FrameLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+</LinearLayout>

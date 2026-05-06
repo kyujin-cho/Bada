@@ -53,15 +53,38 @@
             android:contentDescription="@string/show_qr_image_description"
             android:background="@android:color/white" />
 
-        <TextView
-            android:id="@+id/show_qr_url"
+        <!--
+          URL row uses the same chip + horizontal-scroll pattern as
+          the in-card QR panel inside SendActivity (`send_qr_url`).
+          The full URL is laid out at intrinsic width on a single
+          line; the user swipes horizontally to read the tail or
+          long-presses for the system Select all / Copy toolbar.
+          Scrollbars are hidden because the rounded chip + monospace
+          font already telegraph that the row is scrollable when the
+          string overflows. `fillViewport=true` lets the inner
+          TextView's intrinsic width exceed the chip width without
+          being clamped.
+        -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:padding="16dp"
-            android:fontFamily="monospace"
-            android:textIsSelectable="true"
-            android:textAppearance="@style/TextAppearance.AppCompat.Body2" />
+            android:background="@drawable/qr_url_background"
+            android:fillViewport="true"
+            android:scrollbars="none">
+
+            <TextView
+                android:id="@+id/show_qr_url"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp"
+                android:singleLine="true"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textIsSelectable="true" />
+
+        </HorizontalScrollView>
 
         <Button
             android:id="@+id/show_qr_done"

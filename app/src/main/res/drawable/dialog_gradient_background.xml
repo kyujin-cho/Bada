@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Gradient backdrop drawable for the SendActivity card. Shares its
+  colour ramp with `consent_dialog_background.xml` so the two
+  primary card surfaces (sender card + consent dialog) feel like
+  the same family.
+
+  Pinned 20dp corner radius matches the host MaterialCardView's
+  `app:cardCornerRadius="20dp"` so the rasterized drawable lines up
+  with the card's own clip outline pixel-for-pixel; mismatch shows up
+  on dark backgrounds as a hairline of gradient bleed beyond the
+  rounded corner.
+
+  The gradient is intentionally low-amplitude — `#EFF5FC` (a barely
+  tinted sky blue, ~3% saturation) at the top fading to pure white
+  at the bottom. The intent is "this surface is alive, not flat"
+  without reading as a colored card. When other backdrop layers
+  inside the card are flipped on (the PIN-state radial gradient, the
+  blurred sent-image preview), they paint on top of this drawable
+  and hide it from view.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="20dp" />
+    <gradient
+        android:angle="270"
+        android:endColor="#FFFFFFFF"
+        android:startColor="#FFEFF5FC"
+        android:type="linear" />
+</shape>

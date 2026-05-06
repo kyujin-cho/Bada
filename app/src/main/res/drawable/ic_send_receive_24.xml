@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Bottom-nav icon for the Send/Receive tab. Material "swap_horiz"
+  glyph, resized to 24dp.
+
+  The path is the standard Material outline; on top of the fill we
+  also paint a 0.6dp stroke in the same color so the arrowheads and
+  stems look ~1dp thicker overall, matching the heavier stroke
+  weight of the surrounding UI (the toolbar overflow rings, the
+  vivo-style header title). Without the stroke the arrows read as
+  hairlines and visually disconnect from the bolder kebab icon.
+
+  fillColor / strokeColor stay hardcoded to white; the bottom-nav
+  applies its own selector-based tint at runtime so the icon
+  follows the active / inactive state color without per-drawable
+  changes.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M6.99,11L3,15l3.99,4v-3H14v-2H6.99v-3zM21,9l-3.99,-4v3H10v2h7.01v3L21,9z"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="0.6" />
+</vector>

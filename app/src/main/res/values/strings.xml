@@ -2,12 +2,109 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">LibreDrop</string>
 
+    <!-- Bottom-navigation tab labels for MainActivity. The send/receive
+         tab is the default destination on cold start; settings holds the
+         save-location and advertised-name controls. -->
+    <string name="nav_send_receive_title">Send / Receive</string>
+    <string name="nav_settings_title">Settings</string>
+
+    <!-- Toolbar overflow menu shown via the kebab in MainActivity's
+         top app bar. Currently a single entry that opens a placeholder
+         Credit screen; future contributors / acknowledgements live
+         there. -->
+    <string name="menu_credit">Credit</string>
+    <string name="credit_activity_label">Credit</string>
+    <string name="credit_placeholder_text">credit</string>
+
+    <!--
+      Credit screen content. Three primary categories (Developer,
+      Designer, QA) plus a dedicated "Special Thanks to" section.
+      Each entry pairs a nickname with a one-line description; the
+      descriptions intentionally preserve the original Korean wording
+      because they are personal mottos chosen by each contributor.
+    -->
+    <string name="credit_section_developer">Developer</string>
+    <string name="credit_section_polisher">Polisher</string>
+    <string name="credit_section_qa">QA</string>
+    <string name="credit_section_thanks">Special Thanks to</string>
+
+    <string name="credit_kevin_name">Kevin Cho</string>
+    <string name="credit_kevin_desc">I\'m running low on miles</string>
+    <string name="credit_yeonfeel_name">YEONFEEL</string>
+    <string name="credit_yeonfeel_desc">나의 멜로디도 너에게 닿기를</string>
+    <!-- Chiyak shows up in BOTH the QA section (top of three) and
+         the bottom-of-screen Special Thanks compact line. The
+         duplication is intentional: the QA listing recognizes
+         Chiyak's testing work, while Special Thanks separately
+         credits the dev-token contribution. -->
+    <string name="credit_chiyak_name">Chiyak</string>
+    <string name="credit_chiyak_qa_desc">I wanna buy a concert ticket</string>
+    <string name="credit_teqhnikacross_name">TEQHNIKACROSS</string>
+    <!-- TEQHNIKACROSS keeps the same tagline for both English and Korean
+         on purpose (no values-ko override below): the contributor wanted
+         "We all want to be loved" rendered as-is, regardless of device
+         locale. -->
+    <string name="credit_teqhnikacross_desc">We all want to be loved</string>
+    <string name="credit_parami_name">Parami</string>
+    <!-- Parami's tagline is a self-exhortation in Korean ("매일 감사하는
+         기도를 올리자" — "let's give thanks in prayer every day"); the
+         English form mirrors that "let's …" self-encouraging tone rather
+         than translating the religious/prayer connotation literally. -->
+    <string name="credit_parami_desc">Let\'s give thanks in prayer every day</string>
+    <!-- Combined "Name (note)" line for the bottom-centered Special
+         Thanks section. Pre-baked into a single string so the layout
+         can render it as one small caption rather than the per-row
+         image-+-stack pattern used by the main category sections. -->
+    <string name="credit_thanks_compact">Chiyak (개발 토큰 제공)</string>
+    <string name="credit_avatar_description">Contributor avatar</string>
+
+    <!-- File-picker entry point on the Send/Receive tab. Opens
+         ACTION_OPEN_DOCUMENT with EXTRA_ALLOW_MULTIPLE so the user can
+         pick one or more files of any MIME type from the gallery, the
+         documents UI, or any other DocumentsProvider on the device. The
+         resulting URIs are forwarded to SendActivity as
+         ACTION_SEND_MULTIPLE / EXTRA_STREAM (single picks degrade to
+         ACTION_SEND). -->
+    <string name="main_send_files_button">Send files</string>
+    <string name="main_send_files_subtitle">Pick one or more files from this device — photos, documents, anything — and send them to a nearby Quick Share peer.</string>
+    <string name="main_send_files_pick_failed">Could not open the file picker on this device.</string>
+    <string name="main_send_files_no_selection">No files were selected.</string>
+
+    <!-- Idle state caption shown above the photo preview cards on the
+         Send/Receive tab. Matches the vivo-native "ready to receive"
+         hint while two random gallery thumbnails sit just below it
+         as a visual cue. Kept short so it scans cleanly at the small
+         caption text style. -->
+    <string name="main_send_waiting">Waiting for files…</string>
+
+    <!-- Content description for the two photo preview cards on the
+         Send/Receive tab. Generic — the cards rotate through random
+         gallery picks so a per-photo description is not feasible. -->
+    <string name="main_send_preview_photo_description">Recent gallery photo preview</string>
+
     <!-- Launcher activity (#34). The "always visible" override lets the
          user force the receiver to publish mDNS even when no BLE pulse is
          in flight — useful when BLE scan is unavailable or the user just
          wants to be discoverable to nearby senders. -->
-    <string name="main_always_visible_title">Always visible</string>
+    <string name="main_always_visible_title">Ready to receive</string>
     <string name="main_always_visible_subtitle">Keep this device discoverable on Wi-Fi even without a Bluetooth pulse from a nearby sender. Turn off to save power; the receiver will only appear briefly while a sender is scanning.</string>
+    <!-- OFF-state label for the always-visible pill on the Send/Receive
+         tab. Phrased as the inverse of the ON-state title so the same
+         button reads as a clear two-position switch: ON = "Ready to
+         receive", OFF = "Visible on scan" (i.e. only when a sender's
+         BLE pulse wakes the receiver). -->
+    <string name="main_always_visible_off_title">Visible on scan</string>
+    <!-- Captions rendered just below the always-visible pill, outside
+         the button silhouette. Swapped per pill state so the user
+         sees a plain-language summary of what the current state
+         actually means:
+           * ON  ("Ready to receive")   → anyone nearby can share.
+           * OFF ("Visible on scan")    → discoverability only fires
+             while a nearby device is actively scanning over BLE.
+         The fragment swaps the caption in lockstep with the pill's
+         label / background in `refreshVisibilityButton`. -->
+    <string name="main_always_visible_caption_on">Anyone nearby can share files with me.</string>
+    <string name="main_always_visible_caption_off">Active only while a nearby device is scanning over Bluetooth.</string>
     <string name="main_bug_report_title">Shake to report a bug</string>
     <string name="main_bug_report_subtitle">When enabled, shaking the phone while LibreDrop is open offers to package recent diagnostics, device state, and a screenshot into a zip that you save yourself. Nothing is uploaded automatically.</string>
 
@@ -27,7 +124,7 @@
          device-name chain (system device name, Bluetooth name, model,
          then app label). -->
     <string name="main_advertised_name_title">Advertised Quick Share name</string>
-    <string name="main_advertised_name_subtitle">Nearby Quick Share peers see this name when they discover this device. Leave it empty to use the Android device name fallback chain. LibreDrop trims the final name to 19 UTF-8 bytes to avoid interop issues with longer advertisements.</string>
+    <string name="main_advertised_name_subtitle">Nearby Quick Share peers see this name when they discover this device. Leave it empty to use the Android device name fallback chain. Very long names will be shortened automatically so other devices can read them properly.</string>
     <string name="main_advertised_name_hint">Device name</string>
     <string name="main_advertised_name_current">Currently advertised: %1$s</string>
     <string name="main_advertised_name_save">Save name</string>
@@ -69,13 +166,46 @@
     <string name="main_battery_banner_skip">Skip</string>
     <string name="main_battery_banner_unavailable">No suitable Settings page was found on this device. You can manage battery optimization manually from system Settings.</string>
 
+    <!-- Toast shown after the user taps Skip on the first-launch
+         battery-optimization dialog. Tells them where to find the
+         setting again so dismissing the prompt is a low-stakes
+         choice. The same toast is reused if they never re-trigger
+         the prompt because the conditions clear (e.g. exempt
+         already). -->
+    <string name="dialog_battery_skip_toast">You can change this from Settings.</string>
+
+    <!-- Settings tab "Background activity" row (#47 follow-up). Re-entry
+         point for the OEM-aware battery exemption Settings page,
+         mirroring what the first-launch dialog offers. The status line
+         summarizes the current platform-reported state so the user
+         knows whether tapping "Open battery settings" will land them
+         on a "currently exempt" page or a "not exempt" page. -->
+    <string name="settings_battery_title">Background activity</string>
+    <string name="settings_battery_subtitle">Exempt this app from battery optimization so it can keep receiving Quick Share files when the screen is off.</string>
+    <string name="settings_battery_status_exempt">Currently: exempt from battery optimization</string>
+    <string name="settings_battery_status_not_exempt">Currently: not exempt — receiving may stop in the background</string>
+    <string name="settings_battery_open">Open battery settings</string>
+
     <!-- Permissions onboarding (#26 + #31). -->
     <string name="onboarding_title">App permissions</string>
     <string name="onboarding_intro">Quick Share needs a small set of Android permissions to discover nearby devices over your local Wi-Fi network, to broadcast and listen for short Bluetooth Low Energy pulses that wake nearby Quick Share receivers, and to keep you informed about transfers. Each permission below explains exactly what it is used for.</string>
     <string name="onboarding_empty_state">Your device does not require any runtime permissions for Phase 1. You are all set.</string>
     <string name="onboarding_grant_button">Grant permissions</string>
     <string name="onboarding_open_settings">Open app settings</string>
-    <string name="onboarding_continue">Continue</string>
+    <!--
+      Continue label. Renamed from "Continue" to "Continue without
+      permissions" because the success path (all mandatory permissions
+      granted) now auto-finishes the activity from the permission
+      callback — the only reason a user would ever tap this button is
+      to dismiss the prompt without granting, so the label says so
+      directly.
+
+      The legacy `onboarding_continue_partial` /
+      `onboarding_continue_degraded` strings used to drive
+      state-dependent labels here; kept in this file for translators
+      who may still pull them, but no longer referenced from code.
+    -->
+    <string name="onboarding_continue">Continue without permissions</string>
     <string name="onboarding_continue_partial">Continue without all permissions</string>
     <string name="onboarding_continue_degraded">Continue in degraded mode</string>
 
@@ -130,6 +260,25 @@
     <string name="send_network_hint_title">Nearby discovery requirements</string>
     <string name="send_network_hint_body">Shared Wi-Fi is still the baseline path. Some receivers can be named from BLE before they expose a supported transfer route; connect both devices to the same Wi-Fi network or keep Bluetooth available for supported bootstrap paths.</string>
     <string name="send_network_hint_dismiss">Got it</string>
+    <!-- "Can't find the device?" link rendered above the Cancel
+         button in the picker state. Tapping it opens a bottom sheet
+         with two short sections: confirm the receiver is in
+         "Ready to receive" mode, and (fallback) use the QR / link
+         share at the top right. The link itself is underlined and
+         centred, sized at the small caption text style. -->
+    <string name="send_help_link">Can\'t find the device?</string>
+
+    <!-- Bottom sheet content for the "Can't find the device?" link.
+         Two sections — receiver visibility check + QR fallback —
+         keyed off the two reasons a peer would not appear in the
+         scan list. -->
+    <string name="send_help_sheet_title">Can\'t find the device?</string>
+    <string name="send_help_sheet_visibility_title">Check the receiver\'s mode</string>
+    <string name="send_help_sheet_visibility_body">On the receiving device, make sure the toggle reads "Ready to receive". In that mode, anyone nearby can share files with it. If it\'s already in that mode but still doesn\'t appear here, try fully closing LibreDrop on both devices and reopening it.</string>
+    <string name="send_help_sheet_qr_title">Or share via QR code</string>
+    <string name="send_help_sheet_qr_body">If the receiver still does not appear, tap the QR code button at the top right of this card. Have the receiver scan the code or open the link to start the transfer.</string>
+    <string name="send_help_sheet_close">Got it</string>
+
     <string name="send_show_qr">Show QR</string>
     <string name="send_cancel">Cancel</string>
     <string name="send_done">Done</string>
@@ -149,6 +298,13 @@
     <string name="send_phase_sending">Sending</string>
     <string name="send_phase_completed">Sent successfully</string>
     <string name="send_phase_rejected">Receiver declined the transfer</string>
+    <!-- Named-receiver variant of the rejection terminal. Renders as
+         the only text-bearing line on the rejection card; the
+         payload summary / subtitle / target / "Reason: REJECT" lines
+         are all suppressed in this state because they do not add
+         signal beyond "the named peer said no". %1$s is the
+         receiver's display name. -->
+    <string name="send_phase_rejected_by_named">%1$s declined the file transfer</string>
     <string name="send_phase_cancelled">Transfer cancelled</string>
     <string name="send_phase_failed">Transfer failed</string>
 
@@ -190,26 +346,94 @@
     <string name="bug_report_issue_unavailable">No browser or compatible app is available to open GitHub.</string>
 
     <!-- QR-code (#20 + #84) screen. -->
-    <string name="show_qr_title">Scan from receiver</string>
-    <string name="show_qr_intro">Have the receiver scan this code to pair without manual selection. If their camera cannot read it, copy the URL below as a fallback.</string>
+    <string name="show_qr_title">QR code and link</string>
+    <!-- Body text on the QR panel. Phrased as a one-step instruction
+         followed by a security note so the user understands both how
+         to share AND that the QR / link grants unconditional access
+         to whoever holds it. Avoids em dashes in line with the rest
+         of the app's copy. -->
+    <string name="show_qr_intro">Ask the recipient to scan the QR code or open the link. Anyone holding the QR code or link can receive the files without further approval from you.</string>
     <string name="show_qr_image_description">QR code for the Quick Share pairing URL</string>
+    <!-- Used by the standalone ShowQrActivity, which still has a
+         single-button bottom row. The in-card QR panel inside
+         SendActivity uses the "Close" / "Copy link" pair below
+         instead. -->
     <string name="show_qr_done">Done</string>
+    <!-- Bottom action row in the QR panel. "Close" matches the
+         dismiss action used on the consent dialog and the rest of
+         the app's terminal panels. "Copy link" duplicates the URL
+         into the system clipboard so the user can paste it into a
+         chat / email when the receiver cannot scan the QR. -->
+    <string name="show_qr_close">Close</string>
+    <string name="show_qr_copy_link">Copy link</string>
+    <!-- Toast surfaced after the user taps "Copy link" so the
+         action is visibly acknowledged even though the clipboard is
+         silent on most devices. Kept short so it fits into a
+         LENGTH_SHORT toast on a single line. -->
+    <string name="show_qr_link_copied">Link copied</string>
 
     <!-- Consent trampoline (#22). -->
     <string name="consent_activity_label">Incoming transfer</string>
-    <string name="consent_pin_label">Confirm this 4-digit code matches the sender\'s screen.</string>
+    <!-- Short header above the 4-digit confirmation PIN. Replaces the
+         older sentence-form "Confirm this 4-digit code…" with a
+         minimal uppercase label so the PIN itself is the dominant
+         element on the line. -->
+    <string name="consent_pin_label">PIN</string>
     <string name="consent_files_label">Files to receive</string>
     <string name="consent_button_accept">Accept</string>
     <string name="consent_button_reject">Reject</string>
     <string name="consent_unknown_sender">A nearby device wants to share</string>
+    <!-- Type-specific consent title templates, picked at render time
+         based on the announced payload's mime types. The classifier
+         reads as "all items are images" → images, "all items are
+         videos" → videos, otherwise → files (covers mixed types,
+         text payloads, documents, archives). %1$s is the sender's
+         device name. The legacy single-shape title remains for
+         compat / fallback callers. -->
     <string name="consent_title_with_name">%1$s wants to share</string>
+    <string name="consent_title_with_name_images">%1$s wants to share images</string>
+    <string name="consent_title_with_name_videos">%1$s wants to share videos</string>
+    <string name="consent_title_with_name_files">%1$s wants to share files</string>
     <string name="consent_summary_n_items">%1$d item(s) (%2$s)</string>
     <string name="consent_summary_no_items">no items</string>
     <!-- Folder-receive summary (#39). Shown when every announced file
          shares the same root parent_folder. -->
     <string name="consent_summary_folder">Folder \"%1$s\" (%2$d file(s), %3$s)</string>
-    <string name="consent_file_line">%1$s · %2$s</string>
-    <string name="consent_text_line_with_title">%1$s · %2$s</string>
+    <!--
+      Per-item rows in the consent dialog's file list. Each row is
+      rendered as a single TextView with the file / item name on the
+      first line and the human-readable size on the second line —
+      `\n` is interpreted as a hard line break. Both lines render
+      centre-aligned (gravity set in code on the TextView), matching
+      the rest of the consent panel's centred axis.
+    -->
+    <string name="consent_file_line">%1$s\n%2$s</string>
+    <string name="consent_text_line_with_title">%1$s\n%2$s</string>
     <string name="consent_more_items">…and %1$d more</string>
     <string name="consent_dismissed">Transfer no longer pending</string>
+
+    <!--
+      Post-Accept consent flow states (receiving → completed / failed).
+      The trampoline activity stays foreground after the user taps
+      Accept and renders these as it observes the in-flight
+      InboundConnection's state.
+    -->
+    <string name="consent_state_receiving">Receiving…</string>
+    <string name="consent_state_progress">%1$s / %2$s</string>
+    <string name="consent_state_completed">Transfer complete</string>
+    <string name="consent_state_completed_one">1 file received</string>
+    <string name="consent_state_completed_many">%1$d files received</string>
+    <string name="consent_state_failed">Transfer failed</string>
+    <string name="consent_state_cancelled">Transfer cancelled</string>
+    <string name="consent_state_view_image">View image</string>
+    <string name="consent_state_close">Close</string>
+    <string name="consent_state_view_image_unavailable">No app can open this image.</string>
+
+    <!--
+      Integer percentage label rendered in the centre of the circular
+      progress disc on both the sender's Sending state and the
+      receiver's Receiving state. Uses %% so the literal `%` glyph
+      survives string formatting unchanged.
+    -->
+    <string name="transfer_progress_percent">%1$d%%</string>
 </resources>

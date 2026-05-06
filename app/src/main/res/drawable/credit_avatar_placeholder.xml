@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Square placeholder for credit-screen avatars. Soft cool-tinted
+  diagonal gradient with 12dp rounded corners — gives the row a
+  visible image slot before each contributor swaps in their own
+  picture, without locking us to a specific icon set.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="12dp" />
+    <gradient
+        android:angle="135"
+        android:startColor="#E8EFF7"
+        android:endColor="#C7D5E8" />
+</shape>
