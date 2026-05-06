@@ -26,12 +26,13 @@ import android.transition.Transition
 import android.transition.TransitionManager
 import android.util.Log
 import android.view.View
-import android.widget.Toast
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.OvershootInterpolator
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import dev.bluehouse.libredrop.R
 import dev.bluehouse.libredrop.bugreport.BugReportFlowSupport
 import dev.bluehouse.libredrop.databinding.ActivitySendBinding
@@ -55,7 +56,6 @@ import dev.bluehouse.libredrop.protocol.qr.QrUrl
 import dev.bluehouse.libredrop.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.libredrop.service.receiver.OutboundSessionActiveHolder
 import kotlinx.coroutines.Dispatchers
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -90,12 +90,12 @@ import kotlin.math.min
  * side is a follow-up. We surface a clear "Done" with an explanation
  * for now rather than stubbing out a half-broken text path.
  *
- * `@Suppress("TooManyFunctions")` — this Activity owns the share-intent
+ * `@Suppress("TooManyFunctions", "LargeClass")` — this Activity owns the share-intent
  * lifecycle, discovery, the picker, and the OutboundConnection driver.
  * Splitting it would require non-trivial separation of UI state from
  * coroutine plumbing and is out of scope for the Galaxy interop fix.
  */
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass")
 public class SendActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySendBinding
     private lateinit var bugReportFlowSupport: BugReportFlowSupport
@@ -659,8 +659,7 @@ public class SendActivity : AppCompatActivity() {
                 .withEndAction {
                     binding.sendRejectionBanner.visibility = View.GONE
                     binding.sendRejectionBanner.alpha = 1f
-                }
-                .start()
+                }.start()
         }
 
     /**
@@ -727,7 +726,10 @@ public class SendActivity : AppCompatActivity() {
         binding.sendStatusCircleWrapper.visibility = View.VISIBLE
         val pct =
             if (totalSize > 0L) {
-                ((bytesTransferred.toDouble() / totalSize.toDouble()) * 100).toInt().coerceIn(0, 100)
+                ((bytesTransferred.toDouble() / totalSize.toDouble()) * PERCENT_SCALE).toInt().coerceIn(
+                    0,
+                    PERCENT_SCALE,
+                )
             } else {
                 0
             }
@@ -820,7 +822,7 @@ public class SendActivity : AppCompatActivity() {
      */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
     private fun buildPrettyBlurEffect(): RenderEffect {
-        val saturationFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.4f) })
+        val saturationFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(BLUR_SATURATION_BOOST) })
         val saturationEffect = RenderEffect.createColorFilterEffect(saturationFilter)
         val blurEffect =
             RenderEffect.createBlurEffect(
@@ -839,6 +841,7 @@ public class SendActivity : AppCompatActivity() {
      * sampling loop on older devices. Returns `null` on any decode
      * failure so the caller can leave the blur layer hidden.
      */
+    @Suppress("TooGenericExceptionCaught")
     private fun decodeSampledBitmap(
         uri: Uri,
         targetPx: Int,
@@ -1090,31 +1093,6 @@ public class SendActivity : AppCompatActivity() {
     }
 
     /**
-     * Reverse [onShowQrClicked] in three smooth phases that read as a
-     * single continuous shrink:
-     *
-     *   1. Panel collapses — scale 1.0 → 0.7 + alpha 1 → 0 over
-     *      [EXIT_DURATION_MS] with an [AccelerateInterpolator] for a
-     *      snappy exit.
-     *   2. Card outline shrinks — `withEndAction` schedules a
-     *      [ChangeBounds] transition right before flipping
-     *      visibility, so the FrameLayout's wrap_content recomputes
-     *      from qr-height to picker-height under
-     *      [BOUNDS_DURATION_MS] of bounds animation rather than
-     *      snapping. The picker is brought to `VISIBLE` with
-     *      `alpha = 0` so it counts toward the FrameLayout's measured
-     *      end-state height — without this the FrameLayout would size
-     *      to the gone qr panel and ChangeBounds would have no end
-     *      bounds to animate to.
-     *   3. Picker fades in — a `TransitionListener` on the
-     *      `ChangeBounds` fires `onTransitionEnd` once the outline
-     *      finishes shrinking, at which point the picker (Show QR
-     *      button, Cancel button, peer list, etc.) fades from
-     *      `alpha = 0` to `alpha = 1` over [FADE_IN_DURATION_MS]. So
-     *      the picker chrome appears after the card has settled at
-     *      its new size, not during the shrink.
-     */
-    /**
      * Copy the currently-displayed pairing URL into the system
      * clipboard and surface a short toast acknowledging the action.
      * Reads the URL straight off the [Binding.sendQrUrl] TextView so
@@ -1125,7 +1103,10 @@ public class SendActivity : AppCompatActivity() {
      * source of truth.
      */
     private fun onCopyQrLinkClicked() {
-        val url = binding.sendQrUrl.text?.toString().orEmpty()
+        val url =
+            binding.sendQrUrl.text
+                ?.toString()
+                .orEmpty()
         if (url.isEmpty()) return
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.show_qr_title), url))
@@ -1138,6 +1119,10 @@ public class SendActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Reverse [onShowQrClicked] in three smooth phases that read as a
+     * single continuous shrink.
+     */
     private fun onQrDoneClicked() {
         val panel = binding.sendQrPanel
         panel
@@ -1321,6 +1306,7 @@ public class SendActivity : AppCompatActivity() {
         public const val ACTION_SEND_FOLDER: String = "dev.bluehouse.libredrop.action.SEND_FOLDER"
 
         private const val OUTBOUND_TAG: String = "LibreDropOutbound"
+        private const val PERCENT_SCALE = 100
 
         // In-card QR panel animation tunables. Entry uses an
         // overshoot easing so the panel briefly scales past 1.0 before
@@ -1359,6 +1345,7 @@ public class SendActivity : AppCompatActivity() {
         // not so large that the result collapses into a single
         // muddy hue.
         private const val BLUR_RADIUS_PX: Float = 80f
+        private const val BLUR_SATURATION_BOOST: Float = 1.4f
 
         // Target pixel size for the blurred card backdrop. Sampling
         // to this size before handing the bitmap to the ImageView

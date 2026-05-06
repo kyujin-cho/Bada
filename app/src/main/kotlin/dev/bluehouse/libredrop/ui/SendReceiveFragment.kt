@@ -407,6 +407,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
      * neutral gray so the empty state still reads as a polaroid
      * frame waiting for content.
      */
+    @Suppress("MagicNumber")
     private fun buildPolaroidBitmap(
         photo: Bitmap?,
         rotationDeg: Float,
@@ -589,6 +590,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
      * sampling loop on older devices. Returns null on any decode
      * failure so the caller can leave the polaroid card empty.
      */
+    @Suppress("TooGenericExceptionCaught")
     private fun decodeSampledBitmap(
         uri: Uri,
         targetPx: Int,

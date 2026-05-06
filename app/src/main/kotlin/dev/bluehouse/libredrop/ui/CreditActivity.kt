@@ -104,7 +104,8 @@ internal class CreditActivity : AppCompatActivity() {
         // distributes the same transition across more pixels and
         // reads as a softer, continuous curve.
         val smoothShape =
-            ShapeAppearanceModel.builder()
+            ShapeAppearanceModel
+                .builder()
                 .setAllCorners(SmoothCornerTreatment())
                 .setAllCornerSizes(AVATAR_CORNER_RADIUS_DP * resources.displayMetrics.density)
                 .build()
@@ -207,7 +208,13 @@ internal class CreditActivity : AppCompatActivity() {
                 width,
                 height,
                 intArrayOf(baseColor, baseColor, highlightColor, baseColor, baseColor),
-                floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f),
+                floatArrayOf(
+                    0f,
+                    HIGHLIGHT_LEADING_STOP,
+                    HIGHLIGHT_CENTER_STOP,
+                    HIGHLIGHT_TRAILING_STOP,
+                    1f,
+                ),
                 Shader.TileMode.CLAMP,
             )
         textView.paint.shader = shader
@@ -231,28 +238,32 @@ internal class CreditActivity : AppCompatActivity() {
     ) {
         if (isFinishing || isDestroyed) return
         val animator =
-            ValueAnimator.ofFloat(-width * 1.5f, width * 1.5f).apply {
-                duration = HIGHLIGHT_SWEEP_DURATION_MS
-                interpolator = LinearInterpolator()
-                addUpdateListener { animation ->
-                    val translateX = animation.animatedValue as Float
-                    matrix.setTranslate(translateX, 0f)
-                    shader.setLocalMatrix(matrix)
-                    textView.invalidate()
+            ValueAnimator
+                .ofFloat(
+                    -width * HIGHLIGHT_SWEEP_WIDTH_MULTIPLIER,
+                    width * HIGHLIGHT_SWEEP_WIDTH_MULTIPLIER,
+                ).apply {
+                    duration = HIGHLIGHT_SWEEP_DURATION_MS
+                    interpolator = LinearInterpolator()
+                    addUpdateListener { animation ->
+                        val translateX = animation.animatedValue as Float
+                        matrix.setTranslate(translateX, 0f)
+                        shader.setLocalMatrix(matrix)
+                        textView.invalidate()
+                    }
+                    addListener(
+                        object : AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: Animator) {
+                                activeAnimators.remove(animation as ValueAnimator)
+                                textView.postDelayed({
+                                    if (!isFinishing && !isDestroyed) {
+                                        runHighlightLoop(textView, matrix, shader, width)
+                                    }
+                                }, HIGHLIGHT_PAUSE_MS)
+                            }
+                        },
+                    )
                 }
-                addListener(
-                    object : AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: Animator) {
-                            activeAnimators.remove(animation as ValueAnimator)
-                            textView.postDelayed({
-                                if (!isFinishing && !isDestroyed) {
-                                    runHighlightLoop(textView, matrix, shader, width)
-                                }
-                            }, HIGHLIGHT_PAUSE_MS)
-                        }
-                    },
-                )
-            }
         activeAnimators.add(animator)
         animator.start()
     }
@@ -269,6 +280,10 @@ internal class CreditActivity : AppCompatActivity() {
 
         /** Single-sweep duration. */
         const val HIGHLIGHT_SWEEP_DURATION_MS: Long = 1500L
+        const val HIGHLIGHT_SWEEP_WIDTH_MULTIPLIER: Float = 1.5f
+        const val HIGHLIGHT_LEADING_STOP: Float = 0.2f
+        const val HIGHLIGHT_CENTER_STOP: Float = 0.5f
+        const val HIGHLIGHT_TRAILING_STOP: Float = 0.8f
 
         /** Pause between sweeps inside the same TextView's loop. */
         const val HIGHLIGHT_PAUSE_MS: Long = 3000L

@@ -303,6 +303,7 @@ class MainActivity : AppCompatActivity() {
      *                             instance, but a fresh cold start
      *                             will re-prompt.
      */
+    @Suppress("ReturnCount")
     private fun maybeShowBatteryOptimizationDialog() {
         if (batteryDialogShownThisSession) return
         if (BatteryOptimizationPreferences.from(this).hasBeenDismissed()) return

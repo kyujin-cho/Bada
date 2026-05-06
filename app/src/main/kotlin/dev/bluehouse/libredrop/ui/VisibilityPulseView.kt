@@ -115,10 +115,10 @@ internal class VisibilityPulseView
                     if (alpha == 0f) {
                         animator.cancel()
                     }
-                }
-                .start()
+                }.start()
         }
 
+        @Suppress("MagicNumber")
         override fun onSizeChanged(
             w: Int,
             h: Int,
@@ -159,6 +159,7 @@ internal class VisibilityPulseView
             animator.cancel()
         }
 
+        @Suppress("MagicNumber")
         override fun onDraw(canvas: Canvas) {
             if (!animator.isStarted) {
                 return

@@ -112,6 +112,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * raises the heads-up notification, and the user can resume from the
  * shade.
  */
+@Suppress("TooManyFunctions")
 class ConsentTrampolineActivity : AppCompatActivity() {
     private var connectionId: Long = ConsentIntents.MISSING_CONNECTION_ID
     private var decisionSubmitted: Boolean = false
@@ -559,7 +560,10 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         val percentText = findViewById<TextView>(R.id.consent_receiving_progress_pct)
         val pct =
             if (totalBytes > 0) {
-                ((bytesReceived.toDouble() / totalBytes.toDouble()) * 100).toInt().coerceIn(0, 100)
+                ((bytesReceived.toDouble() / totalBytes.toDouble()) * PERCENT_SCALE).toInt().coerceIn(
+                    0,
+                    PERCENT_SCALE,
+                )
             } else {
                 0
             }
@@ -635,6 +639,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         }
     }
 
+    @Suppress("ReturnCount")
     private fun bindCompletedPreview(uri: Uri) {
         val previewView = findViewById<ImageView>(R.id.consent_completed_preview) ?: return
         val previewCard = findViewById<FrameLayout>(R.id.consent_completed_preview_card) ?: return
@@ -724,7 +729,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
      */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
     private fun buildPrettyBlurEffect(): RenderEffect {
-        val saturationFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.4f) })
+        val saturationFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(BLUR_SATURATION_BOOST) })
         val saturationEffect = RenderEffect.createColorFilterEffect(saturationFilter)
         val blurEffect =
             RenderEffect.createBlurEffect(
@@ -742,6 +747,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
      * `wrap_content` parents do not size to the source bitmap's
      * pixel dimensions.
      */
+    @Suppress("TooGenericExceptionCaught")
     private fun decodeSampledBitmap(
         uri: Uri,
         targetPx: Int,
@@ -793,6 +799,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
      * names land in the image collection — common for non-image
      * payloads or when the platform has not yet indexed the new file.
      */
+    @Suppress("NestedBlockDepth")
     private fun findReceivedImageUri(targetNames: Set<String>): Uri? {
         val collection =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -888,6 +895,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
         /** Diagnostic tag for the activity-side preview / view-image paths. */
         private const val TAG = "LibreDropConsent"
+        private const val PERCENT_SCALE = 100
 
         /**
          * How many cursor rows to walk in MediaStore when looking for
@@ -941,5 +949,6 @@ class ConsentTrampolineActivity : AppCompatActivity() {
          * that the result collapses into a single muddy hue.
          */
         private const val BLUR_RADIUS_PX: Float = 80f
+        private const val BLUR_SATURATION_BOOST: Float = 1.4f
     }
 }
