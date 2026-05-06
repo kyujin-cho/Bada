@@ -22,7 +22,9 @@ import android.text.format.Formatter
 import android.transition.ChangeBounds
 import android.transition.TransitionManager
 import android.util.Log
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -48,6 +50,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Layer 2 of the consent UI (#22): a screen-on, lock-screen-bypassing
@@ -300,40 +303,37 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
     private fun renderEntry(entry: ConsentRegistry.Entry) {
         val titleView = findViewById<TextView>(R.id.consent_title)
-        val subtitleView = findViewById<TextView>(R.id.consent_subtitle)
         val pinView = findViewById<TextView>(R.id.consent_pin)
         val list = findViewById<LinearLayout>(R.id.consent_files_list)
 
         val device = entry.sourceDeviceName?.takeIf { it.isNotBlank() }
         titleView.text =
             if (device != null) {
-                getString(R.string.consent_title_with_name, device)
+                // Pick a type-specific title template based on the
+                // announced mime types: all `image/*` → "…share
+                // images", all `video/*` → "…share videos", anything
+                // else (mixed types, text payloads, archives, ...) →
+                // generic "…share files". Empty announcements fall
+                // through to the generic template too — better than
+                // promising images we cannot deliver.
+                val templateRes =
+                    when (classifyPayload(entry.items)) {
+                        PayloadKind.IMAGES -> R.string.consent_title_with_name_images
+                        PayloadKind.VIDEOS -> R.string.consent_title_with_name_videos
+                        PayloadKind.FILES -> R.string.consent_title_with_name_files
+                    }
+                getString(templateRes, device)
             } else {
                 getString(R.string.consent_unknown_sender)
             }
 
-        // Folder-share summary (#39): when every announced file shares
-        // the same root parent_folder we show a single folder summary
-        // instead of the per-file count. Fall through to the generic
-        // count summary otherwise.
-        val folderName = ConsentNotificationContent.sharedRootFolder(entry.items)
-        subtitleView.text =
-            when {
-                entry.itemCount <= 0 -> getString(R.string.consent_summary_no_items)
-                folderName != null ->
-                    getString(
-                        R.string.consent_summary_folder,
-                        folderName,
-                        entry.itemCount,
-                        ConsentNotificationContent.humanReadableSize(entry.totalSize),
-                    )
-                else ->
-                    getString(
-                        R.string.consent_summary_n_items,
-                        entry.itemCount,
-                        ConsentNotificationContent.humanReadableSize(entry.totalSize),
-                    )
-            }
+        // The legacy `consent_subtitle` (e.g. "3 files (12.4 MB)") is
+        // hidden in the layout — the type-specific title carries the
+        // payload kind already, and the per-file rows below carry the
+        // size, so the count line is redundant. Folder-share metadata
+        // is no longer surfaced as a subtitle either; if a future
+        // design needs it back, the view ID remains stable for
+        // re-binding.
 
         pinView.text = entry.pin
 
@@ -343,6 +343,30 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // peer cancelled while the user was reaching for the screen).
         renderItemList(list, entry.items)
     }
+
+    /**
+     * Classify a consent announcement into one of three buckets used
+     * for picking the type-specific title template. The rule is
+     * intentionally strict ("ALL items match" rather than "majority"
+     * or "first item") so the title never overpromises a single
+     * media type when the announcement mixes kinds. Mixed and
+     * non-file (text / URL) announcements collapse to [PayloadKind.FILES].
+     */
+    private fun classifyPayload(items: List<TransferItem>): PayloadKind {
+        val files = items.filterIsInstance<TransferItem.File>()
+        if (files.isEmpty() || files.size != items.size) {
+            // Empty announcement, or mixed file + text payload — fall
+            // back to the generic "files" framing.
+            return PayloadKind.FILES
+        }
+        return when {
+            files.all { it.mimeType.startsWith("image/") } -> PayloadKind.IMAGES
+            files.all { it.mimeType.startsWith("video/") } -> PayloadKind.VIDEOS
+            else -> PayloadKind.FILES
+        }
+    }
+
+    private enum class PayloadKind { IMAGES, VIDEOS, FILES }
 
     private fun renderItemList(
         list: LinearLayout,
@@ -361,6 +385,13 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         if (items.size > cap) {
             val extra = TextView(this)
             extra.text = getString(R.string.consent_more_items, items.size - cap)
+            // Match the centred axis of the file rows above.
+            extra.gravity = Gravity.CENTER_HORIZONTAL
+            extra.layoutParams =
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
             list.addView(extra)
         }
     }
@@ -383,6 +414,20 @@ class ConsentTrampolineActivity : AppCompatActivity() {
                         ConsentNotificationContent.humanReadableSize(item.size),
                     )
             }
+        // Each row renders the name on the first line and the size
+        // on the second line (the format string carries a `\n`); both
+        // lines centre on the same axis as the title / PIN label /
+        // files heading above. Match-parent width is required so the
+        // gravity actually has horizontal space to centre within —
+        // wrap_content (the default for `addView` with no LayoutParams)
+        // would shrink the row to its longest line and the gravity
+        // would have nothing to align against.
+        view.gravity = Gravity.CENTER_HORIZONTAL
+        view.layoutParams =
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
         return view
     }
 
@@ -535,36 +580,55 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     }
 
     /**
-     * Reveal the completion panel and kick off a best-effort
-     * MediaStore lookup for an image preview. The lookup is async on
-     * a background dispatcher so a slow query never blocks the UI;
-     * the View image button stays hidden until the lookup resolves to
-     * a real Uri.
+     * Resolve any image preview FIRST, then transition to the
+     * completion panel with all elements at their final visibility.
+     *
+     * Earlier the panel switch fired immediately and the
+     * MediaStore lookup ran async — that produced a one-frame
+     * "title + Close button only" flash that snapped to "title +
+     * polaroid preview + Close + View image" once the lookup
+     * resolved. The flash read as a glitchy intermediate popup.
+     *
+     * Now: kick off the (bounded) lookup, await it, and only then
+     * commit the panel switch. The receiving panel stays at 100%
+     * during the wait so the user just sees a brief "wrapping up"
+     * moment instead of a layout pop. A
+     * [PREVIEW_LOOKUP_TIMEOUT_MS] cap guarantees the wait never
+     * stalls the completion UI if MediaStore is slow or hung —
+     * the panel switches without a preview after the timeout.
+     *
+     * Non-image transfers skip the lookup entirely (no filenames
+     * to query) and switch panels immediately, matching the old
+     * behavior for that path.
      */
     private fun showCompletedPanel(items: List<ReceivedItem>) {
-        beginPanelTransition()
-        findViewById<View>(R.id.consent_receiving_panel).visibility = View.GONE
-        findViewById<View>(R.id.consent_failed_panel).visibility = View.GONE
-        findViewById<View>(R.id.consent_completed_panel).visibility = View.VISIBLE
-
         val fileItems = items.filterIsInstance<ReceivedItem.File>()
-        val summary =
-            if (fileItems.size == 1) {
-                getString(R.string.consent_state_completed_one)
-            } else {
-                getString(R.string.consent_state_completed_many, fileItems.size)
-            }
-        findViewById<TextView>(R.id.consent_completed_summary)?.text = summary
-
-        findViewById<Button>(R.id.consent_completed_close_button).setOnClickListener { finish() }
-
-        // Best-effort image preview: walk the received-item filenames,
-        // ask MediaStore which one (if any) lives in the gallery, and
-        // load the resolved Uri into the preview ImageView.
+        val targetNames = fileItems.map { it.header.fileName }.toSet()
         lifecycleScope.launch {
-            val targetNames = fileItems.map { it.header.fileName }.toSet()
-            if (targetNames.isEmpty()) return@launch
-            val previewUri = withContext(Dispatchers.IO) { findReceivedImageUri(targetNames) }
+            val previewUri =
+                if (targetNames.isEmpty()) {
+                    null
+                } else {
+                    withTimeoutOrNull(PREVIEW_LOOKUP_TIMEOUT_MS) {
+                        withContext(Dispatchers.IO) { findReceivedImageUri(targetNames) }
+                    }
+                }
+
+            beginPanelTransition()
+            findViewById<View>(R.id.consent_receiving_panel).visibility = View.GONE
+            findViewById<View>(R.id.consent_failed_panel).visibility = View.GONE
+            findViewById<View>(R.id.consent_completed_panel).visibility = View.VISIBLE
+
+            val summary =
+                if (fileItems.size == 1) {
+                    getString(R.string.consent_state_completed_one)
+                } else {
+                    getString(R.string.consent_state_completed_many, fileItems.size)
+                }
+            findViewById<TextView>(R.id.consent_completed_summary)?.text = summary
+
+            findViewById<Button>(R.id.consent_completed_close_button).setOnClickListener { finish() }
+
             if (previewUri != null) {
                 bindCompletedPreview(previewUri)
             }
@@ -600,6 +664,16 @@ class ConsentTrampolineActivity : AppCompatActivity() {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                 startActivity(viewIntent)
+                // Dismiss the consent dialog as soon as we hand off to
+                // the gallery viewer. Otherwise the trampoline stays in
+                // the back stack and the user has to dismiss it again
+                // after they're done viewing — which feels like a stuck
+                // popup since the receive flow is already complete. With
+                // this finish, returning from the gallery drops them
+                // straight to whatever was below the trampoline (home /
+                // launcher), matching the user's expectation that "back
+                // from gallery means back to my normal screen".
+                finish()
             } catch (e: ActivityNotFoundException) {
                 Log.w(TAG, "No activity to view image: ${e.message}")
                 Toast
@@ -824,6 +898,22 @@ class ConsentTrampolineActivity : AppCompatActivity() {
          * almost never an old gallery duplicate.
          */
         private const val PREVIEW_LOOKUP_LIMIT = 30
+
+        /**
+         * Maximum time the completed-state transition will wait for
+         * the MediaStore preview lookup before committing the panel
+         * switch without a preview. Held tight so a slow MediaStore
+         * cannot stall the success UI; in practice the typical
+         * "find this filename in the newest 30 images" query runs
+         * well under this bound, so the user almost always lands on
+         * the fully-rendered completed panel in one transition.
+         *
+         * Picked at 600 ms based on the app's panel-transition
+         * cadence ([PANEL_TRANSITION_MS]) — anything longer than
+         * roughly 2× the transition duration starts reading as a
+         * pause instead of a transition prefetch.
+         */
+        private const val PREVIEW_LOOKUP_TIMEOUT_MS: Long = 600L
 
         /**
          * Duration of the [ChangeBounds] transition between consent

@@ -45,6 +45,12 @@
          "We all want to be loved" rendered as-is, regardless of device
          locale. -->
     <string name="credit_teqhnikacross_desc">We all want to be loved</string>
+    <string name="credit_parami_name">Parami</string>
+    <!-- Parami's tagline is a self-exhortation in Korean ("매일 감사하는
+         기도를 올리자" — "let's give thanks in prayer every day"); the
+         English form mirrors that "let's …" self-encouraging tone rather
+         than translating the religious/prayer connotation literally. -->
+    <string name="credit_parami_desc">Let\'s give thanks in prayer every day</string>
     <!-- Combined "Name (note)" line for the bottom-centered Special
          Thanks section. Pre-baked into a single string so the layout
          can render it as one small caption rather than the per-row
@@ -80,14 +86,25 @@
          user force the receiver to publish mDNS even when no BLE pulse is
          in flight — useful when BLE scan is unavailable or the user just
          wants to be discoverable to nearby senders. -->
-    <string name="main_always_visible_title">Always visible</string>
+    <string name="main_always_visible_title">Ready to receive</string>
     <string name="main_always_visible_subtitle">Keep this device discoverable on Wi-Fi even without a Bluetooth pulse from a nearby sender. Turn off to save power; the receiver will only appear briefly while a sender is scanning.</string>
     <!-- OFF-state label for the always-visible pill on the Send/Receive
          tab. Phrased as the inverse of the ON-state title so the same
-         button reads as a clear two-position switch: ON = "Always
-         visible", OFF = "Visible on scan" (i.e. only when a sender's
+         button reads as a clear two-position switch: ON = "Ready to
+         receive", OFF = "Visible on scan" (i.e. only when a sender's
          BLE pulse wakes the receiver). -->
     <string name="main_always_visible_off_title">Visible on scan</string>
+    <!-- Captions rendered just below the always-visible pill, outside
+         the button silhouette. Swapped per pill state so the user
+         sees a plain-language summary of what the current state
+         actually means:
+           * ON  ("Ready to receive")   → anyone nearby can share.
+           * OFF ("Visible on scan")    → discoverability only fires
+             while a nearby device is actively scanning over BLE.
+         The fragment swaps the caption in lockstep with the pill's
+         label / background in `refreshVisibilityButton`. -->
+    <string name="main_always_visible_caption_on">Anyone nearby can share files with me.</string>
+    <string name="main_always_visible_caption_off">Active only while a nearby device is scanning over Bluetooth.</string>
     <string name="main_bug_report_title">Shake to report a bug</string>
     <string name="main_bug_report_subtitle">When enabled, shaking the phone while LibreDrop is open offers to package recent diagnostics, device state, and a screenshot into a zip that you save yourself. Nothing is uploaded automatically.</string>
 
@@ -107,7 +124,7 @@
          device-name chain (system device name, Bluetooth name, model,
          then app label). -->
     <string name="main_advertised_name_title">Advertised Quick Share name</string>
-    <string name="main_advertised_name_subtitle">Nearby Quick Share peers see this name when they discover this device. Leave it empty to use the Android device name fallback chain. LibreDrop trims the final name to 19 UTF-8 bytes to avoid interop issues with longer advertisements.</string>
+    <string name="main_advertised_name_subtitle">Nearby Quick Share peers see this name when they discover this device. Leave it empty to use the Android device name fallback chain. Very long names will be shortened automatically so other devices can read them properly.</string>
     <string name="main_advertised_name_hint">Device name</string>
     <string name="main_advertised_name_current">Currently advertised: %1$s</string>
     <string name="main_advertised_name_save">Save name</string>
@@ -243,6 +260,25 @@
     <string name="send_network_hint_title">Nearby discovery requirements</string>
     <string name="send_network_hint_body">Shared Wi-Fi is still the baseline path. Some receivers can be named from BLE before they expose a supported transfer route; connect both devices to the same Wi-Fi network or keep Bluetooth available for supported bootstrap paths.</string>
     <string name="send_network_hint_dismiss">Got it</string>
+    <!-- "Can't find the device?" link rendered above the Cancel
+         button in the picker state. Tapping it opens a bottom sheet
+         with two short sections: confirm the receiver is in
+         "Ready to receive" mode, and (fallback) use the QR / link
+         share at the top right. The link itself is underlined and
+         centred, sized at the small caption text style. -->
+    <string name="send_help_link">Can\'t find the device?</string>
+
+    <!-- Bottom sheet content for the "Can't find the device?" link.
+         Two sections — receiver visibility check + QR fallback —
+         keyed off the two reasons a peer would not appear in the
+         scan list. -->
+    <string name="send_help_sheet_title">Can\'t find the device?</string>
+    <string name="send_help_sheet_visibility_title">Check the receiver\'s mode</string>
+    <string name="send_help_sheet_visibility_body">On the receiving device, make sure the toggle reads "Ready to receive". In that mode, anyone nearby can share files with it. If it\'s already in that mode but still doesn\'t appear here, try fully closing LibreDrop on both devices and reopening it.</string>
+    <string name="send_help_sheet_qr_title">Or share via QR code</string>
+    <string name="send_help_sheet_qr_body">If the receiver still does not appear, tap the QR code button at the top right of this card. Have the receiver scan the code or open the link to start the transfer.</string>
+    <string name="send_help_sheet_close">Got it</string>
+
     <string name="send_show_qr">Show QR</string>
     <string name="send_cancel">Cancel</string>
     <string name="send_done">Done</string>
@@ -262,6 +298,13 @@
     <string name="send_phase_sending">Sending</string>
     <string name="send_phase_completed">Sent successfully</string>
     <string name="send_phase_rejected">Receiver declined the transfer</string>
+    <!-- Named-receiver variant of the rejection terminal. Renders as
+         the only text-bearing line on the rejection card; the
+         payload summary / subtitle / target / "Reason: REJECT" lines
+         are all suppressed in this state because they do not add
+         signal beyond "the named peer said no". %1$s is the
+         receiver's display name. -->
+    <string name="send_phase_rejected_by_named">%1$s declined the file transfer</string>
     <string name="send_phase_cancelled">Transfer cancelled</string>
     <string name="send_phase_failed">Transfer failed</string>
 
@@ -331,19 +374,41 @@
 
     <!-- Consent trampoline (#22). -->
     <string name="consent_activity_label">Incoming transfer</string>
-    <string name="consent_pin_label">Confirm this 4-digit code matches the sender\'s screen.</string>
+    <!-- Short header above the 4-digit confirmation PIN. Replaces the
+         older sentence-form "Confirm this 4-digit code…" with a
+         minimal uppercase label so the PIN itself is the dominant
+         element on the line. -->
+    <string name="consent_pin_label">PIN</string>
     <string name="consent_files_label">Files to receive</string>
     <string name="consent_button_accept">Accept</string>
     <string name="consent_button_reject">Reject</string>
     <string name="consent_unknown_sender">A nearby device wants to share</string>
+    <!-- Type-specific consent title templates, picked at render time
+         based on the announced payload's mime types. The classifier
+         reads as "all items are images" → images, "all items are
+         videos" → videos, otherwise → files (covers mixed types,
+         text payloads, documents, archives). %1$s is the sender's
+         device name. The legacy single-shape title remains for
+         compat / fallback callers. -->
     <string name="consent_title_with_name">%1$s wants to share</string>
+    <string name="consent_title_with_name_images">%1$s wants to share images</string>
+    <string name="consent_title_with_name_videos">%1$s wants to share videos</string>
+    <string name="consent_title_with_name_files">%1$s wants to share files</string>
     <string name="consent_summary_n_items">%1$d item(s) (%2$s)</string>
     <string name="consent_summary_no_items">no items</string>
     <!-- Folder-receive summary (#39). Shown when every announced file
          shares the same root parent_folder. -->
     <string name="consent_summary_folder">Folder \"%1$s\" (%2$d file(s), %3$s)</string>
-    <string name="consent_file_line">%1$s · %2$s</string>
-    <string name="consent_text_line_with_title">%1$s · %2$s</string>
+    <!--
+      Per-item rows in the consent dialog's file list. Each row is
+      rendered as a single TextView with the file / item name on the
+      first line and the human-readable size on the second line —
+      `\n` is interpreted as a hard line break. Both lines render
+      centre-aligned (gravity set in code on the TextView), matching
+      the rest of the consent panel's centred axis.
+    -->
+    <string name="consent_file_line">%1$s\n%2$s</string>
+    <string name="consent_text_line_with_title">%1$s\n%2$s</string>
     <string name="consent_more_items">…and %1$d more</string>
     <string name="consent_dismissed">Transfer no longer pending</string>
 

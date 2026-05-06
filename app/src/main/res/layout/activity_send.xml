@@ -62,13 +62,30 @@
           above the rest of the screen content rather than jamming
           against the status bar.
     -->
+    <!--
+      Toolbar insets / padding are forced symmetric (all four content
+      insets = 0, only paddingTop carries the status-bar offset)
+      because `layout_gravity="center"` on a Toolbar child centers the
+      child within the toolbar's *inset-adjusted content area*, not
+      its full width. With the AppCompat default
+      `contentInsetStart=16dp` and the previous `paddingEnd=12dp`,
+      that content area was offset right of the screen's geometric
+      center, dragging the pill ~23 px left of true center. Zeroing
+      the insets + padding makes the content area span the full
+      toolbar width, so a centered child snaps to true screen center
+      regardless of its width — meaning the pill stays geometrically
+      centered no matter how short or long the device name is.
+    -->
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/send_toolbar"
         android:layout_width="match_parent"
         android:layout_height="88dp"
         android:background="?android:attr/colorBackground"
-        android:paddingEnd="12dp"
-        android:paddingTop="32dp">
+        android:paddingTop="32dp"
+        app:contentInsetEnd="0dp"
+        app:contentInsetLeft="0dp"
+        app:contentInsetRight="0dp"
+        app:contentInsetStart="0dp">
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/send_device_pill"
@@ -79,12 +96,22 @@
             app:cardCornerRadius="24dp"
             app:cardElevation="4dp">
 
+            <!--
+              `gravity="center"` + `textAlignment="center"` belt-and-
+              suspenders: with `wrap_content` width and symmetric
+              horizontal padding the text already centers visually,
+              but explicit centering keeps the rendering deterministic
+              if a future change ever stretches the TextView width
+              (e.g. fixed minimum width for very short names).
+            -->
             <TextView
                 android:id="@+id/send_device_pill_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:gravity="center"
                 android:paddingHorizontal="20dp"
                 android:paddingVertical="10dp"
+                android:textAlignment="center"
                 android:textAppearance="@style/TextAppearance.AppCompat.Body2"
                 android:textColor="?android:attr/textColorPrimary"
                 tools:text="Pixel 8" />
@@ -226,6 +253,8 @@
                     android:id="@+id/send_picker_content"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
                     android:orientation="vertical"
                     android:padding="24dp">
 
@@ -266,7 +295,9 @@
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
                         android:layout_marginTop="16dp"
-                        android:layout_weight="1">
+                        android:layout_weight="1"
+                        android:clipChildren="false"
+                        android:clipToPadding="false">
 
                         <ScrollView
                             android:id="@+id/send_peer_scroll"
@@ -345,13 +376,28 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_gravity="center"
+                            android:clipChildren="false"
+                            android:clipToPadding="false"
                             android:orientation="vertical"
                             android:visibility="gone">
 
+                            <!--
+                              Status panel headline + target subtitle are
+                              center-aligned to match the consent dialog
+                              and the post-rejection terminal: every
+                              terminal-state surface in the app reads
+                              with a centered title block over a centered
+                              media element (photo card / PIN digits /
+                              progress disc), so left-aligning these two
+                              would break the visual axis the rest of
+                              the panel inherits.
+                            -->
                             <TextView
                                 android:id="@+id/send_status_phase"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:textAlignment="center"
                                 android:textAppearance="@style/TextAppearance.AppCompat.Title"
                                 tools:text="Awaiting acceptance" />
 
@@ -360,6 +406,8 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="4dp"
+                                android:gravity="center"
+                                android:textAlignment="center"
                                 android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                                 tools:text="Sending to Pixel 8" />
 
@@ -446,12 +494,81 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="12dp"
+                                android:gravity="center"
+                                android:textAlignment="center"
                                 android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                                 tools:text="Confirm this code matches the receiver's screen." />
 
                         </LinearLayout>
 
                     </FrameLayout>
+
+                    <!--
+                      Ephemeral toast-style banner that appears
+                      between the weighted middle slot and the Cancel
+                      button after the receiver declines a transfer.
+                      `SendActivity.bounceBackToPickerAfterRejection`
+                      flips this VISIBLE with a fade-in for ~3s, then
+                      fades it out and back to GONE. While it is GONE
+                      it consumes zero vertical space, so the picker
+                      layout looks unchanged when no rejection is
+                      pending.
+
+                      The dark pill background matches the system
+                      Toast aesthetic the user already associates
+                      with non-modal feedback; centring it horizontally
+                      keeps it from sitting awkwardly under either
+                      side button.
+                    -->
+                    <TextView
+                        android:id="@+id/send_rejection_banner"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center_horizontal"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/rejection_banner_background"
+                        android:elevation="2dp"
+                        android:paddingStart="16dp"
+                        android:paddingTop="10dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="10dp"
+                        android:textColor="#FFFFFFFF"
+                        android:textSize="14sp"
+                        android:visibility="gone"
+                        tools:text="V2547A 님이 파일 전송을 거절했습니다." />
+
+                    <!--
+                      "Can't find the device?" help link rendered just
+                      above the Cancel button while the picker is
+                      visible. Tapping it opens a bottom sheet with
+                      two short troubleshooting sections (receiver
+                      visibility mode + QR fallback). Underline is
+                      applied programmatically in
+                      `SendActivity.wireHelpLink` because the AppCompat
+                      `paintFlags` XML attribute is not exposed; using
+                      a SpannableString or `<u>` HTML in the resource
+                      would also work but the runtime flag is simpler
+                      and survives locale switches without re-parsing.
+                      `selectableItemBackground` provides the standard
+                      tap-feedback ripple. Sized at the small caption
+                      style + secondary text colour so the link reads
+                      as a quiet helper rather than competing with
+                      the Cancel button below.
+                    -->
+                    <TextView
+                        android:id="@+id/send_help_link"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:text="@string/send_help_link"
+                        android:textAppearance="?android:attr/textAppearanceSmall"
+                        android:textColor="?android:attr/textColorSecondary" />
 
                     <!--
                       The Show QR action used to live here as a
@@ -571,37 +688,58 @@
                             android:contentDescription="@string/show_qr_image_description" />
 
                         <!--
-                          URL row collapses to a single line with an
-                          end-ellipsis. The full string is still on the
-                          TextView (and therefore on the clipboard via
-                          the Copy link button), but the visible row
-                          stays compact so the panel layout never
-                          overflows the card. Text remains selectable
-                          for users who prefer manual selection over
-                          the Copy link button.
+                          URL row stays on a single line (the pairing
+                          URL is meaningless if visually wrapped — the
+                          host portion would split mid-word on narrow
+                          chips), but instead of end-ellipsizing the
+                          tail we wrap the TextView in a horizontal
+                          ScrollView. The full URL is laid out at its
+                          intrinsic width inside the chip and the user
+                          can swipe the chip left/right to read the
+                          tail, or long-press to invoke the system
+                          selection toolbar (Select all + Copy) on the
+                          full string in-place — no need to use the
+                          Copy link button just to grab the suffix.
 
                           The chip-style `@drawable/qr_url_background`
-                          gives the URL row a soft, very-light-gray
-                          container so it reads as a distinct
-                          "selectable field" beneath the QR bitmap
-                          rather than free-floating text. Internal
-                          padding is bumped up (12dp horizontal, 10dp
-                          vertical) so the URL has visible breathing
-                          room inside the chip's rounded corners.
+                          moves up to the ScrollView so the rounded
+                          chip is the *viewport* the URL scrolls
+                          within, not a frame around an over-wide
+                          TextView that would visually clip past the
+                          card edge. Internal padding stays on the
+                          TextView (12dp horizontal / 10dp vertical) so
+                          padding scrolls with the content — a tail
+                          tail-padding remains after a full right
+                          scroll, matching the head-padding visible at
+                          rest position.
+
+                          `scrollbars="none"` hides the default thin
+                          scrollbar; the chip is short and the pill
+                          shape already telegraphs scrollability when
+                          text overflows. `fillViewport=true` lets the
+                          inner TextView's intrinsic width exceed the
+                          chip width without being clamped to it.
                         -->
-                        <TextView
-                            android:id="@+id/send_qr_url"
+                        <HorizontalScrollView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="16dp"
                             android:background="@drawable/qr_url_background"
-                            android:ellipsize="end"
-                            android:fontFamily="monospace"
-                            android:paddingHorizontal="12dp"
-                            android:paddingVertical="10dp"
-                            android:singleLine="true"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
-                            android:textIsSelectable="true" />
+                            android:fillViewport="true"
+                            android:scrollbars="none">
+
+                            <TextView
+                                android:id="@+id/send_qr_url"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="monospace"
+                                android:paddingHorizontal="12dp"
+                                android:paddingVertical="10dp"
+                                android:singleLine="true"
+                                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                                android:textIsSelectable="true" />
+
+                        </HorizontalScrollView>
 
                         <!--
                           Bottom action row. Close (left) dismisses
@@ -619,14 +757,15 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="16dp"
+                            android:gravity="center"
                             android:orientation="horizontal">
 
                             <Button
                                 android:id="@+id/send_qr_close"
                                 style="@style/Widget.LibreDrop.Button"
-                                android:layout_width="0dp"
+                                android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_weight="1"
+                                android:minWidth="140dp"
                                 android:text="@string/show_qr_close" />
 
                             <Space
@@ -636,9 +775,9 @@
                             <Button
                                 android:id="@+id/send_qr_copy_link"
                                 style="@style/Widget.LibreDrop.Button"
-                                android:layout_width="0dp"
+                                android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_weight="1"
+                                android:minWidth="140dp"
                                 android:text="@string/show_qr_copy_link" />
 
                         </LinearLayout>

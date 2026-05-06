@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Drag-handle pill rendered at the very top of the bottom sheets in
+  the app (currently the "Can't find the device?" sheet). 4dp tall,
+  fully-rounded, mid-gray (#5F000000 ≈ 37% black) so it reads as a
+  subtle "drag me" affordance against the white sheet surface
+  without competing with the headline below.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="2dp" />
+    <solid android:color="#5F000000" />
+</shape>

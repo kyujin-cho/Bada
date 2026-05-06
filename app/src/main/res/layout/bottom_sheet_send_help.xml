@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Content for the "Can't find the device?" bottom sheet raised from
+  the picker state inside SendActivity. Hosted by a Material
+  BottomSheetDialog; the dialog supplies the corner-rounded surface
+  + drop shadow + drag-to-dismiss behaviour, this layout only
+  carries the text content + close button.
+
+  Two sections — receiver visibility check, and QR / link fallback
+  — match the two reasons a peer would not show up in the scan
+  list. A small drag-handle pill at the top reinforces the
+  bottom-sheet affordance for users who do not realise the surface
+  is dismissable by swipe.
+-->
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="24dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="24dp">
+
+        <!-- Drag-handle affordance. Decorative; the parent
+             BottomSheetDialog handles the actual swipe gesture. -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="20dp"
+            android:background="@drawable/bottom_sheet_drag_handle" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/send_help_sheet_title"
+            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+            android:textStyle="bold" />
+
+        <!-- Section 1: receiver visibility check. -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/send_help_sheet_visibility_title"
+            android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/send_help_sheet_visibility_body"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+        <!-- Section 2: QR / link fallback. -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/send_help_sheet_qr_title"
+            android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/send_help_sheet_qr_body"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+        <!--
+          Apply Widget.LibreDrop.Button explicitly here. BottomSheetDialog
+          uses its own ThemeOverlay (Material BottomSheetDialog) that does
+          NOT inherit Theme.LibreDrop's `buttonStyle`, so without this the
+          close button would render as a flat Material default and break
+          consistency with the picker's Cancel button right above the
+          help-link that opens this sheet.
+        -->
+        <Button
+            android:id="@+id/send_help_sheet_close"
+            style="@style/Widget.LibreDrop.Button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/send_help_sheet_close" />
+
+    </LinearLayout>
+
+</androidx.core.widget.NestedScrollView>

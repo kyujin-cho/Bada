@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Korean (`ko`) string overrides for :service-android. Mirrors
+  every user-visible string in `values/strings.xml` so receiver and
+  consent notifications render in Korean on a Korean-locale device
+  while every other locale falls back to the English originals.
+
+  Format placeholders (%1$s, %1$d, etc.) and escaped quotes are
+  preserved verbatim — translators only adjust the surrounding
+  prose. Pluralisation is still handled in code (no `<plurals>`
+  resources here yet); the segment strings below match what the
+  consent / progress notification builders interpolate.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Receiver foreground notification channel + body (#21). -->
+    <string name="receiver_notification_channel_name">Quick Share 수신기</string>
+    <string name="receiver_notification_channel_description">Quick Share 전송 수신을 대기하는 동안의 상태 알림</string>
+    <string name="receiver_notification_title">Quick Share가 활성화되어 있습니다</string>
+    <string name="receiver_notification_text">근처 파일 수신 중…</string>
+    <string name="receiver_notification_text_with_ssid">\"%1$s\"에서 수신 중</string>
+    <string name="receiver_notification_text_unknown_ssid">이 네트워크에서 수신 중</string>
+
+    <!-- Consent notification (#22). -->
+    <string name="consent_notification_channel_name">수신 요청</string>
+    <string name="consent_notification_channel_description">다른 기기에서 파일 전송을 요청할 때 표시되는 헤드업 알림</string>
+    <string name="consent_notification_title_with_name">%1$s 님이 공유를 요청합니다</string>
+    <string name="consent_notification_title_unknown_sender">근처 기기가 공유를 요청합니다</string>
+
+    <string name="consent_notification_summary_n_items" tools:ignore="PluralsCandidate">항목 %1$d개 (%2$s)</string>
+    <string name="consent_notification_summary_no_items">항목 없음</string>
+
+    <!-- Mixed-introduction summary (#40). -->
+    <string name="consent_notification_summary_kinds_with_size">%1$s (%2$s)</string>
+    <string name="consent_notification_segment_files" tools:ignore="PluralsCandidate">파일 %1$d개</string>
+    <string name="consent_notification_segment_urls" tools:ignore="PluralsCandidate">URL %1$d개</string>
+    <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">주소 %1$d개</string>
+    <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">전화번호 %1$d개</string>
+    <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">텍스트 %1$d개</string>
+
+    <!-- Folder-receive summary (#39). -->
+    <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">폴더 \"%1$s\" (파일 %2$d개, %3$s)</string>
+
+    <string name="consent_notification_body">%1$s · PIN %2$s</string>
+    <string name="consent_notification_bigtext_pin_line">PIN 확인: %1$s</string>
+
+    <string name="consent_notification_action_accept">수락</string>
+    <string name="consent_notification_action_reject">거부</string>
+
+    <!-- Transfer progress notification (#46). -->
+    <string name="transfer_progress_channel_name">전송 진행 상황</string>
+    <string name="transfer_progress_channel_description">진행 중인 Quick Share 전송에 대한 무음 진행 알림</string>
+
+    <string name="transfer_progress_title_with_name">%1$s 님으로부터 받는 중</string>
+    <string name="transfer_progress_title_unknown_sender">파일 받는 중</string>
+
+    <string name="transfer_progress_body_size">%1$s / %2$s</string>
+    <string name="transfer_progress_body_rate">%1$s/초</string>
+    <string name="transfer_progress_body_eta">%1$s 남음</string>
+
+    <string name="transfer_progress_duration_few_seconds">1초 미만</string>
+    <string name="transfer_progress_duration_seconds" tools:ignore="PluralsCandidate">%1$d초</string>
+    <string name="transfer_progress_duration_about_minutes" tools:ignore="PluralsCandidate">약 %1$d분</string>
+    <string name="transfer_progress_duration_about_hours" tools:ignore="PluralsCandidate">약 %1$d시간</string>
+
+    <string name="transfer_progress_action_cancel">취소</string>
+
+</resources>

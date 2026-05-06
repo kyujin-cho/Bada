@@ -89,6 +89,7 @@ internal class CreditActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.credit_yeonfeel_name),
                 findViewById<TextView>(R.id.credit_chiyak_qa_name),
                 findViewById<TextView>(R.id.credit_teqhnikacross_name),
+                findViewById<TextView>(R.id.credit_parami_name),
             )
         startStaggeredHighlights(nameViews)
 
@@ -112,6 +113,7 @@ internal class CreditActivity : AppCompatActivity() {
             R.id.credit_yeonfeel_avatar,
             R.id.credit_chiyak_avatar,
             R.id.credit_teqhnikacross_avatar,
+            R.id.credit_parami_avatar,
         ).forEach { id ->
             findViewById<ShapeableImageView>(id)?.shapeAppearanceModel = smoothShape
         }

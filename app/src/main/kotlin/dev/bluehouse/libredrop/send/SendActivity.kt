@@ -13,11 +13,14 @@ import android.graphics.Bitmap
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.ImageDecoder
+import android.graphics.Paint
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.transition.ChangeBounds
 import android.transition.Transition
 import android.transition.TransitionManager
@@ -52,6 +55,7 @@ import dev.bluehouse.libredrop.protocol.qr.QrUrl
 import dev.bluehouse.libredrop.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.libredrop.service.receiver.OutboundSessionActiveHolder
 import kotlinx.coroutines.Dispatchers
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -166,6 +170,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendQrClose.setOnClickListener { onQrDoneClicked() }
         binding.sendQrCopyLink.setOnClickListener { onCopyQrLinkClicked() }
         binding.sendNetworkHintDismiss.setOnClickListener { peerPickerController.onHintDismissed() }
+        wireHelpLink()
 
         // Capture the first image attachment URI now so the success
         // terminal can render a preview without re-resolving the intent.
@@ -209,6 +214,9 @@ public class SendActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Cancel any pending fade-out for the rejection banner so its
+        // Runnable does not fire against a recycled binding.
+        rejectionBannerHideHandler.removeCallbacks(rejectionBannerHideRunnable)
         // Coroutine cancellation handles the StateFlow / browse Flow
         // teardown, but we additionally call cancel() on any active
         // OutboundConnection so a CancelFrame is sent on the wire when
@@ -378,6 +386,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendNetworkHint.isVisible = false
         binding.sendPeerScroll.isVisible = false
         binding.sendShowQrButton.isVisible = false
+        binding.sendHelpLink.isVisible = false
         binding.sendStatusPanel.isVisible = true
 
         binding.sendStatusTarget.text = getString(R.string.send_status_target, peerPickerController.peerLabel(peer))
@@ -495,10 +504,17 @@ public class SendActivity : AppCompatActivity() {
                     isSuccess = true,
                 )
             is OutboundConnectionState.Rejected ->
-                renderTerminal(
-                    getString(R.string.send_phase_rejected),
-                    getString(R.string.send_status_failure_reason, state.status.toString()),
-                )
+                // Receiver-rejection bounce-back. Instead of staying on a
+                // terminal "rejected" card, we tear the connection chrome
+                // down, restore the picker list, and show a brief
+                // toast-style banner above the Cancel button — the user
+                // can then pick a different peer without backing out and
+                // re-entering the share. The connectionJob's own `finally`
+                // block clears `activeConnection` shortly after this state
+                // arrives (Rejected is terminal in the FSM; `connection.run`
+                // returns immediately afterward), so we do not need to
+                // cancel it manually here.
+                bounceBackToPickerAfterRejection(peerPickerController.peerLabel(peer))
             is OutboundConnectionState.Cancelled ->
                 renderTerminal(
                     getString(R.string.send_phase_cancelled),
@@ -523,6 +539,11 @@ public class SendActivity : AppCompatActivity() {
      * image MIME — matching the requested "보냈다는 정보 + 이미지 정보만"
      * layout. Failure variants keep the [message] line because it
      * carries the failure reason.
+     *
+     * Receiver-rejection (`OutboundConnectionState.Rejected`) does
+     * NOT go through this renderer — see
+     * [bounceBackToPickerAfterRejection] for the toast-banner-on-picker
+     * flow that replaces the previous rejection terminal card.
      */
     private fun renderTerminal(
         phaseText: String,
@@ -539,6 +560,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
         binding.sendPeerScroll.visibility = View.GONE
+        binding.sendHelpLink.visibility = View.GONE
 
         // The PIN is a pairing artifact — once we've reached a terminal
         // state the comparison window is over, so always hide it.
@@ -569,13 +591,120 @@ public class SendActivity : AppCompatActivity() {
             renderSuccessPreview(sentImagePreviewUri)
             applyBlurredCardBackground(sentImagePreviewUri)
         } else {
-            // Failure / cancel / reject — keep the reason visible and
-            // hide the image preview (no successful payload to show).
+            // Failure / cancel — keep the reason visible and hide the
+            // image preview (no successful payload to show).
             binding.sendStatusMessage.visibility = View.VISIBLE
             binding.sendStatusMessage.text = message
             binding.sendTerminalPreviewCard.visibility = View.GONE
             applyBlurredCardBackground(null)
         }
+    }
+
+    /**
+     * Receiver-rejection flow: tear the connection chrome down,
+     * restore the picker list, restart discovery + BLE advertise, and
+     * surface a toast-style banner above the Cancel button with
+     * "{peer} declined the file transfer". Replaces the older
+     * rejection-terminal card so the user can immediately pick a
+     * different peer without backing out of the share intent.
+     *
+     * The banner auto-dismisses with a fade after [REJECTION_BANNER_VISIBLE_MS];
+     * an in-flight banner is replaced (not stacked) if a second
+     * rejection arrives before the first has faded.
+     */
+    private fun bounceBackToPickerAfterRejection(peerName: String) {
+        beginCardBoundsTransition(BOUNDS_DURATION_MS)
+
+        // Collapse the connection-state chrome.
+        binding.sendStatusPanel.visibility = View.GONE
+        binding.sendPin.visibility = View.GONE
+        binding.sendStatusCircleWrapper.visibility = View.GONE
+        binding.sendPinStateBackground.visibility = View.GONE
+        binding.sendTerminalPreviewCard.visibility = View.GONE
+        binding.sendCardBlur.visibility = View.GONE
+        binding.sendCardOverlay.visibility = View.GONE
+
+        // Restore the picker chrome. The peer list contents +
+        // empty-state visibility + subtitle are all driven by the
+        // controller's `renderPeerList`, which fires on the next
+        // discovery event; we just have to re-show the wrapper +
+        // floating QR icon and reset the bottom button row.
+        binding.sendPayloadSummary.visibility = View.VISIBLE
+        binding.sendSubtitle.visibility = View.VISIBLE
+        binding.sendPeerScroll.visibility = View.VISIBLE
+        binding.sendPeerList.visibility = View.VISIBLE
+        binding.sendShowQrButton.visibility = View.VISIBLE
+        binding.sendHelpLink.visibility = View.VISIBLE
+        binding.sendCancelButton.visibility = View.VISIBLE
+        binding.sendCancelButton.setText(R.string.send_cancel)
+        binding.sendDoneButton.visibility = View.GONE
+
+        // Resume discovery + BLE advertise so a second peer can be
+        // picked. `start()` cancels any prior outboundPresenceJob and
+        // re-enters its full kick-off sequence (mDNS browse +
+        // empty-peer hint timer + BLE pulse).
+        peerPickerController.start()
+
+        // Surface the toast banner.
+        showRejectionBanner(getString(R.string.send_phase_rejected_by_named, peerName))
+    }
+
+    private val rejectionBannerHideHandler = Handler(Looper.getMainLooper())
+    private val rejectionBannerHideRunnable =
+        Runnable {
+            binding.sendRejectionBanner
+                .animate()
+                .alpha(0f)
+                .setDuration(REJECTION_BANNER_FADE_MS)
+                .withEndAction {
+                    binding.sendRejectionBanner.visibility = View.GONE
+                    binding.sendRejectionBanner.alpha = 1f
+                }
+                .start()
+        }
+
+    /**
+     * One-shot wiring for the "Can't find the device?" help link.
+     * Adds the underline paint flag (the layout attribute exists for
+     * the EditText subtree only, not arbitrary TextViews) and binds
+     * the click handler to surface the bottom sheet. Called from
+     * `onCreate` once; the link itself is then toggled VISIBLE/GONE
+     * alongside the rest of the picker chrome by the connection /
+     * terminal renderers below.
+     */
+    private fun wireHelpLink() {
+        val link = binding.sendHelpLink
+        link.paintFlags = link.paintFlags or Paint.UNDERLINE_TEXT_FLAG
+        link.setOnClickListener { showHelpSheet() }
+    }
+
+    private fun showHelpSheet() {
+        val sheet = BottomSheetDialog(this)
+        sheet.setContentView(R.layout.bottom_sheet_send_help)
+        sheet.findViewById<View>(R.id.send_help_sheet_close)?.setOnClickListener {
+            sheet.dismiss()
+        }
+        sheet.show()
+    }
+
+    private fun showRejectionBanner(message: String) {
+        val banner = binding.sendRejectionBanner
+        // Cancel any in-flight fade so re-entry replaces (not stacks).
+        rejectionBannerHideHandler.removeCallbacks(rejectionBannerHideRunnable)
+        banner.animate().cancel()
+
+        banner.text = message
+        banner.alpha = 0f
+        banner.visibility = View.VISIBLE
+        banner
+            .animate()
+            .alpha(1f)
+            .setDuration(REJECTION_BANNER_FADE_MS)
+            .start()
+        rejectionBannerHideHandler.postDelayed(
+            rejectionBannerHideRunnable,
+            REJECTION_BANNER_VISIBLE_MS,
+        )
     }
 
     /**
@@ -803,6 +932,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
         binding.sendPeerScroll.visibility = View.GONE
+        binding.sendHelpLink.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
@@ -821,6 +951,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
         binding.sendPeerScroll.visibility = View.GONE
+        binding.sendHelpLink.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
@@ -840,6 +971,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendEmptyState.visibility = View.GONE
         binding.sendNetworkHint.visibility = View.GONE
         binding.sendPeerScroll.visibility = View.GONE
+        binding.sendHelpLink.visibility = View.GONE
         binding.sendShowQrButton.visibility = View.GONE
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
@@ -1204,6 +1336,14 @@ public class SendActivity : AppCompatActivity() {
         private const val BOUNDS_DURATION_MS: Long = 280L
         private const val FADE_IN_DURATION_MS: Long = 200L
         private const val OVERSHOOT_TENSION: Float = 1.5f
+
+        // Toast-style banner above the Cancel button that surfaces the
+        // "{peer} declined the file transfer" message after a receiver
+        // rejection. Visible for [REJECTION_BANNER_VISIBLE_MS] before
+        // fading out over [REJECTION_BANNER_FADE_MS]; the same fade
+        // duration is reused for the fade-in on show.
+        private const val REJECTION_BANNER_VISIBLE_MS: Long = 3000L
+        private const val REJECTION_BANNER_FADE_MS: Long = 280L
 
         // Fraction of the shorter screen edge to use for the QR
         // bitmap rendered into the in-card panel. Mirrors the value

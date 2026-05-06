@@ -27,6 +27,7 @@ import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -190,16 +191,17 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         super.onViewCreated(view, savedInstanceState)
 
         val visibilityButton = view.findViewById<Button>(R.id.main_always_visible_button)
+        val visibilityCaption = view.findViewById<TextView>(R.id.main_always_visible_caption)
         // The pulse view lives at the activity level (so its drifting
         // gradient blobs paint behind the toolbar, fragment, and
         // bottom-nav as one continuous backdrop). Look it up via the
         // host activity rather than the fragment's own view subtree.
         val visibilityPulse = requireActivity().findViewById<VisibilityPulseView>(R.id.main_always_visible_pulse)
-        refreshVisibilityButton(visibilityButton, visibilityPulse)
+        refreshVisibilityButton(visibilityButton, visibilityCaption, visibilityPulse)
         visibilityButton.setOnClickListener {
             val next = !MdnsVisibilityOverrideHolder.isActive
             MdnsVisibilityOverrideHolder.setAlwaysVisible(next)
-            refreshVisibilityButton(visibilityButton, visibilityPulse)
+            refreshVisibilityButton(visibilityButton, visibilityCaption, visibilityPulse)
         }
 
         view.findViewById<Button>(R.id.main_send_files_button).setOnClickListener {
@@ -250,8 +252,9 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         val v = view
         if (v != null) {
             val visibilityButton = v.findViewById<Button>(R.id.main_always_visible_button)
+            val visibilityCaption = v.findViewById<TextView>(R.id.main_always_visible_caption)
             val visibilityPulse = requireActivity().findViewById<VisibilityPulseView>(R.id.main_always_visible_pulse)
-            refreshVisibilityButton(visibilityButton, visibilityPulse)
+            refreshVisibilityButton(visibilityButton, visibilityCaption, visibilityPulse)
         }
         refreshLegacyWvmgBanner()
         ensurePhotoPreviews()
@@ -269,6 +272,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
      */
     private fun refreshVisibilityButton(
         button: Button,
+        caption: TextView,
         pulse: VisibilityPulseView,
     ) {
         val active = MdnsVisibilityOverrideHolder.isActive
@@ -276,6 +280,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
             button.setBackgroundResource(R.drawable.btn_visibility_on_background)
             button.setTextColor(ContextCompat.getColor(button.context, R.color.brand_on_primary))
             button.setText(R.string.main_always_visible_title)
+            caption.setText(R.string.main_always_visible_caption_on)
             // Soft "device is broadcasting" cue: animated, low-alpha
             // concentric pulses around the pill while ON; idle while OFF.
             pulse.startPulse()
@@ -287,6 +292,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
                 }
             button.setTextColor(defaultTextColor)
             button.setText(R.string.main_always_visible_off_title)
+            caption.setText(R.string.main_always_visible_caption_off)
             pulse.stopPulse()
         }
     }

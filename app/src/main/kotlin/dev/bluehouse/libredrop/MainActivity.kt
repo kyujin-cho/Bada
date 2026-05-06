@@ -126,6 +126,17 @@ class MainActivity : AppCompatActivity() {
                     R.id.nav_settings -> SettingsFragment()
                     else -> return@setOnItemSelectedListener false
                 }
+            // Swap the toolbar title per tab so the page identity is
+            // explicit. Home keeps the "LibreDrop" brand (the app's
+            // root surface); Settings switches to its tab title so the
+            // toolbar reads as page context, matching how the
+            // dedicated send/consent activities title themselves
+            // rather than carrying the brand.
+            toolbar.title =
+                when (item.itemId) {
+                    R.id.nav_settings -> getString(R.string.nav_settings_title)
+                    else -> getString(R.string.app_name)
+                }
             supportFragmentManager
                 .beginTransaction()
                 .replace(R.id.main_fragment_container, fragment)

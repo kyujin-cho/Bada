@@ -3,31 +3,300 @@
   Korean (`ko`) string overrides. The Android resource system
   picks this file for any device whose primary locale resolves to
   Korean (`ko`, `ko-rKR`, `ko-rKP`); every other locale falls back
-  to the canonical English copy in `values/strings.xml`. Only the
-  strings the product owner has explicitly translated live here, so
-  any string we do not list keeps the English text on a Korean
-  device — preferred over a half-machine-translated UI.
+  to the canonical English copy in `values/strings.xml`.
 
   Pairing additions: when adding a new translatable string, add the
   English copy in `values/strings.xml` first, then the Korean
   rendering here. Keep the resource name identical between both
-  files.
+  files. Format placeholders (%1$s, %1$d, %%, etc.) and escaped
+  glyphs are preserved verbatim — translators only adjust the
+  surrounding prose.
+
+  A small set of strings is intentionally NOT translated:
+    * `app_name`, contributor display names, brand-y labels
+      ("Quick Share", "LibreDrop") — proper nouns.
+    * `credit_teqhnikacross_desc` — the contributor explicitly
+      asked for "We all want to be loved" rendered as-is on Korean
+      devices too.
+    * `credit_yeonfeel_desc`, `credit_thanks_compact` — already
+      Korean in the canonical file (used as the default for both
+      English and Korean locales).
 -->
 <resources>
-    <!-- QR sharing panel inside SendActivity. -->
+
+    <!-- Bottom-navigation tab labels for MainActivity. -->
+    <string name="nav_send_receive_title">송수신</string>
+    <string name="nav_settings_title">설정</string>
+
+    <!-- Toolbar overflow menu / Credit screen. The Korean word for
+         "credit" is rendered as the loanword "크레딧" (transliteration
+         of the English term) per product copy direction; the literal
+         Korean alternative "기여자" reads as overly formal in this
+         consumer-facing context. -->
+    <string name="menu_credit">크레딧</string>
+    <string name="credit_activity_label">크레딧</string>
+
+    <!-- `credit_section_developer`, `credit_section_polisher`,
+         `credit_section_qa`, `credit_section_thanks` are intentionally
+         NOT translated here (no override). Per product direction the
+         four credit section headers ("Developer", "Polisher", "QA",
+         "Special Thanks to") render in English on Korean devices too —
+         they read as designed wordmarks on the page rather than
+         translatable labels, and match how the rest of the credit
+         footer mixes English brand-y phrasing with Korean body copy.
+         The only header that historically had a Korean equivalent
+         was QA, where the abbreviation is identical in both locales. -->
+    <!--<string name="credit_section_developer">개발자</string>-->
+    <!--<string name="credit_section_polisher">디자이너</string>-->
+    <!--<string name="credit_section_qa">QA</string>-->
+    <!--<string name="credit_section_thanks">특별히 감사드리는 분들</string>-->
+
+    <!-- Credit screen, Developer section. -->
+    <string name="credit_kevin_desc">마일리지가 모자라요</string>
+    <!-- Credit screen, QA section. -->
+    <string name="credit_chiyak_qa_desc">콘서트 티켓이 사고 싶어요</string>
+    <string name="credit_parami_desc">매일 감사하는 기도를 올리자</string>
+
+    <string name="credit_avatar_description">기여자 프로필 사진</string>
+
+    <!-- File-picker entry point on the Send/Receive tab. -->
+    <string name="main_send_files_button">파일 보내기</string>
+    <string name="main_send_files_subtitle">이 기기의 파일(사진, 문서 등 무엇이든)을 선택해서 근처 Quick Share 기기로 보냅니다.</string>
+    <string name="main_send_files_pick_failed">이 기기에서 파일 선택기를 열 수 없습니다.</string>
+    <string name="main_send_files_no_selection">선택된 파일이 없습니다.</string>
+
+    <!-- Idle state caption above the photo preview cards. -->
+    <string name="main_send_waiting">파일을 기다리는 중…</string>
+    <string name="main_send_preview_photo_description">최근 갤러리 사진 미리보기</string>
+
+    <!-- Always-visible pill (#34) — ON / OFF labels, tooltip, and
+         caption. ON-state label switches from the older "항상 보이기"
+         to the more user-intent-aligned "받을 준비 완료" ("ready to
+         receive"); the caption underneath spells out the implication
+         in plain prose. -->
+    <string name="main_always_visible_title">받을 준비 완료</string>
+    <string name="main_always_visible_subtitle">근처 송신기의 Bluetooth 신호 없이도 이 기기를 Wi-Fi에서 발견할 수 있도록 유지합니다. 절전을 위해 끄면 송신기가 스캔하는 동안에만 잠시 표시됩니다.</string>
+    <string name="main_always_visible_off_title">스캔 시 보이기</string>
+    <string name="main_always_visible_caption_on">주변의 모든 사람이 나에게 파일을 공유할 수 있습니다.</string>
+    <string name="main_always_visible_caption_off">근처에서 블루투스 스캐닝이 발생할 때에만 활성화됩니다.</string>
+
+    <!-- Shake-to-report bug toggle. -->
+    <string name="main_bug_report_title">흔들어서 버그 보고</string>
+    <string name="main_bug_report_subtitle">활성화 시 LibreDrop이 열려 있을 때 휴대폰을 흔들면 최근 진단 정보, 기기 상태, 스크린샷을 압축 파일로 묶어 직접 저장할 수 있습니다. 자동으로 업로드되지 않습니다.</string>
+
+    <!-- Save-location settings (#42). -->
+    <string name="main_save_location_title">받은 파일 저장 위치</string>
+    <string name="main_save_location_subtitle">받은 파일을 어디에 저장할지 선택합니다. 기본값은 시스템의 다운로드 폴더입니다.</string>
+    <string name="main_save_location_default">다운로드 (기본값)</string>
+    <string name="main_save_location_current">현재: %1$s</string>
+    <string name="main_save_location_pick">폴더 선택…</string>
+    <string name="main_save_location_clear">다운로드로 초기화</string>
+    <string name="main_save_location_pick_failed">해당 폴더를 저장할 수 없습니다. 다른 위치를 선택해 주세요.</string>
+
+    <!-- Advertised Quick Share device name (#141). -->
+    <string name="main_advertised_name_title">Quick Share 표시 이름</string>
+    <string name="main_advertised_name_subtitle">근처 Quick Share 기기에서 검색할 때 이 기기에 표시되는 이름입니다. 비워두면 Android 시스템 기기 이름이 사용됩니다. 이름이 너무 길면 다른 기기에서 제대로 표시되도록 자동으로 줄여집니다.</string>
+    <string name="main_advertised_name_hint">기기 이름</string>
+    <string name="main_advertised_name_current">현재 표시 중: %1$s</string>
+    <string name="main_advertised_name_save">이름 저장</string>
+    <string name="main_advertised_name_reset">시스템 기본값 사용</string>
+
+    <!-- Folder-send entry point (#38). -->
+    <string name="main_send_folder_button">폴더 보내기</string>
+    <string name="main_send_folder_subtitle">이 기기의 폴더를 선택해서 근처 Quick Share 기기로 보냅니다. 하위 디렉터리와 폴더 구조가 받는 쪽에 그대로 보존됩니다.</string>
+    <string name="send_folder_subtitle_walking">폴더 내용 읽는 중…</string>
+    <string name="send_folder_empty">선택한 폴더에 파일이 없습니다. 파일을 하나 이상 추가한 뒤 다시 시도하세요.</string>
+    <string name="send_folder_walk_failed">폴더 내용을 읽을 수 없습니다. 다른 폴더를 선택하고 다시 시도하세요.</string>
+
+    <!-- Legacy WhenVivoMeetsGoogle migration banner (#145). -->
+    <string name="main_legacy_wvmg_banner_title">이전 앱을 제거하세요</string>
+    <string name="main_legacy_wvmg_banner_body">이 기기에 WhenVivoMeetsGoogle이라는 이전 버전 앱이 아직 설치되어 있습니다. 두 앱이 Bluetooth에서 충돌하여 Galaxy 등 기본 Quick Share 송신기에서 이 기기에 연결할 수 없습니다. 이전 버전을 제거하려면 제거를 누르세요.</string>
+    <string name="main_legacy_wvmg_banner_uninstall">이전 버전 제거</string>
+    <string name="main_legacy_wvmg_banner_unavailable">%1$s 제거 화면을 열 수 없습니다. 시스템 설정에서 직접 제거해 주세요.</string>
+
+    <!-- Battery-optimization banner (#47). -->
+    <string name="main_battery_banner_title">백그라운드 활동 허용</string>
+    <string name="main_battery_banner_body">이 휴대폰은 이 앱이 배터리 최적화에서 제외되지 않으면 백그라운드에서 Quick Share 파일을 받지 못할 수 있습니다. 설정 열기를 눌러 제외 항목을 추가하거나, 앱이 열려 있을 때만 Quick Share를 사용한다면 건너뛰세요.</string>
+    <string name="main_battery_banner_open">설정 열기</string>
+    <string name="main_battery_banner_skip">건너뛰기</string>
+    <string name="main_battery_banner_unavailable">이 기기에서 적절한 설정 페이지를 찾을 수 없습니다. 시스템 설정에서 배터리 최적화를 직접 관리할 수 있습니다.</string>
+    <string name="dialog_battery_skip_toast">설정에서 변경할 수 있습니다.</string>
+
+    <!-- Settings tab "Background activity" row. -->
+    <string name="settings_battery_title">백그라운드 활동</string>
+    <string name="settings_battery_subtitle">화면이 꺼져 있을 때도 Quick Share 파일을 계속 받을 수 있도록 이 앱을 배터리 최적화에서 제외합니다.</string>
+    <string name="settings_battery_status_exempt">현재: 배터리 최적화에서 제외됨</string>
+    <string name="settings_battery_status_not_exempt">현재: 제외되지 않음. 백그라운드에서 수신이 중단될 수 있습니다</string>
+    <string name="settings_battery_open">배터리 설정 열기</string>
+
+    <!-- Permissions onboarding (#26 + #31). -->
+    <string name="onboarding_title">앱 권한</string>
+    <string name="onboarding_intro">Quick Share는 로컬 Wi-Fi 네트워크에서 근처 기기를 검색하고, 근처 Quick Share 수신기를 깨우는 짧은 Bluetooth Low Energy 신호를 송수신하며, 전송 상태를 알리기 위해 몇 가지 Android 권한이 필요합니다. 아래에서 각 권한이 어떻게 사용되는지 확인할 수 있습니다.</string>
+    <string name="onboarding_empty_state">이 기기는 Phase 1에 필요한 런타임 권한이 없습니다. 모든 준비가 완료되었습니다.</string>
+    <string name="onboarding_grant_button">권한 부여</string>
+    <string name="onboarding_open_settings">앱 설정 열기</string>
+    <string name="onboarding_continue">권한 없이 계속</string>
+    <string name="onboarding_continue_partial">일부 권한 없이 계속</string>
+    <string name="onboarding_continue_degraded">제한된 모드로 계속</string>
+
+    <!-- Same-Wi-Fi-network onboarding card (#85). -->
+    <string name="onboarding_network_card_title">근처 검색 요건</string>
+    <string name="onboarding_network_card_body">공유 Wi-Fi는 여전히 Quick Share의 기본 경로이며, 특히 받기에 사용됩니다. 근처 기본 Quick Share 기기로 보낼 때 두 기기가 LAN 외부에 있다면 LibreDrop은 Bluetooth 보조 부트스트랩도 사용할 수 있으니 이 경로를 위해 Bluetooth를 켜두세요.</string>
+    <string name="onboarding_network_card_dismiss">확인</string>
+
+    <!-- NEARBY_WIFI_DEVICES (API 33+). -->
+    <string name="permission_nearby_wifi_title">근처 Wi-Fi 기기</string>
+    <string name="permission_nearby_wifi_rationale">동일한 Wi-Fi 네트워크의 다른 Quick Share 기기를 검색하고 광고하기 위해 필요합니다. Quick Share는 이 권한을 사용자의 물리적 위치를 파악하는 데 사용하지 않습니다.</string>
+
+    <!-- POST_NOTIFICATIONS (API 33+). -->
+    <string name="permission_notifications_title">알림</string>
+    <string name="permission_notifications_rationale">전송 중 포그라운드 서비스 표시와 수신 파일 알림을 보여주는 데 사용됩니다. 이 권한이 없어도 전송은 작동하지만 알림을 받을 수 없습니다.</string>
+
+    <!-- BLUETOOTH_ADVERTISE (API 31+, #31 / #121). -->
+    <string name="permission_bluetooth_advertise_title">Bluetooth 광고</string>
+    <string name="permission_bluetooth_advertise_rationale">두 가지 Bluetooth Low Energy 신호를 보내는 데 사용됩니다. 송신을 시작할 때 근처 수신기를 깨우는 신호와, 다른 휴대폰의 Quick Share 선택기에 이 기기를 보이게 하는 신호입니다. 이 권한이 없어도 전송은 작동하지만 연결이 시작될 때까지 일반 라벨로 표시될 수 있습니다.</string>
+
+    <!-- BLUETOOTH_SCAN (API 31+, #31). -->
+    <string name="permission_bluetooth_scan_title">근처 Bluetooth 기기</string>
+    <string name="permission_bluetooth_scan_rationale">근처 Quick Share 송신기를 감지해서 필요할 때만 수신기를 깨우는 데 사용됩니다. Quick Share는 이 권한을 사용자의 물리적 위치를 파악하는 데 사용하지 않습니다.</string>
+
+    <!-- BLUETOOTH_CONNECT (API 31+). -->
+    <string name="permission_bluetooth_connect_title">Bluetooth 연결</string>
+    <string name="permission_bluetooth_connect_rationale">Bluetooth Low Energy 직접 연결을 열고 근처 Quick Share 검색을 위해 Bluetooth 어댑터 상태를 읽는 데 사용됩니다. 전송은 여전히 Quick Share 암호화를 사용합니다.</string>
+
+    <!-- ACCESS_FINE_LOCATION (legacy nearby-device discovery). -->
+    <string name="permission_legacy_nearby_location_title">근처 기기 위치 권한</string>
+    <string name="permission_legacy_nearby_location_rationale">Android 11 이하에서는 Bluetooth Low Energy 스캔 결과가 위치 권한을 통해 전달됩니다. LibreDrop은 이 권한을 근처 Quick Share 기기 검색에만 사용하며 사용자의 물리적 위치는 사용하지 않습니다.</string>
+
+    <!-- Permission status labels. -->
+    <string name="permission_status_granted">허용됨</string>
+    <string name="permission_status_denied">필수 - 허용되지 않음</string>
+    <string name="permission_status_optional_denied">선택 - 허용되지 않음 (제한된 모드)</string>
+    <string name="permission_status_optional_denied_ble">선택 - 허용되지 않음 (mDNS 전용 모드)</string>
+
+    <!-- Share-intent (#24) sender flow. -->
+    <string name="send_activity_label">Quick Share로 보내기</string>
+    <string name="send_subtitle_discovering">근처 기기 찾는 중…</string>
+    <string name="send_subtitle_pick_peer">기기를 눌러 보내세요.</string>
+    <string name="send_subtitle_no_usable_route">근처 기기가 발견되었지만 아직 지원되는 전송 경로가 없습니다.</string>
+    <string name="send_empty_state">근처에 기기가 없습니다. 받는 기기에서 Quick Share가 열려 있는지 확인하세요. 공유 Wi-Fi가 기본 경로이며, LAN 외부에 있다면 근처 부트스트랩을 위해 Bluetooth를 켜두세요.</string>
+
+    <!-- Same-Wi-Fi-network hint card (#85). -->
+    <string name="send_network_hint_title">근처 검색 요건</string>
+    <string name="send_network_hint_body">공유 Wi-Fi가 기본 경로입니다. 일부 수신기는 BLE에서 이름을 노출하기 전에는 지원되는 전송 경로가 없을 수 있으니, 두 기기를 같은 Wi-Fi 네트워크에 연결하거나 지원되는 부트스트랩 경로를 위해 Bluetooth를 켜두세요.</string>
+    <string name="send_network_hint_dismiss">확인</string>
+    <!-- Picker-state help link + bottom sheet content. -->
+    <string name="send_help_link">찾는 기기가 보이지 않나요?</string>
+    <string name="send_help_sheet_title">찾는 기기가 보이지 않나요?</string>
+    <string name="send_help_sheet_visibility_title">수신 기기 상태 확인</string>
+    <string name="send_help_sheet_visibility_body">받는 기기에서 \'받을 준비 완료\' 상태인지 확인하세요. 이 상태일 때 주변의 모든 사람이 파일을 공유할 수 있습니다. 이미 이 상태인데도 여기에 나타나지 않는다면 양쪽 기기에서 LibreDrop을 완전히 종료한 뒤 다시 실행해 보세요.</string>
+    <string name="send_help_sheet_qr_title">QR 코드로 공유</string>
+    <string name="send_help_sheet_qr_body">그래도 기기가 보이지 않는다면 카드 우측 상단의 QR 코드 버튼을 누르세요. 받는 사람이 QR 코드를 스캔하거나 링크에 접속하면 파일을 전송할 수 있습니다.</string>
+    <string name="send_help_sheet_close">확인</string>
+
+    <string name="send_show_qr">QR 표시</string>
+    <string name="send_cancel">취소</string>
+    <string name="send_done">완료</string>
+    <string name="send_unsupported">이 공유는 보낼 수 없습니다. 인텐트에 파일이나 텍스트가 포함되어 있지 않습니다.</string>
+
+    <!-- Payload summary templates. -->
+    <string name="send_payload_text">텍스트 공유 중</string>
+    <string name="send_payload_single_file">파일 1개</string>
+    <string name="send_payload_single_file_with_size">파일 1개 • %1$s</string>
+    <string name="send_payload_multiple_files">파일 %1$d개</string>
+    <string name="send_payload_multiple_files_with_size">파일 %1$d개 • %2$s</string>
+
+    <!-- Connection-phase labels. -->
+    <string name="send_phase_connecting">연결 중…</string>
+    <string name="send_phase_handshaking">보안 페어링 중…</string>
+    <string name="send_phase_awaiting_acceptance">수신자 수락 대기 중</string>
+    <string name="send_phase_sending">전송 중</string>
+    <string name="send_phase_completed">전송 완료</string>
+    <string name="send_phase_rejected">수신자가 전송을 거부했습니다</string>
+    <!-- Named-receiver variant of the rejection terminal. Becomes
+         the only text on the rejection card; everything else is
+         suppressed. -->
+    <string name="send_phase_rejected_by_named">%1$s 님이 파일 전송을 거절했습니다</string>
+    <string name="send_phase_cancelled">전송이 취소되었습니다</string>
+    <string name="send_phase_failed">전송 실패</string>
+
+    <!-- Status-panel messages. -->
+    <string name="send_status_target">대상: %1$s</string>
+    <string name="send_status_pin_prompt">이 코드가 수신 화면의 코드와 일치하는지 확인하세요.</string>
+    <string name="send_status_failure_reason">사유: %1$s</string>
+    <string name="send_status_progress">%1$s / %2$s</string>
+
+    <!-- Rate + ETA suffixes. -->
+    <string name="send_status_rate">%1$s/초</string>
+    <string name="send_status_eta">%1$s 남음</string>
+    <string name="send_status_duration_few_seconds">1초 미만</string>
+    <string name="send_status_duration_seconds">%1$d초</string>
+    <string name="send_status_duration_about_minutes">약 %1$d분</string>
+    <string name="send_status_duration_about_hours">약 %1$d시간</string>
+
+    <!-- Shake-to-report bug-report flow (#162). -->
+    <string name="bug_report_confirm_title">버그를 보고하시겠습니까?</string>
+    <string name="bug_report_confirm_body">LibreDrop이 최근 앱 진단 정보, 기기 상태, 스크린샷을 압축 파일로 모은 뒤 사용자가 저장 위치를 선택할 때까지 기기에만 보관합니다.</string>
+    <string name="bug_report_confirm_yes">예</string>
+    <string name="bug_report_confirm_no">아니요</string>
+    <string name="bug_report_include_bssid_label">현재 Wi-Fi BSSID 포함 (식별 정보가 더 많아짐)</string>
+    <string name="bug_report_collecting">버그 보고서 준비 중…</string>
+    <string name="bug_report_collect_failed">버그 보고서를 준비할 수 없습니다: %1$s</string>
+    <string name="bug_report_save_cancelled">버그 보고서 저장이 취소되었습니다.</string>
+    <string name="bug_report_save_failed">버그 보고서를 저장할 수 없습니다: %1$s</string>
+    <string name="bug_report_saved_title">버그 보고서 저장 완료</string>
+    <string name="bug_report_saved_body">버그 보고서 압축 파일이 저장되었습니다. 이제 GitHub을 열어서 새 이슈에 직접 첨부할 수 있습니다.</string>
+    <string name="bug_report_saved_open_issue">GitHub 이슈 열기</string>
+    <string name="bug_report_saved_dismiss">닫기</string>
+    <string name="bug_report_issue_chooser">다음으로 열기</string>
+    <string name="bug_report_issue_unavailable">GitHub을 열 수 있는 브라우저나 호환 앱이 없습니다.</string>
+
+    <!-- QR-code (#20 + #84) screen. -->
     <string name="show_qr_title">QR 코드 또는 링크</string>
     <string name="show_qr_intro">파일을 받을 사람에게 QR 코드 스캔 또는 링크 접속을 요청하세요. QR 코드나 링크를 보유한 사람은 누구나 내 허락 없이 파일을 열 수 있습니다.</string>
+    <string name="show_qr_image_description">Quick Share 페어링 URL의 QR 코드</string>
+    <string name="show_qr_done">완료</string>
+    <string name="show_qr_close">닫기</string>
+    <string name="show_qr_copy_link">링크 복사</string>
+    <string name="show_qr_link_copied">링크가 복사되었습니다</string>
 
-    <!-- Credit screen, QA section. Chiyak's tagline differs between
-         locales: the Korean rendering is a literal translation of the
-         English "I wanna buy a concert ticket". TEQHNIKACROSS's tagline
-         is intentionally kept identical to its English form (no entry
-         here) so it reads as "We all want to be loved" on Korean
-         devices too. -->
-    <string name="credit_chiyak_qa_desc">콘서트 티켓이 사고 싶어요</string>
+    <!-- Consent trampoline (#22). -->
+    <string name="consent_activity_label">수신 요청</string>
+    <!-- Short header above the 4-digit confirmation PIN. -->
+    <string name="consent_pin_label">PIN</string>
+    <string name="consent_files_label">받을 파일</string>
+    <string name="consent_button_accept">수락</string>
+    <string name="consent_button_reject">거부</string>
+    <string name="consent_unknown_sender">근처 기기가 공유를 요청합니다</string>
+    <!-- Type-specific consent title templates. The picker in
+         ConsentTrampolineActivity classifies the announced items
+         (all image/* mime types → images; all video/* → videos;
+         everything else → files) and selects the appropriate
+         template. %1$s is the sender device name. -->
+    <string name="consent_title_with_name">%1$s 님이 공유하려고 합니다</string>
+    <string name="consent_title_with_name_images">%1$s 님이 이미지를 공유하려고 합니다</string>
+    <string name="consent_title_with_name_videos">%1$s 님이 동영상을 공유하려고 합니다</string>
+    <string name="consent_title_with_name_files">%1$s 님이 파일을 공유하려고 합니다</string>
+    <string name="consent_summary_n_items">항목 %1$d개 (%2$s)</string>
+    <string name="consent_summary_no_items">항목 없음</string>
+    <string name="consent_summary_folder">폴더 \"%1$s\" (파일 %2$d개, %3$s)</string>
+    <!-- Per-item rows are rendered with the name on one line and the
+         human-readable size on the next; both centre-aligned. -->
+    <string name="consent_file_line">%1$s\n%2$s</string>
+    <string name="consent_text_line_with_title">%1$s\n%2$s</string>
+    <string name="consent_more_items">…외 %1$d개 더</string>
+    <string name="consent_dismissed">전송이 더 이상 대기 중이 아닙니다</string>
 
-    <!-- Credit screen, Developer section. Korean rendering of Kevin's
-         tagline; the canonical English form ("I'm running low on
-         miles") lives in `values/strings.xml`. -->
-    <string name="credit_kevin_desc">마일리지가 모자라요</string>
+    <!-- Post-Accept consent flow states. -->
+    <string name="consent_state_receiving">받는 중…</string>
+    <string name="consent_state_progress">%1$s / %2$s</string>
+    <string name="consent_state_completed">전송 완료</string>
+    <string name="consent_state_completed_one">파일 1개를 받았습니다</string>
+    <string name="consent_state_completed_many">파일 %1$d개를 받았습니다</string>
+    <string name="consent_state_failed">전송 실패</string>
+    <string name="consent_state_cancelled">전송 취소됨</string>
+    <string name="consent_state_view_image">이미지 보기</string>
+    <string name="consent_state_close">닫기</string>
+    <string name="consent_state_view_image_unavailable">이 이미지를 열 수 있는 앱이 없습니다.</string>
+
 </resources>

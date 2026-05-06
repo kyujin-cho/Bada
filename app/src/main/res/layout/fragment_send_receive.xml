@@ -143,6 +143,25 @@
             android:text="@string/main_always_visible_off_title" />
 
         <!--
+          Caption below the always-visible pill, OUTSIDE the button
+          silhouette. Plain-language summary of what the current
+          pill state actually does for the user; swapped in lockstep
+          with the pill's label by `SendReceiveFragment.
+          refreshVisibilityButton` (ON → caption_on; OFF → caption_off).
+          The XML default mirrors the OFF state since that is the
+          fragment's initial state on cold start.
+        -->
+        <TextView
+            android:id="@+id/main_always_visible_caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="@string/main_always_visible_caption_off"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:textColor="?android:attr/textColorSecondary" />
+
+        <!--
           Top flex spacer paired with the matching one below the photo
           previews. Together they bracket the "Waiting for files…" +
           polaroid pair into the vertical center of the viewport while
@@ -240,12 +259,19 @@
             android:layout_weight="1" />
 
         <!--
-          Send Files / Send Folder action row. Two buttons share the
-          horizontal space equally via `layout_weight=1`. The 12dp
-          Space child in the middle gives them visual breathing room
-          without injecting a margin attribute on either button (so a
-          future swap to MaterialButtonToggleGroup or similar is a
-          purely structural change).
+          Send Files / Send Folder action row. Both buttons share the
+          horizontal space equally via `layout_weight=1` so the pair
+          edge-aligns with the always-visible pill above (which is
+          `match_parent`): the file button's left edge sits flush
+          with the pill's left edge, and the folder button's right
+          edge sits flush with the pill's right edge. This is the
+          home-tab-specific layout — the consent / QR / generic
+          terminal-state rows use the wrap_content + center variant
+          because they sit inside an open dialog area where label
+          length asymmetry would read as an off-center group.
+          Here the two pills are framed by the visibility pill above
+          on the same column axis, so the visual cue is "rows aligned
+          on a column" rather than "row centered in space".
         -->
         <LinearLayout
             android:layout_width="match_parent"

@@ -82,27 +82,48 @@
             android:orientation="vertical"
             android:padding="24dp">
 
+            <!-- Title is centre-aligned and uses a type-specific
+                 template ("…wants to share images / videos / files")
+                 picked by ConsentTrampolineActivity from the
+                 announced payload mime types. The earlier
+                 left-aligned subtitle ("N items (size)") is gone —
+                 the type-specific title carries that information now,
+                 so the redundant count line was dropped. -->
             <TextView
                 android:id="@+id/consent_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:gravity="center"
                 android:textAppearance="@style/TextAppearance.AppCompat.Headline"
                 android:textStyle="bold"
-                tools:text="Pixel 8 wants to share" />
+                tools:text="Pixel 8 wants to share images" />
 
+            <!-- `consent_subtitle` is intentionally `gone` in this
+                 layout. The activity still has the view ID so legacy
+                 code paths that look it up do not crash; nothing else
+                 ever flips it back to VISIBLE. Keep the ID stable so
+                 a future reinstatement does not require touching
+                 every existing reference. -->
             <TextView
                 android:id="@+id/consent_subtitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:visibility="gone"
                 tools:text="3 files (12.4 MB)" />
 
+            <!-- "PIN" label centred above the 4-digit confirmation
+                 code so the label and the code share a vertical
+                 axis. The verbose "Confirm this 4-digit code matches
+                 the sender's screen" line is replaced by the short
+                 "PIN" header per design simplification. -->
             <TextView
                 android:id="@+id/consent_pin_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
+                android:gravity="center"
                 android:text="@string/consent_pin_label"
                 android:textAppearance="@style/TextAppearance.AppCompat.Body2" />
 
@@ -117,11 +138,16 @@
                 android:textStyle="bold"
                 tools:text="1234" />
 
+            <!-- Files heading is centre-aligned to match the title /
+                 PIN label, giving the panel a single shared centre
+                 axis. Individual file rows below stay left-aligned
+                 because file names are read left-to-right. -->
             <TextView
                 android:id="@+id/consent_files_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
+                android:gravity="center"
                 android:text="@string/consent_files_label"
                 android:textAppearance="@style/TextAppearance.AppCompat.Body2" />
 
@@ -141,17 +167,24 @@
               primary destructive choice is reachable with the same
               thumb that just decided whether to accept.
             -->
+            <!--
+              Reject / Accept row centered as a group. See the
+              completed-state row's comment for why we size each
+              button to wrap_content + center the parent rather
+              than splitting the row 50/50 with `weight=1`.
+            -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="32dp"
+                android:gravity="center"
                 android:orientation="horizontal">
 
                 <Button
                     android:id="@+id/consent_reject_button"
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:minWidth="140dp"
                     android:text="@string/consent_button_reject" />
 
                 <Space
@@ -160,9 +193,9 @@
 
                 <Button
                     android:id="@+id/consent_accept_button"
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:minWidth="140dp"
                     android:text="@string/consent_button_accept" />
 
             </LinearLayout>
@@ -276,26 +309,36 @@
                 tools:text="1 file received" />
 
             <!--
-              Close / View image in a horizontal 2-column row.
+              Close / View image as a horizontal row centered as a
+              group. Both buttons size to `wrap_content` so a longer
+              label ("View received image") doesn't reserve the same
+              50% slot a shorter label ("닫기") would — keeping equal
+              weight made the row read as off-center because the
+              empty padding around "닫기" was visibly larger than the
+              empty padding around "이미지 보기". With wrap_content +
+              parent `gravity=center`, the button group recenters as
+              labels grow / shrink with locale, and `minWidth` keeps
+              even single-character labels from collapsing to a
+              cramped pill.
+
               `consent_completed_view_button` starts hidden and
               ConsentTrampolineActivity reveals it only after the
               MediaStore lookup resolves to an image Uri. When the
-              View button is hidden, Close fills the row by itself
-              (layout_weight=1 collapses to the only visible child);
-              when both are visible, the row splits evenly with a
-              12dp gap.
+              View button is hidden, Close stands alone, still
+              centered horizontally by the parent's gravity.
             -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
+                android:gravity="center"
                 android:orientation="horizontal">
 
                 <Button
                     android:id="@+id/consent_completed_close_button"
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:minWidth="140dp"
                     android:text="@string/consent_state_close" />
 
                 <Space
@@ -306,9 +349,9 @@
 
                 <Button
                     android:id="@+id/consent_completed_view_button"
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:minWidth="140dp"
                     android:text="@string/consent_state_view_image"
                     android:visibility="gone" />
 

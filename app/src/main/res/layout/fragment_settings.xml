@@ -3,16 +3,38 @@
   Settings tab. Hosted by SettingsFragment inside MainActivity's
   bottom-navigation shell.
 
-  Layout order:
-    1. Save-location settings (#42) — pick / clear a SAF tree URI to
-       redirect incoming files away from the system Downloads folder.
-    2. Advertised Quick Share name (#141) — custom override for the
-       device name nearby Quick Share peers see.
-    3. Background activity (#47 follow-up) — re-trigger the OEM-aware
-       battery-optimization Settings page after the first-launch
-       dialog has been dismissed.
+  Visual rhythm:
+    Each setting group sits inside its own rounded white panel
+    (`@drawable/settings_card_background`) with consistent inside
+    padding, instead of sharing a single full-bleed LinearLayout.
+    Pulls the page in line with the rest of the app, where the
+    share flow uses a rounded MaterialCardView, the QR panel uses a
+    chip-style URL field, and dialogs use rounded card surfaces —
+    settings now reads as part of the same family rather than as a
+    plain text page on white.
+
+    Inside each panel:
+      * Title (Subhead bold)
+      * Subtitle (Small, secondary color)
+      * Read-out chip — current persisted value rendered with the
+        same `@drawable/qr_url_background` chip used by the QR panel
+        so "current value" reads as a real field, not a footnote.
+      * Action row — single full-width pill for one-button cards,
+        or a two-equal-weight pill row mirroring the QR panel's
+        Close + Copy link layout for cards with a primary +
+        secondary action. The previous borderless secondary buttons
+        were the only place in the app using that style; replacing
+        them with a frosted pill keeps the button language uniform.
+
+  Layout order (matches the previous fragment so user expectations
+  about which control lives where are preserved):
+    1. Save-location settings (#42).
+    2. Advertised Quick Share name (#141).
+    3. Background activity (#47 follow-up).
+    4. Shake-to-report bug toggle (#166).
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
@@ -21,173 +43,280 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingHorizontal="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="24dp">
 
-        <TextView
-            android:id="@+id/main_save_location_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/main_save_location_title"
-            android:textAppearance="?android:attr/textAppearanceMedium"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/main_save_location_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/main_save_location_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
-
-        <TextView
-            android:id="@+id/main_save_location_current"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textAppearance="?android:attr/textAppearanceSmall"
-            android:textStyle="italic" />
-
+        <!-- ============ Card 1: Save location ============ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+            android:background="@drawable/settings_card_background"
+            android:orientation="vertical"
+            android:padding="20dp">
 
-            <Button
-                android:id="@+id/main_save_location_pick"
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/main_save_location_title"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/main_save_location_pick" />
+                android:text="@string/main_save_location_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textStyle="bold" />
 
-            <Button
-                android:id="@+id/main_save_location_clear"
-                style="?android:attr/borderlessButtonStyle"
-                android:layout_width="wrap_content"
+            <TextView
+                android:id="@+id/main_save_location_subtitle"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="@string/main_save_location_clear" />
+                android:layout_marginTop="6dp"
+                android:text="@string/main_save_location_subtitle"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textColor="?android:attr/textColorSecondary" />
+
+            <!--
+              "Current: …" read-out as a chip. textIsSelectable lets
+              the user copy the resolved folder name (handy for
+              support reports) without scrambling for a Toast.
+            -->
+            <TextView
+                android:id="@+id/main_save_location_current"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/qr_url_background"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textIsSelectable="true"
+                tools:text="Current: Downloads (default)" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/main_save_location_pick"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/main_save_location_pick" />
+
+                <Space
+                    android:layout_width="12dp"
+                    android:layout_height="wrap_content" />
+
+                <Button
+                    android:id="@+id/main_save_location_clear"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/main_save_location_clear" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/main_advertised_name_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:text="@string/main_advertised_name_title"
-            android:textAppearance="?android:attr/textAppearanceMedium"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/main_advertised_name_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/main_advertised_name_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
-
-        <EditText
-            android:id="@+id/main_advertised_name_input"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="@string/main_advertised_name_hint"
-            android:inputType="textCapWords"
-            android:maxLines="1" />
-
-        <TextView
-            android:id="@+id/main_advertised_name_current"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textAppearance="?android:attr/textAppearanceSmall"
-            android:textStyle="italic" />
-
+        <!-- ============ Card 2: Advertised name ============ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+            android:layout_marginTop="12dp"
+            android:background="@drawable/settings_card_background"
+            android:orientation="vertical"
+            android:padding="20dp">
 
-            <Button
-                android:id="@+id/main_advertised_name_save"
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/main_advertised_name_title"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/main_advertised_name_save" />
+                android:text="@string/main_advertised_name_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textStyle="bold" />
 
-            <Button
-                android:id="@+id/main_advertised_name_reset"
-                style="?android:attr/borderlessButtonStyle"
-                android:layout_width="wrap_content"
+            <TextView
+                android:id="@+id/main_advertised_name_subtitle"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="@string/main_advertised_name_reset" />
+                android:layout_marginTop="6dp"
+                android:text="@string/main_advertised_name_subtitle"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textColor="?android:attr/textColorSecondary" />
+
+            <!--
+              Currently-advertised name shown as a chip read-out
+              above the editor so the user can see what peers are
+              seeing right now without having to reason about the
+              EditText's empty-vs-default state.
+            -->
+            <TextView
+                android:id="@+id/main_advertised_name_current"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/qr_url_background"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textIsSelectable="true"
+                tools:text="Currently advertised: V2547A" />
+
+            <!--
+              EditText wrapped in a soft chip surface (12dp corners,
+              light gray fill, hairline). Replaces the bare
+              underline-style EditText that was the only flat-line
+              control left in the app. `background=null` on the
+              inner widget would still pick up the platform's default
+              underline drawable on some OEM skins, so we override
+              with the chip drawable + matching internal padding.
+            -->
+            <EditText
+                android:id="@+id/main_advertised_name_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/settings_input_background"
+                android:hint="@string/main_advertised_name_hint"
+                android:inputType="textCapWords"
+                android:maxLines="1"
+                android:minHeight="48dp"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="12dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textColorHint="?android:attr/textColorSecondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/main_advertised_name_save"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/main_advertised_name_save" />
+
+                <Space
+                    android:layout_width="12dp"
+                    android:layout_height="wrap_content" />
+
+                <Button
+                    android:id="@+id/main_advertised_name_reset"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/main_advertised_name_reset" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
+        <!-- ============ Card 3: Battery / background activity ============ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/settings_card_background"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:id="@+id/settings_battery_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_battery_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/settings_battery_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/settings_battery_subtitle"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textColor="?android:attr/textColorSecondary" />
+
+            <TextView
+                android:id="@+id/settings_battery_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/qr_url_background"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textIsSelectable="true"
+                tools:text="Currently: not exempt — receiving may stop in the background" />
+
+            <Button
+                android:id="@+id/settings_battery_open"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/settings_battery_open" />
+
+        </LinearLayout>
+
+        <!-- ============ Card 4: Shake-to-report bug ============ -->
         <!--
-          Background activity (#47 follow-up). Lets the user open the
-          OEM-aware battery-optimization Settings page after dismissing
-          the first-launch dialog. The status line is refreshed on
-          every onStart from PowerManager.isIgnoringBatteryOptimizations
-          via BatteryOptimizationOemHelper.isAlreadyExempt.
+          Switch row: title and Switch share a horizontal row so
+          the toggle's affordance reads against its label. Subtitle
+          drops below as a single block so the wider explanation
+          doesn't squeeze the switch column. Mirrors the standard
+          Material settings-row pattern (title-left + control-right
+          + supporting text below).
         -->
-        <TextView
-            android:id="@+id/settings_battery_title"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:text="@string/settings_battery_title"
-            android:textAppearance="?android:attr/textAppearanceMedium"
-            android:textStyle="bold" />
+            android:layout_marginTop="12dp"
+            android:background="@drawable/settings_card_background"
+            android:orientation="vertical"
+            android:padding="20dp">
 
-        <TextView
-            android:id="@+id/settings_battery_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/settings_battery_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/settings_battery_status"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textAppearance="?android:attr/textAppearanceSmall"
-            android:textStyle="italic" />
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/main_bug_report_title"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/settings_battery_open"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/settings_battery_open" />
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/main_bug_report_switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp" />
 
-        <!--
-          Shake-to-report bug flow (#166). When the switch is on,
-          BugReportFlowSupport (installed at the activity level in
-          MainActivity) listens for accelerometer shakes and prompts
-          the user to save a diagnostic ZIP. The preference is read
-          live by the support class, so toggling here takes effect
-          on the next sensor sample without a service restart.
-        -->
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/main_bug_report_switch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:text="@string/main_bug_report_title" />
+            </LinearLayout>
 
-        <TextView
-            android:id="@+id/main_bug_report_subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/main_bug_report_subtitle"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
+            <TextView
+                android:id="@+id/main_bug_report_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/main_bug_report_subtitle"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textColor="?android:attr/textColorSecondary" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
