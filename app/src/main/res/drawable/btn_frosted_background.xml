@@ -8,18 +8,19 @@
   Layers (top → bottom in z-order; bottom listed first because that
   is how the platform composites a `<ripple>` drawable):
 
-    * Default state — a faint cool-gray tint (`#1AF2F4F7`, ~10%
-      alpha) inside a 1dp `#22000000` border at 24dp corner radius.
-      Reads as a translucent "lifted glass" plate against any white
-      / blurred-white surface in the app.
-    * Disabled state — drops to a flat `#0A000000` (~4% black) with
-      no border so the button visibly steps back without a heavy
-      gray box.
-    * Ripple on top — uses the brand blue at low alpha
-      (`#1F0F62FE`, ~12%) so a tap glows softly inside the rounded
-      shape. The `@android:id/mask` shape clips the ripple to the
-      same 24dp corner radius — without it, the ripple would spill
-      out of the rounded ends as a square.
+    * Default state — `@color/frosted_button_fill` (translucent
+      white in day, translucent white-on-dark in night) inside a
+      1dp `@color/frosted_button_stroke` border at 24dp corner
+      radius. Reads as a translucent "lifted glass" plate against
+      any surface in the app, on either mode.
+    * Disabled state — drops to `@color/frosted_button_disabled`
+      (low-alpha black/white) with no border so the button visibly
+      steps back without a heavy gray box.
+    * Ripple — uses `@color/frosted_button_ripple` (brand blue in
+      day, lighter brand tint in night) so a tap glows softly
+      inside the rounded shape. The `@android:id/mask` shape clips
+      the ripple to the same 24dp corner radius — without it, the
+      ripple would spill out of the rounded ends as a square.
 
   Borderless variants (`?android:attr/borderlessButtonStyle`, used
   for Skip / Reset) opt out of this drawable on a per-Button basis,
@@ -27,7 +28,7 @@
   action.
 -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
-    android:color="#1F0F62FE">
+    android:color="@color/frosted_button_ripple">
 
     <item android:id="@android:id/mask">
         <shape android:shape="rectangle">
@@ -40,25 +41,16 @@
         <selector>
             <item android:state_enabled="false">
                 <shape android:shape="rectangle">
-                    <solid android:color="#33000000" />
+                    <solid android:color="@color/frosted_button_disabled" />
                     <corners android:radius="24dp" />
                 </shape>
             </item>
             <item>
-                <!--
-                  Default fill bumped from a near-invisible 10% cool
-                  gray to a 60% translucent white so the button stands
-                  out clearly on top of the success card's blurred
-                  image backdrop. Stays translucent enough to read as
-                  "frosted glass" rather than a solid plate, while the
-                  subtle 13% black border keeps the edge defined
-                  against any background tone.
-                -->
                 <shape android:shape="rectangle">
-                    <solid android:color="#99FFFFFF" />
+                    <solid android:color="@color/frosted_button_fill" />
                     <stroke
                         android:width="1dp"
-                        android:color="#22000000" />
+                        android:color="@color/frosted_button_stroke" />
                     <corners android:radius="24dp" />
                 </shape>
             </item>

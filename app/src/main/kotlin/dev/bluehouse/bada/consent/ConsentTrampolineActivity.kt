@@ -32,6 +32,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.AccessibilityDelegateCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import dev.bluehouse.bada.R
@@ -631,7 +634,9 @@ class ConsentTrampolineActivity : AppCompatActivity() {
                 }
             findViewById<TextView>(R.id.consent_completed_summary)?.text = summary
 
-            findViewById<Button>(R.id.consent_completed_close_button).setOnClickListener { finish() }
+            val closeButton = findViewById<View>(R.id.consent_completed_close_button)
+            configureCompletedActionButton(closeButton, getString(R.string.consent_state_close))
+            closeButton.setOnClickListener { finish() }
 
             if (previewUri != null) {
                 bindCompletedPreview(previewUri)
@@ -643,7 +648,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private fun bindCompletedPreview(uri: Uri) {
         val previewView = findViewById<ImageView>(R.id.consent_completed_preview) ?: return
         val previewCard = findViewById<FrameLayout>(R.id.consent_completed_preview_card) ?: return
-        val viewButton = findViewById<Button>(R.id.consent_completed_view_button) ?: return
+        val viewButton = findViewById<View>(R.id.consent_completed_view_button) ?: return
         try {
             previewView.setImageURI(uri)
             previewCard.visibility = View.VISIBLE
@@ -655,6 +660,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // copy of the same image across the dialog backdrop so both
         // completion surfaces read as the same visual family.
         applyBlurredCardBackground(uri)
+        configureCompletedActionButton(viewButton, getString(R.string.consent_state_view_image))
         viewButton.visibility = View.VISIBLE
         // Reveal the spacer between Close and View image so the row
         // splits cleanly when both buttons are visible (the spacer
@@ -686,6 +692,27 @@ class ConsentTrampolineActivity : AppCompatActivity() {
                     .show()
             }
         }
+    }
+
+    private fun configureCompletedActionButton(
+        view: View,
+        label: CharSequence,
+    ) {
+        view.contentDescription = label
+        ViewCompat.setAccessibilityDelegate(
+            view,
+            object : AccessibilityDelegateCompat() {
+                override fun onInitializeAccessibilityNodeInfo(
+                    host: View,
+                    info: AccessibilityNodeInfoCompat,
+                ) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.className = Button::class.java.name
+                    info.text = label
+                    info.isClickable = true
+                }
+            },
+        )
     }
 
     /**

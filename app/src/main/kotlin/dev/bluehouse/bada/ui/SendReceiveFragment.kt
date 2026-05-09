@@ -13,7 +13,6 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.graphics.Paint
 import android.graphics.Rect
@@ -237,8 +236,9 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         // the real photos use, just with a neutral fill in the
         // photo area, so the rotation and edge AA are identical
         // before and after.
-        val placeholder1 = buildPolaroidBitmap(null, CARD_1_ROTATION_DEG)
-        val placeholder2 = buildPolaroidBitmap(null, CARD_2_ROTATION_DEG)
+        val colors = polaroidColors()
+        val placeholder1 = buildPolaroidBitmap(null, CARD_1_ROTATION_DEG, colors)
+        val placeholder2 = buildPolaroidBitmap(null, CARD_2_ROTATION_DEG, colors)
         view.findViewById<ImageView>(R.id.main_send_preview_photo_1).setPolaroidBitmap(placeholder1)
         view.findViewById<ImageView>(R.id.main_send_preview_photo_2).setPolaroidBitmap(placeholder2)
     }
@@ -348,6 +348,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
      */
     private fun loadRandomGalleryPhotos() {
         val owner = viewLifecycleOwner
+        val colors = polaroidColors()
         owner.lifecycleScope.launch {
             withContext(Dispatchers.IO) {
                 val uris = queryRecentGalleryUris(GALLERY_QUERY_LIMIT)
@@ -365,8 +366,8 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
                 // the composition is done — each ARGB_8888 source is
                 // ~5 MB, and we only need the rendered polaroid from
                 // here on.
-                val polaroid1 = photo1?.let { buildPolaroidBitmap(it, CARD_1_ROTATION_DEG) }
-                val polaroid2 = photo2?.let { buildPolaroidBitmap(it, CARD_2_ROTATION_DEG) }
+                val polaroid1 = photo1?.let { buildPolaroidBitmap(it, CARD_1_ROTATION_DEG, colors) }
+                val polaroid2 = photo2?.let { buildPolaroidBitmap(it, CARD_2_ROTATION_DEG, colors) }
                 photo1?.recycle()
                 photo2?.recycle()
                 withContext(Dispatchers.Main) {
@@ -384,7 +385,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
 
     /**
      * Build a single bitmap that contains a fully pre-rendered
-     * polaroid card — drop shadow, white frame, inner photo (or a
+     * polaroid card — drop shadow, themed frame, inner photo (or a
      * neutral placeholder fill), and the [rotationDeg] tilt — at the
      * supersampled output resolution [POLAROID_OUTPUT_PX] so the
      * caller can hand it straight to an axis-aligned ImageView with
@@ -403,14 +404,15 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
      *   * Corners on both the card and shadow are ~3.3% of the card
      *     size — visually about a 4dp radius on a 120dp card.
      *
-     * If [photo] is null, the photo area is filled with a light
-     * neutral gray so the empty state still reads as a polaroid
-     * frame waiting for content.
+     * If [photo] is null, the photo area is filled with the themed
+     * chip color so the empty state still reads as a polaroid frame
+     * waiting for content without flashing a white card in dark mode.
      */
     @Suppress("MagicNumber")
     private fun buildPolaroidBitmap(
         photo: Bitmap?,
         rotationDeg: Float,
+        colors: PolaroidColors,
     ): Bitmap {
         val outputSize = POLAROID_OUTPUT_PX
         val output = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.ARGB_8888)
@@ -454,10 +456,11 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
             shadowPaint,
         )
 
-        // White card surface.
+        // Card surface follows the resource palette so generated
+        // bitmaps match the XML photo cards in day and night mode.
         val cardPaint =
             Paint().apply {
-                color = Color.WHITE
+                color = colors.card
                 isAntiAlias = true
             }
         canvas.drawRoundRect(
@@ -492,7 +495,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         } else {
             val placeholderPaint =
                 Paint().apply {
-                    color = 0xFFE7E7EB.toInt()
+                    color = colors.placeholder
                     isAntiAlias = true
                 }
             canvas.drawRect(photoRect, placeholderPaint)
@@ -501,6 +504,17 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         canvas.restore()
         return output
     }
+
+    private fun polaroidColors(): PolaroidColors =
+        PolaroidColors(
+            card = ContextCompat.getColor(requireContext(), R.color.surface_card),
+            placeholder = ContextCompat.getColor(requireContext(), R.color.surface_chip),
+        )
+
+    private data class PolaroidColors(
+        val card: Int,
+        val placeholder: Int,
+    )
 
     /**
      * Compute the source-bitmap sub-rect that fills [dstRect] under

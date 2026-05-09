@@ -2,21 +2,22 @@
 <!--
   Rounded input field surface for the Settings tab's editable
   text controls (currently the advertised-name EditText). Mirrors
-  the QR url chip's geometry (12dp corners, light fill, hairline
-  border) but defined as its own resource so input-specific tweaks
-  (e.g. focused-state ring) can land here without affecting the
-  read-only URL chip.
+  the QR url chip's geometry (12dp corners, recessed surface,
+  hairline border) but defined as its own resource so input-
+  specific tweaks (e.g. focused-state ring) can land here without
+  affecting the read-only URL chip.
 
-  Why light gray fill (#F2F4F7): same token as `qr_url_background`,
-  reads as a recessed editable surface against the white settings
-  panel above. The hairline at #1A000000 keeps the field's edge
-  defined on bright displays.
+  Uses the same `surface_chip` / `surface_chip_stroke` tokens as
+  the URL chip so day-/night-mode handling stays in one place; the
+  visual "recessed editable surface" reading carries over because
+  the tokens swap one step brighter than `surface_card` on both
+  modes.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="12dp" />
-    <solid android:color="#F2F4F7" />
+    <solid android:color="@color/surface_chip" />
     <stroke
         android:width="1dp"
-        android:color="#1A000000" />
+        android:color="@color/surface_chip_stroke" />
 </shape>

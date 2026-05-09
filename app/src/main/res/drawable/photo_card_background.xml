@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Photo "polaroid" card background. White surface with 4dp rounded
-  corners; the host FrameLayout adds 6dp padding so the white
-  surrounds the inner ImageView as a thin border, plus elevation for
-  the drop shadow that gives the photo card depth.
+  Photo "polaroid" card background. Uses the shared `surface_card`
+  token (white in day, dark gray in night) with 4dp rounded
+  corners. The host FrameLayout adds 6dp padding so the surface
+  surrounds the inner ImageView as a thin border, plus elevation
+  for the drop shadow that gives the photo card depth on either
+  mode.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="4dp" />
-    <solid android:color="#FFFFFFFF" />
+    <solid android:color="@color/surface_card" />
 </shape>

@@ -10,5 +10,5 @@
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="12dp" />
-    <solid android:color="#CC323232" />
+    <solid android:color="@color/rejection_banner_bg" />
 </shape>

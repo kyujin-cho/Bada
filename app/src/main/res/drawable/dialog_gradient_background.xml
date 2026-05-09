@@ -11,20 +11,22 @@
   on dark backgrounds as a hairline of gradient bleed beyond the
   rounded corner.
 
-  The gradient is intentionally low-amplitude — `#EFF5FC` (a barely
-  tinted sky blue, ~3% saturation) at the top fading to pure white
-  at the bottom. The intent is "this surface is alive, not flat"
-  without reading as a colored card. When other backdrop layers
-  inside the card are flipped on (the PIN-state radial gradient, the
-  blurred sent-image preview), they paint on top of this drawable
-  and hide it from view.
+  The gradient is intentionally low-amplitude via the
+  `card_dialog_gradient_*` tokens — barely-tinted sky blue at top
+  fading to neutral surface at bottom in day mode; barely-tinted
+  navy at top fading to dark surface at bottom in night mode. The
+  intent is "this surface is alive, not flat" without reading as a
+  colored card. When other backdrop layers inside the card are
+  flipped on (the PIN-state radial gradient, the blurred sent-image
+  preview), they paint on top of this drawable and hide it from
+  view.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="20dp" />
     <gradient
         android:angle="270"
-        android:endColor="#FFFFFFFF"
-        android:startColor="#FFEFF5FC"
+        android:endColor="@color/card_dialog_gradient_bottom"
+        android:startColor="@color/card_dialog_gradient_top"
         android:type="linear" />
 </shape>

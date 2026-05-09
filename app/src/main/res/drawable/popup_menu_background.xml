@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Popup background for the toolbar overflow menu. White surface with
+  Popup background for the toolbar overflow menu. Uses
+  `@color/popup_menu_surface` (white in day, dark gray in night) with
   16dp corner radius + 8dp top/bottom padding so the first / last
   item have breathing room from the rounded edge.
 
@@ -11,7 +12,7 @@
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="16dp" />
-    <solid android:color="#FFFFFFFF" />
+    <solid android:color="@color/popup_menu_surface" />
     <padding
         android:bottom="8dp"
         android:top="8dp" />
