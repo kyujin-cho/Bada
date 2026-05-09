@@ -38,9 +38,9 @@ Galaxy S26 Ultra and vivo X300 Ultra pair.
 
 - Galaxy S26 Ultra was on the stock Quick Share receive surface and showed
   `Ready to receive...`.
-- vivo X300 Ultra ran `dev.bluehouse.libredrop.debug`.
+- vivo X300 Ultra ran `dev.bluehouse.bada.debug`.
 - The payload was an app-private external file:
-  `/sdcard/Android/data/dev.bluehouse.libredrop.debug/files/samsung-cert-gate.bin`.
+  `/sdcard/Android/data/dev.bluehouse.bada.debug/files/samsung-cert-gate.bin`.
 - LibreDrop resolved the payload as `size=1048576`.
 - LibreDrop selected `route=ble-gatt`; the planner logged
   `wifi-lan=missing` and `ble-l2cap=peer-psm-missing`, so this was not a

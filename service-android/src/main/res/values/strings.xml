@@ -11,7 +11,7 @@
     <!--
       User-visible name of the notification channel that backs the
       persistent foreground notification. Shown in system Settings ->
-      Notifications -> LibreDrop.
+      Notifications -> Bada.
     -->
     <string name="receiver_notification_channel_name">Quick Share receiver</string>
 

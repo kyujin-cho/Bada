@@ -30,7 +30,7 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: ktlint + detekt
-        run: ./gradlew staticAnalysis --stacktrace
+        run: ./gradlew staticAnalysis --refresh-dependencies --stacktrace
 
       - name: Run :core-protocol JVM tests
         run: ./gradlew :core-protocol:test --stacktrace
@@ -45,6 +45,9 @@ jobs:
 
       - name: Run :app JVM unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Check bug-report Android API compatibility
+        run: ./scripts/check-app-bugreport-api-compat.sh
 
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --stacktrace

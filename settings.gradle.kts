@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LibreDrop"
+rootProject.name = "Bada"
 
 include(":app")
 include(":service-android")

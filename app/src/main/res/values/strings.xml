@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="app_name">LibreDrop</string>
+    <string name="app_name">Bada</string>
 
     <!-- Bottom-navigation tab labels for MainActivity. The send/receive
          tab is the default destination on cold start; settings holds the
@@ -106,7 +106,7 @@
     <string name="main_always_visible_caption_on">Anyone nearby can share files with me.</string>
     <string name="main_always_visible_caption_off">Active only while a nearby device is scanning over Bluetooth.</string>
     <string name="main_bug_report_title">Shake to report a bug</string>
-    <string name="main_bug_report_subtitle">When enabled, shaking the phone while LibreDrop is open offers to package recent diagnostics, device state, and a screenshot into a zip that you save yourself. Nothing is uploaded automatically.</string>
+    <string name="main_bug_report_subtitle">When enabled, shaking the phone while Bada is open offers to package recent diagnostics, device state, and a screenshot into a zip that you save yourself. Nothing is uploaded automatically.</string>
 
     <!-- Save location settings (#42). The "current location" line shows
          either the picked folder's display name or "Downloads" as the
@@ -146,9 +146,8 @@
          is intentionally vendor-neutral so the same string serves every
          OEM family; the helper takes the user to the right Settings
          page. -->
-    <!-- #145 legacy-WhenVivoMeetsGoogle migration banner. Shown when the
-         launcher detects a coresident pre-rename install
-         (io.github.kyujincho.wvmg or .debug). The legacy build registers a
+    <!-- #145 legacy package migration banner. Shown when the
+         launcher detects a coresident pre-Bada install. The legacy build registers a
          duplicate 0xFEF3 GATT advertisement service that prevents stock
          Quick Share senders from completing the BLE bootstrap, so the
          banner is non-dismissible: only uninstalling the old package
@@ -156,7 +155,7 @@
          confirm-uninstall dialog for the legacy package via
          ACTION_DELETE — no extra permission required. -->
     <string name="main_legacy_wvmg_banner_title">Uninstall the previous app</string>
-    <string name="main_legacy_wvmg_banner_body">An older build of this app, named WhenVivoMeetsGoogle, is still installed on this device. The two installs interfere on Bluetooth, which prevents Galaxy and other stock Quick Share senders from reaching this device. Tap Uninstall to remove the older build.</string>
+    <string name="main_legacy_wvmg_banner_body">An older build of this app is still installed on this device. The two installs interfere on Bluetooth, which prevents Galaxy and other stock Quick Share senders from reaching this device. Tap Uninstall to remove the older build.</string>
     <string name="main_legacy_wvmg_banner_uninstall">Uninstall older build</string>
     <string name="main_legacy_wvmg_banner_unavailable">Could not open the uninstall dialog for %1$s. Please uninstall it manually from system Settings.</string>
 
@@ -213,7 +212,7 @@
          permission rows so the user understands the Phase 1 networking
          requirement before they land in the share flow. -->
     <string name="onboarding_network_card_title">Nearby discovery requirements</string>
-    <string name="onboarding_network_card_body">Shared Wi-Fi is still the baseline Quick Share path, especially when receiving. When sending to a nearby stock Quick Share peer, LibreDrop can also use Bluetooth-assisted bootstrap if the devices are off-LAN. Keep Bluetooth on for that path.</string>
+    <string name="onboarding_network_card_body">Shared Wi-Fi is still the baseline Quick Share path, especially when receiving. When sending to a nearby stock Quick Share peer, Bada can also use Bluetooth-assisted bootstrap if the devices are off-LAN. Keep Bluetooth on for that path.</string>
     <string name="onboarding_network_card_dismiss">OK</string>
 
     <!-- NEARBY_WIFI_DEVICES (API 33+). -->
@@ -238,7 +237,7 @@
 
     <!-- ACCESS_FINE_LOCATION (API 24-30, legacy nearby-device discovery). -->
     <string name="permission_legacy_nearby_location_title">Nearby device location access</string>
-    <string name="permission_legacy_nearby_location_rationale">Android 11 and lower route Bluetooth Low Energy scan results through the location permission. LibreDrop uses it only to discover nearby Quick Share devices; it does not use your physical location.</string>
+    <string name="permission_legacy_nearby_location_rationale">Android 11 and lower route Bluetooth Low Energy scan results through the location permission. Bada uses it only to discover nearby Quick Share devices; it does not use your physical location.</string>
 
     <!-- Permission status labels. -->
     <string name="permission_status_granted">Granted</string>
@@ -274,7 +273,7 @@
          scan list. -->
     <string name="send_help_sheet_title">Can\'t find the device?</string>
     <string name="send_help_sheet_visibility_title">Check the receiver\'s mode</string>
-    <string name="send_help_sheet_visibility_body">On the receiving device, make sure the toggle reads "Ready to receive". In that mode, anyone nearby can share files with it. If it\'s already in that mode but still doesn\'t appear here, try fully closing LibreDrop on both devices and reopening it.</string>
+    <string name="send_help_sheet_visibility_body">On the receiving device, make sure the toggle reads "Ready to receive". In that mode, anyone nearby can share files with it. If it\'s already in that mode but still doesn\'t appear here, try fully closing Bada on both devices and reopening it.</string>
     <string name="send_help_sheet_qr_title">Or share via QR code</string>
     <string name="send_help_sheet_qr_body">If the receiver still does not appear, tap the QR code button at the top right of this card. Have the receiver scan the code or open the link to start the transfer.</string>
     <string name="send_help_sheet_close">Got it</string>
@@ -330,7 +329,7 @@
 
     <!-- Shake-to-report bug-report flow (#162). -->
     <string name="bug_report_confirm_title">Trying to report a bug?</string>
-    <string name="bug_report_confirm_body">LibreDrop will collect recent app diagnostics, device state, and a screenshot into a zip that stays on this device until you choose where to save it.</string>
+    <string name="bug_report_confirm_body">Bada will collect recent app diagnostics, device state, and a screenshot into a zip that stays on this device until you choose where to save it.</string>
     <string name="bug_report_confirm_yes">Yes</string>
     <string name="bug_report_confirm_no">No</string>
     <string name="bug_report_include_bssid_label">Include the current Wi-Fi BSSID (more identifying)</string>
