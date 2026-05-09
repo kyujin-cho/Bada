@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -21,7 +21,7 @@ import dev.bluehouse.bada.protocol.medium.MediumProvider
 /**
  * Capability-only provider for the BLE GATT initial-control path.
  *
- * BLE GATT is not a bandwidth-upgrade target in LibreDrop; it is the already-open
+ * BLE GATT is not a bandwidth-upgrade target in Bada; it is the already-open
  * bootstrap socket used before the normal Nearby negotiation can move the
  * transfer to Wi-Fi Direct / Hotspot / LAN. Registering this provider lets the
  * connection request accurately advertise that the current initial transport

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -222,7 +222,7 @@ internal class BugReportFlowSupport private constructor(
     private fun openIssuePage() {
         val issueUri =
             Uri
-                .parse("https://github.com/kyujin-cho/LibreDrop/issues/new")
+                .parse("https://github.com/kyujin-cho/Bada/issues/new")
                 .buildUpon()
                 .appendQueryParameter("title", "Bug report (auto-generated)")
                 .appendQueryParameter(
@@ -257,7 +257,7 @@ internal class BugReportFlowSupport private constructor(
     }
 
     internal companion object {
-        private const val TAG: String = "LibreDropBugReport"
+        private const val TAG: String = "BadaBugReport"
         private const val CONFIRM_DIALOG_HORIZONTAL_PADDING_DP: Int = 24
         private const val SHAKE_G_FORCE_THRESHOLD: Double = 2.35
         private const val REQUIRED_SHAKE_HITS: Int = 2

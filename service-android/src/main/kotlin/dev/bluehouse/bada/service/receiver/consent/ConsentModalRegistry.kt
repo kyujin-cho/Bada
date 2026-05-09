@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * The foreground-modal path needs the [ConsentCoordinator] (running on
  * a service-scope coroutine) to be able to dismiss the in-app trampoline
- * activity when the user backgrounds LibreDrop — without auto-rejecting
+ * activity when the user backgrounds Bada — without auto-rejecting
  * the consent. The coordinator does not own an Activity reference, so
  * it talks to a "dismiss me" callback that the activity registers in
  * its `onCreate` and unregisters in `onDestroy`. The registry is the

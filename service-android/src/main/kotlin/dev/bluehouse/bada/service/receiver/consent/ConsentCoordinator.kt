@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong
  *     `WaitingForUserConsent` transition.
  *  2. On `WaitingForUserConsent`, register the connection in
  *     [ConsentRegistry] and pick the appropriate consent surface based
- *     on whether any LibreDrop activity is currently foregrounded:
+ *     on whether any Bada activity is currently foregrounded:
  *      * **Foreground** — ask the [Sink] to launch the in-app modal.
  *      * **Background** — ask the [Sink] to post the heads-up
  *        notification.
@@ -392,7 +392,7 @@ public class ConsentCoordinator(
 
         /**
          * Launch the in-app consent modal for [connectionId] over
-         * whichever LibreDrop activity is currently foregrounded.
+         * whichever Bada activity is currently foregrounded.
          * Idempotent: re-launching brings the existing modal forward
          * (singleTask + REORDER_TO_FRONT semantics in production).
          */

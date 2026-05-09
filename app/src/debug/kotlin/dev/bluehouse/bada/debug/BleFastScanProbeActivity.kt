@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -40,7 +40,7 @@ class BleFastScanProbeActivity : AppCompatActivity() {
     }
 
     private companion object {
-        private const val TAG: String = "LibreDropBleFastProbe"
+        private const val TAG: String = "BadaBleFastProbe"
         private const val PROBE_DURATION_MILLIS: Long = 30_000L
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -26,7 +26,7 @@ import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
  * receiver service first tries to build a notification PendingIntent
  * the targets are already set.
  */
-class LibreDropApplication : Application() {
+class BadaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ReceiverForegroundService.openAppTarget = MainActivity::class.java

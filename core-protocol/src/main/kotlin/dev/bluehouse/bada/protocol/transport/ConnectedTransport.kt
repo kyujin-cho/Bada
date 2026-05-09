@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -13,7 +13,7 @@ import java.net.Socket
 /**
  * Connected byte-stream transport feeding the Nearby Connections stack.
  *
- * The initial LibreDrop receiver path historically assumed the first control
+ * The initial Bada receiver path historically assumed the first control
  * channel was always a Wi-Fi LAN [Socket]. Phase 4 changes that assumption:
  * stock Quick Share may need to reach us over a non-LAN medium first and only
  * then negotiate a higher-bandwidth path. This interface lets the core

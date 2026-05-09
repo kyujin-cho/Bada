@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -379,7 +379,7 @@ internal class InboundConnectionDriver(
     /**
      * Receiver-side KEEP_ALIVE ticker. Stock Android expects both peers
      * to emit keep-alives after the secure channel is established; without
-     * this, long Galaxy -> LibreDrop transfers can be cancelled by the sender
+     * this, long Galaxy -> Bada transfers can be cancelled by the sender
      * even while FILE payload chunks are still flowing.
      */
     private suspend fun runKeepAliveTicker(channel: SecureChannel) {

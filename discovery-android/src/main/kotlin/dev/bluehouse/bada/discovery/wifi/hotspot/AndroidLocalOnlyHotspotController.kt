@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -293,6 +293,6 @@ public class AndroidLocalOnlyHotspotController(
     )
 
     private companion object {
-        const val TAG = "LibreDropWifiHotspot"
+        const val TAG = "BadaWifiHotspot"
     }
 }

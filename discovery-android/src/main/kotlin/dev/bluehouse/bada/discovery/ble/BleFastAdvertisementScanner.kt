@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -396,7 +396,7 @@ public class BleFastAdvertisementScanner(
         }
 
     public companion object {
-        private const val TAG: String = "LibreDropBleFastScan"
+        private const val TAG: String = "BadaBleFastScan"
         private const val DEFAULT_GATT_SLOT_READ_COUNT: Int = 1
         private const val GATT_READ_RETRY_MILLIS: Long = 5_000L
         private val SERVICE_UUID: ParcelUuid

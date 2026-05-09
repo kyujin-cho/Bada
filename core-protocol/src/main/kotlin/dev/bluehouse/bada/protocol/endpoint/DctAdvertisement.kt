@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -17,7 +17,7 @@ import java.security.MessageDigest
  *
  * Stock Nearby handles this service before normal fast-advertisement parsing:
  * it parses the DCT fields, derives an endpoint id from the truncated device
- * name, then builds a normal Nearby advertisement internally. LibreDrop uses this
+ * name, then builds a normal Nearby advertisement internally. Bada uses this
  * as the off-LAN identity hint while the canonical `0xFEF3` fast advertisement
  * remains the compact hidden 27-byte shape.
  */
@@ -67,7 +67,7 @@ public object DctAdvertisement {
      *
      * The production receiver intentionally allows [psm] to be `0`: stock
      * parser code accepts it, and it prevents senders from preferring L2CAP
-     * before LibreDrop implements an L2CAP BLE socket server.
+     * before Bada implements an L2CAP BLE socket server.
      */
     @JvmOverloads
     @JvmStatic

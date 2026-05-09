@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -99,7 +99,7 @@ public class BluetoothClassicBootstrapClient internal constructor(
     }
 
     public companion object {
-        private const val TAG: String = "LibreDropBtBootstrap"
+        private const val TAG: String = "BadaBtBootstrap"
     }
 }
 
