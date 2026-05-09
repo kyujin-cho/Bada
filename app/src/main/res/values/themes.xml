@@ -21,10 +21,10 @@
           On Android 15+ (API 35+) this attribute is a no-op because
           edge-to-edge is enforced; we rely on the layout-side
           `fitsSystemWindows` opt-in for the inset handling instead.
-        * `windowLightStatusBar` true so the status bar icons render
-          in dark ink against the light window background. Without
-          this the time / signal icons would disappear on light
-          backgrounds.
+        * `windowLightStatusBar` follows `@bool/window_light_status_bar`
+          so the status bar icon color flips with DayNight. Light mode
+          uses dark glyphs on the light background; night mode uses
+          light glyphs on the dark background.
     -->
     <style name="Theme.LibreDrop" parent="Theme.MaterialComponents.DayNight.NoActionBar.Bridge">
         <item name="colorPrimary">@color/brand_primary</item>
@@ -32,7 +32,7 @@
         <item name="colorOnPrimary">@color/brand_on_primary</item>
 
         <item name="android:statusBarColor" tools:targetApi="l">?android:attr/colorBackground</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">@bool/window_light_status_bar</item>
 
         <!--
           Custom popup style for the toolbar overflow menu. Replaces
@@ -124,7 +124,7 @@
         <item name="android:padding">0dp</item>
         <item name="android:paddingStart">24dp</item>
         <item name="android:paddingEnd">24dp</item>
-        <item name="android:singleLine">true</item>
+        <item name="android:maxLines">2</item>
         <!--
           Zero out drawable-related space the platform Button's
           parent style typically reserves. `drawablePadding` is the
