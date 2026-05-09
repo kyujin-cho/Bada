@@ -385,7 +385,7 @@ private class BleGattClientTransport(
         Log.w(
             TAG,
             "slot read uuid=${characteristic.uuid} status=$status " +
-                "len=${value.size} preview=${value.previewHex()}",
+                "len=${value.size} preview=${value.previewHex()} full=${value.toHex()}",
         )
         slotReadIndex++
         readNextSlot(gatt)

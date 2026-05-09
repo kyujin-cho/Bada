@@ -406,9 +406,18 @@ public class BleGattInitialControlServer(
         /** Copresence / Nearby BLE socket service UUID. */
         public val SERVICE_UUID: UUID = UUID.fromString(BleServiceData.SERVICE_UUID_128_STRING)
 
-        /** Nearby BLE second-profile socket service UUID used when GMS owns the first profile. */
-        public val SECOND_PROFILE_SERVICE_UUID: UUID =
-            UUID.fromString("0000fef3-0004-1000-8000-001a11000100")
+        /**
+         * Nearby BLE second-profile socket service UUID. Stock Quick Share
+         * peripherals publish two services under the same standard 0xFEF3
+         * UUID — one carrying the Weave write/notify chars, the other the
+         * advertisement slots — so stock senders only iterate services with
+         * `SERVICE_UUID` when looking for Weave. Aliasing this to
+         * `SERVICE_UUID` keeps bada's GATT layout structurally identical to
+         * stock; the original `0000fef3-0004-1000-8000-001a11000100` value
+         * was a bada-internal disambiguator that hid Weave from stock
+         * scanners.
+         */
+        public val SECOND_PROFILE_SERVICE_UUID: UUID = SERVICE_UUID
 
         /** Central writes Weave packets here. */
         public val TO_PERIPHERAL_UUID: UUID = UUID.fromString("00000100-0004-1000-8000-001a11000101")
@@ -450,8 +459,20 @@ public class BleGattInitialControlServer(
         ): List<GattServiceSpec> {
             val socketService = buildSocketServiceSpec()
             if (!publishAdvertisementSlotService) return listOf(socketService)
+            // Merge advertisement-slot chars and Weave write/notify chars
+            // into a single 0xFEF3 service. Stock Galaxy senders look up
+            // Weave chars by UUID inside the standard 0xFEF3 service, so
+            // splitting them across two services with the same UUID would
+            // hide the Weave shape from stock peers — and Android's
+            // BluetoothGattServer dedupes by UUID at queuing time anyway,
+            // so two same-UUID services would silently lose one.
             val advertisementService = buildAdvertisementServiceSpec(endpointInfo, endpointId)
-            return listOf(advertisementService, socketService)
+            val combined =
+                GattServiceSpec(
+                    uuid = SERVICE_UUID,
+                    characteristics = advertisementService.characteristics + socketService.characteristics,
+                )
+            return listOf(combined)
         }
 
         internal fun buildServices(
@@ -509,17 +530,18 @@ public class BleGattInitialControlServer(
             endpointInfo: EndpointInfo,
             endpointId: ByteArray,
         ): List<GattCharacteristicSpec> {
-            // Bada runs beside Google Play services on Android. GMS may
-            // already own the first 0xFEF3 GATT socket profile, so the
-            // regular service is read-only and advertises the second-profile
-            // bit. Stock senders can still fetch the endpoint from the normal
-            // slot path, then open the socket on the isolated second profile.
+            // The second-profile frame type (0x4B) was originally meant
+            // to disambiguate when GMS owns the first 0xFEF3 GATT
+            // profile. On stock Galaxy senders the bit is not recognised
+            // and the receiver gets filtered out of the share-target
+            // list, so we publish the standard 0x4A frame type and the
+            // Weave chars under the same standard 0xFEF3 UUID instead.
             val visibleAdvertisement =
                 runCatching {
                     BleServiceData.encodeFramed(
                         endpointId = endpointId,
                         endpointInfo = endpointInfo,
-                        secondProfile = true,
+                        secondProfile = false,
                     )
                 }.getOrDefault(ByteArray(0))
 
