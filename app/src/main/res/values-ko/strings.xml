@@ -18,9 +18,8 @@
     * `credit_teqhnikacross_desc` — the contributor explicitly
       asked for "We all want to be loved" rendered as-is on Korean
       devices too.
-    * `credit_yeonfeel_desc`, `credit_thanks_compact` — already
-      Korean in the canonical file (used as the default for both
-      English and Korean locales).
+    * `credit_thanks_compact` — already Korean in the canonical
+      file (used as the default for both English and Korean locales).
 -->
 <resources>
 
@@ -53,6 +52,7 @@
 
     <!-- Credit screen, Developer section. -->
     <string name="credit_kevin_desc">마일리지가 모자라요</string>
+    <string name="credit_yeonfeel_desc">아무도 알지 못하는 세상을 걷는 법</string>
     <!-- Credit screen, QA section. -->
     <string name="credit_chiyak_qa_desc">콘서트 티켓이 사고 싶어요</string>
     <string name="credit_parami_desc">매일 감사하는 기도를 올리자</string>

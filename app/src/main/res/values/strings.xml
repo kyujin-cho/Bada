@@ -31,7 +31,7 @@
     <string name="credit_kevin_name">Kevin Cho</string>
     <string name="credit_kevin_desc">I\'m running low on miles</string>
     <string name="credit_yeonfeel_name">YEONFEEL</string>
-    <string name="credit_yeonfeel_desc">나의 멜로디도 너에게 닿기를</string>
+    <string name="credit_yeonfeel_desc">Walk through the world no one else has known</string>
     <!-- Chiyak shows up in BOTH the QA section (top of three) and
          the bottom-of-screen Special Thanks compact line. The
          duplication is intentional: the QA listing recognizes
