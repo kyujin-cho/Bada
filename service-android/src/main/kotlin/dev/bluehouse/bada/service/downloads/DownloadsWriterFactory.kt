@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -115,5 +115,5 @@ public object DownloadsWriterFactory {
      * first transfer and cleared on factory teardown
      * ([MediaStoreDownloadsFactory.abortAll]).
      */
-    internal const val SPOOL_SUBDIRECTORY: String = "libredrop-payload-spool"
+    internal const val SPOOL_SUBDIRECTORY: String = "bada-payload-spool"
 }

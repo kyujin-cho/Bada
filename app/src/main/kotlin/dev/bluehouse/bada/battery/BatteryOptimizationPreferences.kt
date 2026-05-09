@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -50,7 +50,7 @@ internal class BatteryOptimizationPreferences(
          * Storage file name. Scoped per-app so other modules can read
          * adjacent flags later without a naming collision.
          */
-        internal const val PREFS_NAME = "libredrop.battery_optimization"
+        internal const val PREFS_NAME = "bada.battery_optimization"
 
         private const val KEY_DISMISSED = "battery_optimization_prompt_dismissed"
 

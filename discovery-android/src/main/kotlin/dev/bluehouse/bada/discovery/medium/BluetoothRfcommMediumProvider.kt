@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -412,7 +412,7 @@ public class BluetoothRfcommMediumProvider internal constructor(
     }
 
     public companion object {
-        private const val TAG: String = "LibreDropBtRfcomm"
+        private const val TAG: String = "BadaBtRfcomm"
 
         /**
          * Default SDP service-record UUID. Chosen as a fresh
@@ -438,7 +438,7 @@ public class BluetoothRfcommMediumProvider internal constructor(
          * wire (the UUID is the actual lookup key) but Android requires
          * a non-null string for `listenUsingInsecureRfcommWithServiceRecord`.
          */
-        public const val DEFAULT_SERVICE_NAME: String = "LibreDropQuickShareRfcomm"
+        public const val DEFAULT_SERVICE_NAME: String = "BadaQuickShareRfcomm"
 
         /**
          * Sentinel MAC string Android 6+ returns from

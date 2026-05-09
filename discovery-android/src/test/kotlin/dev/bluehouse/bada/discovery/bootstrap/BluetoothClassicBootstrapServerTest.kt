@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -98,7 +98,7 @@ class BluetoothClassicBootstrapServerTest {
             deviceType = DeviceType.PHONE,
             reserved = false,
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
-            deviceName = "LibreDrop",
+            deviceName = "Bada",
             tlvRecords = emptyList(),
         )
 

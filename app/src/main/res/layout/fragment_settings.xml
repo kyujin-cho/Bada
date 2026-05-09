@@ -119,14 +119,29 @@
 
         </LinearLayout>
 
-        <!-- ============ Card 2: Advertised name ============ -->
+        <!--
+          ============ Card 2: Advertised name ============
+
+          Temporarily hidden via `visibility="gone"` (fall 2026): the
+          custom-name flow has an outstanding interop bug where the
+          re-published name does not always propagate to a peer that
+          has the receiver cached, and Quick Share's own caching makes
+          it hard to invalidate cleanly. The IDs below are deliberately
+          left intact so [SettingsFragment]'s `findViewById` wiring keeps
+          compiling and we can flip this back on by removing the single
+          `android:visibility="gone"` line once the propagation gap is
+          fixed. The underlying [AdvertisedDeviceNames] storage and
+          [AdvertisedDeviceNamePreferences] both remain live; this is a
+          UI-only mute.
+        -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:background="@drawable/settings_card_background"
             android:orientation="vertical"
-            android:padding="20dp">
+            android:padding="20dp"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/main_advertised_name_title"

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -71,6 +71,52 @@ internal data class SendBootstrapPlan(
             )
         }
 
+        /**
+         * All connect-attempt-viable routes for [peer] in the same
+         * priority order as [resolve], with the highest-priority entry
+         * first. Used by the sender's retry-with-fallback loop: the
+         * primary attempt uses the first entry; if its TCP / transport
+         * connect fails ("Initial connect failed: …" surfaced as
+         * `OutboundResult.Failed`), the loop walks down the list and
+         * retries each remaining route until one bootstrap completes
+         * the UKEY2 handshake — at which point the SecureChannel is
+         * up and any subsequent failure is protocol-layer, not
+         * transport-layer, so we stop falling back.
+         *
+         * The order mirrors [directRoute]'s `when` chain (BLE-first):
+         * BLE-L2CAP → BLE-GATT → Wi-Fi LAN → Bluetooth Classic. An
+         * empty list means no usable route; the caller falls through
+         * to the same "no route" terminal that [Action.Unavailable]
+         * would render.
+         */
+        fun viableRoutes(peer: NearbyPeer): List<NearbyPeerRoute> =
+            listOfNotNull(
+                bleL2capRoute(peer),
+                bleGattRoute(peer),
+                lanRoute(peer),
+                bluetoothRoute(peer),
+            )
+
+        /**
+         * Build a plan whose `action` targets exactly [route] for the
+         * given [peer]. The standard [resolve] entry point picks the
+         * top-priority route and returns the corresponding plan; this
+         * helper exists so a fallback-retry path can construct a plan
+         * around an already-known non-primary route without re-running
+         * the priority `when` chain.
+         *
+         * The `rejectedCandidates` field is left empty here — those
+         * are diagnostic strings used by the picker to explain WHY a
+         * particular medium was passed over. On a fallback attempt the
+         * "rejection" is "the previous route failed at TCP", which is
+         * more usefully captured in the outbound diagnostic log than
+         * in this per-attempt plan's metadata.
+         */
+        fun forRoute(
+            @Suppress("UNUSED_PARAMETER") peer: NearbyPeer,
+            route: NearbyPeerRoute,
+        ): SendBootstrapPlan = direct(route, rejectedCandidates = emptyList())
+
         private fun direct(
             route: NearbyPeerRoute,
             rejectedCandidates: List<String>,
@@ -98,30 +144,40 @@ internal data class SendBootstrapPlan(
             val bleL2capRoute = bleL2capRoute(peer)
             val bleGattRoute = bleGattRoute(peer)
             val bluetoothRoute = bluetoothRoute(peer)
+            // BLE-first preference. BLE bootstraps bypass the AP entirely,
+            // so on Wi-Fi networks that block client-to-client traffic (AP
+            // isolation, vendor APF rules dropping peer ARP, dual-band
+            // band-steering that segregates clients onto different L2
+            // segments, etc.) BLE remains reachable while a same-subnet
+            // Wi-Fi LAN connect would EHOSTUNREACH out. Once the BLE
+            // initial control plane is up, the post-handshake bandwidth
+            // upgrade can still negotiate Wi-Fi Direct / Hotspot for the
+            // payload streaming, so the user-visible cost is just the
+            // brief BLE GATT/L2CAP setup latency.
             return when {
-                lanRoute != null -> lanRoute
-                bleL2capRoute != null -> {
-                    rejectedCandidates += lanRejection(peer)
-                    bleL2capRoute
-                }
-
+                bleL2capRoute != null -> bleL2capRoute
                 bleGattRoute != null -> {
-                    rejectedCandidates += lanRejection(peer)
                     rejectedCandidates += bleL2capRejection(peer)
                     bleGattRoute
                 }
 
-                bluetoothRoute != null -> {
-                    rejectedCandidates += lanRejection(peer)
+                lanRoute != null -> {
                     rejectedCandidates += bleL2capRejection(peer)
                     rejectedCandidates += bleGattRejection(peer)
+                    lanRoute
+                }
+
+                bluetoothRoute != null -> {
+                    rejectedCandidates += bleL2capRejection(peer)
+                    rejectedCandidates += bleGattRejection(peer)
+                    rejectedCandidates += lanRejection(peer)
                     bluetoothRoute
                 }
 
                 else -> {
-                    rejectedCandidates += lanRejection(peer)
                     rejectedCandidates += bleL2capRejection(peer)
                     rejectedCandidates += bleGattRejection(peer)
+                    rejectedCandidates += lanRejection(peer)
                     rejectedCandidates += bluetoothClassicRejection(peer)
                     null
                 }

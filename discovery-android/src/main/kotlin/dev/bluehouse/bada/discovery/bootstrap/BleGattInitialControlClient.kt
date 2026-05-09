@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -132,7 +132,7 @@ public class BleGattInitialControlClient internal constructor(
         ) == PackageManager.PERMISSION_GRANTED
 
     private companion object {
-        private const val TAG: String = "LibreDropBleGattClient"
+        private const val TAG: String = "BadaBleGattClient"
         private const val CONNECTION_READY_TIMEOUT_MILLIS: Long = 10_000L
     }
 }
@@ -649,7 +649,7 @@ private class BleGattClientTransport(
         // Log.w (not Log.i) here is the Funtouch OS / vivo workaround from PR #144:
         // Funtouch filters Log.i for non-system apps, leaving us blind to the
         // outbound write path during BLE GATT bootstrap diagnostics. Log.w
-        // also lands in `getExternalFilesDir(null)/libredrop-outbound.log` via
+        // also lands in `getExternalFilesDir(null)/bada-outbound.log` via
         // OutboundConnection's logger so on-device logs survive a logcat
         // flush. The function split (sendSocketServiceBytes vs.
         // sendSocketServiceMessage) is from PR #146, where new callers send
@@ -718,7 +718,7 @@ private class BleGattClientTransport(
     }
 
     private companion object {
-        private const val TAG: String = "LibreDropBleGattClient"
+        private const val TAG: String = "BadaBleGattClient"
         private const val REQUESTED_MTU: Int = 512
         private const val GATT_ATT_HEADER_BYTES: Int = 3
         private const val INPUT_PIPE_SIZE: Int = 1024 * 1024

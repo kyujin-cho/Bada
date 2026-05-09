@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -675,7 +675,7 @@ internal class WifiDirectGroupController(
     }
 
     companion object {
-        private const val TAG = "LibreDropWifiDirect"
+        private const val TAG = "BadaWifiDirect"
 
         /** Wait at most this long for the WIFI_P2P_CONNECTION_CHANGED broadcast. */
         const val GROUP_FORMATION_TIMEOUT_MS: Long = 30_000
@@ -695,7 +695,7 @@ internal object WifiDirectCredentialShape {
     private val random = SecureRandom()
     private val networkNameRegex = Regex("^DIRECT-[A-Za-z0-9]{2}[A-Za-z0-9_-]*$")
     private const val NETWORK_NAME_RANDOM_CHARS = 2
-    private const val NETWORK_NAME_SUFFIX = "LibreDrop"
+    private const val NETWORK_NAME_SUFFIX = "Bada"
     private const val NETWORK_NAME_SESSION_CHARS = 6
     private const val NETWORK_NAME_MAX_LENGTH = 32
     private const val PASSPHRASE_LENGTH = 16

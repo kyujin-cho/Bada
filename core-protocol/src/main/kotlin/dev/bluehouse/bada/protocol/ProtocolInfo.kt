@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -24,5 +24,5 @@ public object ProtocolInfo {
     public const val MDNS_SERVICE_TYPE: String = "_FC9F5ED42C8A._tcp."
 
     /** Human-readable name surfaced in logs and diagnostics. */
-    public const val NAME: String = "LibreDrop/core-protocol"
+    public const val NAME: String = "Bada/core-protocol"
 }

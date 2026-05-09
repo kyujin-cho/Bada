@@ -88,11 +88,11 @@
         android:background="@android:color/transparent"
         android:paddingEnd="12dp"
         android:paddingTop="32dp"
-        android:theme="@style/ThemeOverlay.LibreDrop.ToolbarNoRipple"
-        app:popupTheme="@style/ThemeOverlay.LibreDrop.PopupMenu"
+        android:theme="@style/ThemeOverlay.Bada.ToolbarNoRipple"
+        app:popupTheme="@style/ThemeOverlay.Bada.PopupMenu"
         app:title="@string/app_name"
         app:titleCentered="false"
-        app:titleTextAppearance="@style/TextAppearance.LibreDrop.ToolbarTitle"
+        app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
         app:titleTextColor="?android:attr/textColorPrimary" />
 
     <androidx.fragment.app.FragmentContainerView
@@ -133,8 +133,8 @@
         app:itemBackground="@android:color/transparent"
         app:itemIconTint="@color/bottom_nav_item_color"
         app:itemRippleColor="@android:color/transparent"
-        app:itemTextAppearanceActive="@style/TextAppearance.LibreDrop.BottomNavLabel"
-        app:itemTextAppearanceInactive="@style/TextAppearance.LibreDrop.BottomNavLabel"
+        app:itemTextAppearanceActive="@style/TextAppearance.Bada.BottomNavLabel"
+        app:itemTextAppearanceInactive="@style/TextAppearance.Bada.BottomNavLabel"
         app:itemTextColor="@color/bottom_nav_item_color"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_nav_menu" />

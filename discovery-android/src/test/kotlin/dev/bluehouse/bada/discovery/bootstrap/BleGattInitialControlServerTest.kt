@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -103,6 +103,6 @@ class BleGattInitialControlServerTest {
             deviceType = DeviceType.PHONE,
             reserved = false,
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { index -> index.toByte() },
-            deviceName = "LibreDrop",
+            deviceName = "Bada",
         )
 }

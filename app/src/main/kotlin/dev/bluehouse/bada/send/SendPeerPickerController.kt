@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -50,6 +50,30 @@ internal class SendPeerPickerController(
     private val emptyPeerHintTimer: EmptyPeerHintTimer = EmptyPeerHintTimer()
     private var bleAdvertiser: BleAdvertiser? = null
     private var bleAdvertiseHandle: BleAdvertiseHandle? = null
+
+    /**
+     * Snapshot of the row contents the picker was last rendered with —
+     * one entry per visible peer in the order they were drawn, capturing
+     * only the fields the row actually displays (stableId for identity,
+     * title for the primary line, subtitle for the secondary line).
+     *
+     * Used to short-circuit [renderPeerList] when a discovery event
+     * carries no display-relevant change. Without this gate, every BLE
+     * fast-advertisement observation (which includes a fresh `rssi:Int?`
+     * value, making the data-class equality on [NearbyPeer] flip every
+     * few hundred milliseconds) would trigger a full
+     * `container.removeAllViews()` + re-inflate cycle. With three or
+     * more peers in the list, that churn lands inside roughly 10% of
+     * tap windows and the user has to double-tap to register a click —
+     * exactly the symptom reported on multi-peer environments.
+     */
+    private var lastRenderedRowSnapshot: List<RenderedRowSnapshot> = emptyList()
+
+    private data class RenderedRowSnapshot(
+        val stableId: String,
+        val title: String,
+        val subtitle: String,
+    )
 
     fun start() {
         outboundPresenceJob?.cancel()
@@ -218,26 +242,69 @@ internal class SendPeerPickerController(
 
     private fun renderPeerList() {
         val container = binding.sendPeerList
-        container.removeAllViews()
-        val inflater = LayoutInflater.from(context)
-        for (peer in peers) {
-            val plan = planFor(peer)
-            if (!plan.isConnectable) continue
-            val row = ItemPeerRowBinding.inflate(inflater, container, false)
-            row.peerRowTitle.text = peerLabel(peer)
-            row.peerRowSubtitle.text = plan.subtitle
-            row.root.isEnabled = true
-            row.root.alpha = 1f
-            row.root.setOnClickListener { onPeerSelected(peer) }
-            container.addView(row.root)
-        }
-        binding.sendEmptyState.visibility = if (peers.isEmpty()) View.VISIBLE else View.GONE
+
+        // Build the target row payloads up-front so we can compare
+        // against the last rendered snapshot before deciding whether
+        // the row container needs a rebuild.
+        data class TargetRow(
+            val peer: NearbyPeer,
+            val title: String,
+            val subtitle: String,
+        )
+        val targetRows =
+            peers.mapNotNull { peer ->
+                val plan = planFor(peer)
+                if (!plan.isConnectable) return@mapNotNull null
+                TargetRow(peer, peerLabel(peer), plan.subtitle)
+            }
+        val targetSnapshot =
+            targetRows.map { row ->
+                RenderedRowSnapshot(row.peer.stableId, row.title, row.subtitle)
+            }
+
+        // Subtitle ("Looking for nearby devices…" vs "Pick a device")
+        // is cheap and depends only on whether peers exist, so we
+        // refresh it unconditionally — re-applying the same string is
+        // a no-op at the TextView layer.
         binding.sendSubtitle.setText(
             when {
                 peers.isEmpty() -> R.string.send_subtitle_discovering
                 else -> R.string.send_subtitle_pick_peer
             },
         )
+
+        if (targetSnapshot == lastRenderedRowSnapshot) {
+            // No display-relevant change. Skip the row rebuild so a
+            // tap that just landed on an existing row keeps its click
+            // handler attached, instead of being silently dropped by a
+            // `removeAllViews()` + re-inflate cycle that would have run
+            // for every BLE RSSI tick. The empty-state TextView is
+            // still gated on the timer, not on peer-list churn, so we
+            // call its updater below regardless.
+            updateEmptyPeerHintVisibility()
+            return
+        }
+        lastRenderedRowSnapshot = targetSnapshot
+
+        container.removeAllViews()
+        val inflater = LayoutInflater.from(context)
+        for (target in targetRows) {
+            val row = ItemPeerRowBinding.inflate(inflater, container, false)
+            row.peerRowTitle.text = target.title
+            row.peerRowSubtitle.text = target.subtitle
+            row.root.isEnabled = true
+            row.root.alpha = 1f
+            row.root.setOnClickListener { onPeerSelected(target.peer) }
+            container.addView(row.root)
+        }
+        // Empty-state visibility is gated on [EmptyPeerHintTimer] inside
+        // [updateEmptyPeerHintVisibility] so the "no devices nearby yet"
+        // helper text only surfaces after a short discovery window has
+        // elapsed. Pinning it true the instant the activity opens
+        // produced a confusing pair of conflicting messages — the
+        // subtitle would say "Looking for nearby devices…" while the
+        // body told the user there were none — even though no scan
+        // had actually had time to land its first result.
         updateEmptyPeerHintVisibility()
     }
 
@@ -251,6 +318,22 @@ internal class SendPeerPickerController(
     }
 
     private fun updateEmptyPeerHintVisibility() {
+        // Empty-state TextView ("no devices nearby yet…") is gated on
+        // the same delay window as the same-Wi-Fi hint card, but the
+        // dismiss latch does NOT apply — the body text is purely
+        // informational, not a banner the user can close. The result
+        // is a clean two-phase render: subtitle alone for the first
+        // discovery window, subtitle + helper text once the window
+        // expires with no peers found.
+        val now = System.currentTimeMillis()
+        val isEmpty = peers.isEmpty()
+        binding.sendEmptyState.visibility =
+            if (emptyPeerHintTimer.shouldShowEmptyState(now, isEmpty)) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+
         // The "Same Wi-Fi network required" inline card is intentionally
         // disabled in favour of the help link + bottom-sheet flow added
         // alongside `send_help_link`. The two surfaces were colliding
@@ -259,12 +342,6 @@ internal class SendPeerPickerController(
         // dismiss button on the card. The bottom sheet covers the same
         // guidance (and adds the QR fallback section), so the inline
         // card is kept in the layout for now but never raised.
-        //
-        // Keeping the timer running so resume + the "show again on
-        // re-entry" semantics stay in place; the caller also still
-        // calls this on every peer-list mutation. A future change can
-        // remove the inline card layout if we decide the bottom sheet
-        // fully supersedes it.
         binding.sendNetworkHint.visibility = View.GONE
     }
 
@@ -307,7 +384,7 @@ internal class SendPeerPickerController(
     private fun planFor(peer: NearbyPeer): SendBootstrapPlan = SendBootstrapPlan.resolve(peer = peer)
 
     private companion object {
-        private const val BLE_TAG: String = "LibreDropDiscovery"
+        private const val BLE_TAG: String = "BadaDiscovery"
     }
 }
 

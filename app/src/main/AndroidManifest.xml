@@ -214,7 +214,7 @@
     </queries>
 
     <application
-        android:name=".LibreDropApplication"
+        android:name=".BadaApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -222,7 +222,18 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.LibreDrop">
+        android:theme="@style/Theme.Bada">
+
+        <!--
+            Pre-fetch the Google Sans Flex downloadable font during
+            install / first launch so the very first frame using the
+            theme's `fontFamily` renders against the brand face rather
+            than the system fallback while the binary is still being
+            delivered from Google Play Services.
+        -->
+        <meta-data
+            android:name="preloaded_fonts"
+            android:resource="@array/preloaded_fonts" />
 
         <activity
             android:name=".MainActivity"
@@ -298,7 +309,7 @@
 
           Launched by the consent notification's content PendingIntent
           (background path) and programmatically by ConsentCoordinator
-          when LibreDrop is foregrounded (#151 modal path). Both
+          when Bada is foregrounded (#151 modal path). Both
           launches are package-scoped, so exported=false.
 
           launchMode is `singleTop` so a coordinator-driven re-launch
@@ -319,7 +330,7 @@
             android:launchMode="singleTop"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
-            android:theme="@style/Theme.LibreDrop.ConsentDialog"
+            android:theme="@style/Theme.Bada.ConsentDialog"
             android:label="@string/consent_activity_label" />
 
     </application>

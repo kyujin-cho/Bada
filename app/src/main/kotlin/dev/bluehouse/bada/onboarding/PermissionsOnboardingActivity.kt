@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -303,8 +303,8 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
     }
 
     private companion object {
-        const val STATE_HAS_REQUESTED_ONCE = "libredrop.onboarding.hasRequestedOnce"
-        const val STATE_SETTINGS_BUTTON_VISIBLE = "libredrop.onboarding.settingsButtonVisible"
-        const val STATE_SCROLLED_TO_END = "libredrop.onboarding.scrolledToEnd"
+        const val STATE_HAS_REQUESTED_ONCE = "bada.onboarding.hasRequestedOnce"
+        const val STATE_SETTINGS_BUTTON_VISIBLE = "bada.onboarding.settingsButtonVisible"
+        const val STATE_SCROLLED_TO_END = "bada.onboarding.scrolledToEnd"
     }
 }

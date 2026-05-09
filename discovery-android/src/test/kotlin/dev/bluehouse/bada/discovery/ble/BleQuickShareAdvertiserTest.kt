@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -111,7 +111,7 @@ class BleQuickShareAdvertiserTest {
                 deviceType = DeviceType.PHONE,
                 reserved = false,
                 metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
-                deviceName = "LibreDrop",
+                deviceName = "Bada",
             )
 
         val started = advertiser.start(info, endpointId("DROP"))
@@ -134,7 +134,7 @@ class BleQuickShareAdvertiserTest {
         assertThat(visibleAdvertisement.secondProfile).isTrue()
         val visibleInfo = BleServiceData.parse(visiblePayload)!!.endpointInfo
         assertThat(visibleInfo.hidden).isFalse()
-        assertThat(visibleInfo.deviceName).isEqualTo("LibreDrop")
+        assertThat(visibleInfo.deviceName).isEqualTo("Bada")
         assertThat(BleServiceData.parsePsmExtraField(visiblePayload)).isNull()
         assertThat(visibleAdvertisement.rxInstantConnectionAdvertisement).isEmpty()
         assertThat(visiblePayload.size).isGreaterThan(27)
@@ -425,7 +425,7 @@ class BleQuickShareAdvertiserTest {
             deviceType = DeviceType.PHONE,
             reserved = false,
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
-            deviceName = "LibreDrop",
+            deviceName = "Bada",
         )
 
     private fun endpointId(s: String): ByteArray {

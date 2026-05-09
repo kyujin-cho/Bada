@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -20,7 +20,7 @@ class ProtocolInfoTest {
 
     @Test
     fun `module name identifies the core-protocol module`() {
-        assertThat(ProtocolInfo.NAME).isEqualTo("LibreDrop/core-protocol")
+        assertThat(ProtocolInfo.NAME).isEqualTo("Bada/core-protocol")
     }
 
     @Test

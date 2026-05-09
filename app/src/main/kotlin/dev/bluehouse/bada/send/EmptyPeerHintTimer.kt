@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -90,6 +90,28 @@ internal class EmptyPeerHintTimer(
     }
 
     /**
+     * @return `true` when the inline "no devices nearby yet" empty-
+     *   state TextView should be visible at [nowMillis] given the
+     *   latest [peerListEmpty]. Mirrors [shouldShowHint] except it
+     *   does NOT check the dismissed latch — the empty-state text
+     *   is informational, not user-dismissable, so it should keep
+     *   surfacing as long as the peer list stays empty past the
+     *   delay window. Suppressing it during the first [delayMillis]
+     *   keeps the picker from flashing a "no devices found" message
+     *   the instant the user opens the share sheet, before discovery
+     *   has had a real chance to land its first event.
+     */
+    fun shouldShowEmptyState(
+        nowMillis: Long,
+        peerListEmpty: Boolean,
+    ): Boolean {
+        val started = startTimestamp
+        return peerListEmpty &&
+            started != null &&
+            nowMillis - started >= delayMillis
+    }
+
+    /**
      * Accessor for the dismissed latch. The picker uses this when it
      * surfaces the same hint immediately for visible but unroutable
      * peers, while tests use it to verify the latch is sticky without
@@ -99,13 +121,16 @@ internal class EmptyPeerHintTimer(
 
     companion object {
         /**
-         * Default empty-peer-list timeout. ~3 seconds matches the
-         * issue body's UX guidance and the wording in the runbooks
-         * — long enough that a healthy LAN with a receiver already
-         * advertising surfaces a peer first, short enough that a
-         * misconfigured network produces actionable feedback before
-         * the user gives up and closes the share sheet.
+         * Default empty-peer-list timeout. 10 seconds gives the
+         * receiver, the network, and the BLE pulse handshake enough
+         * time to land a first peer event on slow Wi-Fi handoffs
+         * and on devices where the receive-side foreground service
+         * was just brought up by the share intent itself. The
+         * earlier ~3 s window produced false-negative "no devices
+         * nearby yet" flashes on healthy LANs that just happened to
+         * be a beat slow on the very first scan after the share
+         * activity opened.
          */
-        const val DEFAULT_DELAY_MILLIS: Long = 3_000L
+        const val DEFAULT_DELAY_MILLIS: Long = 10_000L
     }
 }

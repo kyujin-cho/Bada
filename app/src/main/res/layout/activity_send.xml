@@ -316,13 +316,23 @@
                                     android:layout_height="wrap_content"
                                     android:orientation="vertical" />
 
+                                <!--
+                                  Initial visibility = gone. The send-side
+                                  picker controller flips this VISIBLE only
+                                  after the empty-peer hint timer expires
+                                  (~3 s) without finding any peer, so the
+                                  card never flashes "no devices nearby
+                                  yet" while a fresh scan is still
+                                  legitimately searching.
+                                -->
                                 <TextView
                                     android:id="@+id/send_empty_state"
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="24dp"
                                     android:text="@string/send_empty_state"
-                                    android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                    android:visibility="gone" />
 
                                 <!--
                                   Same-Wi-Fi-network hint card (#85). Surfaced after ~3 seconds
@@ -762,7 +772,7 @@
 
                             <Button
                                 android:id="@+id/send_qr_close"
-                                style="@style/Widget.LibreDrop.Button"
+                                style="@style/Widget.Bada.Button"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:gravity="center"
@@ -776,7 +786,7 @@
 
                             <Button
                                 android:id="@+id/send_qr_copy_link"
-                                style="@style/Widget.LibreDrop.Button"
+                                style="@style/Widget.Bada.Button"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:gravity="center"

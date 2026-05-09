@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Pre-fetch list for Downloadable Fonts. Listing the family here
+    asks the platform to fetch the font during the install / first-
+    launch idle window so that the very first frame using the family
+    does not flash the system fallback while the binary is still in
+    flight from Google Play Services.
+-->
+<resources>
+    <array name="preloaded_fonts" translatable="false">
+        <item>@font/google_sans_flex</item>
+    </array>
+</resources>

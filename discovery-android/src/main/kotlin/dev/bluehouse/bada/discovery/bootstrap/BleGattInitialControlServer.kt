@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -401,7 +401,7 @@ public class BleGattInitialControlServer(
     }
 
     public companion object {
-        internal const val TAG: String = "LibreDropBleGatt"
+        internal const val TAG: String = "BadaBleGatt"
 
         /** Copresence / Nearby BLE socket service UUID. */
         public val SERVICE_UUID: UUID = UUID.fromString(BleServiceData.SERVICE_UUID_128_STRING)
@@ -509,7 +509,7 @@ public class BleGattInitialControlServer(
             endpointInfo: EndpointInfo,
             endpointId: ByteArray,
         ): List<GattCharacteristicSpec> {
-            // LibreDrop runs beside Google Play services on Android. GMS may
+            // Bada runs beside Google Play services on Android. GMS may
             // already own the first 0xFEF3 GATT socket profile, so the
             // regular service is read-only and advertises the second-profile
             // bit. Stock senders can still fetch the endpoint from the normal

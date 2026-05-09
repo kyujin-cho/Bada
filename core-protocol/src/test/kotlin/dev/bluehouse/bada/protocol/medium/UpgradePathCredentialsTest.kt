@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -23,14 +23,14 @@ class UpgradePathCredentialsTest {
         val ipv6b = byteArrayOf(0xFE.toByte(), 0x80.toByte(), 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8)
         val first =
             UpgradePathCredentials.WifiAware(
-                serviceName = "libredrop-quickshare-aware",
+                serviceName = "bada-quickshare-aware",
                 ipv6Address = ipv6a,
                 port = 1234,
                 passphrase = "secret",
             )
         val second =
             UpgradePathCredentials.WifiAware(
-                serviceName = "libredrop-quickshare-aware",
+                serviceName = "bada-quickshare-aware",
                 ipv6Address = ipv6b,
                 port = 1234,
                 passphrase = "secret",

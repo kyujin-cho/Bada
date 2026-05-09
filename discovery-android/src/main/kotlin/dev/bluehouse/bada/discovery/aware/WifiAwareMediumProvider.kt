@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -222,7 +222,7 @@ public class WifiAwareMediumProvider internal constructor(
     }
 
     public companion object {
-        private const val TAG: String = "LibreDropWifiAware"
+        private const val TAG: String = "BadaWifiAware"
 
         /**
          * Attach + publish/subscribe combined timeout. The platform
@@ -241,7 +241,7 @@ public class WifiAwareMediumProvider internal constructor(
          * same name (none does today, but the protocol allows it) can
          * interoperate.
          */
-        public const val SERVICE_NAME: String = "libredrop-quickshare-aware"
+        public const val SERVICE_NAME: String = "bada-quickshare-aware"
 
         /** Number of ASCII chars in a generated passphrase. */
         private const val PASSPHRASE_BYTES: Int = 32
@@ -339,7 +339,7 @@ public class AndroidWifiAwareSupport(
     private val context: Context,
 ) : WifiAwareSupport {
     private val handlerThread: HandlerThread by lazy {
-        HandlerThread("LibreDropWifiAwareCb").apply { start() }
+        HandlerThread("BadaWifiAwareCb").apply { start() }
     }
     private val handler: Handler by lazy { Handler(handlerThread.looper) }
     private val pendingServer: AtomicReference<PendingAwareServer?> = AtomicReference(null)
@@ -845,7 +845,7 @@ public class AndroidWifiAwareSupport(
     )
 
     private companion object {
-        const val TAG = "LibreDropWifiAware"
+        const val TAG = "BadaWifiAware"
         const val BACKLOG = 1
         const val IPPROTO_TCP = 6
     }
@@ -882,6 +882,6 @@ public interface AwareLogger {
 
 internal object AndroidAwareLogger : AwareLogger {
     override fun warn(message: String) {
-        Log.w("LibreDropWifiAware", message)
+        Log.w("BadaWifiAware", message)
     }
 }

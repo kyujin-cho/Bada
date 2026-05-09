@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -132,10 +132,14 @@ class BatteryOptimizationOemHelperTest {
     }
 
     @Test
-    fun `vendor candidate list ends with the generic fallback`() {
-        // Every vendor list must finish with the system dialog so users
-        // always have a working route — no matter how outdated the
-        // vendor activity-name list ever gets.
+    fun `vendor candidate list starts with the generic dialog`() {
+        // Every vendor list must lead with the standard system dialog
+        // because that is the only path that flips
+        // `PowerManager.isIgnoringBatteryOptimizations` when the user
+        // accepts. Vendor activities (vivo BgStartUpManager, MIUI
+        // autostart, etc.) are kept as fall-through entries so devices
+        // on which the generic intent unexpectedly fails to resolve
+        // still have somewhere to land.
         val vendorFamilies =
             listOf(
                 OemFamily.SAMSUNG,
@@ -150,19 +154,19 @@ class BatteryOptimizationOemHelperTest {
         for (family in vendorFamilies) {
             val candidates = BatteryOptimizationOemHelper.candidatesFor(family)
             assertTrue(
-                "$family must produce at least one vendor entry plus the generic fallback",
+                "$family must produce the generic dialog plus at least one vendor entry",
                 candidates.size >= 2,
             )
             assertSame(
-                "$family list must end with GenericIgnoreBatteryOptimizations",
+                "$family list must start with GenericIgnoreBatteryOptimizations",
                 Candidate.GenericIgnoreBatteryOptimizations,
-                candidates.last(),
+                candidates.first(),
             )
-            // Every preceding candidate must be a VendorActivity, not
+            // Every following candidate must be a VendorActivity, not
             // another implicit-action sentinel — otherwise the helper
             // would offer two implicit intents racing for the same
             // action.
-            for (candidate in candidates.dropLast(1)) {
+            for (candidate in candidates.drop(1)) {
                 assertTrue(
                     "$family vendor candidate must be a VendorActivity",
                     candidate is Candidate.VendorActivity,

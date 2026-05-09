@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -617,7 +617,7 @@ public class ReceiverForegroundService : Service() {
     private fun appendInboundLog(line: String) {
         runCatching {
             val dir = getExternalFilesDir(null) ?: return
-            val f = java.io.File(dir, "libredrop-inbound.log")
+            val f = java.io.File(dir, "bada-inbound.log")
             f.appendText("${System.currentTimeMillis()} $line\n")
         }
     }
@@ -625,7 +625,7 @@ public class ReceiverForegroundService : Service() {
     /**
      * Wire a [ConsentCoordinator] over the session's flows so that
      * each `WaitingForUserConsent` transition is surfaced through the
-     * appropriate UI: an in-app modal when LibreDrop is foregrounded
+     * appropriate UI: an in-app modal when Bada is foregrounded
      * (#151) or a heads-up notification when it isn't.
      */
     private fun startConsentCoordinator(session: ReceiverSession) {
@@ -935,7 +935,7 @@ public class ReceiverForegroundService : Service() {
          * or a future "rename device" feature). Optional — when absent
          * the service falls back to a process-default identity.
          */
-        public const val EXTRA_ENDPOINT_INFO: String = "libredrop.endpoint_info"
+        public const val EXTRA_ENDPOINT_INFO: String = "bada.endpoint_info"
 
         /**
          * The activity class to open on notification tap. The `:app`
@@ -1071,7 +1071,7 @@ public class ReceiverForegroundService : Service() {
             DiagnosticLog.e(INBOUND_DIAG_TAG, line)
             runCatching {
                 val dir = context.getExternalFilesDir(null) ?: return
-                val file = java.io.File(dir, "libredrop-inbound.log")
+                val file = java.io.File(dir, "bada-inbound.log")
                 file.appendText("${System.currentTimeMillis()} $line\n")
             }
         }
@@ -1086,11 +1086,11 @@ public class ReceiverForegroundService : Service() {
         private const val DIAGNOSTICS_LOG_INTERVAL_MS: Long = 10_000L
 
         /** logcat tag for the diagnostics line — matches the discovery module. */
-        private const val DIAGNOSTICS_TAG: String = "LibreDropDiscovery"
-        private const val INBOUND_DIAG_TAG: String = "LibreDropInbound"
+        private const val DIAGNOSTICS_TAG: String = "BadaDiscovery"
+        private const val INBOUND_DIAG_TAG: String = "BadaInbound"
 
         /** logcat tag for the foreground-modal launch path (#151). */
-        private const val MODAL_TAG: String = "LibreDropConsentModal"
+        private const val MODAL_TAG: String = "BadaConsentModal"
     }
 }
 
@@ -1196,7 +1196,7 @@ public object QrSessionActiveHolder {
  * receiver-side mDNS record down for the duration of the send.
  *
  * **Why veto?** Empirical observation against Samsung Galaxy S24 Ultra
- * (One UI 8.0.5 / Android 16): when LibreDrop concurrently publishes its
+ * (One UI 8.0.5 / Android 16): when Bada concurrently publishes its
  * receiver-side mDNS record AND opens an outbound `OutboundConnection`
  * to the same Galaxy peer, Samsung's GMS Nearby (`NearbyConnections`)
  * caches state for our endpoint from the WIFI_LAN service it

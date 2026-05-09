@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -79,10 +79,11 @@ class EmptyPeerHintTimerTest {
     }
 
     @Test
-    fun `default delay matches the issue body's three-second guidance`() {
-        // The issue body specifies "after ~3 seconds with no peers".
-        // Lock that contract in so a future tweak goes through code
-        // review.
-        assertTrue(EmptyPeerHintTimer.DEFAULT_DELAY_MILLIS == 3_000L)
+    fun `default delay is the ten-second discovery window`() {
+        // The default was bumped from ~3 s to 10 s after the picker
+        // started flashing "no devices nearby yet" on healthy LANs
+        // whose first scan happened to be a beat slow. Lock the new
+        // value so a future tweak goes through code review.
+        assertTrue(EmptyPeerHintTimer.DEFAULT_DELAY_MILLIS == 10_000L)
     }
 }

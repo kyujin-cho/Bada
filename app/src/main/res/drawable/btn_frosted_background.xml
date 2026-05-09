@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Global button background. Applied to every plain `<Button>` via
-  `Theme.LibreDrop`'s `buttonStyle` override so the entire app moves
+  `Theme.Bada`'s `buttonStyle` override so the entire app moves
   off the dull AppCompat gray onto a soft "frosted glass" surface
   with rounded ends.
 

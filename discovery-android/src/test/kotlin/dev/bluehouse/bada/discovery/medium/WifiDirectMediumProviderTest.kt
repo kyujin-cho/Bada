@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -143,7 +143,7 @@ class WifiDirectMediumProviderTest {
 
         assertThat(WifiDirectCredentialShape.isValidNetworkName(generated)).isTrue()
         assertThat(generated).startsWith("DIRECT-")
-        assertThat(generated).contains("-LibreDrop-")
+        assertThat(generated).contains("-Bada-")
         assertThat(generated.length).isAtMost(32)
     }
 
@@ -153,7 +153,7 @@ class WifiDirectMediumProviderTest {
             WifiDirectCredentialShape.isValidNetworkName("DIRECT-O3-Kyujin's vivo X300 Ult"),
         ).isFalse()
         assertThat(WifiDirectCredentialShape.isValidNetworkName("DIRECT-14F768FDC")).isTrue()
-        assertThat(WifiDirectCredentialShape.isValidNetworkName("DIRECT-ab-LibreDrop")).isTrue()
+        assertThat(WifiDirectCredentialShape.isValidNetworkName("DIRECT-ab-Bada")).isTrue()
     }
 
     @Test

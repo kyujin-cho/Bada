@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -665,7 +665,7 @@ class MdnsAdvertisementGateTest {
 
     private class FakeAdvertiseHandle(
         override val port: Int,
-        override val instanceName: String = "libredrop-gate-test",
+        override val instanceName: String = "bada-gate-test",
     ) : AdvertiseHandle {
         @Volatile
         private var active: Boolean = true

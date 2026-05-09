@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -78,7 +78,7 @@ public object ConsentIntents {
      * The broadcast receiver and the trampoline activity both parse
      * this off the intent before consulting [ConsentRegistry].
      */
-    public const val EXTRA_CONNECTION_ID: String = "libredrop.consent.connection_id"
+    public const val EXTRA_CONNECTION_ID: String = "bada.consent.connection_id"
 
     /**
      * Sentinel value for [EXTRA_CONNECTION_ID] meaning "unset". Picked

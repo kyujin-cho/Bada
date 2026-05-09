@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -288,7 +288,7 @@ class ConsentCoordinatorTest {
             assertThat(harness.sink.modalLaunches).hasSize(1)
             assertThat(harness.sink.posted).isEmpty()
 
-            // User backgrounds LibreDrop without making a decision. The
+            // User backgrounds Bada without making a decision. The
             // coordinator must dismiss the modal and raise the
             // heads-up so the user can resume from the shade.
             harness.foreground.set(false)
@@ -325,7 +325,7 @@ class ConsentCoordinatorTest {
             assertThat(harness.sink.posted).hasSize(1)
             assertThat(harness.sink.modalLaunches).isEmpty()
 
-            // User foregrounds LibreDrop with the notification still
+            // User foregrounds Bada with the notification still
             // pending. The coordinator must cancel the heads-up and
             // launch the modal.
             harness.foreground.set(true)
@@ -352,7 +352,7 @@ class ConsentCoordinatorTest {
             // This is the per-connection-id scoping requirement from
             // the issue: a notification for an unrelated, already-
             // decided connection B must not be re-raised when the user
-            // backgrounds LibreDrop with a separate live consent A
+            // backgrounds Bada with a separate live consent A
             // still pending.
             val ids = ArrayDeque(listOf(101L, 102L))
             val harness =
@@ -392,7 +392,7 @@ class ConsentCoordinatorTest {
             harness.sink.posted.clear()
             harness.sink.dismissed.clear()
 
-            // Now connection A arrives while LibreDrop is foregrounded
+            // Now connection A arrives while Bada is foregrounded
             // — its modal is up. Then the user backgrounds. Only A
             // should swap to a notification; B is decided and must
             // stay silent.

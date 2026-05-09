@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -103,7 +103,7 @@ class DiscoveryDiagnosticsTest {
         //   1. Install on Device A, start the receiver foreground service.
         //   2. Install on Device B, open a share intent → SendActivity.
         //   3. Within 5s, Device B's peer list shows Device A.
-        //   4. Tag `LibreDropDiscovery` in logcat shows on both devices:
+        //   4. Tag `BadaDiscovery` in logcat shows on both devices:
         //        - "advertise: registered ..." on Device A
         //        - "browse: serviceResolved ..." on Device B
     }

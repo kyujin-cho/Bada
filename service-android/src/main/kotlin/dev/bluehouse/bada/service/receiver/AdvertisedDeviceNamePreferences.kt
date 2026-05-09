@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -52,7 +52,7 @@ public class AdvertisedDeviceNamePreferences internal constructor(
 
     public companion object {
         /** Dedicated preferences file for the advertised-name setting. */
-        public const val PREFS_NAME: String = "libredrop.advertised_device_name"
+        public const val PREFS_NAME: String = "bada.advertised_device_name"
 
         internal const val KEY_CUSTOM_NAME: String = "custom_name"
 

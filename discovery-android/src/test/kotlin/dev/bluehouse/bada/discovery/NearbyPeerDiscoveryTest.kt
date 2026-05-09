@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -445,6 +445,71 @@ class NearbyPeerDiscoveryTest {
                     port = 54321,
                 ),
             )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `LAN re-resolve picks up a new device name`() =
+        runTest {
+            // Reproduces: receiver edits its Quick Share display name in
+            // Settings, the receiver's mDNS record is re-published with
+            // the new TXT, and a sender that already had the peer
+            // resolved should surface the updated label rather than
+            // sticking on the cached one. Earlier versions of
+            // [chooseEndpointInfo] preferred the existing endpoint info
+            // when both observations carried a name, which froze the
+            // displayed name on the original value until the peer entry
+            // aged out.
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            val instanceName = "rename-instance"
+            val endpointId = "RNME".toByteArray(Charsets.US_ASCII)
+            val address = listOf(InetAddress.getByName("192.168.1.62"))
+
+            lanEvents.emit(
+                DiscoveryEvent.Resolved(
+                    DiscoveredService(
+                        instanceName = instanceName,
+                        endpointId = endpointId,
+                        addresses = address,
+                        port = 41234,
+                        endpointInfo = endpointInfo(name = "OldName"),
+                    ),
+                ),
+            )
+            runCurrent()
+            val firstResolved = seen.last() as NearbyPeerEvent.Resolved
+            assertThat(firstResolved.peer.displayName()).isEqualTo("OldName")
+
+            lanEvents.emit(
+                DiscoveryEvent.Resolved(
+                    DiscoveredService(
+                        instanceName = instanceName,
+                        endpointId = endpointId,
+                        addresses = address,
+                        port = 41234,
+                        endpointInfo = endpointInfo(name = "NewName"),
+                    ),
+                ),
+            )
+            runCurrent()
+            val secondResolved = seen.last() as NearbyPeerEvent.Resolved
+            assertThat(secondResolved.peer.displayName()).isEqualTo("NewName")
 
             collector.cancel()
         }

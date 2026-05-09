@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -211,7 +211,19 @@ internal object BatteryOptimizationOemHelper {
 
                 OemFamily.OTHER -> emptyList()
             }
-        return vendor + Candidate.GenericIgnoreBatteryOptimizations
+        // Order matters: the standard
+        // `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` dialog has to come
+        // first because it is the only entry point that flips
+        // [PowerManager.isIgnoringBatteryOptimizations] when the user
+        // accepts. Vendor activities (vivo BgStartUpManager, MIUI
+        // autostart, etc.) toggle a vendor-side allowlist that does NOT
+        // update the platform's standard exemption flag, so a user who
+        // grants there would keep seeing "Not exempted" in the Settings
+        // tab status forever — that's exactly the bug surface this
+        // ordering avoids. Vendor activities are kept as fall-through
+        // entries so devices on which the generic intent unexpectedly
+        // refuses to resolve still have somewhere to land.
+        return listOf(Candidate.GenericIgnoreBatteryOptimizations) + vendor
     }
 
     /**
