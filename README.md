@@ -8,7 +8,8 @@ It targets interop with stock Android Quick Share, NearDrop on macOS, and
 Quick Share on Windows. AirDrop, AWDL, iPhone discovery, and Apple-side
 interop are out of scope.
 
-<img src="docs/assets/receive-ui.png" alt="Bada receive UI screenshot" width="360">
+<img src="docs/assets/send-ui.jpg" alt="Bada send UI screenshot" width="360">
+<img src="docs/assets/settings.jpg" alt="Bada settings UI screenshot" width="360">
 
 ## What It Does
 
