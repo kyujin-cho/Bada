@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -45,7 +45,7 @@ class WifiAwareMediumProviderTest {
         runTest {
             val expected =
                 UpgradePathCredentials.WifiAware(
-                    serviceName = "libredrop-quickshare-aware",
+                    serviceName = "bada-quickshare-aware",
                     ipv6Address = ByteArray(16) { it.toByte() },
                     port = 9999,
                     passphrase = "from-fake-support",

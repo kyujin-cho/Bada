@@ -26,10 +26,28 @@
           uses dark glyphs on the light background; night mode uses
           light glyphs on the dark background.
     -->
-    <style name="Theme.LibreDrop" parent="Theme.MaterialComponents.DayNight.NoActionBar.Bridge">
+    <style name="Theme.Bada" parent="Theme.MaterialComponents.DayNight.NoActionBar.Bridge">
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorPrimaryDark">@color/brand_primary</item>
         <item name="colorOnPrimary">@color/brand_on_primary</item>
+
+        <!--
+            App-wide brand face. Google Sans Flex is delivered via
+            Downloadable Fonts (see `res/font/google_sans_flex.xml`);
+            its glyph coverage is Latin + extended Latin only, and
+            the platform's standard glyph-fallback chain takes over
+            for Hangul / CJK so Korean strings keep rendering with
+            the system Korean font without us having to maintain a
+            per-locale theme override.
+
+            Both the AppCompat-namespaced (`fontFamily`) and the
+            android-namespaced (`android:fontFamily`) attributes are
+            set: AppCompat widgets read the former, framework widgets
+            (Toolbar title, AlertDialog title/message, system text
+            views) read the latter.
+        -->
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
 
         <item name="android:statusBarColor" tools:targetApi="l">?android:attr/colorBackground</item>
         <item name="android:windowLightStatusBar" tools:targetApi="m">@bool/window_light_status_bar</item>
@@ -42,8 +60,8 @@
           own overflow) and `popupMenuStyle` (any in-code PopupMenu
           we open later) point to the same style for consistency.
         -->
-        <item name="actionOverflowMenuStyle">@style/PopupMenu.LibreDrop</item>
-        <item name="popupMenuStyle">@style/PopupMenu.LibreDrop</item>
+        <item name="actionOverflowMenuStyle">@style/PopupMenu.Bada</item>
+        <item name="popupMenuStyle">@style/PopupMenu.Bada</item>
 
         <!--
           Global button styling. Replaces AppCompat's default flat
@@ -54,43 +72,43 @@
           (`?android:attr/borderlessButtonStyle`) opt out
           per-Button.
         -->
-        <item name="buttonStyle">@style/Widget.LibreDrop.Button</item>
-        <item name="android:buttonStyle">@style/Widget.LibreDrop.Button</item>
+        <item name="buttonStyle">@style/Widget.Bada.Button</item>
+        <item name="android:buttonStyle">@style/Widget.Bada.Button</item>
 
         <!--
           Override the platform-default Button text appearance
           (`TextAppearance.AppCompat.Widget.Button`) which forces
           `textAllCaps=true`. Using `?android:attr/textAppearanceButton`
           as the resolution path means even Buttons that opt out of
-          our `Widget.LibreDrop.Button` style (e.g. the
+          our `Widget.Bada.Button` style (e.g. the
           `?android:attr/borderlessButtonStyle` Skip / Reset variants)
           still get the casing-preserved text.
         -->
-        <item name="android:textAppearanceButton">@style/TextAppearance.LibreDrop.Button</item>
+        <item name="android:textAppearanceButton">@style/TextAppearance.Bada.Button</item>
     </style>
 
     <!--
       Button text appearance with `textAllCaps=false` baked in. Every
       Button in the app reads its text style from this appearance via
-      either `Widget.LibreDrop.Button` (the buttonStyle override
+      either `Widget.Bada.Button` (the buttonStyle override
       above) or the activity-theme `android:textAppearanceButton`
       attribute, so the previously-uppercased labels render in their
       natural string-resource casing ("Send files" stays "Send files"
       instead of becoming "SEND FILES"). Bold weight is kept here so
       borderless variants — which inherit this appearance but not the
-      Widget.LibreDrop.Button style — still read with the same visual
+      Widget.Bada.Button style — still read with the same visual
       weight as the framed buttons.
     -->
-    <style name="TextAppearance.LibreDrop.Button" parent="TextAppearance.AppCompat.Widget.Button">
+    <style name="TextAppearance.Bada.Button" parent="TextAppearance.AppCompat.Widget.Button">
         <item name="android:textAllCaps">false</item>
         <item name="textAllCaps">false</item>
         <item name="android:textStyle">bold</item>
     </style>
 
-    <style name="Widget.LibreDrop.Button" parent="Widget.AppCompat.Button">
+    <style name="Widget.Bada.Button" parent="Widget.AppCompat.Button">
         <item name="android:background">@drawable/btn_frosted_background</item>
         <item name="android:textColor">?android:attr/textColorPrimary</item>
-        <item name="android:textAppearance">@style/TextAppearance.LibreDrop.Button</item>
+        <item name="android:textAppearance">@style/TextAppearance.Bada.Button</item>
         <!--
           Two-pronged textAllCaps override (android: + bare attr)
           guarantees the casing is preserved no matter which
@@ -149,7 +167,7 @@
         <item name="iconPadding">0dp</item>
     </style>
 
-    <style name="PopupMenu.LibreDrop" parent="Widget.AppCompat.PopupMenu.Overflow">
+    <style name="PopupMenu.Bada" parent="Widget.AppCompat.PopupMenu.Overflow">
         <item name="android:popupBackground">@drawable/popup_menu_background</item>
         <!--
           `overlapAnchor=false` pushes the popup down below the
@@ -181,24 +199,34 @@
       to dim the underlying surface and constrain the window to dialog
       dimensions; we leave it as inherited.
     -->
-    <style name="Theme.LibreDrop.ConsentDialog" parent="Theme.MaterialComponents.DayNight.Dialog.Bridge">
+    <style name="Theme.Bada.ConsentDialog" parent="Theme.MaterialComponents.DayNight.Dialog.Bridge">
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorPrimaryDark">@color/brand_primary</item>
         <item name="colorOnPrimary">@color/brand_on_primary</item>
         <item name="android:windowBackground">@drawable/consent_dialog_background</item>
 
         <!--
-          Mirror the Theme.LibreDrop button-style overrides here too —
+            Mirror the Theme.Bada brand-face declarations here —
+            the consent dialog activity uses this theme directly, so
+            without these the dialog body would fall back to platform
+            Roboto while the rest of the app reads in Google Sans
+            Flex. Keep these in sync with Theme.Bada.
+        -->
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+
+        <!--
+          Mirror the Theme.Bada button-style overrides here too —
           the dialog activity uses this theme directly (it extends the
-          Material Bridge dialog parent, NOT Theme.LibreDrop), so
+          Material Bridge dialog parent, NOT Theme.Bada), so
           without these declarations the consent / receiving /
           completed / failed panel buttons fall back to the platform's
           default flat gray rectangle and uppercase text. Keep these
-          two blocks in sync with Theme.LibreDrop.
+          two blocks in sync with Theme.Bada.
         -->
-        <item name="buttonStyle">@style/Widget.LibreDrop.Button</item>
-        <item name="android:buttonStyle">@style/Widget.LibreDrop.Button</item>
-        <item name="android:textAppearanceButton">@style/TextAppearance.LibreDrop.Button</item>
+        <item name="buttonStyle">@style/Widget.Bada.Button</item>
+        <item name="android:buttonStyle">@style/Widget.Bada.Button</item>
+        <item name="android:textAppearanceButton">@style/TextAppearance.Bada.Button</item>
         <!--
           Suppress the platform-drawn dialog title. Without this, the
           Activity's `android:label` ("Incoming transfer") shows as a
@@ -237,7 +265,7 @@
       action row hugs the bottom of the toolbar surface, which is
       where vivo positions theirs.
     -->
-    <style name="TextAppearance.LibreDrop.ToolbarTitle" parent="TextAppearance.AppCompat.Widget.ActionBar.Title">
+    <style name="TextAppearance.Bada.ToolbarTitle" parent="TextAppearance.AppCompat.Widget.ActionBar.Title">
         <item name="android:textSize">32sp</item>
         <item name="android:textStyle">bold</item>
     </style>
@@ -254,7 +282,7 @@
       `app:itemTextAppearanceInactive` on BottomNavigationView so
       neither state overrides the size.
     -->
-    <style name="TextAppearance.LibreDrop.BottomNavLabel" parent="TextAppearance.AppCompat.Caption">
+    <style name="TextAppearance.Bada.BottomNavLabel" parent="TextAppearance.AppCompat.Caption">
         <item name="android:textSize">12sp</item>
     </style>
 
@@ -278,7 +306,7 @@
       both keeps behavior identical regardless of which path the
       runtime picks.
     -->
-    <style name="ThemeOverlay.LibreDrop.PopupMenu" parent="ThemeOverlay.AppCompat.DayNight">
+    <style name="ThemeOverlay.Bada.PopupMenu" parent="ThemeOverlay.AppCompat.DayNight">
         <item name="listPreferredItemHeightSmall">38dp</item>
         <item name="android:listPreferredItemHeightSmall">38dp</item>
     </style>
@@ -295,7 +323,7 @@
       so popup menus and dialog action items elsewhere keep their
       default Material ripples.
     -->
-    <style name="ThemeOverlay.LibreDrop.ToolbarNoRipple" parent="">
+    <style name="ThemeOverlay.Bada.ToolbarNoRipple" parent="">
         <item name="actionBarItemBackground">@drawable/toolbar_action_background</item>
         <item name="android:actionBarItemBackground">@drawable/toolbar_action_background</item>
     </style>
@@ -308,7 +336,7 @@
       the placeholder's soft corners and the rows would read as visually
       inconsistent.
     -->
-    <style name="ShapeAppearanceOverlay.LibreDrop.CreditAvatar" parent="">
+    <style name="ShapeAppearanceOverlay.Bada.CreditAvatar" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">12dp</item>
     </style>

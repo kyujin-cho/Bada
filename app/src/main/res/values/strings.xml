@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="app_name">Bada</string>
+    <string name="app_name">bada</string>
 
     <!-- Bottom-navigation tab labels for MainActivity. The send/receive
          tab is the default destination on cold start; settings holds the
@@ -86,19 +86,19 @@
          user force the receiver to publish mDNS even when no BLE pulse is
          in flight — useful when BLE scan is unavailable or the user just
          wants to be discoverable to nearby senders. -->
-    <string name="main_always_visible_title">Ready to receive</string>
+    <string name="main_always_visible_title">Always visible</string>
     <string name="main_always_visible_subtitle">Keep this device discoverable on Wi-Fi even without a Bluetooth pulse from a nearby sender. Turn off to save power; the receiver will only appear briefly while a sender is scanning.</string>
     <!-- OFF-state label for the always-visible pill on the Send/Receive
          tab. Phrased as the inverse of the ON-state title so the same
-         button reads as a clear two-position switch: ON = "Ready to
-         receive", OFF = "Visible on scan" (i.e. only when a sender's
+         button reads as a clear two-position switch: ON = "Always
+         visible", OFF = "Visible on scan" (i.e. only when a sender's
          BLE pulse wakes the receiver). -->
     <string name="main_always_visible_off_title">Visible on scan</string>
     <!-- Captions rendered just below the always-visible pill, outside
          the button silhouette. Swapped per pill state so the user
          sees a plain-language summary of what the current state
          actually means:
-           * ON  ("Ready to receive")   → anyone nearby can share.
+           * ON  ("Always visible")     → anyone nearby can share.
            * OFF ("Visible on scan")    → discoverability only fires
              while a nearby device is actively scanning over BLE.
          The fragment swaps the caption in lockstep with the pill's
@@ -312,6 +312,13 @@
     <string name="send_status_pin_prompt">Confirm this code matches the receiver\'s screen.</string>
     <string name="send_status_failure_reason">Reason: %1$s</string>
     <string name="send_status_progress">%1$s of %2$s</string>
+    <!-- Surfaced in the connection status panel during the
+         transport-fallback retry: the primary route's TCP / transport
+         connect failed (typically EHOSTUNREACH on Wi-Fi networks that
+         block client-to-client traffic) and the sender is now retrying
+         the same peer over the next-priority route. %1$s is a short
+         label for the route now being tried (e.g. "BLE GATT AA:BB:…"). -->
+    <string name="send_status_retrying_route">Retrying via %1$s…</string>
 
     <!--
       Rate + ETA suffixes appended to the progress line during a

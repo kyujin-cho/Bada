@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -21,7 +21,7 @@ import dev.bluehouse.bada.protocol.medium.MediumRegistry
  *
  * New production callers should use [MediumRegistries.defaultForContext].
  */
-public object LibreDropMediumRegistries {
+public object BadaMediumRegistries {
     /**
      * Build the full production Android medium registry.
      *

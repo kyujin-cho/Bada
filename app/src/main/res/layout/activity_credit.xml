@@ -60,7 +60,7 @@
         app:navigationIcon="?attr/homeAsUpIndicator"
         app:title="@string/credit_activity_label"
         app:titleCentered="false"
-        app:titleTextAppearance="@style/TextAppearance.LibreDrop.ToolbarTitle"
+        app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
         app:titleTextColor="?android:attr/textColorPrimary" />
 
     <ScrollView
@@ -106,7 +106,7 @@
                         android:contentDescription="@string/credit_avatar_description"
                         android:scaleType="centerCrop"
                         android:src="@drawable/credit_kevin_avatar"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp" />
 
@@ -170,7 +170,7 @@
                         android:contentDescription="@string/credit_avatar_description"
                         android:scaleType="centerCrop"
                         android:src="@drawable/credit_yeonfeel_avatar"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp" />
 
@@ -234,7 +234,7 @@
                         android:contentDescription="@string/credit_avatar_description"
                         android:scaleType="centerCrop"
                         android:src="@drawable/credit_chiyak_avatar"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp" />
 
@@ -279,7 +279,7 @@
                         android:contentDescription="@string/credit_avatar_description"
                         android:scaleType="centerCrop"
                         android:src="@drawable/credit_teqhnikacross_avatar"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp" />
 
@@ -324,7 +324,7 @@
                         android:contentDescription="@string/credit_avatar_description"
                         android:scaleType="centerCrop"
                         android:src="@drawable/credit_parami_avatar"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.LibreDrop.CreditAvatar"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp" />
 

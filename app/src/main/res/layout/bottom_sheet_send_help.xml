@@ -75,16 +75,16 @@
             android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
 
         <!--
-          Apply Widget.LibreDrop.Button explicitly here. BottomSheetDialog
+          Apply Widget.Bada.Button explicitly here. BottomSheetDialog
           uses its own ThemeOverlay (Material BottomSheetDialog) that does
-          NOT inherit Theme.LibreDrop's `buttonStyle`, so without this the
+          NOT inherit Theme.Bada's `buttonStyle`, so without this the
           close button would render as a flat Material default and break
           consistency with the picker's Cancel button right above the
           help-link that opens this sheet.
         -->
         <Button
             android:id="@+id/send_help_sheet_close"
-            style="@style/Widget.LibreDrop.Button"
+            style="@style/Widget.Bada.Button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"

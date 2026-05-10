@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -18,7 +18,7 @@ internal class BugReportPreferences(
     }
 
     internal companion object {
-        private const val PREFS_NAME = "libredrop.bug_report"
+        private const val PREFS_NAME = "bada.bug_report"
         private const val KEY_SHAKE_TO_REPORT_ENABLED = "shake_to_report_enabled"
 
         fun from(context: Context): BugReportPreferences =

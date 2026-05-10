@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -290,7 +290,7 @@ internal class CreditActivity : AppCompatActivity() {
 
         /**
          * Avatar corner radius in dp. Mirrors the value baked into
-         * the `ShapeAppearanceOverlay.LibreDrop.CreditAvatar` style;
+         * the `ShapeAppearanceOverlay.Bada.CreditAvatar` style;
          * we re-derive it here when installing the smooth corner
          * treatment programmatically so a future radius change in
          * one place does not silently desync the other.

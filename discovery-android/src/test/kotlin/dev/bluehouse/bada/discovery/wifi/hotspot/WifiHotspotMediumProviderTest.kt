@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -81,7 +81,7 @@ class WifiHotspotMediumProviderTest {
         runTest {
             val expected =
                 UpgradePathCredentials.WifiHotspot(
-                    ssid = "DIRECT-XX-LibreDrop",
+                    ssid = "DIRECT-XX-Bada",
                     passphrase = "longenoughpass",
                     port = 41201,
                     gateway = "192.168.49.1",

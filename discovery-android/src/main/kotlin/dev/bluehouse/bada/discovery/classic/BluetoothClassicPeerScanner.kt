@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -101,7 +101,7 @@ public class BluetoothClassicPeerScanner internal constructor(
     )
 
     public companion object {
-        internal const val TAG: String = "LibreDropBtScan"
+        internal const val TAG: String = "BadaBtScan"
     }
 }
 

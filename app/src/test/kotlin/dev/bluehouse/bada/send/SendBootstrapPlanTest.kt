@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -17,7 +17,7 @@ import java.net.InetAddress
 
 class SendBootstrapPlanTest {
     @Test
-    fun `Wi-Fi LAN route wins before BLE bootstrap routes`() {
+    fun `BLE L2CAP route wins before Wi-Fi LAN and other BLE bootstrap routes`() {
         val peer =
             peer(
                 lanAddress = "192.168.1.20",
@@ -25,6 +25,27 @@ class SendBootstrapPlanTest {
                 bluetoothMac = "11:22:33:44:55:66",
                 bleAddress = "AA:BB:CC:DD:EE:FF",
                 blePsm = 0x1234,
+            )
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
+        // BLE-first preference (see SendBootstrapPlan.directRoute): BLE
+        // bootstraps bypass the AP and stay reachable on Wi-Fi networks
+        // that drop peer-to-peer LAN frames, so we'd rather pay the brief
+        // BLE setup latency than fail with EHOSTUNREACH on isolated SSIDs.
+        assertTrue(plan.isConnectable)
+        assertEquals(
+            NearbyPeerRoute.BleL2cap("AA:BB:CC:DD:EE:FF", 0x1234),
+            (plan.action as SendBootstrapPlan.Action.Direct).route,
+        )
+    }
+
+    @Test
+    fun `Wi-Fi LAN is used as a fallback when no BLE route is available`() {
+        val peer =
+            peer(
+                lanAddress = "192.168.1.20",
+                lanPort = 7654,
             )
 
         val plan = SendBootstrapPlan.resolve(peer = peer)

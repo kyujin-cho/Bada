@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -77,7 +77,7 @@ internal class BugReportCollector(
                 failures["screenshot"] = screenshotResult.failureReason
             }
 
-            val outboundLogBytes = readOptionalExternalFile("libredrop-outbound.log", failures, "outbound_log")
+            val outboundLogBytes = readOptionalExternalFile("bada-outbound.log", failures, "outbound_log")
             val ringbufferText =
                 DiagnosticLog.dumpRecent(
                     maxAgeMillis = DiagnosticLog.DEFAULT_MAX_AGE_MILLIS,
@@ -134,7 +134,7 @@ internal class BugReportCollector(
                     ),
                 )
 
-            val tempZip = File.createTempFile("libredrop-bugreport-", ".zip", context.cacheDir)
+            val tempZip = File.createTempFile("bada-bugreport-", ".zip", context.cacheDir)
             BugReportArchiveWriter.write(tempZip, entries)
             PreparedBugReport(
                 suggestedName = BugReportFileNaming.archiveName(now),

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -94,14 +94,14 @@ class DctAdvertisementTest {
             DctAdvertisement.parse(
                 DctAdvertisement.encode(
                     serviceId = "service_id",
-                    deviceName = "LibreDrop",
+                    deviceName = "BadaPhone",
                     psm = DctAdvertisement.DEFAULT_PSM,
                     dedup = DctAdvertisement.DEFAULT_DEDUP,
                 ),
             )
 
         assertThat(parsed).isNotNull()
-        assertThat(parsed!!.deviceName).isEqualTo("LibreDr")
+        assertThat(parsed!!.deviceName).isEqualTo("BadaPho")
         assertThat(parsed.isDeviceNameTruncated).isTrue()
         assertThat(parsed.psm).isEqualTo(0)
     }

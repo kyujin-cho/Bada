@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -61,7 +61,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * file list with sizes, 4-digit PIN) plus Accept / Reject buttons.
  *
  * Also serves as the foreground in-app modal surface added in #151:
- * when LibreDrop is foregrounded at the moment a `WaitingForUserConsent`
+ * when Bada is foregrounded at the moment a `WaitingForUserConsent`
  * arrives, the [dev.bluehouse.bada.service.receiver.consent.ConsentCoordinator]
  * launches this activity instead of posting a heads-up notification.
  *
@@ -83,7 +83,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *    or
  *  - a programmatic launch from
  *    [dev.bluehouse.bada.service.receiver.consent.ConsentCoordinator]
- *    when LibreDrop is already foregrounded (issue #151 modal path).
+ *    when Bada is already foregrounded (issue #151 modal path).
  *
  * Both paths pass [ConsentIntents.EXTRA_CONNECTION_ID] and look up the
  * live [InboundConnection] in [ConsentRegistry]. On Accept / Reject the
@@ -111,7 +111,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * after submitting a decision) it unregisters. The
  * [dev.bluehouse.bada.service.receiver.consent.ConsentCoordinator]
  * uses the registry to call [finish] when the user backgrounds
- * LibreDrop while the modal is up — the modal closes, the coordinator
+ * Bada while the modal is up — the modal closes, the coordinator
  * raises the heads-up notification, and the user can resume from the
  * shade.
  */
@@ -461,7 +461,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         decisionSubmitted = true
         // Unregister the modal hook BEFORE dispatching the broadcast
         // so a coordinator-driven dismiss (e.g. the user lost the race
-        // by backgrounding LibreDrop a millisecond too late) cannot
+        // by backgrounding Bada a millisecond too late) cannot
         // double-finish the activity.
         unregisterModal()
 
@@ -894,7 +894,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         ConsentDiagnostic.log(this, "trampoline.registerModal id=$connectionId")
         ConsentModalRegistry.instance.register(connectionId) {
             // The coordinator asked us to disappear without submitting
-            // a decision — typically because LibreDrop is going to the
+            // a decision — typically because Bada is going to the
             // background and the heads-up notification is taking over.
             ConsentDiagnostic.log(
                 this,
@@ -921,7 +921,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         private const val MAX_ITEM_LINES = 8
 
         /** Diagnostic tag for the activity-side preview / view-image paths. */
-        private const val TAG = "LibreDropConsent"
+        private const val TAG = "BadaConsent"
         private const val PERCENT_SCALE = 100
 
         /**

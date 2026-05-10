@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -436,7 +436,7 @@ public class BleQuickShareScanner internal constructor(
 
     public companion object {
         /** logcat tag for BLE-pulse-related diagnostics. */
-        internal const val TAG: String = "LibreDropBleScan"
+        internal const val TAG: String = "BadaBleScan"
 
         /**
          * 30 s default inactivity window per the acceptance criterion in
@@ -554,7 +554,7 @@ public class BleQuickShareScanner internal constructor(
         /**
          * Human-readable label for the [ScanSettings] scan-mode
          * constants we care about. Used in logcat lines so a power-tuning
-         * triage can grep `LibreDropBleScan setScanMode` and read the
+         * triage can grep `BadaBleScan setScanMode` and read the
          * transition without translating integers.
          */
         internal fun describeScanMode(mode: Int): String =

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -200,7 +200,7 @@ class BluetoothRfcommMediumProviderTest {
     @Test
     fun `default service name matches DEFAULT_SERVICE_NAME constant`() {
         assertThat(BluetoothRfcommMediumProvider.DEFAULT_SERVICE_NAME)
-            .isEqualTo("LibreDropQuickShareRfcomm")
+            .isEqualTo("BadaQuickShareRfcomm")
     }
 
     private fun providerWith(io: BluetoothRfcommMediumProvider.BluetoothIo): BluetoothRfcommMediumProvider =

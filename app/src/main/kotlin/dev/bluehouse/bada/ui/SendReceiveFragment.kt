@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -204,24 +204,14 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         }
 
         view.findViewById<Button>(R.id.main_send_files_button).setOnClickListener {
-            try {
-                // `arrayOf("*/*")` lets the picker show every MIME type
-                // — gallery-only and documents-only paths both surface.
-                openFilesLauncher.launch(arrayOf("*/*"))
-            } catch (e: ActivityNotFoundException) {
-                // Vendor ROMs occasionally strip ACTION_OPEN_DOCUMENT
-                // (typically AOSP variants without Documents UI). Fail
-                // soft with a Toast instead of crashing the activity.
-                Log.w(TAG, "OpenMultipleDocuments not resolvable: ${e.message}", e)
-                Toast.makeText(requireContext(), R.string.main_send_files_pick_failed, Toast.LENGTH_LONG).show()
-            }
+            launchOpenFilesPicker()
         }
 
         view.findViewById<Button>(R.id.main_send_folder_button).setOnClickListener {
-            // Passing null means "no initial directory hint"; the system
-            // picker opens at its default landing screen (typically the
-            // most recently used location). The user is free to navigate
-            // to any tree they have access to.
+            // Passing null means "no initial directory hint"; the
+            // system picker opens at its default landing screen
+            // (typically the most recently used location). The user
+            // is free to navigate to any tree they have access to.
             openTreeLauncher.launch(null)
         }
 
@@ -318,6 +308,20 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         if (!galleryPermissionRequested) {
             galleryPermissionRequested = true
             galleryPermissionLauncher.launch(galleryPermissionName())
+        }
+    }
+
+    private fun launchOpenFilesPicker() {
+        try {
+            // `arrayOf("*/*")` lets the picker show every MIME type — gallery-only
+            // and documents-only paths both surface.
+            openFilesLauncher.launch(arrayOf("*/*"))
+        } catch (e: ActivityNotFoundException) {
+            // Vendor ROMs occasionally strip ACTION_OPEN_DOCUMENT (typically AOSP
+            // variants without Documents UI). Fail soft with a Toast instead of
+            // crashing the activity.
+            Log.w(TAG, "OpenMultipleDocuments not resolvable: ${e.message}", e)
+            Toast.makeText(requireContext(), R.string.main_send_files_pick_failed, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -713,7 +717,7 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
     }
 
     private companion object {
-        const val TAG = "LibreDropMain"
+        const val TAG = "BadaMain"
 
         // Polaroid preview tunables. The query limit is intentionally
         // small — we only show two cards and want a "recent" feel,

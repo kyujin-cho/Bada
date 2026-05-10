@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -99,23 +99,23 @@ class AndroidNsdRobolectricTest {
             val manager = Shadow.newInstanceOf(NsdManager::class.java)
             val shadowNsd = Shadow.extract<TestShadowNsdManager>(manager)
             shadowNsd.reset()
-            shadowNsd.nextRegisteredName.set("LibreDrop (1)")
+            shadowNsd.nextRegisteredName.set("Bada (1)")
             val payload = byteArrayOf(0x00, 0x7F, 0x80.toByte(), 0xFF.toByte())
             val registrar = AndroidNsdRegistrar(manager)
 
             val handle =
                 registrar.register(
                     serviceType = QuickShareMdns.SERVICE_TYPE_NSD,
-                    instanceName = "LibreDrop",
+                    instanceName = "Bada",
                     port = 53_601,
                     attributes = mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to payload),
                 )
 
-            assertThat(handle.instanceName).isEqualTo("LibreDrop (1)")
+            assertThat(handle.instanceName).isEqualTo("Bada (1)")
             assertThat(handle.isActive).isTrue()
             assertThat(shadowNsd.registrationRequests).hasSize(1)
             val registeredInfo = shadowNsd.registrationRequests.single().serviceInfo
-            assertThat(registeredInfo.serviceName).isEqualTo("LibreDrop")
+            assertThat(registeredInfo.serviceName).isEqualTo("Bada")
             assertThat(registeredInfo.serviceType).isEqualTo(QuickShareMdns.SERVICE_TYPE_NSD)
             assertThat(registeredInfo.port).isEqualTo(53_601)
             assertThat(registeredInfo.attributes[QuickShareMdns.TXT_KEY_ENDPOINT_INFO])
@@ -140,7 +140,7 @@ class AndroidNsdRobolectricTest {
                 try {
                     registrar.register(
                         serviceType = QuickShareMdns.SERVICE_TYPE_NSD,
-                        instanceName = "LibreDrop",
+                        instanceName = "Bada",
                         port = 12_345,
                         attributes = emptyMap(),
                     )
@@ -165,7 +165,7 @@ class AndroidNsdRobolectricTest {
                 try {
                     registrar.register(
                         serviceType = QuickShareMdns.SERVICE_TYPE_NSD,
-                        instanceName = "LibreDrop",
+                        instanceName = "Bada",
                         port = 12_345,
                         attributes = mapOf("bad=key" to byteArrayOf(1)),
                     )

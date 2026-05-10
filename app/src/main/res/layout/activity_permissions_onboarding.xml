@@ -42,7 +42,7 @@
         android:paddingTop="32dp"
         app:title="@string/onboarding_title"
         app:titleCentered="false"
-        app:titleTextAppearance="@style/TextAppearance.LibreDrop.ToolbarTitle"
+        app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
         app:titleTextColor="?android:attr/textColorPrimary" />
 
     <androidx.core.widget.NestedScrollView

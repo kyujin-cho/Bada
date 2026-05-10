@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -143,7 +143,7 @@ class BandwidthUpgradeFramesTest {
         val frame =
             BandwidthUpgradeFrames.upgradePathAvailable(
                 UpgradePathCredentials.WifiAware(
-                    serviceName = "libredrop-quickshare-aware",
+                    serviceName = "bada-quickshare-aware",
                     ipv6Address = ipv6,
                     port = 8443,
                     passphrase = "abcdefghij0123456789",
@@ -152,7 +152,7 @@ class BandwidthUpgradeFramesTest {
         val parsed = parse(frame)
         assertThat(parsed.upgradePathInfo.medium.number).isEqualTo(Medium.WIFI_AWARE.wireNumber)
         assertThat(parsed.upgradePathInfo.hasWifiAwareCredentials()).isTrue()
-        assertThat(parsed.upgradePathInfo.wifiAwareCredentials.serviceId).isEqualTo("libredrop-quickshare-aware")
+        assertThat(parsed.upgradePathInfo.wifiAwareCredentials.serviceId).isEqualTo("bada-quickshare-aware")
         assertThat(parsed.upgradePathInfo.wifiAwareCredentials.password).isEqualTo("abcdefghij0123456789")
 
         // service_info packs the IPv6 (16 bytes) and the port
@@ -192,7 +192,7 @@ class BandwidthUpgradeFramesTest {
             )
         val original =
             UpgradePathCredentials.WifiAware(
-                serviceName = "libredrop-quickshare-aware",
+                serviceName = "bada-quickshare-aware",
                 ipv6Address = ipv6,
                 port = 4242,
                 passphrase = "very-secret-passphrase-32chars!!",
@@ -430,7 +430,7 @@ class BandwidthUpgradeFramesTest {
             UpgradePathCredentials.WifiDirect(
                 ipAddress = byteArrayOf(192.toByte(), 168.toByte(), 49, 1),
                 port = 8443,
-                ssid = "DIRECT-Xy-LibreDrop",
+                ssid = "DIRECT-Xy-Bada",
                 passphrase = "C0rrectH0rseBatteryStaple",
                 frequency = 5180,
             )

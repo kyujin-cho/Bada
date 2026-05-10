@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Sender-side BLE L2CAP initial-control client for stock Quick Share receivers.
  *
- * Receiver fast advertisements may carry a CoC PSM. When present, LibreDrop can
+ * Receiver fast advertisements may carry a CoC PSM. When present, Bada can
  * connect to that PSM, open Nearby's BLE socket, establish one multiplexed
  * virtual socket, and then hand that stream to the normal outbound protocol.
  */
@@ -101,7 +101,7 @@ public class BleL2capInitialControlClient internal constructor(
     ): L2capChannel? = io.connect(macAddress, psm)
 
     private companion object {
-        private const val TAG: String = "LibreDropBleL2capClient"
+        private const val TAG: String = "BadaBleL2capClient"
         private const val CONNECTION_READY_TIMEOUT_MILLIS: Long = 8_000L
         private val PSM_RANGE: IntRange = 1..0xFFFF
     }
@@ -158,7 +158,7 @@ private class BleL2capClientTransport(
         }
 
     fun start() {
-        Thread({ runPump() }, "libredrop-ble-l2cap-client").apply {
+        Thread({ runPump() }, "bada-ble-l2cap-client").apply {
             isDaemon = true
             start()
         }
@@ -356,7 +356,7 @@ private class BleL2capClientTransport(
     }
 
     private companion object {
-        private const val TAG: String = "LibreDropBleL2capClient"
+        private const val TAG: String = "BadaBleL2capClient"
         private const val INPUT_PIPE_SIZE: Int = 1024 * 1024
         private const val COMMAND_REQUEST_DATA_CONNECTION: Int = 3
         private const val COMMAND_RESPONSE_DATA_CONNECTION_READY: Int = 23

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -252,7 +252,7 @@ class InboundSharingFsmTest {
     // Real-world frames Samsung's stock Quick Share (One UI 8.x) emits
     // toward a receiver that the older NearDrop spec does not document.
     // Each guard pins the lenient handling required to keep transfers
-    // alive; regressing any of these breaks Galaxy → LibreDrop sends.
+    // alive; regressing any of these breaks Galaxy → Bada sends.
 
     @Test
     fun `preemptive RESPONSE ACCEPT before INTRODUCTION is ignored until introduction arrives`() {

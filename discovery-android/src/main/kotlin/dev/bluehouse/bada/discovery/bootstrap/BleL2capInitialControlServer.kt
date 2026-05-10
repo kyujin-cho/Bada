@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -227,7 +227,7 @@ public class BleL2capInitialControlServer internal constructor(
     )
 
     public companion object {
-        internal const val TAG: String = "LibreDropBleL2cap"
+        internal const val TAG: String = "BadaBleL2cap"
         private const val COMMAND_REQUEST_DATA_CONNECTION: Int = 3
         private const val COMMAND_RESPONSE_DATA_CONNECTION_READY: Int = 23
         private const val L2CAP_PACKET_LENGTH_BYTES: Int = 4
@@ -259,7 +259,7 @@ private class BleL2capInitialTransport(
     private var closed: Boolean = false
 
     fun start() {
-        Thread({ pumpIncoming() }, "libredrop-ble-l2cap-initial").apply {
+        Thread({ pumpIncoming() }, "bada-ble-l2cap-initial").apply {
             isDaemon = true
             start()
         }

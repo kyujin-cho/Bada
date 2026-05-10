@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -518,7 +518,7 @@ public class OutboundConnection private constructor(
                     "${e::class.simpleName}: ${e.message ?: "unknown failure"}"
             }
         // Surface every escaping exception via the logger so on-device
-        // diagnosis (logcat -s LibreDropOutbound) gets the actual stack frame
+        // diagnosis (logcat -s BadaOutbound) gets the actual stack frame
         // — without this, a "Peer closed connection unexpectedly" gives
         // no clue which lifecycle phase the EndOfFrameStream came from.
         logger("FAILED: $reason — ${e::class.qualifiedName}")

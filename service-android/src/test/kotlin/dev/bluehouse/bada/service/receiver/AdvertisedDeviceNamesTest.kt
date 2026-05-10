@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -21,7 +21,7 @@ class AdvertisedDeviceNamesTest {
                 systemDeviceName = "  Pixel 9 Pro  ",
                 bluetoothName = "Bluetooth Name",
                 modelName = "Model Name",
-                appLabel = "LibreDrop",
+                appLabel = "Bada",
             ).resolve()
 
         assertThat(resolved).isEqualTo("Pixel 9 Pro")
@@ -35,7 +35,7 @@ class AdvertisedDeviceNamesTest {
                 systemDeviceName = "\n\t",
                 bluetoothName = null,
                 modelName = "Galaxy S25",
-                appLabel = "LibreDrop",
+                appLabel = "Bada",
             ).resolve()
 
         assertThat(resolved).isEqualTo("Galaxy S25")
@@ -67,7 +67,7 @@ class AdvertisedDeviceNamesTest {
                 },
                 appLabel = {
                     appLabelReads += 1
-                    "LibreDrop"
+                    "Bada"
                 },
             )
 
@@ -96,7 +96,7 @@ class AdvertisedDeviceNamesTest {
                     },
                 bluetoothNameGateway = bluetooth,
                 modelName = { "Pixel Model" },
-                appLabel = { "LibreDrop" },
+                appLabel = { "Bada" },
             )
 
         val resolved = policy.resolve()
@@ -123,7 +123,7 @@ class AdvertisedDeviceNamesTest {
                 },
                 appLabel = {
                     appLabelReads += 1
-                    "LibreDrop"
+                    "Bada"
                 },
             )
 
@@ -146,7 +146,7 @@ class AdvertisedDeviceNamesTest {
                 globalDeviceNameReader = GlobalDeviceNameReader { null },
                 bluetoothNameGateway = bluetooth,
                 modelName = { "Pixel Fold" },
-                appLabel = { "LibreDrop" },
+                appLabel = { "Bada" },
             )
 
         val resolved = policy.resolve()
@@ -166,7 +166,7 @@ class AdvertisedDeviceNamesTest {
                 globalDeviceNameReader = GlobalDeviceNameReader { null },
                 bluetoothNameGateway = bluetooth,
                 modelName = { "Pixel Tablet" },
-                appLabel = { "LibreDrop" },
+                appLabel = { "Bada" },
             )
 
         val resolved = policy.resolve()
@@ -198,7 +198,7 @@ class AdvertisedDeviceNamesTest {
                 globalDeviceNameReader = GlobalDeviceNameReader { "System Name" },
                 bluetoothNameGateway = FakeBluetoothNameGateway(readValue = "Nearby BT"),
                 modelName = { "Pixel Model" },
-                appLabel = { "LibreDrop" },
+                appLabel = { "Bada" },
             )
 
         val endpointInfo = policy.createEndpointInfo(previous)

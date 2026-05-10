@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -49,6 +49,7 @@ import dev.bluehouse.bada.protocol.connection.CancelCause
 import dev.bluehouse.bada.protocol.connection.FileSource
 import dev.bluehouse.bada.protocol.connection.OutboundConnection
 import dev.bluehouse.bada.protocol.connection.OutboundConnectionState
+import dev.bluehouse.bada.protocol.connection.OutboundResult
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.qr.QrKeyData
@@ -111,6 +112,18 @@ public class SendActivity : AppCompatActivity() {
     private var bleL2capBootstrapClient: BleL2capInitialControlClient? = null
     private var bleGattBootstrapClient: BleGattInitialControlClient? = null
     private var senderGattServer: BleGattInitialControlServer? = null
+
+    /**
+     * Set to `true` while a connection attempt is being made AND there
+     * is at least one further fallback route to try if it fails. The
+     * StateFlow collector consults this flag in
+     * [renderConnectionState]'s `Failed` branch to decide whether to
+     * lock the card into a "Transfer failed" terminal — when a
+     * fallback is queued we suppress that terminal so the next
+     * attempt's "Connecting…" state can re-paint without going
+     * through the picker→terminal→picker bounce.
+     */
+    private var pendingFallback: Boolean = false
     private lateinit var senderEndpointId: String
     private lateinit var senderEndpointInfo: EndpointInfo
     private lateinit var senderEndpointInfoBytes: ByteArray
@@ -129,7 +142,7 @@ public class SendActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Veto receiver-side mDNS publish for the duration of this
-        // activity. When LibreDrop concurrently publishes its receiver-side
+        // activity. When Bada concurrently publishes its receiver-side
         // mDNS record AND opens an outbound `OutboundConnection` to the
         // same peer, Samsung One UI 8.0.5's GMS Nearby caches state for
         // our endpoint from the discovered WIFI_LAN service and then
@@ -317,7 +330,7 @@ public class SendActivity : AppCompatActivity() {
                     PreparedConnection.Ready(connection)
                 } else {
                     logOutboundDiagnostic("bootstrap: initial direct connect failed route=${action.route}")
-                    PreparedConnection.Failed("initial bootstrap connect failed")
+                    PreparedConnection.Failed("Initial connect failed: bootstrap route unavailable")
                 }
             }
 
@@ -399,37 +412,150 @@ public class SendActivity : AppCompatActivity() {
         // EndOfFrameStream while the client is awaiting Ukey2ServerInit.
         // Visibility=0 (everyone) is fine — we are the sender, this is
         // not advertised on mDNS.
+        //
+        // Connect-attempt loop with transport fallback. The picker
+        // ranks all viable routes ahead of time (BLE-L2CAP > BLE-GATT
+        // > Wi-Fi LAN > Bluetooth Classic by [SendBootstrapPlan.viableRoutes]);
+        // we try the primary first, and if its TCP / transport connect
+        // bottoms out with "Initial connect failed: …" we retry the
+        // remaining routes in order. The fallback is gated on
+        // transport-level failures only — once the SecureChannel is
+        // up, any subsequent failure (UKEY2 mismatch, peer rejection,
+        // payload-streaming I/O error) is protocol-layer and keeps
+        // the original terminal so the user sees the actual reason.
         connectionJob =
             lifecycleScope.launch {
-                when (val prepared = buildOutboundConnection(plan, senderEndpointInfoBytes)) {
-                    is PreparedConnection.Failed -> {
+                val routes = SendBootstrapPlan.viableRoutes(peer)
+                if (routes.isEmpty()) {
+                    renderTerminal(
+                        getString(R.string.send_phase_failed),
+                        getString(
+                            R.string.send_status_failure_reason,
+                            plan.failureReason ?: "no usable initial route",
+                        ),
+                    )
+                    return@launch
+                }
+                for ((index, route) in routes.withIndex()) {
+                    val primaryRoute = (plan.action as? SendBootstrapPlan.Action.Direct)?.route
+                    val attemptPlan =
+                        if (index == 0 && primaryRoute == route) {
+                            plan
+                        } else {
+                            SendBootstrapPlan.forRoute(peer, route)
+                        }
+                    val isLastAttempt = index == routes.lastIndex
+                    pendingFallback = !isLastAttempt
+                    if (index > 0) {
+                        // Re-paint the status panel for the fallback
+                        // attempt so the user sees the transport switch
+                        // rather than a stuck "Connecting…" pose.
+                        binding.sendStatusPhase.setText(R.string.send_phase_connecting)
+                        binding.sendStatusMessage.text =
+                            getString(R.string.send_status_retrying_route, attemptPlan.subtitle)
+                        logOutboundDiagnostic(
+                            "retry: attempting fallback route=$route after primary failed",
+                        )
+                    }
+                    val outcome = attemptOutbound(peer, attemptPlan)
+                    pendingFallback = false
+                    val shouldFallback =
+                        !isLastAttempt &&
+                            outcome is OutboundResult.Failed &&
+                            isTransportLevelFailure(outcome.reason)
+                    if (shouldFallback) {
+                        continue
+                    }
+                    // Not falling back. If the outcome was Failed —
+                    // either transport-level on the last attempt, OR
+                    // protocol-level on any attempt — the StateFlow
+                    // collector may have suppressed the terminal
+                    // because [pendingFallback] was still set when the
+                    // Failed state arrived. Render the terminal here so
+                    // the card always reaches a stable end-of-flow pose.
+                    // Completed / Rejected / Cancelled paths render
+                    // their own terminals from inside the collector and
+                    // are not affected by [pendingFallback].
+                    if (outcome is OutboundResult.Failed) {
                         renderTerminal(
                             getString(R.string.send_phase_failed),
-                            getString(R.string.send_status_failure_reason, prepared.reason),
+                            getString(R.string.send_status_failure_reason, outcome.reason),
                         )
-                        return@launch
                     }
-                    is PreparedConnection.Ready -> {
-                        val connection = prepared.connection
-                        activeConnection = connection
-                        val collector =
-                            launch {
-                                connection.state.collect { state ->
-                                    renderConnectionState(state, peer)
-                                }
-                            }
-                        try {
-                            connection.run(files)
-                        } finally {
-                            collector.cancel()
-                            activeConnection = null
-                            bluetoothBootstrapClient = null
-                            bleL2capBootstrapClient = null
-                        }
-                    }
+                    return@launch
                 }
             }
     }
+
+    /**
+     * Single connect attempt: build the connection from [plan], wire a
+     * StateFlow collector to [renderConnectionState], and await
+     * [OutboundConnection.run] to terminal. Returns the `OutboundResult`
+     * the driver produced, or `null` when the bootstrap-side build itself
+     * could not produce a connection (mediums missing, BT bootstrap
+     * client returned null, etc.) — surfaced to the caller as a
+     * synthetic [OutboundResult.Failed] so the retry decision stays in
+     * one place.
+     *
+     * `connectionJob`-scope cancellation is honoured by
+     * [OutboundConnection.run] internally; this function does not need
+     * to add its own try/catch around it. The `finally` block releases
+     * the `activeConnection` reference and the bootstrap-client refs
+     * so the next iteration of the retry loop starts from a clean slate.
+     */
+    private suspend fun attemptOutbound(
+        peer: NearbyPeer,
+        plan: SendBootstrapPlan,
+    ): OutboundResult {
+        val targetSnapshot =
+            peerPickerController.formatPeerSnapshot(
+                peer,
+                (plan.action as? SendBootstrapPlan.Action.Direct)?.route,
+            )
+        DiagnosticLog.e(OUTBOUND_TAG, "attempt: $targetSnapshot")
+        appendOutboundLog("attempt: $targetSnapshot")
+        return when (val prepared = buildOutboundConnection(plan, senderEndpointInfoBytes)) {
+            is PreparedConnection.Failed -> OutboundResult.Failed(prepared.reason)
+            is PreparedConnection.Ready -> {
+                val connection = prepared.connection
+                activeConnection = connection
+                val collector =
+                    lifecycleScope.launch {
+                        connection.state.collect { state ->
+                            renderConnectionState(state, peer)
+                        }
+                    }
+                try {
+                    connection.run(files)
+                } finally {
+                    collector.cancel()
+                    activeConnection = null
+                    bluetoothBootstrapClient = null
+                    bleL2capBootstrapClient = null
+                }
+            }
+        }
+    }
+
+    /**
+     * `true` when [reason] looks like a transport-layer / TCP-layer
+     * failure that the next-priority route may avoid — typically the
+     * "Initial connect failed: …" prefix produced by
+     * [OutboundConnection]'s `IOException` catch around `socket.connect`.
+     * Covers EHOSTUNREACH (router blocks Wi-Fi peer-to-peer frames),
+     * ETIMEDOUT (connect timeout), ECONNREFUSED (peer's mDNS-published
+     * port is stale or the receiver's listener is down), and
+     * SocketException / NoRouteToHost variations.
+     *
+     * Failures that do NOT look transport-layer (UKEY2 mismatch,
+     * "Peer closed connection unexpectedly" mid-handshake, payload I/O
+     * error after SecureChannel up) intentionally fall through to the
+     * terminal so the user sees the real reason — retrying via BLE
+     * would not change a wire-protocol incompatibility, and bouncing
+     * the user through three attempts of the same protocol error is
+     * worse UX than surfacing it once.
+     */
+    private fun isTransportLevelFailure(reason: String): Boolean = reason.startsWith("Initial connect failed:")
 
     private sealed interface PreparedConnection {
         data class Ready(
@@ -521,10 +647,25 @@ public class SendActivity : AppCompatActivity() {
                     getString(R.string.send_status_failure_reason, state.cause.toString()),
                 )
             is OutboundConnectionState.Failed ->
-                renderTerminal(
-                    getString(R.string.send_phase_failed),
-                    getString(R.string.send_status_failure_reason, state.reason),
-                )
+                if (pendingFallback) {
+                    // The current attempt failed BUT another route is
+                    // queued — swallow the terminal render so the
+                    // status panel stays mounted. The retry-loop in
+                    // [proceedWithPeer] will overwrite the phase /
+                    // message lines with the next route's "Connecting…"
+                    // pose as soon as it builds the next connection.
+                    // We still surface the failed phase + reason
+                    // briefly so the user sees the transition rather
+                    // than a frozen "Connecting…" through two attempts.
+                    binding.sendStatusPhase.setText(R.string.send_phase_failed)
+                    binding.sendStatusMessage.text =
+                        getString(R.string.send_status_failure_reason, state.reason)
+                } else {
+                    renderTerminal(
+                        getString(R.string.send_phase_failed),
+                        getString(R.string.send_status_failure_reason, state.reason),
+                    )
+                }
         }
     }
 
@@ -1201,10 +1342,19 @@ public class SendActivity : AppCompatActivity() {
 
     /**
      * Display name for this device that the receiver will see in its
-     * consent UI. Falls back to a stable "Bada" string
-     * when [Build.MODEL] is empty (rare but happens on some emulators).
+     * consent UI. Resolved via [AdvertisedDeviceNames] so the
+     * user-set Quick Share display name (Settings → "Quick Share
+     * 표시 이름") propagates to the peer's consent dialog. Falls back
+     * to the platform device-name chain (Build.MODEL etc.) when the
+     * user has not set a custom name; the resolver itself terminates
+     * in a stable "Quick Share" string when every candidate is blank.
+     *
+     * Without this, the sender's outbound `EndpointInfo.deviceName`
+     * would be `Build.MODEL` regardless of what the on-screen pill
+     * shows, leaving the receiver to render the pre-customisation
+     * model number instead of the user-chosen label.
      */
-    private fun senderDeviceLabel(): String = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Bada"
+    private fun senderDeviceLabel(): String = AdvertisedDeviceNames.resolve(this)
 
     private fun prepareSenderIdentity() {
         senderEndpointId = OutboundConnection.generateEndpointId()
@@ -1264,21 +1414,21 @@ public class SendActivity : AppCompatActivity() {
 
     /**
      * Append a line to a per-run log file under
-     * `getExternalFilesDir(null)/libredrop-outbound.log`. This is a workaround
+     * `getExternalFilesDir(null)/bada-outbound.log`. This is a workaround
      * for vivo Funtouch OS, which filters non-system app logcat output
      * even with setprop overrides. Recoverable via:
      *
      *     adb shell run-as dev.bluehouse.bada.debug \\
-     *         find /storage/emulated/0/Android/data/dev.bluehouse.bada.debug -name 'libredrop-outbound.log'
+     *         find /storage/emulated/0/Android/data/dev.bluehouse.bada.debug -name 'bada-outbound.log'
      *
      * or simpler:
      *
-     *     adb pull /sdcard/Android/data/dev.bluehouse.bada.debug/files/libredrop-outbound.log
+     *     adb pull /sdcard/Android/data/dev.bluehouse.bada.debug/files/bada-outbound.log
      */
     private fun appendOutboundLog(line: String) {
         runCatching {
             val dir = getExternalFilesDir(null) ?: return
-            val f = java.io.File(dir, "libredrop-outbound.log")
+            val f = java.io.File(dir, "bada-outbound.log")
             f.appendText("${System.currentTimeMillis()} $line\n")
         }
     }
@@ -1305,7 +1455,7 @@ public class SendActivity : AppCompatActivity() {
          */
         public const val ACTION_SEND_FOLDER: String = "dev.bluehouse.bada.action.SEND_FOLDER"
 
-        private const val OUTBOUND_TAG: String = "LibreDropOutbound"
+        private const val OUTBOUND_TAG: String = "BadaOutbound"
         private const val PERCENT_SCALE = 100
 
         // In-card QR panel animation tunables. Entry uses an

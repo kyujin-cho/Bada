@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -725,7 +725,7 @@ class ReceiverSessionTest {
      */
     private class FakeAdvertiseHandle(
         override val port: Int,
-        override val instanceName: String = "libredrop-test-instance",
+        override val instanceName: String = "bada-test-instance",
     ) : AdvertiseHandle {
         @Volatile
         private var active: Boolean = true

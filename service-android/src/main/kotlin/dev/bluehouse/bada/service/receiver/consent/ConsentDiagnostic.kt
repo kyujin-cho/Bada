@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -14,7 +14,7 @@ import java.io.File
  * lifecycle (issue #151 / PR #152 follow-up).
  *
  * Writes timestamped lines to
- * `getExternalFilesDir(null)/libredrop-inbound.log`, the same file the
+ * `getExternalFilesDir(null)/bada-inbound.log`, the same file the
  * inbound-state diagnostic logger already uses, so a single
  * `adb shell cat` pulls the complete picture across the protocol layer
  * and the consent surface. The shared file matters on Funtouch /
@@ -42,8 +42,8 @@ import java.io.File
  * `companion object`.
  */
 public object ConsentDiagnostic {
-    private const val TAG: String = "LibreDropConsent"
-    private const val FILE_NAME: String = "libredrop-inbound.log"
+    private const val TAG: String = "BadaConsent"
+    private const val FILE_NAME: String = "bada-inbound.log"
     private const val PREFIX: String = "consent:"
 
     /**

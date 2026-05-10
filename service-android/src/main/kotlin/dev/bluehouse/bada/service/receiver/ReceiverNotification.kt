@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -36,7 +36,7 @@ internal object ReceiverNotification {
      * upgrades so historical user-visible channel customizations
      * (notification settings page) survive an app update.
      */
-    internal const val CHANNEL_ID: String = "libredrop.receiver.foreground"
+    internal const val CHANNEL_ID: String = "bada.receiver.foreground"
 
     /**
      * Notification id used by `Service.startForeground`. Any positive

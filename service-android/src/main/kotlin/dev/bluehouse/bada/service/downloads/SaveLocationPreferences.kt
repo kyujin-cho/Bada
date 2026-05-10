@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -138,7 +138,7 @@ public class SaveLocationPreferences internal constructor(
          * battery-optimization preferences so a future settings UI
          * can mix-and-match without naming collisions.
          */
-        public const val PREFS_NAME: String = "libredrop.save_location"
+        public const val PREFS_NAME: String = "bada.save_location"
 
         /** Key under which the chosen tree URI is stored. */
         internal const val KEY_SAVE_TREE_URI: String = "save_tree_uri"

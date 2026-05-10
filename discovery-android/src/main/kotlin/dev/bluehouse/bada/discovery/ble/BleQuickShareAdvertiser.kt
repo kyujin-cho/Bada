@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -42,7 +42,7 @@ import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog as Log
  * loop: stock Quick Share peers cross-reference Wi-Fi LAN services they
  * discover against recently-seen BLE pulses on `0xFEF3`, and silently
  * drop mDNS-only peers from their picker. Without an advertiser on this
- * UUID, LibreDrop is invisible to Galaxy / One UI's send sheet — that was
+ * UUID, Bada is invisible to Galaxy / One UI's send sheet — that was
  * exactly the symptom commit c0150be diagnosed.
  *
  * ### Wire format
@@ -50,23 +50,23 @@ import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog as Log
  * The primary service-data payload is built as a compact BLE v2 GATT
  * advertisement header in `:core-protocol` (pure-JVM, KAT-tested). Stock
  * Samsung senders read the visible receiver identity from GATT slot zero,
- * where LibreDrop publishes a second-profile fast advertisement:
+ * where Bada publishes a second-profile fast advertisement:
  *
  * ```text
  * [ header | bloom_filter | advertisement_hash | psm=0 ]
  * ```
  *
  * Vivo/OriginOS devices can run Google Play services' own Nearby GATT
- * provider beside LibreDrop. The regular `0xFEF3` slot service therefore
+ * provider beside Bada. The regular `0xFEF3` slot service therefore
  * must stay published, and slot zero must advertise the second-profile socket
- * so Samsung resolves the selected peer into LibreDrop instead of Google's
+ * so Samsung resolves the selected peer into Bada instead of Google's
  * coresident regular profile. The connectable extended payload carries the
  * visible receiver name only. Do not append the RX instant-connection extra
  * field here: on One UI 8.0.5 it promotes the tap into a separate
- * Mosey/link-local path on port 8770, bypassing LibreDrop's BLE GATT
+ * Mosey/link-local path on port 8770, bypassing Bada's BLE GATT
  * bootstrap server.
  *
- * LibreDrop does not submit the optional DCT (`0xFC73`) advertisement in
+ * Bada does not submit the optional DCT (`0xFC73`) advertisement in
  * receiver mode. Samsung ShareLive was observed to probe the DCT advertiser
  * address as if it were a GATT advertisement header after a successful first
  * transfer; that failed probe poisoned the next tap and routed it to GMS's
@@ -466,7 +466,7 @@ public class BleQuickShareAdvertiser internal constructor(
 
     public companion object {
         /** logcat tag for receiver-side BLE-advertise diagnostics. */
-        internal const val TAG: String = "LibreDropBleAdv"
+        internal const val TAG: String = "BadaBleAdv"
 
         /**
          * Build the platform [AdvertiseSettings] for the given mode.
@@ -494,7 +494,7 @@ public class BleQuickShareAdvertiser internal constructor(
 
         /**
          * Build the secondary legacy DCT advertisement settings. DCT is an
-         * identity hint only in LibreDrop's current off-LAN path; the connectable
+         * identity hint only in Bada's current off-LAN path; the connectable
          * GATT socket remains on the primary `0xFEF3` advertisement.
          */
         internal fun buildDctSettings(mode: Int): AdvertiseSettings =
@@ -551,7 +551,7 @@ public class BleQuickShareAdvertiser internal constructor(
         /**
          * Human-readable label for an [AdvertiseSettings] mode constant.
          * Used in logcat so a power-tuning triage can grep
-         * `LibreDropBleAdv setAdvertiseMode` and read the transition without
+         * `BadaBleAdv setAdvertiseMode` and read the transition without
          * translating integers.
          */
         internal fun describeAdvertiseMode(mode: Int): String =

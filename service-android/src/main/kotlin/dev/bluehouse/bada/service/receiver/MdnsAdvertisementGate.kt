@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -343,7 +343,7 @@ public class MdnsAdvertisementGate(
 
     public companion object {
         /** logcat tag for gate-related lines. */
-        internal const val TAG: String = "LibreDropMdnsGate"
+        internal const val TAG: String = "BadaMdnsGate"
 
         /**
          * Default 30 s idle window before the gate unpublishes the

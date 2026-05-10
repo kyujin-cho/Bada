@@ -137,7 +137,7 @@
         -->
         <Button
             android:id="@+id/main_always_visible_button"
-            style="@style/Widget.LibreDrop.Button"
+            style="@style/Widget.Bada.Button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/main_always_visible_off_title" />
@@ -281,7 +281,7 @@
 
             <Button
                 android:id="@+id/main_send_files_button"
-                style="@style/Widget.LibreDrop.Button"
+                style="@style/Widget.Bada.Button"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -293,7 +293,7 @@
 
             <Button
                 android:id="@+id/main_send_folder_button"
-                style="@style/Widget.LibreDrop.Button"
+                style="@style/Widget.Bada.Button"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"

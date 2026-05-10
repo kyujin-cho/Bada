@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -281,7 +281,7 @@ internal class BleGattAdvertisementReader(
     }
 
     private companion object {
-        private const val TAG: String = "LibreDropBleFastScan"
+        private const val TAG: String = "BadaBleFastScan"
         private const val MAX_SLOT_COUNT: Int = 16
         private const val READ_TIMEOUT_MILLIS: Long = 7_000L
     }

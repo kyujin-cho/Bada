@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -24,7 +24,7 @@ package dev.bluehouse.bada.protocol.ukey2
  * Anything else triggers a [Ukey2HandshakeException] and a `Ukey2Alert`
  * frame back to the peer.
  *
- * See [issue #10](https://github.com/kyujin-cho/LibreDrop/issues/10)
+ * See [issue #10](https://github.com/kyujin-cho/Bada/issues/10)
  * and [google/ukey2](https://github.com/google/ukey2) for the full spec.
  */
 public object Ukey2 {

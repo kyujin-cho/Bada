@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
  *  - Pure JVM testability (no Robolectric, no `org.json` stubs that
  *    return `null` under `returnDefaultValues = true`).
  *  - Trivially auditable on-disk format. A user with `adb shell` can
- *    `cat /data/data/.../cache/libredrop-resume-state.json` and see what
+ *    `cat /data/data/.../cache/bada-resume-state.json` and see what
  *    the receiver remembers about their peers.
  *  - O(1) memory: the file is only re-serialized on writes; reads hit
  *    the in-memory snapshot.
@@ -71,7 +71,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * @param storageFile The file to read on construction and write to on
  *   each [recordCoverage] / [forget] / [purgeOlderThan]. In production
- *   wired via `File(context.cacheDir, "libredrop-resume-state.txt")`.
+ *   wired via `File(context.cacheDir, "bada-resume-state.txt")`.
  *   Tests inject a `@TempDir` path.
  */
 public class PersistentResumeStateStore(

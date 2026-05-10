@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -74,14 +74,11 @@ public data class NearbyPeer(
         if (endpointInfo == null) {
             return null
         }
-        val lan = lanEndpoint
-        val primaryAddress = lan?.primaryAddress()
-        if (lan != null && primaryAddress != null) {
-            return NearbyPeerRoute.Lan(
-                address = primaryAddress,
-                port = lan.port,
-            )
-        }
+        // BLE-first preference. See [SendBootstrapPlan.directRoute] for
+        // the rationale: BLE bypasses the AP and remains reachable on
+        // Wi-Fi networks that drop peer-to-peer LAN frames, so we'd
+        // rather pay the brief BLE setup latency than fail with
+        // EHOSTUNREACH on isolated SSIDs.
         val ble = bleAdvertisement
         val bleAddress = ble?.advertiserAddress
         val l2capPsm = ble?.l2capPsm
@@ -90,6 +87,14 @@ public data class NearbyPeer(
         }
         if (bleAddress != null && ble.gattConnectable) {
             return NearbyPeerRoute.BleGatt(macAddress = bleAddress)
+        }
+        val lan = lanEndpoint
+        val primaryAddress = lan?.primaryAddress()
+        if (lan != null && primaryAddress != null) {
+            return NearbyPeerRoute.Lan(
+                address = primaryAddress,
+                port = lan.port,
+            )
         }
         if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) {
             val bluetooth = bluetoothEndpoint

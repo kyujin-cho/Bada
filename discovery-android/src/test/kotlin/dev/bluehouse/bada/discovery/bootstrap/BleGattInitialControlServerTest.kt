@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -21,13 +21,13 @@ class BleGattInitialControlServerTest {
     }
 
     @Test
-    fun `second-profile service UUID matches stock Nearby socket lookup`() {
+    fun `second-profile service UUID aliases stock Nearby socket lookup`() {
         assertThat(BleGattInitialControlServer.SECOND_PROFILE_SERVICE_UUID.toString())
-            .isEqualTo("0000fef3-0004-1000-8000-001a11000100")
+            .isEqualTo(BleServiceData.SERVICE_UUID_128_STRING)
     }
 
     @Test
-    fun `regular slot service points stock sender at second-profile socket when enabled`() {
+    fun `stock service exposes advertisement slots and Weave socket when enabled`() {
         val serviceSpecs =
             BleGattInitialControlServer.buildServiceSpecs(
                 endpointInfo = sampleEndpointInfo(),
@@ -36,42 +36,31 @@ class BleGattInitialControlServerTest {
             )
 
         assertThat(serviceSpecs.map { it.uuid })
-            .containsExactly(
-                BleGattInitialControlServer.SERVICE_UUID,
-                BleGattInitialControlServer.SECOND_PROFILE_SERVICE_UUID,
-            ).inOrder()
+            .containsExactly(BleGattInitialControlServer.SERVICE_UUID)
 
-        val advertisementService = serviceSpecs[0]
-        val socketService = serviceSpecs[1]
+        val service = serviceSpecs.single()
 
-        assertThat(advertisementService.characteristicUuids())
+        assertThat(service.characteristicUuids())
             .contains(BleGattInitialControlServer.GATT_SLOT_0_UUID)
-        assertThat(advertisementService.characteristicUuids())
-            .doesNotContain(BleGattInitialControlServer.FROM_PERIPHERAL_UUID)
-        assertThat(advertisementService.characteristicUuids())
-            .doesNotContain(BleGattInitialControlServer.TO_PERIPHERAL_UUID)
-
-        assertThat(socketService.characteristicUuids())
-            .doesNotContain(BleGattInitialControlServer.GATT_SLOT_0_UUID)
-        assertThat(socketService.characteristicUuids())
+        assertThat(service.characteristicUuids())
             .contains(BleGattInitialControlServer.FROM_PERIPHERAL_UUID)
-        assertThat(socketService.characteristicUuids())
+        assertThat(service.characteristicUuids())
             .contains(BleGattInitialControlServer.TO_PERIPHERAL_UUID)
 
         val slotValue =
             requireNotNull(
-                advertisementService.characteristics.firstOrNull {
+                service.characteristics.firstOrNull {
                     it.uuid == BleGattInitialControlServer.GATT_SLOT_0_UUID
                 },
             ).value
         assertThat(slotValue)
             .isNotNull()
         assertThat(slotValue[0].toInt() and 0xFF)
-            .isEqualTo(BleServiceData.FRAME_TYPE_SECOND_PROFILE_FAST_ADVERTISEMENT)
+            .isEqualTo(BleServiceData.FRAME_TYPE_FAST_ADVERTISEMENT)
     }
 
     @Test
-    fun `receiver mode publishes only second-profile socket when slots are disabled`() {
+    fun `receiver mode publishes only canonical socket when slots are disabled`() {
         val serviceSpecs =
             BleGattInitialControlServer.buildServiceSpecs(
                 endpointInfo = sampleEndpointInfo(),
@@ -103,6 +92,6 @@ class BleGattInitialControlServerTest {
             deviceType = DeviceType.PHONE,
             reserved = false,
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { index -> index.toByte() },
-            deviceName = "LibreDrop",
+            deviceName = "Bada",
         )
 }

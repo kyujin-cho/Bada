@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -138,6 +138,21 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         refreshBugReportSwitch()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Re-check the battery-optimization exemption on every resume.
+        // The platform's `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+        // dialog is a translucent overlay on some OEM ROMs (vivo
+        // OriginOS, in particular) — when it dismisses, the host
+        // fragment lifecycle does not always fall back through
+        // `onStart` because the underlying activity was never fully
+        // stopped. Re-running [refreshBatteryStatus] from `onResume`
+        // catches that case so the "Currently: …" label flips
+        // immediately after the user grants the exemption, instead
+        // of waiting for the next manual tab switch.
+        refreshBatteryStatus()
+    }
+
     /**
      * Re-sync the shake-to-report switch to the preference holder on
      * every onStart so an external write (currently none, but #166
@@ -210,6 +225,6 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
     }
 
     private companion object {
-        const val TAG = "LibreDropMain"
+        const val TAG = "BadaMain"
     }
 }

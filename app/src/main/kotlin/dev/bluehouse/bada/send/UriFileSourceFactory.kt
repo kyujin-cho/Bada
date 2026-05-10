@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -354,7 +354,7 @@ internal class ContentResolverMetadataReader(
     )
 
     private companion object {
-        const val TAG: String = "LibreDropOutbound"
+        const val TAG: String = "BadaOutbound"
         const val READ_MODE: String = "r"
 
         val PROJECTION =

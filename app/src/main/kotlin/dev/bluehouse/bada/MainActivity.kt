@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -9,6 +9,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
@@ -127,7 +128,7 @@ class MainActivity : AppCompatActivity() {
                     else -> return@setOnItemSelectedListener false
                 }
             // Swap the toolbar title per tab so the page identity is
-            // explicit. Home keeps the "LibreDrop" brand (the app's
+            // explicit. Home keeps the "bada" brand (the app's
             // root surface); Settings switches to its tab title so the
             // toolbar reads as page context, matching how the
             // dedicated send/consent activities title themselves
@@ -329,9 +330,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     internal companion object {
-        private const val TAG = "LibreDropMain"
-        private const val STATE_ONBOARDING_LAUNCHED = "libredrop.main.onboardingLaunched"
-        private const val STATE_BATTERY_DIALOG_SHOWN = "libredrop.main.batteryDialogShown"
+        private const val TAG = "BadaMain"
+        private const val STATE_ONBOARDING_LAUNCHED = "bada.main.onboardingLaunched"
+        private const val STATE_BATTERY_DIALOG_SHOWN = "bada.main.batteryDialogShown"
 
         // Bottom-nav icon scale on press (matches vivo native).
         private const val PRESSED_ICON_SCALE = 0.85f
@@ -339,21 +340,32 @@ class MainActivity : AppCompatActivity() {
         private const val ICON_PRESS_DURATION_MS = 100L
 
         /**
-         * Walk the OEM-aware list of candidate battery-exemption
-         * Settings intents in order; on the first one that launches
-         * successfully, return. Falls back to a Toast if none of
-         * them resolve at runtime — matches what the previous banner
-         * did, and shared here so the Settings tab "Background
-         * activity" row can re-use the same dispatch logic.
+         * Open the system battery-optimization settings list so the
+         * user can locate this app and toggle its exemption manually.
+         *
+         * We deliberately do NOT use
+         * `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` — that action
+         * surfaces a one-tap "Allow this app to ignore battery
+         * optimizations?" dialog, but on some OEM ROMs (notably vivo
+         * OriginOS) tapping Allow on that dialog does not actually
+         * flip [PowerManager.isIgnoringBatteryOptimizations]. The user
+         * sees a popup, taps grant, and nothing changes — which is
+         * exactly the broken-button feel we want to avoid. The full
+         * settings list page is always interactive and the toggle
+         * inside it does flip the platform flag, so the status label
+         * in the Settings tab updates correctly when the user returns.
+         *
+         * Vendor activities (vivo BgStartUpManager etc.) are kept as
+         * fall-through entries so devices on which the standard
+         * Settings list page unexpectedly fails to resolve still
+         * have somewhere to land.
          */
         internal fun openBatterySettings(context: Context) {
-            val candidates = BatteryOptimizationOemHelper.intentsForCurrentDevice(context)
-            if (candidates.isEmpty()) {
-                Toast
-                    .makeText(context, R.string.main_battery_banner_unavailable, Toast.LENGTH_LONG)
-                    .show()
-                return
-            }
+            val primaryIntent =
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val vendorIntents = BatteryOptimizationOemHelper.intentsForCurrentDevice(context)
+            val candidates = listOf(primaryIntent) + vendorIntents
             for (intent in candidates) {
                 try {
                     context.startActivity(intent)

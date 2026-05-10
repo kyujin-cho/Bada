@@ -14,7 +14,7 @@
 
   A small set of strings is intentionally NOT translated:
     * `app_name`, contributor display names, brand-y labels
-      ("Quick Share", "Bada") — proper nouns.
+      ("Quick Share", "bada") — proper nouns.
     * `credit_teqhnikacross_desc` — the contributor explicitly
       asked for "We all want to be loved" rendered as-is on Korean
       devices too.
@@ -74,7 +74,7 @@
          to the more user-intent-aligned "받을 준비 완료" ("ready to
          receive"); the caption underneath spells out the implication
          in plain prose. -->
-    <string name="main_always_visible_title">받을 준비 완료</string>
+    <string name="main_always_visible_title">기기 항상 보이기</string>
     <string name="main_always_visible_subtitle">근처 송신기의 Bluetooth 신호 없이도 이 기기를 Wi-Fi에서 발견할 수 있도록 유지합니다. 절전을 위해 끄면 송신기가 스캔하는 동안에만 잠시 표시됩니다.</string>
     <string name="main_always_visible_off_title">스캔 시 보이기</string>
     <string name="main_always_visible_caption_on">주변의 모든 사람이 나에게 파일을 공유할 수 있습니다.</string>
@@ -225,6 +225,7 @@
     <string name="send_status_pin_prompt">이 코드가 수신 화면의 코드와 일치하는지 확인하세요.</string>
     <string name="send_status_failure_reason">사유: %1$s</string>
     <string name="send_status_progress">%1$s / %2$s</string>
+    <string name="send_status_retrying_route">%1$s(으)로 다시 시도 중…</string>
 
     <!-- Rate + ETA suffixes. -->
     <string name="send_status_rate">%1$s/초</string>

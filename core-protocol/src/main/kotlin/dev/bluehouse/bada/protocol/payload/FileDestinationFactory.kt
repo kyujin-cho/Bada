@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -166,7 +166,7 @@ public interface FileDestinationFactory {
  * this avoids both directory-traversal-flavored names (`../../etc/passwd`)
  * and platform-illegal characters that would make the open call throw.
  *
- * The destination directory is `${java.io.tmpdir}/libredrop-payload-receive`.
+ * The destination directory is `${java.io.tmpdir}/bada-payload-receive`.
  * The directory is created lazily; the caller is responsible for cleaning
  * it up. **Do not use this factory in production** — it leaves files
  * scattered across the temp dir.
@@ -174,7 +174,7 @@ public interface FileDestinationFactory {
 public class TempFileDestinationFactory(
     /**
      * Override the parent directory if you need a deterministic location
-     * for tests. When `null`, falls back to `${java.io.tmpdir}/libredrop-payload-receive`.
+     * for tests. When `null`, falls back to `${java.io.tmpdir}/bada-payload-receive`.
      */
     private val baseDirectory: Path? = null,
 ) : FileDestinationFactory {
@@ -201,7 +201,7 @@ public class TempFileDestinationFactory(
     private fun defaultDir(): Path =
         Paths.get(
             System.getProperty("java.io.tmpdir"),
-            "libredrop-payload-receive",
+            "bada-payload-receive",
         )
 
     private fun sanitize(name: String): String = name.map { ch -> if (isSafeFileChar(ch)) ch else '_' }.joinToString("")

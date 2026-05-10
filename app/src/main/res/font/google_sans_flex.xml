@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Google Sans Flex via Google Play Services Downloadable Fonts.
+
+    The provider delivers the variable font binary cached at the
+    platform level so the app does not have to ship a TTF. Glyph
+    coverage is Latin + extended Latin only — Korean / CJK strings
+    automatically fall back to the platform's default Hangul font
+    via the standard glyph-fallback chain.
+
+    The query is `Google Sans Flex`; weight + width axes are
+    resolved at render time via the variable-font axes baked into
+    the delivered file. We do not enumerate per-weight `<font>`
+    entries because the Material Components text-appearance styles
+    we apply this family to derive bold by setting `textStyle`
+    rather than picking a different font asset.
+-->
+<font-family xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:fontProviderAuthority="com.google.android.gms.fonts"
+    app:fontProviderPackage="com.google.android.gms"
+    app:fontProviderQuery="Google Sans Flex"
+    app:fontProviderCerts="@array/com_google_android_gms_fonts_certs">
+</font-family>

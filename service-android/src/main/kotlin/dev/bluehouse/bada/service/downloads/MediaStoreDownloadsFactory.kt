@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -162,7 +162,7 @@ public class MediaStoreDownloadsFactory internal constructor(
         // diagnostics and rules out collision with other in-flight
         // payloads even within a single connection.
         if (!spoolDirectory.exists()) spoolDirectory.mkdirs()
-        val spoolFile = File(spoolDirectory, "libredrop-spool-${header.id}.part")
+        val spoolFile = File(spoolDirectory, "bada-spool-${header.id}.part")
         // Pre-existing spool file from a previous crashed transfer
         // would corrupt the current payload's content; truncate by
         // opening with "rw" and explicitly setting length=0. (#43 will

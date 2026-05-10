@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -13,7 +13,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Process-wide "is any LibreDrop activity foregrounded right now" flag.
+ * Process-wide "is any Bada activity foregrounded right now" flag.
  *
  * The interface is intentionally small so unit tests can drive it
  * without standing up `androidx.lifecycle:lifecycle-process` /
@@ -22,10 +22,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * [ProcessLifecycleOwner] to this surface, while tests construct an
  * [InMemoryAppForegroundState] and toggle the value directly.
  *
- * ### Why "any LibreDrop activity"
+ * ### Why "any Bada activity"
  *
  * The foreground-consent-modal flow (#151) has to work regardless of
- * which LibreDrop activity is on top — `MainActivity` while the user is
+ * which Bada activity is on top — `MainActivity` while the user is
  * browsing settings, `SendActivity` while a sender flow is in progress,
  * `ShowQrActivity` while a QR pairing screen is up, or the consent
  * trampoline itself. [ProcessLifecycleOwner] aggregates every activity
@@ -53,7 +53,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 public interface AppForegroundState {
     /**
-     * `true` while at least one LibreDrop activity is in the
+     * `true` while at least one Bada activity is in the
      * `STARTED` (visible) lifecycle state or above. `false` when every
      * activity has reached `STOPPED`.
      */

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 LibreDrop contributors.
+ * Copyright 2026 Bada contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -55,7 +55,7 @@ import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog as Log
  * Diagnostics: call [snapshot] to obtain a [DiscoveryDiagnostics]
  * describing the current advertise / browse state and the most recent
  * NsdManager events. The receiver service logs this periodically to
- * make silent failures visible in logcat via the `LibreDropDiscovery` tag.
+ * make silent failures visible in logcat via the `BadaDiscovery` tag.
  */
 public class Discovery internal constructor(
     private val registrar: NsdRegistrar,
@@ -337,7 +337,7 @@ public class Discovery internal constructor(
         // loopback (the LAN IP the responder bound to is reachable on
         // the same interface the browser listens on). Without this
         // check, the sender-side picker would surface our own receiver
-        // TCP listener as a peer — picking it runs a LibreDrop-to-LibreDrop
+        // TCP listener as a peer — picking it runs a Bada-to-Bada
         // self-loopback transfer that completes successfully but never
         // reaches a remote device. Cross-checking by instanceName is
         // sufficient because mDNS-name uniqueness is guaranteed by the
@@ -406,7 +406,7 @@ public class Discovery internal constructor(
     /**
      * Decode the raw bytes stored under TXT key `n` into the binary
      * EndpointInfo bytes that [EndpointInfo.parse] expects. Modern peers
-     * (and post-fix LibreDrop builds) publish the value as URL-safe-base64
+     * (and post-fix Bada builds) publish the value as URL-safe-base64
      * ASCII per google/nearby's `WifiLanServiceInfo`. Older peers (and
      * our own pre-fix builds) published it as raw binary; tolerate that
      * by falling back to the raw bytes when base64 decode fails.
@@ -466,7 +466,7 @@ public class Discovery internal constructor(
         public const val MAX_PORT: Int = 0xFFFF
 
         /** logcat tag — shared with the rest of the discovery module. */
-        internal const val TAG: String = "LibreDropDiscovery"
+        internal const val TAG: String = "BadaDiscovery"
 
         /**
          * Test-only factory that wires up [Discovery] with caller-supplied

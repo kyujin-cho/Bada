@@ -3,7 +3,7 @@
   Night-mode color overrides. Applied automatically by the resource
   system whenever the platform reports `Configuration.uiMode &
   UI_MODE_NIGHT_YES` — i.e. when the user has system-wide dark mode
-  on, or per-app dark mode for LibreDrop.
+  on, or per-app dark mode for Bada.
 
   Only colors that need to differ between day and night live here;
   brand_primary, the QR bitmap white, and other mode-agnostic
