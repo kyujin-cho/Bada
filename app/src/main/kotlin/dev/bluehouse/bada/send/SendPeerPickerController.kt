@@ -294,7 +294,10 @@ internal class SendPeerPickerController(
             row.peerRowSubtitle.text = target.subtitle
             row.root.isEnabled = true
             row.root.alpha = 1f
-            row.root.setOnClickListener { onPeerSelected(target.peer) }
+            val stableId = target.peer.stableId
+            row.root.setOnClickListener {
+                peers.firstOrNull { it.stableId == stableId }?.let(onPeerSelected)
+            }
             container.addView(row.root)
         }
         // Empty-state visibility is gated on [EmptyPeerHintTimer] inside

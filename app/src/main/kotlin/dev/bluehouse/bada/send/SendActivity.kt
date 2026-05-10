@@ -330,7 +330,7 @@ public class SendActivity : AppCompatActivity() {
                     PreparedConnection.Ready(connection)
                 } else {
                     logOutboundDiagnostic("bootstrap: initial direct connect failed route=${action.route}")
-                    PreparedConnection.Failed("initial bootstrap connect failed")
+                    PreparedConnection.Failed("Initial connect failed: bootstrap route unavailable")
                 }
             }
 
