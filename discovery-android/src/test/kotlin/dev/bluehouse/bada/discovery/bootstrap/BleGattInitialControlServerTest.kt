@@ -7,6 +7,7 @@
 package dev.bluehouse.bada.discovery.bootstrap
 
 import com.google.common.truth.Truth.assertThat
+import dev.bluehouse.bada.protocol.endpoint.BleAdvertisement
 import dev.bluehouse.bada.protocol.endpoint.BleServiceData
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
@@ -55,8 +56,9 @@ class BleGattInitialControlServerTest {
             ).value
         assertThat(slotValue)
             .isNotNull()
-        assertThat(slotValue[0].toInt() and 0xFF)
-            .isEqualTo(BleServiceData.FRAME_TYPE_FAST_ADVERTISEMENT)
+        val advertisement = BleAdvertisement.parse(slotValue)
+        assertThat(advertisement).isNotNull()
+        assertThat(advertisement!!.fastAdvertisement).isFalse()
     }
 
     @Test
@@ -82,16 +84,40 @@ class BleGattInitialControlServerTest {
             .doesNotContain(BleGattInitialControlServer.GATT_SLOT_0_UUID)
     }
 
+    @Test
+    fun `advertisement slot preserves customized Bada receiver name`() {
+        val endpointInfo = sampleEndpointInfo(deviceName = "Bada177Lab")
+        val serviceSpecs =
+            BleGattInitialControlServer.buildServiceSpecs(
+                endpointInfo = endpointInfo,
+                endpointId = "2xLU".toByteArray(StandardCharsets.US_ASCII),
+                publishAdvertisementSlotService = true,
+            )
+
+        val slotValue =
+            requireNotNull(
+                serviceSpecs
+                    .single()
+                    .characteristics
+                    .firstOrNull { it.uuid == BleGattInitialControlServer.GATT_SLOT_0_UUID },
+            ).value
+        val advertisement = requireNotNull(BleAdvertisement.parse(slotValue))
+        val parsed = requireNotNull(BleServiceData.parse(advertisement.data))
+
+        assertThat(String(parsed.endpointId, StandardCharsets.US_ASCII)).isEqualTo("2xLU")
+        assertThat(parsed.endpointInfo).isEqualTo(endpointInfo)
+    }
+
     private fun BleGattInitialControlServer.Companion.GattServiceSpec.characteristicUuids() =
         characteristics.map { it.uuid }
 
-    private fun sampleEndpointInfo(): EndpointInfo =
+    private fun sampleEndpointInfo(deviceName: String = "Bada"): EndpointInfo =
         EndpointInfo(
             version = 1,
             hidden = false,
             deviceType = DeviceType.PHONE,
             reserved = false,
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { index -> index.toByte() },
-            deviceName = "Bada",
+            deviceName = deviceName,
         )
 }

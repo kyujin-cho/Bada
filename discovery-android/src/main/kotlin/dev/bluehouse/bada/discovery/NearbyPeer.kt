@@ -62,31 +62,17 @@ public data class NearbyPeer(
     /**
      * Select the initial-control route.
      *
-     * LAN remains first priority to preserve the pre-#137 behaviour when
+     * LAN remains first priority to preserve the direct same-Wi-Fi path when
      * a peer is already reachable by mDNS + TCP. BLE L2CAP is the preferred
      * off-LAN bootstrap path when the receiver advertises a PSM. A visible
-     * BLE receiver without a PSM is only a GATT bootstrap candidate after
-     * the GATT advertisement-slot probe verifies the service; header-only
-     * and raw scan-result-only BLE observations remain discovery metadata
-     * until another route confirms a transport.
+     * BLE receiver without a PSM is only a GATT bootstrap candidate after the
+     * GATT advertisement-slot probe verifies the service; header-only and raw
+     * scan-result-only BLE observations remain discovery metadata until
+     * another route confirms a transport.
      */
     public fun preferredRoute(): NearbyPeerRoute? {
         if (endpointInfo == null) {
             return null
-        }
-        // BLE-first preference. See [SendBootstrapPlan.directRoute] for
-        // the rationale: BLE bypasses the AP and remains reachable on
-        // Wi-Fi networks that drop peer-to-peer LAN frames, so we'd
-        // rather pay the brief BLE setup latency than fail with
-        // EHOSTUNREACH on isolated SSIDs.
-        val ble = bleAdvertisement
-        val bleAddress = ble?.advertiserAddress
-        val l2capPsm = ble?.l2capPsm
-        if (bleAddress != null && l2capPsm != null) {
-            return NearbyPeerRoute.BleL2cap(macAddress = bleAddress, psm = l2capPsm)
-        }
-        if (bleAddress != null && ble.gattConnectable) {
-            return NearbyPeerRoute.BleGatt(macAddress = bleAddress)
         }
         val lan = lanEndpoint
         val primaryAddress = lan?.primaryAddress()
@@ -95,6 +81,15 @@ public data class NearbyPeer(
                 address = primaryAddress,
                 port = lan.port,
             )
+        }
+        val ble = bleAdvertisement
+        val bleAddress = ble?.advertiserAddress
+        val l2capPsm = ble?.l2capPsm
+        if (bleAddress != null && l2capPsm != null) {
+            return NearbyPeerRoute.BleL2cap(macAddress = bleAddress, psm = l2capPsm)
+        }
+        if (bleAddress != null && ble.gattConnectable) {
+            return NearbyPeerRoute.BleGatt(macAddress = bleAddress)
         }
         if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) {
             val bluetooth = bluetoothEndpoint

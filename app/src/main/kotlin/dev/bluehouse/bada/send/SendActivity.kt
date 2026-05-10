@@ -252,6 +252,7 @@ public class SendActivity : AppCompatActivity() {
     private suspend fun buildOutboundConnection(
         route: NearbyPeerRoute,
         endpointInfo: ByteArray,
+        useNearbyMultiplexInitialTransport: Boolean = false,
     ): OutboundConnection? {
         val mediumRegistry = MediumRegistries.defaultForContext(applicationContext)
         return when (route) {
@@ -261,6 +262,7 @@ public class SendActivity : AppCompatActivity() {
                     port = route.port,
                     endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
+                    useNearbyMultiplexInitialTransport = useNearbyMultiplexInitialTransport,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
                 )
@@ -325,7 +327,11 @@ public class SendActivity : AppCompatActivity() {
     ): PreparedConnection =
         when (val action = plan.action) {
             is SendBootstrapPlan.Action.Direct -> {
-                val connection = buildOutboundConnection(action.route, endpointInfo)
+                val connection =
+                    buildOutboundConnection(
+                        route = action.route,
+                        endpointInfo = endpointInfo,
+                    )
                 if (connection != null) {
                     PreparedConnection.Ready(connection)
                 } else {
@@ -379,12 +385,12 @@ public class SendActivity : AppCompatActivity() {
         val targetSnapshot = peerPickerController.formatPeerSnapshot(peer, chosenRoute)
         DiagnosticLog.e(OUTBOUND_TAG, "picked target: $targetSnapshot")
         appendOutboundLog("picked target: $targetSnapshot")
-        // Stop discovery and the wake-up pulse once we've made our pick.
-        // BLE GATT bootstrap reuses the Bluetooth controller immediately;
-        // leaving the pulse active during the dial adds avoidable role
-        // churn on stock Quick Share receivers.
+        // Stop peer-list discovery once we've made our pick, but keep
+        // the sender wake-up BLE pulse active through the pre-secure
+        // bootstrap. Stock Quick Share receivers can drop back to a
+        // "no sender nearby" state between a same-Wi-Fi LAN timeout and
+        // a BLE GATT fallback if the pulse disappears too early.
         peerPickerController.suspendPicker()
-        peerPickerController.stopBleAdvertise()
 
         // Smoothly resize the card outline as the picker chrome
         // collapses and the status panel grows in.
@@ -414,15 +420,14 @@ public class SendActivity : AppCompatActivity() {
         // not advertised on mDNS.
         //
         // Connect-attempt loop with transport fallback. The picker
-        // ranks all viable routes ahead of time (BLE-L2CAP > BLE-GATT
-        // > Wi-Fi LAN > Bluetooth Classic by [SendBootstrapPlan.viableRoutes]);
-        // we try the primary first, and if its TCP / transport connect
-        // bottoms out with "Initial connect failed: …" we retry the
-        // remaining routes in order. The fallback is gated on
-        // transport-level failures only — once the SecureChannel is
-        // up, any subsequent failure (UKEY2 mismatch, peer rejection,
-        // payload-streaming I/O error) is protocol-layer and keeps
-        // the original terminal so the user sees the actual reason.
+        // ranks all viable routes ahead of time (Wi-Fi LAN > BLE-L2CAP
+        // > BLE-GATT > Bluetooth Classic by [SendBootstrapPlan.viableRoutes]);
+        // we try the primary first, and if its TCP / initial-control
+        // leg fails before a SecureChannel exists, we retry the
+        // remaining routes in order. Once the SecureChannel is up, any
+        // subsequent failure (UKEY2 mismatch, peer rejection,
+        // payload-streaming I/O error) is protocol-layer and keeps the
+        // original terminal so the user sees the actual reason.
         connectionJob =
             lifecycleScope.launch {
                 val routes = SendBootstrapPlan.viableRoutes(peer)
@@ -462,7 +467,7 @@ public class SendActivity : AppCompatActivity() {
                     val shouldFallback =
                         !isLastAttempt &&
                             outcome is OutboundResult.Failed &&
-                            isTransportLevelFailure(outcome.reason)
+                            SendBootstrapRetryPolicy.isRetryableBootstrapFailure(outcome.reason)
                     if (shouldFallback) {
                         continue
                     }
@@ -537,26 +542,6 @@ public class SendActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * `true` when [reason] looks like a transport-layer / TCP-layer
-     * failure that the next-priority route may avoid — typically the
-     * "Initial connect failed: …" prefix produced by
-     * [OutboundConnection]'s `IOException` catch around `socket.connect`.
-     * Covers EHOSTUNREACH (router blocks Wi-Fi peer-to-peer frames),
-     * ETIMEDOUT (connect timeout), ECONNREFUSED (peer's mDNS-published
-     * port is stale or the receiver's listener is down), and
-     * SocketException / NoRouteToHost variations.
-     *
-     * Failures that do NOT look transport-layer (UKEY2 mismatch,
-     * "Peer closed connection unexpectedly" mid-handshake, payload I/O
-     * error after SecureChannel up) intentionally fall through to the
-     * terminal so the user sees the real reason — retrying via BLE
-     * would not change a wire-protocol incompatibility, and bouncing
-     * the user through three attempts of the same protocol error is
-     * worse UX than surfacing it once.
-     */
-    private fun isTransportLevelFailure(reason: String): Boolean = reason.startsWith("Initial connect failed:")
-
     private sealed interface PreparedConnection {
         data class Ready(
             val connection: OutboundConnection,
@@ -598,14 +583,14 @@ public class SendActivity : AppCompatActivity() {
                 binding.sendStatusMessage.text = peerPickerController.peerSubtitle(peer)
             }
             OutboundConnectionState.Handshaking -> {
-                // The transport is up. The wake-up pulse is already
-                // stopped on selection; keep this idempotent call for any
-                // older path that reaches Handshaking without a picker tap.
-                peerPickerController.stopBleAdvertise()
+                // Still pre-secure. Keep the sender wake-up BLE pulse
+                // active until the receiver has surfaced the acceptance
+                // window or the attempt reaches a terminal state.
                 binding.sendStatusPhase.setText(R.string.send_phase_handshaking)
                 binding.sendPin.visibility = View.GONE
             }
             is OutboundConnectionState.AwaitingRemoteAcceptance -> {
+                peerPickerController.stopBleAdvertise()
                 binding.sendStatusPhase.setText(R.string.send_phase_awaiting_acceptance)
                 binding.sendPin.text = state.pin
                 binding.sendPin.visibility = View.VISIBLE
@@ -691,6 +676,7 @@ public class SendActivity : AppCompatActivity() {
         message: String,
         isSuccess: Boolean = false,
     ) {
+        peerPickerController.stopBleAdvertise()
         beginCardBoundsTransition(BOUNDS_DURATION_MS)
         binding.sendStatusPanel.visibility = View.VISIBLE
         binding.sendStatusPhase.text = phaseText

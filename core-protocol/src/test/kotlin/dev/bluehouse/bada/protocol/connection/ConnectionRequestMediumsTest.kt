@@ -10,6 +10,8 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Conn
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.EndpointType
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
+import dev.bluehouse.bada.protocol.endpoint.DeviceType
+import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.medium.Medium
 import org.junit.jupiter.api.Test
 
@@ -95,6 +97,24 @@ class ConnectionRequestMediumsTest {
         assertThat(req.connectionsDevice.endpointId).isEqualTo("XYZW")
         assertThat(req.connectionsDevice.endpointType).isEqualTo(EndpointType.CONNECTIONS_ENDPOINT)
         assertThat(req.connectionsDevice.endpointInfo.toByteArray()).isEqualTo(endpointInfo)
+    }
+
+    @Test
+    fun `visible EndpointInfo name is mirrored into legacy endpoint_name`() {
+        val endpointInfo =
+            EndpointInfo(
+                version = 1,
+                hidden = false,
+                deviceType = DeviceType.PHONE,
+                reserved = false,
+                metadata = ByteArray(EndpointInfo.METADATA_LEN),
+                deviceName = "Bada177Lab",
+            ).serialize()
+
+        val req = parseRequest(OutboundFrames.connectionRequest("XYZW", endpointInfo))
+
+        assertThat(req.endpointName).isEqualTo("Bada177Lab")
+        assertThat(req.endpointInfo.toByteArray()).isEqualTo(endpointInfo)
     }
 
     @Test

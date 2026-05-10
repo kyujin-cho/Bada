@@ -12,6 +12,7 @@ import dev.bluehouse.bada.protocol.endpoint.BleAdvertisementHeader
 import dev.bluehouse.bada.protocol.endpoint.BleServiceData
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
+import dev.bluehouse.bada.protocol.endpoint.NearbyServiceId
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
@@ -97,7 +98,7 @@ class BleQuickShareAdvertiserTest {
     }
 
     @Test
-    fun `start exposes visible EndpointInfo without RX instant extra field`() {
+    fun `start exposes visible EndpointInfo with RX instant connection advertisement`() {
         val gate = RecordingGate(failOnStart = false)
         val advertiser =
             BleQuickShareAdvertiser.forTesting(
@@ -131,12 +132,17 @@ class BleQuickShareAdvertiserTest {
 
         assertThat(visiblePayload).isNotNull()
         val visibleAdvertisement = BleAdvertisement.parse(visiblePayload!!)!!
-        assertThat(visibleAdvertisement.secondProfile).isTrue()
+        assertThat(visibleAdvertisement.secondProfile).isFalse()
         val visibleInfo = BleServiceData.parse(visiblePayload)!!.endpointInfo
         assertThat(visibleInfo.hidden).isFalse()
         assertThat(visibleInfo.deviceName).isEqualTo("Bada")
         assertThat(BleServiceData.parsePsmExtraField(visiblePayload)).isNull()
-        assertThat(visibleAdvertisement.rxInstantConnectionAdvertisement).isEmpty()
+        val rxAdvertisement = BleAdvertisement.parse(visibleAdvertisement.rxInstantConnectionAdvertisement)
+        assertThat(rxAdvertisement).isNotNull()
+        assertThat(rxAdvertisement!!.fastAdvertisement).isFalse()
+        assertThat(rxAdvertisement.secondProfile).isFalse()
+        assertThat(rxAdvertisement.serviceIdHash).isEqualTo(NearbyServiceId.hashPrefix)
+        assertThat(BleServiceData.parse(rxAdvertisement.data)!!.endpointInfo).isEqualTo(info)
         assertThat(visiblePayload.size).isGreaterThan(27)
     }
 
@@ -164,7 +170,10 @@ class BleQuickShareAdvertiserTest {
             assertThat(BleServiceData.parsePsmExtraField(call.visiblePayload!!)).isEqualTo(0x1234)
             val visibleAdvertisement = BleAdvertisement.parse(call.visiblePayload!!)!!
             assertThat(visibleAdvertisement.psm).isEqualTo(0x1234)
-            assertThat(visibleAdvertisement.rxInstantConnectionAdvertisement).isEmpty()
+            assertThat(visibleAdvertisement.secondProfile).isFalse()
+            val rxAdvertisement = BleAdvertisement.parse(visibleAdvertisement.rxInstantConnectionAdvertisement)
+            assertThat(rxAdvertisement).isNotNull()
+            assertThat(rxAdvertisement!!.psm).isEqualTo(0x1234)
         } finally {
             BleDctPsmHolder.clear()
         }

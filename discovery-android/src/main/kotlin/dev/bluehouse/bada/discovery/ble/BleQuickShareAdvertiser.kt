@@ -22,6 +22,7 @@ import android.os.ParcelUuid
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
+import dev.bluehouse.bada.protocol.endpoint.BleAdvertisement
 import dev.bluehouse.bada.protocol.endpoint.BleAdvertisementHeader
 import dev.bluehouse.bada.protocol.endpoint.BleServiceData
 import dev.bluehouse.bada.protocol.endpoint.DctAdvertisement
@@ -50,7 +51,7 @@ import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog as Log
  * The primary service-data payload is built as a compact BLE v2 GATT
  * advertisement header in `:core-protocol` (pure-JVM, KAT-tested). Stock
  * Samsung senders read the visible receiver identity from GATT slot zero,
- * where Bada publishes a second-profile fast advertisement:
+ * where Bada publishes a standard GATT-slot advertisement:
  *
  * ```text
  * [ header | bloom_filter | advertisement_hash | psm=0 ]
@@ -58,13 +59,11 @@ import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog as Log
  *
  * Vivo/OriginOS devices can run Google Play services' own Nearby GATT
  * provider beside Bada. The regular `0xFEF3` slot service therefore
- * must stay published, and slot zero must advertise the second-profile socket
- * so Samsung resolves the selected peer into Bada instead of Google's
- * coresident regular profile. The connectable extended payload carries the
- * visible receiver name only. Do not append the RX instant-connection extra
- * field here: on One UI 8.0.5 it promotes the tap into a separate
- * Mosey/link-local path on port 8770, bypassing Bada's BLE GATT
- * bootstrap server.
+ * must stay published, and the primary advertisement header's slot hash must
+ * match the same standard non-fast slot zero bytes that the GATT server
+ * exposes. The connectable extended payload carries the visible receiver name
+ * plus Nearby's RX instant-connection extra field so Samsung can resolve a
+ * visible share-sheet row into Bada's GATT socket.
  *
  * Bada does not submit the optional DCT (`0xFC73`) advertisement in
  * receiver mode. Samsung ShareLive was observed to probe the DCT advertiser
@@ -637,10 +636,11 @@ public object DefaultPayloadFactory : PayloadFactory {
         endpointInfo: EndpointInfo,
     ): ByteArray {
         val gattAdvertisement =
-            BleServiceData.encodeFramed(
+            BleAdvertisement.encodeGattAdvertisement(
                 endpointId = endpointId,
                 endpointInfo = endpointInfo,
-                secondProfile = true,
+                psm = 0,
+                secondProfile = false,
             )
         return BleAdvertisementHeader.encodeSingleSlot(
             serviceId = NearbyServiceId.VALUE,
@@ -674,12 +674,19 @@ public object DefaultVisiblePayloadFactory : OptionalPayloadFactory {
     ): ByteArray? {
         if (endpointInfo.hidden || endpointInfo.deviceName == null) return null
         val activePsm = BleDctPsmHolder.currentPsm?.takeIf { it != DctAdvertisement.DEFAULT_PSM }
+        val rxAdvertisement =
+            BleAdvertisement.encodeGattAdvertisement(
+                endpointId = endpointId,
+                endpointInfo = endpointInfo,
+                psm = activePsm ?: 0,
+                secondProfile = false,
+            )
         return BleServiceData.encodeFramedWithExtraFields(
             endpointId = endpointId,
             endpointInfo = endpointInfo,
             psm = activePsm,
-            rxInstantConnectionAdvertisement = null,
-            secondProfile = true,
+            rxInstantConnectionAdvertisement = rxAdvertisement,
+            secondProfile = false,
         )
     }
 }

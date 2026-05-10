@@ -6,6 +6,7 @@
 package dev.bluehouse.bada.protocol.connection
 
 import dev.bluehouse.bada.protocol.medium.MediumRegistry
+import dev.bluehouse.bada.protocol.medium.NearbyMultiplexClientTransport
 import dev.bluehouse.bada.protocol.payload.PayloadProtocolException
 import dev.bluehouse.bada.protocol.transport.ConnectedTransport
 import dev.bluehouse.bada.protocol.transport.EndOfFrameStream
@@ -139,6 +140,12 @@ import java.security.SecureRandom
  *   after the initial transport is open. Closing the transport on this
  *   timeout prevents non-LAN virtual streams from leaving the sender UI
  *   stuck in the pairing state.
+ * @param useNearbyMultiplexInitialTransport When true, the legacy LAN
+ *   socket is first opened as a Nearby multiplex physical pipe and the
+ *   normal OfflineFrame protocol is sent over the accepted virtual
+ *   socket. Production sender paths should leave this disabled unless
+ *   discovery has positively identified a peer that expects multiplexed
+ *   TCP; stock mDNS receivers use the raw LAN shape.
  * @param remoteAcceptanceTimeoutMillis Maximum time to wait after the
  *   IntroductionFrame is sent for the receiver's encrypted
  *   ConnectionResponseFrame. Stock receivers normally answer only after
@@ -168,6 +175,7 @@ public class OutboundConnection private constructor(
     private val qrCodeHandshakeData: ByteArray? = null,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
     private val initialHandshakeTimeoutMillis: Long = DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
+    private val useNearbyMultiplexInitialTransport: Boolean = false,
     private val remoteAcceptanceTimeoutMillis: Long = DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS,
     private val secureRandom: SecureRandom = SecureRandom(),
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
@@ -189,6 +197,7 @@ public class OutboundConnection private constructor(
         qrCodeHandshakeData: ByteArray? = null,
         connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
         initialHandshakeTimeoutMillis: Long = DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
+        useNearbyMultiplexInitialTransport: Boolean = false,
         remoteAcceptanceTimeoutMillis: Long = DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS,
         secureRandom: SecureRandom = SecureRandom(),
         mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
@@ -202,6 +211,7 @@ public class OutboundConnection private constructor(
         qrCodeHandshakeData = qrCodeHandshakeData,
         connectTimeoutMillis = connectTimeoutMillis,
         initialHandshakeTimeoutMillis = initialHandshakeTimeoutMillis,
+        useNearbyMultiplexInitialTransport = useNearbyMultiplexInitialTransport,
         remoteAcceptanceTimeoutMillis = remoteAcceptanceTimeoutMillis,
         secureRandom = secureRandom,
         mediumRegistry = mediumRegistry,
@@ -228,6 +238,7 @@ public class OutboundConnection private constructor(
         qrCodeHandshakeData = qrCodeHandshakeData,
         connectTimeoutMillis = connectTimeoutMillis,
         initialHandshakeTimeoutMillis = initialHandshakeTimeoutMillis,
+        useNearbyMultiplexInitialTransport = false,
         remoteAcceptanceTimeoutMillis = remoteAcceptanceTimeoutMillis,
         secureRandom = secureRandom,
         mediumRegistry = mediumRegistry,
@@ -457,7 +468,25 @@ public class OutboundConnection private constructor(
             // Samsung's UKEY2 server alarm. Best-effort: a misbehaving
             // SocketImpl that rejects this option is non-fatal.
             runCatching { socket.tcpNoDelay = true }
-            socket.asConnectedTransport()
+            val rawTransport = socket.asConnectedTransport()
+            if (!useNearbyMultiplexInitialTransport) {
+                return@withContext rawTransport
+            }
+            val multiplexTransport =
+                NearbyMultiplexClientTransport(
+                    physicalTransport = rawTransport,
+                    requireConnectionResponse = false,
+                    optimisticReadyDelayMillis = NEARBY_MULTIPLEX_OPTIMISTIC_READY_DELAY_MILLIS,
+                    logger = logger,
+                )
+            multiplexTransport.start()
+            val accepted = multiplexTransport.awaitReady(NEARBY_MULTIPLEX_READY_TIMEOUT_MILLIS)
+            if (!accepted) {
+                runCatching { multiplexTransport.close() }
+                throw java.io.IOException("Nearby multiplex socket was not accepted")
+            }
+            logger("step 0: Nearby multiplex virtual socket opened over WIFI_LAN")
+            multiplexTransport
         }
     }
 
@@ -570,6 +599,9 @@ public class OutboundConnection private constructor(
          * unreachable" failures within human attention span.
          */
         public const val DEFAULT_CONNECT_TIMEOUT_MILLIS: Int = 5000
+
+        private const val NEARBY_MULTIPLEX_READY_TIMEOUT_MILLIS: Long = 5_000L
+        private const val NEARBY_MULTIPLEX_OPTIMISTIC_READY_DELAY_MILLIS: Long = 900L
 
         /**
          * Default timeout for the unencrypted ConnectionRequest/UKEY2/

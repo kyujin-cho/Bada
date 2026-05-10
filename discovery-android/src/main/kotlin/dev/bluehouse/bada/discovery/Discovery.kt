@@ -6,7 +6,10 @@
 package dev.bluehouse.bada.discovery
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.nsd.NsdManager
+import android.net.wifi.WifiManager
 import dev.bluehouse.bada.protocol.endpoint.Base64Url
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
+import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
@@ -70,6 +74,7 @@ public class Discovery internal constructor(
      */
     private val instanceEndpointIdProvider: (() -> ByteArray?)? = null,
     private val localAddressProvider: () -> Set<InetAddress> = ::localInterfaceAddresses,
+    private val wifiFrequencyProvider: () -> Int? = { null },
     /**
      * When `true`, the browse path drops any record whose mDNS instance
      * name matches one currently advertised by this process — that is,
@@ -89,6 +94,8 @@ public class Discovery internal constructor(
         registrar = AndroidNsdRegistrar(systemNsdManager(context)),
         browser = AndroidNsdBrowser(systemNsdManager(context)),
         networkWatcherFactory = AndroidNetworkWatcherFactory(context.applicationContext),
+        localAddressProvider = { localWifiInterfaceAddresses(context.applicationContext) },
+        wifiFrequencyProvider = { currentWifiFrequency(context.applicationContext) },
     )
 
     /**
@@ -103,6 +110,8 @@ public class Discovery internal constructor(
         browser = AndroidNsdBrowser(systemNsdManager(context)),
         networkWatcherFactory = AndroidNetworkWatcherFactory(context.applicationContext),
         instanceEndpointIdProvider = instanceEndpointIdProvider,
+        localAddressProvider = { localWifiInterfaceAddresses(context.applicationContext) },
+        wifiFrequencyProvider = { currentWifiFrequency(context.applicationContext) },
     )
 
     /**
@@ -164,14 +173,13 @@ public class Discovery internal constructor(
         // base64 alphabet is a strict subset of ASCII so the bytes
         // round-trip cleanly through any String/byte[] mDNS attribute
         // bridge on the platform.
-        val encodedEndpointInfo =
-            Base64Url.encode(endpointInfo.serialize()).toByteArray(Charsets.US_ASCII)
-        val attributes = mapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to encodedEndpointInfo)
+        val attributes = buildAdvertiseAttributes(endpointInfo)
 
         Log.i(
             TAG,
             "advertise: starting publish instance=$instanceName " +
-                "endpointId=${instanceEndpointId?.toAsciiLabel() ?: "-"} port=$port",
+                "endpointId=${instanceEndpointId?.toAsciiLabel() ?: "-"} port=$port " +
+                "txtKeys=${attributes.keys.sorted()}",
         )
 
         return try {
@@ -373,6 +381,20 @@ public class Discovery internal constructor(
         return addresses.any(localAddresses::contains)
     }
 
+    private fun buildAdvertiseAttributes(endpointInfo: EndpointInfo): Map<String, ByteArray> {
+        val encodedEndpointInfo =
+            Base64Url.encode(endpointInfo.serialize()).toByteArray(Charsets.US_ASCII)
+        val attributes =
+            linkedMapOf(QuickShareMdns.TXT_KEY_ENDPOINT_INFO to encodedEndpointInfo)
+        firstAdvertisableIpv4Address(localAddressProvider())?.hostAddress?.let { hostAddress ->
+            attributes[QuickShareMdns.TXT_KEY_IPV4_ADDRESS] = hostAddress.toByteArray(Charsets.US_ASCII)
+        }
+        wifiFrequencyProvider()?.takeIf { it > 0 }?.let { frequency ->
+            attributes[QuickShareMdns.TXT_KEY_WIFI_FREQUENCY] = frequency.toString().toByteArray(Charsets.US_ASCII)
+        }
+        return attributes
+    }
+
     /**
      * Render a TXT record as a single-line `k1=v1, k2=v2, ...` string
      * for diagnostic logging. Values are tried as ASCII first (so Quick
@@ -473,6 +495,7 @@ public class Discovery internal constructor(
          * [NsdRegistrar] / [NsdBrowser] fakes. The public constructor
          * remains the only path that consumes a [Context].
          */
+        @Suppress("LongParameterList")
         @JvmStatic
         internal fun forTesting(
             registrar: NsdRegistrar,
@@ -481,6 +504,7 @@ public class Discovery internal constructor(
             filterSelfPublishedInstances: Boolean = false,
             instanceEndpointIdProvider: (() -> ByteArray?)? = null,
             localAddressProvider: () -> Set<InetAddress> = { emptySet() },
+            wifiFrequencyProvider: () -> Int? = { null },
         ): Discovery =
             Discovery(
                 registrar = registrar,
@@ -489,10 +513,37 @@ public class Discovery internal constructor(
                 filterSelfPublishedInstances = filterSelfPublishedInstances,
                 instanceEndpointIdProvider = instanceEndpointIdProvider,
                 localAddressProvider = localAddressProvider,
+                wifiFrequencyProvider = wifiFrequencyProvider,
             )
 
         private fun systemNsdManager(context: Context): NsdManager =
             context.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
+
+        @Suppress("DEPRECATION")
+        private fun localWifiInterfaceAddresses(context: Context): Set<InetAddress> {
+            val cm =
+                context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val wifiNetworks =
+                cm.allNetworks
+                    .asSequence()
+                    .filter { network ->
+                        cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+                    }
+            return wifiNetworks
+                .mapNotNull { network -> cm.getLinkProperties(network) }
+                .flatMap { linkProperties -> linkProperties.linkAddresses.asSequence() }
+                .map { linkAddress -> linkAddress.address }
+                .toSet()
+        }
+
+        @Suppress("DEPRECATION")
+        private fun currentWifiFrequency(context: Context): Int? =
+            runCatching {
+                val wifiManager =
+                    context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                        ?: return null
+                wifiManager.connectionInfo?.frequency?.takeIf { it > 0 }
+            }.getOrNull()
 
         private fun localInterfaceAddresses(): Set<InetAddress> {
             val interfaces = NetworkInterface.getNetworkInterfaces() ?: return emptySet()
@@ -510,6 +561,14 @@ public class Discovery internal constructor(
         internal const val DEFAULT_ADVERTISE_REGISTER_TIMEOUT_MILLIS: Long = 2_000L
     }
 }
+
+private fun firstAdvertisableIpv4Address(addresses: Set<InetAddress>): Inet4Address? =
+    addresses
+        .asSequence()
+        .filterIsInstance<Inet4Address>()
+        .filterNot { it.isAnyLocalAddress || it.isLoopbackAddress || it.isLinkLocalAddress || it.isMulticastAddress }
+        .sortedBy(InetAddress::getHostAddress)
+        .firstOrNull()
 
 private fun ByteArray.toAsciiLabel(): String = String(this, Charsets.US_ASCII)
 

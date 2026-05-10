@@ -246,7 +246,9 @@ internal class OutboundConnectionDriver(
 
         // BLE/GATT bootstraps still carry the legacy Wi-Fi LAN marker because
         // stock Quick Share validates that shape before it dispatches the
-        // incoming connection.
+        // incoming connection. Same-Wi-Fi LAN, even when the underlying TCP
+        // socket is Nearby-multiplexed, keeps the historical Wi-Fi-only
+        // request shape.
         val advertisedMediums = advertisedMediumsForInitialTransport()
         logger("step 1: advertising mediums=$advertisedMediums")
         transport.sendFrame(
@@ -305,14 +307,18 @@ internal class OutboundConnectionDriver(
     private fun advertisedMediumsForInitialTransport(): Set<Medium> {
         val supportedMediums =
             mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
-        if (!initialTransport.medium.isBleBased()) return supportedMediums
-
-        return buildSet {
-            add(Medium.WIFI_LAN)
-            add(initialTransport.medium)
-            if (Medium.WIFI_DIRECT in supportedMediums) {
-                add(Medium.WIFI_DIRECT)
-            }
+        return when {
+            initialTransport.medium == Medium.WIFI_LAN ->
+                setOf(Medium.WIFI_LAN)
+            !initialTransport.medium.isBleBased() -> supportedMediums
+            else ->
+                buildSet {
+                    add(Medium.WIFI_LAN)
+                    add(initialTransport.medium)
+                    if (Medium.WIFI_DIRECT in supportedMediums) {
+                        add(Medium.WIFI_DIRECT)
+                    }
+                }
         }
     }
 
@@ -838,8 +844,13 @@ internal class OutboundConnectionDriver(
         logger("medium-upgrade: requested receiver Wi-Fi Direct upgrade before streaming payloads")
         logger("medium-upgrade: waiting for receiver Wi-Fi Direct offer before streaming payloads")
         return when (val probe = pollBleWifiDirectOffer(channel, BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS)) {
-            UpgradeOfferProbe.None ->
-                PayloadChannelSelection.Failed("Wi-Fi Direct upgrade was not offered before payload streaming")
+            UpgradeOfferProbe.None -> {
+                logger(
+                    "medium-upgrade: Wi-Fi Direct upgrade was not offered before payload streaming; " +
+                        "continuing on $currentMedium",
+                )
+                PayloadChannelSelection.Ready(channel, currentMedium)
+            }
             is UpgradeOfferProbe.Other ->
                 PayloadChannelSelection.Failed(
                     "Wi-Fi Direct upgrade was required before payload streaming, " +
@@ -1595,7 +1606,7 @@ internal class OutboundConnectionDriver(
 
     private companion object {
         private const val PRE_UKEY2_UPGRADE_OFFER_WAIT_TIMEOUT_MILLIS: Long = 1_500L
-        private const val BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS: Long = 12_000L
+        private const val BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS: Long = 3_000L
         private const val BLE_WIFI_DIRECT_POLL_DELAY_MILLIS: Long = 25L
 
         /**

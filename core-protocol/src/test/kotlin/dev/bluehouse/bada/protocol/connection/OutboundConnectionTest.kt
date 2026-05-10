@@ -11,12 +11,15 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Medi
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
 import com.google.security.cryptauth.lib.securegcm.UkeyProto.Ukey2Message
+import dev.bluehouse.bada.protocol.endpoint.DeviceType
+import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.medium.Medium
 import dev.bluehouse.bada.protocol.medium.MediumLadder
 import dev.bluehouse.bada.protocol.medium.MediumProvider
 import dev.bluehouse.bada.protocol.medium.MediumRegistry
 import dev.bluehouse.bada.protocol.medium.UpgradePathCredentials
 import dev.bluehouse.bada.protocol.medium.UpgradedTransport
+import dev.bluehouse.bada.protocol.medium.probeNearbyMultiplexServerTransport
 import dev.bluehouse.bada.protocol.payload.FileDestinationFactory
 import dev.bluehouse.bada.protocol.transport.ConnectedTransport
 import dev.bluehouse.bada.protocol.transport.FramedConnection
@@ -233,6 +236,16 @@ class OutboundConnectionTest {
     ) : MediumProvider {
         override fun isSupported(): Boolean = true
     }
+
+    private fun customEndpointInfo(name: String = "Bada177Lab"): EndpointInfo =
+        EndpointInfo(
+            version = 1,
+            hidden = false,
+            deviceType = DeviceType.PHONE,
+            reserved = false,
+            metadata = ByteArray(EndpointInfo.METADATA_LEN) { index -> (index + 1).toByte() },
+            deviceName = name,
+        )
 
     /** Build a [FileSource] backed by an in-memory byte array. */
     private fun bytesSource(
@@ -600,6 +613,70 @@ class OutboundConnectionTest {
         }
 
     @Test
+    fun `preconnected BLE bootstrap streams payloads when Wi-Fi Direct offer never arrives`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val factory = InMemoryFactory()
+                val logs = mutableListOf<String>()
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLE),
+                        secureRandom = SecureRandom("outbound-ble-bootstrap-no-direct-offer".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        SupportedProvider(Medium.WIFI_DIRECT),
+                                        SupportedProvider(Medium.BLE),
+                                    ),
+                                ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLE)),
+                            ),
+                        logger = logs::add,
+                    )
+                val inbound =
+                    InboundConnection(
+                        transport = server.asConnectedTransport(Medium.BLE),
+                        secureRandom = SecureRandom("inbound-ble-bootstrap-no-direct-offer".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers = listOf(SupportedProvider(Medium.BLE)),
+                                ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLE)),
+                            ),
+                    )
+
+                val fileBytes = ByteArray(768) { (it xor 0x55).toByte() }
+                val payloadId = 0x5156L
+                val files = listOf(bytesSource("ble-no-direct-offer.bin", fileBytes, payloadId))
+
+                coroutineScope {
+                    val outboundJob = async { outbound.run(files) }
+
+                    launch {
+                        inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                        inbound.submitUserConsent(accepted = true)
+                    }
+
+                    val inboundResult = inbound.run(factory)
+                    val outboundResult = outboundJob.await()
+
+                    assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
+                    assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                }
+
+                assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
+                assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+                assertThat(inbound.activeMedium.value).isEqualTo(Medium.BLE)
+                assertThat(logs)
+                    .contains(
+                        "medium-upgrade: Wi-Fi Direct upgrade was not offered before payload streaming; " +
+                            "continuing on BLE",
+                    )
+            }
+        }
+
+    @Test
     fun `preconnected BLE bootstrap consumes pre-UKEY2 Wi-Fi Direct offer before UKEY2`() =
         runBlocking {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {
@@ -713,9 +790,11 @@ class OutboundConnectionTest {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {
                 val (client, server) = connectedSocketPair()
                 val directUpgradePair = LoopbackUpgradePair(Medium.WIFI_DIRECT)
+                val endpointInfo = customEndpointInfo("Bada177Lab")
                 val outbound =
                     OutboundConnection(
                         transport = client.asConnectedTransport(Medium.BLE),
+                        endpointInfo = endpointInfo.serialize(),
                         secureRandom = SecureRandom("outbound-ble-bootstrap-request".toByteArray()),
                         mediumRegistry =
                             MediumRegistry(
@@ -746,6 +825,10 @@ class OutboundConnectionTest {
                                 Medium.WIFI_LAN.wireNumber,
                                 Medium.WIFI_DIRECT.wireNumber,
                             ).inOrder()
+                        assertThat(EndpointInfo.parse(request.endpointInfo.toByteArray()))
+                            .isEqualTo(endpointInfo)
+                        assertThat(EndpointInfo.parse(request.connectionsDevice.endpointInfo.toByteArray()))
+                            .isEqualTo(endpointInfo)
                         assertThat(request.mediumMetadata.supportedWifiDirectAuthTypesList)
                             .containsExactly(MediumMetadata.WifiDirectAuthType.WIFI_DIRECT_WITH_PASSWORD)
                         assertThat(request.mediumMetadata.hasMediumRole()).isFalse()
@@ -757,6 +840,130 @@ class OutboundConnectionTest {
                     runCatching { wire.close() }
                     directUpgradePair.close()
                 }
+            }
+        }
+
+    @Test
+    fun `same Wi-Fi raw LAN bootstrap advertises LAN only and preserves custom sender device name`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val endpointInfo = customEndpointInfo("BadaSameWifi")
+                val logs = mutableListOf<String>()
+                val registry =
+                    MediumRegistry(
+                        providers =
+                            listOf(
+                                MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                SupportedProvider(Medium.WIFI_DIRECT),
+                                SupportedProvider(Medium.WIFI_HOTSPOT),
+                                SupportedProvider(Medium.BLE),
+                                SupportedProvider(Medium.BLE_L2CAP),
+                            ),
+                    )
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.WIFI_LAN),
+                        endpointInfo = endpointInfo.serialize(),
+                        secureRandom = SecureRandom("outbound-lan-custom-name-request".toByteArray()),
+                        mediumRegistry = registry,
+                        logger = logs::add,
+                        initialHandshakeTimeoutMillis = SHORT_INITIAL_HANDSHAKE_TIMEOUT_MS,
+                    )
+                val wire = FramedConnection(server.asConnectedTransport(Medium.WIFI_LAN))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(emptyList()) }
+                        val request =
+                            OfflineFrame
+                                .parseFrom(wire.receiveFrame())
+                                .v1
+                                .connectionRequest
+
+                        assertThat(request.mediumsList.map { it.number })
+                            .containsExactly(Medium.WIFI_LAN.wireNumber)
+                        assertThat(EndpointInfo.parse(request.endpointInfo.toByteArray()))
+                            .isEqualTo(endpointInfo)
+                        assertThat(EndpointInfo.parse(request.connectionsDevice.endpointInfo.toByteArray()))
+                            .isEqualTo(endpointInfo)
+
+                        wire.close()
+                        assertThat(outboundJob.await()).isInstanceOf(OutboundResult.Failed::class.java)
+                    }
+
+                    assertThat(logs).doesNotContain("medium-upgrade: probing for pre-UKEY2 BLE upgrade offer")
+                    assertThat(logs).contains("step 1: advertising mediums=[WIFI_LAN]")
+                } finally {
+                    runCatching { wire.close() }
+                }
+            }
+        }
+
+    @Test
+    fun `same Wi-Fi multiplex LAN bootstrap advertises Wi-Fi only and preserves custom sender device name`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (port, accept) = listenAndAcceptInBackground()
+                val endpointInfo = customEndpointInfo("BadaSameWifi")
+                val logs = mutableListOf<String>()
+                val registry =
+                    MediumRegistry(
+                        providers =
+                            listOf(
+                                MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                SupportedProvider(Medium.WIFI_DIRECT),
+                                SupportedProvider(Medium.WIFI_HOTSPOT),
+                                SupportedProvider(Medium.BLE),
+                                SupportedProvider(Medium.BLE_L2CAP),
+                            ),
+                    )
+                val outbound =
+                    OutboundConnection(
+                        targetAddress = InetAddress.getLoopbackAddress(),
+                        port = port,
+                        endpointInfo = endpointInfo.serialize(),
+                        secureRandom = SecureRandom("outbound-lan-multiplex-request".toByteArray()),
+                        mediumRegistry = registry,
+                        logger = logs::add,
+                        useNearbyMultiplexInitialTransport = true,
+                        initialHandshakeTimeoutMillis = SHORT_INITIAL_HANDSHAKE_TIMEOUT_MS,
+                    )
+
+                coroutineScope {
+                    val outboundJob = async { outbound.run(emptyList()) }
+                    val physical = accept().asConnectedTransport(Medium.WIFI_LAN)
+                    val virtual =
+                        withContext(Dispatchers.IO) {
+                            probeNearbyMultiplexServerTransport(physical, logs::add)
+                        }
+                    val wire = FramedConnection(virtual)
+                    try {
+                        val request =
+                            OfflineFrame
+                                .parseFrom(wire.receiveFrame())
+                                .v1
+                                .connectionRequest
+
+                        assertThat(request.mediumsList.map { it.number })
+                            .containsExactly(
+                                Medium.WIFI_LAN.wireNumber,
+                            ).inOrder()
+                        assertThat(EndpointInfo.parse(request.endpointInfo.toByteArray()))
+                            .isEqualTo(endpointInfo)
+                        assertThat(EndpointInfo.parse(request.connectionsDevice.endpointInfo.toByteArray()))
+                            .isEqualTo(endpointInfo)
+
+                        wire.close()
+                        assertThat(outboundJob.await()).isInstanceOf(OutboundResult.Failed::class.java)
+                    } finally {
+                        runCatching { wire.close() }
+                    }
+                }
+
+                assertThat(logs).contains("step 0: Nearby multiplex virtual socket opened over WIFI_LAN")
+                assertThat(logs).contains("step 1: advertising mediums=[WIFI_LAN]")
+                assertThat(logs).contains("nearby-multiplex: LAN socket using multiplex stream")
             }
         }
 

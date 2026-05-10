@@ -68,6 +68,27 @@ public object QuickShareMdns {
     public const val TXT_KEY_ENDPOINT_INFO: String = "n"
 
     /**
+     * TXT-record key carrying the peer's dotted-decimal IPv4 address.
+     *
+     * Stock Android Quick Share publishes this alongside `n=`. Samsung's
+     * sender UI can surface a BLE-correlated peer by name while still leaving
+     * the Wi-Fi-LAN connection candidate unresolved unless this value is
+     * present in the mDNS record.
+     */
+    public const val TXT_KEY_IPV4_ADDRESS: String = "IPv4"
+
+    /**
+     * TXT-record key carrying the Wi-Fi channel frequency in MHz.
+     *
+     * Stock Quick Share records include this as `f=<frequency>`. Samsung's
+     * stack already correlates our BLE advertisement by name, but its LAN
+     * resolver ignores mDNS candidates that do not look like the stock
+     * Wi-Fi-LAN metadata shape, so advertise the same optional hint when the
+     * platform exposes it.
+     */
+    public const val TXT_KEY_WIFI_FREQUENCY: String = "f"
+
+    /**
      * Alphabet used when generating the random 4-byte endpoint ID portion of
      * the service-instance name. Restricting to alphanumeric ASCII keeps the
      * raw bytes safely round-trippable through every URL-safe-base64

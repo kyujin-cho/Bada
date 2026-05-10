@@ -18,9 +18,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Quick Share peers cache mDNS service records keyed by the publishing
  * IP address; when the device moves to a new Wi-Fi network the JmDNS
- * instance is now bound to a stale interface and any further
+ * registration is now bound to a stale interface and any further
  * advertisements would be silently invisible to peers on the new
- * network. Re-creating the JmDNS instance on `onAvailable` /
+ * network. Re-creating the NSD registration on `onAvailable` /
  * `onLost` puts the advertisement back on the wire with the correct
  * source address.
  *
@@ -36,6 +36,10 @@ internal class NetworkChangeWatcher(
 ) : NetworkWatcher {
     private val cm: ConnectivityManager =
         context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val networkTracker =
+        NetworkChangeTracker(
+            initialNetworks = currentWifiNetworks(),
+        )
 
     // Restrict the callback to Wi-Fi only — cellular changes are not
     // relevant for Quick Share LAN discovery and would just churn the
@@ -49,7 +53,9 @@ internal class NetworkChangeWatcher(
     private val callback =
         object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                onChanged()
+                if (networkTracker.recordAvailable(network)) {
+                    onChanged()
+                }
             }
 
             override fun onLost(network: Network) {
@@ -57,7 +63,9 @@ internal class NetworkChangeWatcher(
                 // instance just goes silent); but firing the callback lets
                 // the consumer release any per-network resources. The
                 // following `onAvailable` will rebuild things.
-                onChanged()
+                if (networkTracker.recordLost(network)) {
+                    onChanged()
+                }
             }
         }
 
@@ -87,4 +95,40 @@ internal class NetworkChangeWatcher(
             }
         }
     }
+
+    @Suppress("DEPRECATION")
+    private fun currentWifiNetworks(): Set<Network> =
+        cm.allNetworks
+            .filter(::isWifiNetwork)
+            .toSet()
+
+    private fun isWifiNetwork(network: Network): Boolean =
+        cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+}
+
+/**
+ * Tracks Wi-Fi networks known before registering the platform callback.
+ *
+ * `ConnectivityManager.registerNetworkCallback` immediately invokes
+ * `onAvailable` for already-satisfied networks. Treating that as a real
+ * network change tears down a fresh mDNS publish right after startup, which
+ * can leave the receiver BLE-visible but LAN-unresolvable if the second NSD
+ * registration times out. This tracker suppresses those initial echoes while
+ * still forwarding genuine later availability/loss transitions.
+ */
+internal class NetworkChangeTracker<T>(
+    initialNetworks: Set<T>,
+) {
+    private val lock = Object()
+    private val knownNetworks: MutableSet<T> = initialNetworks.toMutableSet()
+
+    fun recordAvailable(network: T): Boolean =
+        synchronized(lock) {
+            knownNetworks.add(network)
+        }
+
+    fun recordLost(network: T): Boolean =
+        synchronized(lock) {
+            knownNetworks.remove(network)
+        }
 }

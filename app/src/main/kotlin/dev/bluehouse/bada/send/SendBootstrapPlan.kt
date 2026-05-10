@@ -75,25 +75,24 @@ internal data class SendBootstrapPlan(
          * All connect-attempt-viable routes for [peer] in the same
          * priority order as [resolve], with the highest-priority entry
          * first. Used by the sender's retry-with-fallback loop: the
-         * primary attempt uses the first entry; if its TCP / transport
-         * connect fails ("Initial connect failed: …" surfaced as
-         * `OutboundResult.Failed`), the loop walks down the list and
-         * retries each remaining route until one bootstrap completes
-         * the UKEY2 handshake — at which point the SecureChannel is
-         * up and any subsequent failure is protocol-layer, not
-         * transport-layer, so we stop falling back.
+         * primary attempt uses the first entry; if its TCP /
+         * initial-control leg fails before the SecureChannel exists,
+         * the loop walks down the list and retries each remaining route
+         * until one bootstrap completes the UKEY2 handshake. At that
+         * point any subsequent failure is protocol-layer, not a
+         * bootstrap-route failure, so we stop falling back.
          *
-         * The order mirrors [directRoute]'s `when` chain (BLE-first):
-         * BLE-L2CAP → BLE-GATT → Wi-Fi LAN → Bluetooth Classic. An
+         * The order mirrors [directRoute]'s `when` chain:
+         * Wi-Fi LAN → BLE-L2CAP → BLE-GATT → Bluetooth Classic. An
          * empty list means no usable route; the caller falls through
          * to the same "no route" terminal that [Action.Unavailable]
          * would render.
          */
         fun viableRoutes(peer: NearbyPeer): List<NearbyPeerRoute> =
             listOfNotNull(
+                lanRoute(peer),
                 bleL2capRoute(peer),
                 bleGattRoute(peer),
-                lanRoute(peer),
                 bluetoothRoute(peer),
             )
 
@@ -144,33 +143,18 @@ internal data class SendBootstrapPlan(
             val bleL2capRoute = bleL2capRoute(peer)
             val bleGattRoute = bleGattRoute(peer)
             val bluetoothRoute = bluetoothRoute(peer)
-            // BLE-first preference. BLE bootstraps bypass the AP entirely,
-            // so on Wi-Fi networks that block client-to-client traffic (AP
-            // isolation, vendor APF rules dropping peer ARP, dual-band
-            // band-steering that segregates clients onto different L2
-            // segments, etc.) BLE remains reachable while a same-subnet
-            // Wi-Fi LAN connect would EHOSTUNREACH out. Once the BLE
-            // initial control plane is up, the post-handshake bandwidth
-            // upgrade can still negotiate Wi-Fi Direct / Hotspot for the
-            // payload streaming, so the user-visible cost is just the
-            // brief BLE GATT/L2CAP setup latency.
             return when {
+                lanRoute != null -> lanRoute
                 bleL2capRoute != null -> bleL2capRoute
                 bleGattRoute != null -> {
                     rejectedCandidates += bleL2capRejection(peer)
                     bleGattRoute
                 }
 
-                lanRoute != null -> {
-                    rejectedCandidates += bleL2capRejection(peer)
-                    rejectedCandidates += bleGattRejection(peer)
-                    lanRoute
-                }
-
                 bluetoothRoute != null -> {
+                    rejectedCandidates += lanRejection(peer)
                     rejectedCandidates += bleL2capRejection(peer)
                     rejectedCandidates += bleGattRejection(peer)
-                    rejectedCandidates += lanRejection(peer)
                     bluetoothRoute
                 }
 

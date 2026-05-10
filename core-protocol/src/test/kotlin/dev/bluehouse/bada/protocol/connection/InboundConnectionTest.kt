@@ -10,10 +10,13 @@ import com.google.common.truth.Truth.assertThat
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.ConnectionRequestFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
+import com.google.protobuf.ByteString
 import dev.bluehouse.bada.protocol.crypto.D2DKeyDerivation
 import dev.bluehouse.bada.protocol.crypto.D2DRole
 import dev.bluehouse.bada.protocol.crypto.pin.PinDerivation
 import dev.bluehouse.bada.protocol.crypto.securemessage.SecureChannel
+import dev.bluehouse.bada.protocol.endpoint.DeviceType
+import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.payload.FileDestinationFactory
 import dev.bluehouse.bada.protocol.payload.PayloadAssembler
 import dev.bluehouse.bada.protocol.payload.PayloadEvent
@@ -55,6 +58,7 @@ import java.security.SecureRandom
  * payload assembler. This is the architectural-level test the issue
  * calls for: the loopback proves the pieces tie together correctly.
  */
+@Suppress("LargeClass")
 class InboundConnectionTest {
     private lateinit var serverSocket: ServerSocket
     private val openedSockets = mutableListOf<Socket>()
@@ -81,6 +85,16 @@ class InboundConnectionTest {
             InboundConnectionState.Rejected -> true
             else -> false
         }
+
+    private fun customEndpointInfo(name: String): EndpointInfo =
+        EndpointInfo(
+            version = 1,
+            hidden = false,
+            deviceType = DeviceType.PHONE,
+            reserved = false,
+            metadata = ByteArray(EndpointInfo.METADATA_LEN) { index -> (index + 1).toByte() },
+            deviceName = name,
+        )
 
     /** Opens a loopback `Socket` pair: returns (sender-side, receiver-side). */
     private fun connectedSocketPair(): Pair<Socket, Socket> {
@@ -378,6 +392,53 @@ class InboundConnectionTest {
                     as InboundConnectionState.WaitingForUserConsent
             assertThat(consentState.metadata.pin.length).isEqualTo(TransferMetadata.PIN_LENGTH)
             assertThat(consentState.metadata.items).hasSize(1)
+        }
+
+    @Test
+    fun `same Wi-Fi inbound consent surfaces customized Bada sender device name`() =
+        runTest(timeout = kotlin.time.Duration.parse("30s")) {
+            val (clientSocket, serverSocket) = connectedSocketPair()
+            val factory = InMemoryFactory()
+            val rand = SecureRandom("inbound-lan-custom-name".toByteArray())
+            val inbound = InboundConnection(serverSocket, secureRandom = rand)
+            val senderName = "BadaSameWifi"
+            val textBytes = "hello from custom Bada".toByteArray()
+            val introduction =
+                IntroductionFrame
+                    .newBuilder()
+                    .addTextMetadata(
+                        Protocol.TextMetadata
+                            .newBuilder()
+                            .setTextTitle("clip")
+                            .setPayloadId(0x5151L)
+                            .setSize(textBytes.size.toLong())
+                            .setType(Protocol.TextMetadata.Type.TEXT)
+                            .build(),
+                    ).build()
+
+            coroutineScope {
+                val receiverJob = async { inbound.run(factory) }
+
+                launch {
+                    val consentState =
+                        inbound.state.first {
+                            it is InboundConnectionState.WaitingForUserConsent
+                        } as InboundConnectionState.WaitingForUserConsent
+                    assertThat(consentState.metadata.sourceDeviceName).isEqualTo(senderName)
+                    inbound.submitUserConsent(accepted = true)
+                }
+
+                runSyntheticSender(
+                    socket = clientSocket,
+                    introduction = introduction,
+                    files = emptyMap(),
+                    texts = mapOf(0x5151L to textBytes),
+                    secureRandom = SecureRandom("sender-lan-custom-name".toByteArray()),
+                    endpointInfo = customEndpointInfo(senderName).serialize(),
+                )
+
+                assertThat(receiverJob.await()).isInstanceOf(InboundResult.Completed::class.java)
+            }
         }
 
     @Test
@@ -795,8 +856,17 @@ class InboundConnectionTest {
         files: Map<Long, ByteArray>,
         texts: Map<Long, ByteArray>,
         secureRandom: SecureRandom,
+        endpointInfo: ByteArray = ByteArray(0),
     ) {
         val transport = FramedConnection(socket)
+        val requestBuilder =
+            ConnectionRequestFrame
+                .newBuilder()
+                .setEndpointId("ABCD")
+                .setEndpointName("test-sender")
+        if (endpointInfo.isNotEmpty()) {
+            requestBuilder.setEndpointInfo(ByteString.copyFrom(endpointInfo))
+        }
 
         // Step 1: send unencrypted ConnectionRequest.
         val connReq =
@@ -807,13 +877,8 @@ class InboundConnectionTest {
                     V1Frame
                         .newBuilder()
                         .setType(V1Frame.FrameType.CONNECTION_REQUEST)
-                        .setConnectionRequest(
-                            ConnectionRequestFrame
-                                .newBuilder()
-                                .setEndpointId("ABCD")
-                                .setEndpointName("test-sender")
-                                .build(),
-                        ).build(),
+                        .setConnectionRequest(requestBuilder.build())
+                        .build(),
                 ).build()
         transport.sendFrame(connReq.toByteArray())
 

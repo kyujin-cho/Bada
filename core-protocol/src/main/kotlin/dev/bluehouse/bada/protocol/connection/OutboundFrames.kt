@@ -14,6 +14,7 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Offl
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OsInfo
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import com.google.protobuf.ByteString
+import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.medium.Medium
 
 /**
@@ -73,13 +74,14 @@ internal object OutboundFrames {
         //     — PROTOCOL.md documents stock Android emitting KEEP_ALIVE
         //     every 10 seconds; see KEEP_ALIVE_INTERVAL_MILLIS for the
         //     timeout rationale.
-        //   * endpoint_name is a legacy string field; some forks (older
-        //     Samsung Quick Share) still inspect it. Setting it to the
-        //     empty string keeps modern peers happy and gives legacy peers
-        //     a defined value to read.
+        //   * endpoint_name is a legacy string field; some forks still
+        //     inspect it before parsing endpoint_info. Mirror the visible
+        //     EndpointInfo name when present, and use an empty string only
+        //     for hidden or malformed descriptors.
         //
         // Sort the proto-side enum values so the wire encoding is
         // deterministic for tests and for KAT-style regression detection.
+        val endpointName = legacyEndpointName(endpointInfo)
         val mediumProtoValues =
             supportedMediums
                 .map { it.toConnectionRequestMedium() }
@@ -88,7 +90,7 @@ internal object OutboundFrames {
             ConnectionRequestFrame
                 .newBuilder()
                 .setEndpointId(endpointId)
-                .setEndpointName("")
+                .setEndpointName(endpointName)
                 .setEndpointInfo(ByteString.copyFrom(endpointInfo))
                 .setNonce(nonce)
                 .setMediumMetadata(defaultMediumMetadata(supportedMediums))
@@ -252,5 +254,10 @@ internal object OutboundFrames {
                     .setConnectionResponse(response)
                     .build(),
             ).build()
+    }
+
+    private fun legacyEndpointName(endpointInfo: ByteArray): String {
+        val parsed = EndpointInfo.parse(endpointInfo)
+        return parsed?.deviceName.orEmpty()
     }
 }
