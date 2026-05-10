@@ -6,9 +6,11 @@
 package dev.bluehouse.bada.protocol.connection
 
 import com.google.common.truth.Truth.assertThat
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
+import com.google.security.cryptauth.lib.securegcm.UkeyProto.Ukey2Message
 import dev.bluehouse.bada.protocol.medium.Medium
 import dev.bluehouse.bada.protocol.medium.MediumLadder
 import dev.bluehouse.bada.protocol.medium.MediumProvider
@@ -519,6 +521,7 @@ class OutboundConnectionTest {
                 val factory = InMemoryFactory()
                 val directUpgradePair = LoopbackUpgradePair(Medium.WIFI_DIRECT)
                 val hotspotUpgradePair = LoopbackUpgradePair(Medium.WIFI_HOTSPOT)
+                val logs = mutableListOf<String>()
                 val ladder =
                     MediumLadder(
                         listOf(
@@ -544,6 +547,7 @@ class OutboundConnectionTest {
                                     ),
                                 ladder = ladder,
                             ),
+                        logger = logs::add,
                     )
 
                 val fileBytes = ByteArray(1024) { (it and 0x7F).toByte() }
@@ -586,9 +590,119 @@ class OutboundConnectionTest {
 
                     assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
                     assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+                    assertThat(logs)
+                        .contains("medium-upgrade: no pre-UKEY2 upgrade offer; continuing on BLE")
                 } finally {
                     directUpgradePair.close()
                     hotspotUpgradePair.close()
+                }
+            }
+        }
+
+    @Test
+    fun `preconnected BLE bootstrap consumes pre-UKEY2 Wi-Fi Direct offer before UKEY2`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val directUpgradePair = LoopbackUpgradePair(Medium.WIFI_DIRECT)
+                val endpointId = "ABCD"
+                val logs = mutableListOf<String>()
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLE),
+                        endpointId = endpointId,
+                        secureRandom = SecureRandom("outbound-ble-pre-ukey2-direct".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        directUpgradePair.clientProvider,
+                                        SupportedProvider(Medium.BLE),
+                                    ),
+                                ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLE)),
+                            ),
+                        logger = logs::add,
+                    )
+                val oldWire = FramedConnection(server.asConnectedTransport(Medium.BLE))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(emptyList()) }
+                        val request =
+                            OfflineFrame
+                                .parseFrom(oldWire.receiveFrame())
+                                .v1
+                                .connectionRequest
+
+                        assertThat(request.endpointId).isEqualTo(endpointId)
+                        oldWire.sendFrame(
+                            BandwidthUpgradeFrames
+                                .upgradePathAvailable(UpgradePathCredentials.Generic(Medium.WIFI_DIRECT))
+                                .toByteArray(),
+                        )
+
+                        val upgradedWire = FramedConnection(directUpgradePair.serverProvider.acceptUpgrade()!!)
+                        val clientIntro = OfflineFrame.parseFrom(upgradedWire.receiveFrame())
+                        assertThat(clientIntro.v1.bandwidthUpgradeNegotiation.eventType)
+                            .isEqualTo(BandwidthUpgradeNegotiationFrame.EventType.CLIENT_INTRODUCTION)
+                        assertThat(clientIntro.v1.bandwidthUpgradeNegotiation.clientIntroduction.endpointId)
+                            .isEqualTo(endpointId)
+                        upgradedWire.sendFrame(BandwidthUpgradeFrames.clientIntroductionAck().toByteArray())
+                        completeRawPriorChannelClose(oldWire)
+
+                        val ukey2ClientInit = Ukey2Message.parseFrom(upgradedWire.receiveFrame())
+                        assertThat(ukey2ClientInit.messageType).isEqualTo(Ukey2Message.Type.CLIENT_INIT)
+
+                        upgradedWire.close()
+                        assertThat(outboundJob.await()).isInstanceOf(OutboundResult.Failed::class.java)
+                    }
+
+                    assertThat(logs).contains("medium-upgrade: pre-UKEY2 client completed WIFI_DIRECT")
+                } finally {
+                    runCatching { oldWire.close() }
+                    directUpgradePair.close()
+                }
+            }
+        }
+
+    @Test
+    fun `preconnected BLE bootstrap times out when pre-UKEY2 peer stays silent`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val directUpgradePair = LoopbackUpgradePair(Medium.WIFI_DIRECT)
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLE),
+                        secureRandom = SecureRandom("outbound-ble-pre-ukey2-silent".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        directUpgradePair.clientProvider,
+                                        SupportedProvider(Medium.BLE),
+                                    ),
+                                ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLE)),
+                            ),
+                        initialHandshakeTimeoutMillis = SHORT_INITIAL_HANDSHAKE_TIMEOUT_MS,
+                    )
+                val oldWire = FramedConnection(server.asConnectedTransport(Medium.BLE))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(emptyList()) }
+                        assertThat(OfflineFrame.parseFrom(oldWire.receiveFrame()).isConnectionRequest()).isTrue()
+                        val result = outboundJob.await()
+
+                        assertThat(result).isInstanceOf(OutboundResult.Failed::class.java)
+                        assertThat((result as OutboundResult.Failed).reason)
+                            .contains("Initial handshake timed out")
+                    }
+                } finally {
+                    runCatching { oldWire.close() }
+                    directUpgradePair.close()
                 }
             }
         }
@@ -645,6 +759,20 @@ class OutboundConnectionTest {
                 }
             }
         }
+
+    private suspend fun completeRawPriorChannelClose(oldWire: FramedConnection) {
+        val clientLastWrite = OfflineFrame.parseFrom(oldWire.receiveFrame())
+        assertThat(clientLastWrite.v1.bandwidthUpgradeNegotiation.eventType)
+            .isEqualTo(BandwidthUpgradeNegotiationFrame.EventType.LAST_WRITE_TO_PRIOR_CHANNEL)
+
+        oldWire.sendFrame(BandwidthUpgradeFrames.lastWriteToPriorChannel().toByteArray())
+
+        val clientSafeToClose = OfflineFrame.parseFrom(oldWire.receiveFrame())
+        assertThat(clientSafeToClose.v1.bandwidthUpgradeNegotiation.eventType)
+            .isEqualTo(BandwidthUpgradeNegotiationFrame.EventType.SAFE_TO_CLOSE_PRIOR_CHANNEL)
+
+        oldWire.sendFrame(BandwidthUpgradeFrames.safeToClosePriorChannel().toByteArray())
+    }
 
     @Test
     fun `reject path - peer rejects and sender surfaces Rejected`() =
