@@ -122,17 +122,11 @@
         <!--
           ============ Card 2: Advertised name ============
 
-          Temporarily hidden via `visibility="gone"` (fall 2026): the
-          custom-name flow has an outstanding interop bug where the
-          re-published name does not always propagate to a peer that
-          has the receiver cached, and Quick Share's own caching makes
-          it hard to invalidate cleanly. The IDs below are deliberately
-          left intact so [SettingsFragment]'s `findViewById` wiring keeps
-          compiling and we can flip this back on by removing the single
-          `android:visibility="gone"` line once the propagation gap is
-          fixed. The underlying [AdvertisedDeviceNames] storage and
-          [AdvertisedDeviceNamePreferences] both remain live; this is a
-          UI-only mute.
+          Visible receiver-name override for Quick Share discovery.
+          The underlying [AdvertisedDeviceNames] storage refreshes the
+          active receiver session after save/reset, and the pre-merge
+          debug-loop regression matrix covers custom-name discovery in
+          both GMS-to-Bada and Bada-to-GMS directions.
         -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -140,8 +134,7 @@
             android:layout_marginTop="12dp"
             android:background="@drawable/settings_card_background"
             android:orientation="vertical"
-            android:padding="20dp"
-            android:visibility="gone">
+            android:padding="20dp">
 
             <TextView
                 android:id="@+id/main_advertised_name_title"
