@@ -55,8 +55,8 @@ import java.util.concurrent.atomic.AtomicReference
  * Sender-side BLE GATT initial-control client for stock Quick Share receivers.
  *
  * Nearby's BLE v2 path first opens a small Weave-over-GATT socket on the
- * connectable `0xFEF3` advertiser, then wraps the normal Nearby multiplex
- * socket inside that stream. This client performs that bootstrap and exposes
+ * connectable `0xFEF3` advertiser, then carries the normal Nearby stream
+ * inside that physical socket. This client performs that bootstrap and exposes
  * the accepted virtual socket as a [ConnectedTransport] for the existing
  * outbound protocol driver. Timing delays, slot reads, and retries here are
  * compatibility residue from real-device probing. Samsung can log

@@ -27,6 +27,7 @@ import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.google.location.nearby.mediums.proto.BleFramesProto
 import com.google.location.nearby.mediums.proto.MultiplexFramesProto
+import dev.bluehouse.bada.protocol.endpoint.BleAdvertisement
 import dev.bluehouse.bada.protocol.endpoint.BleServiceData
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.endpoint.NearbyServiceId
@@ -530,17 +531,18 @@ public class BleGattInitialControlServer(
             endpointInfo: EndpointInfo,
             endpointId: ByteArray,
         ): List<GattCharacteristicSpec> {
-            // The second-profile frame type (0x4B) was originally meant
-            // to disambiguate when GMS owns the first 0xFEF3 GATT
-            // profile. On stock Galaxy senders the bit is not recognised
-            // and the receiver gets filtered out of the share-target
-            // list, so we publish the standard 0x4A frame type and the
-            // Weave chars under the same standard 0xFEF3 UUID instead.
+            // Stock Nearby GATT slots use the non-fast Mediums wrapper:
+            // header + service-id hash + 4-byte data length + endpoint
+            // advertisement + token. Extended scan results may carry the
+            // compact fast wrapper, but Samsung expects slot zero to be
+            // regular so it can resolve a visible row into a connectable
+            // Nearby socket capability.
             val visibleAdvertisement =
                 runCatching {
-                    BleServiceData.encodeFramed(
+                    BleAdvertisement.encodeGattAdvertisement(
                         endpointId = endpointId,
                         endpointInfo = endpointInfo,
+                        psm = 0,
                         secondProfile = false,
                     )
                 }.getOrDefault(ByteArray(0))
@@ -883,6 +885,10 @@ internal class BleMultiplexBridge(
                 val salt = frame.header.serviceIdHashSalt
                 val saltedHash = frame.header.saltedServiceIdHash.toByteArray()
                 val expected = NearbyMultiplexFrames.saltedServiceIdHash(salt = salt)
+                Log.w(
+                    tag,
+                    "BLE socket multiplex CONNECTION_REQUEST hashMatches=${saltedHash.contentEquals(expected)}",
+                )
                 val response =
                     if (saltedHash.contentEquals(expected)) {
                         ensureVirtualTransport(saltedHash, salt)
@@ -913,6 +919,10 @@ internal class BleMultiplexBridge(
     private fun handleDataFrame(frame: MultiplexFramesProto.MultiplexFrame) {
         val salt = frame.header.serviceIdHashSalt
         val saltedHash = frame.header.saltedServiceIdHash.toByteArray()
+        Log.w(
+            tag,
+            "BLE socket multiplex DATA_FRAME bytes=${frame.dataFrame.data.size()} virtual=${virtualTransport != null}",
+        )
         val transport = virtualTransport ?: ensureVirtualTransport(saltedHash, salt)
         transport.feedIncoming(frame.dataFrame.data.toByteArray())
     }

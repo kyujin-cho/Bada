@@ -236,6 +236,68 @@ class NearbyPeerDiscoveryTest {
         }
 
     @Test
+    fun `same Wi-Fi LAN is preferred after peer also advertises BLE bootstrap`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            val endpointInfo = endpointInfo(name = "Bada177Lab")
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "B177",
+                    endpointInfo = endpointInfo,
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -47,
+                    l2capPsm = 0x1234,
+                    gattConnectable = true,
+                ),
+            )
+            lanEvents.emit(
+                DiscoveryEvent.Resolved(
+                    DiscoveredService(
+                        instanceName = "instance-bada177",
+                        endpointId = "B177".toByteArray(Charsets.US_ASCII),
+                        addresses = listOf(InetAddress.getByName("192.168.1.77")),
+                        port = 54321,
+                        endpointInfo = endpointInfo,
+                    ),
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.last() as NearbyPeerEvent.Resolved
+            assertThat(resolved.peer.displayName()).isEqualTo("Bada177Lab")
+            assertThat(resolved.peer.candidateMediums).containsExactly(
+                Medium.WIFI_LAN,
+                Medium.BLE,
+                Medium.BLE_L2CAP,
+            )
+            assertThat(resolved.peer.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.Lan(
+                    address = InetAddress.getByName("192.168.1.77"),
+                    port = 54321,
+                ),
+            )
+            assertThat(resolved.peer.lanEndpoint?.primaryAddress()).isEqualTo(InetAddress.getByName("192.168.1.77"))
+            assertThat(resolved.peer.lanEndpoint?.port).isEqualTo(54321)
+
+            collector.cancel()
+        }
+
+    @Test
     fun `verified BLE GATT route ignores visibility bit`() =
         runTest {
             val lanEvents = MutableSharedFlow<DiscoveryEvent>()

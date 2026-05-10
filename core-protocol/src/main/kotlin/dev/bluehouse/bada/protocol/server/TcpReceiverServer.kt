@@ -7,9 +7,12 @@ package dev.bluehouse.bada.protocol.server
 
 import dev.bluehouse.bada.protocol.connection.InboundConnection
 import dev.bluehouse.bada.protocol.connection.InboundResult
+import dev.bluehouse.bada.protocol.medium.Medium
 import dev.bluehouse.bada.protocol.medium.MediumRegistry
+import dev.bluehouse.bada.protocol.medium.probeNearbyMultiplexServerTransport
 import dev.bluehouse.bada.protocol.payload.FileDestinationFactory
 import dev.bluehouse.bada.protocol.transport.ConnectedTransport
+import dev.bluehouse.bada.protocol.transport.EndOfFrameStream
 import dev.bluehouse.bada.protocol.transport.asConnectedTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -450,15 +453,37 @@ public class TcpReceiverServer(
             activeTransports[connectionId] = transport
         }
 
-        val inbound =
-            InboundConnection(
-                transport = transport,
-                secureRandom = secureRandomProvider(),
-                mediumRegistry = mediumRegistry,
-                logger = logger,
-            )
-
         internalScope.launch {
+            val acceptedTransport =
+                try {
+                    prepareAcceptedTransport(transport)
+                } catch (cancel: CancellationException) {
+                    runCatching { transport.close() }
+                    throw cancel
+                } catch (
+                    @Suppress("TooGenericExceptionCaught") e: Throwable,
+                ) {
+                    logger("tcp: failed to prepare accepted transport: ${e.message ?: e::class.simpleName}")
+                    runCatching { transport.close() }
+                    synchronized(connectionMutexesLock) {
+                        connectionMutexes.remove(connectionId)
+                        activeTransports.remove(connectionId)
+                    }
+                    return@launch
+                }
+
+            synchronized(connectionMutexesLock) {
+                activeTransports[connectionId] = acceptedTransport
+            }
+
+            val inbound =
+                InboundConnection(
+                    transport = acceptedTransport,
+                    secureRandom = secureRandomProvider(),
+                    mediumRegistry = mediumRegistry,
+                    logger = logger,
+                )
+
             // Emit the active connection BEFORE invoking run() so
             // subscribers can race to attach to its state flow before
             // the first state transition happens.
@@ -474,7 +499,7 @@ public class TcpReceiverServer(
                     // was externally cancelled. Make sure the socket is
                     // closed even though InboundConnection.run already
                     // does this in its finally block -- belt and braces.
-                    runCatching { transport.close() }
+                    runCatching { acceptedTransport.close() }
                     throw cancel
                 } catch (
                     @Suppress("TooGenericExceptionCaught") e: Throwable,
@@ -486,7 +511,7 @@ public class TcpReceiverServer(
                     // supervisor (it would not cancel siblings, but
                     // would leak as an UnhandledCoroutineExceptionHandler
                     // log).
-                    runCatching { transport.close() }
+                    runCatching { acceptedTransport.close() }
                     @Suppress("UnsafeCallOnNullableType")
                     InboundResult.Failed("Unexpected ${e::class.simpleName}: ${e.message ?: ""}")
                 } finally {
@@ -499,6 +524,17 @@ public class TcpReceiverServer(
             mutableResults.tryEmit(InboundConnectionCompletion(connectionId, inbound, result))
         }
     }
+
+    private fun prepareAcceptedTransport(transport: ConnectedTransport): ConnectedTransport =
+        if (transport.medium == Medium.WIFI_LAN) {
+            try {
+                probeNearbyMultiplexServerTransport(transport, logger)
+            } catch (_: EndOfFrameStream) {
+                transport
+            }
+        } else {
+            transport
+        }
 
     private companion object {
         /**

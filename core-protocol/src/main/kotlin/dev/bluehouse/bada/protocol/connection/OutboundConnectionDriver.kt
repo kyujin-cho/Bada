@@ -123,34 +123,20 @@ internal class OutboundConnectionDriver(
     @Suppress("ReturnCount")
     suspend fun runLifecycle(): OutboundResult {
         mutableState.value = OutboundConnectionState.Handshaking
-        logger(
-            "step 1: initial transport open medium=${initialTransport.medium} " +
-                "endpointId=$endpointId endpointInfo.size=${endpointInfo.size}",
-        )
-        val transport = FramedConnection(initialTransport).also { framedConnection = it }
 
-        // Step 1: send unencrypted ConnectionRequest. BLE/GATT
-        // bootstraps still carry the legacy Wi-Fi LAN marker because
-        // stock Quick Share validates that shape before it dispatches
-        // the incoming connection. When a local Wi-Fi Direct provider
-        // is registered, advertise WFD in this opening request as well,
-        // then send a post-accept UPGRADE_PATH_REQUEST if the receiver
-        // does not proactively offer Wi-Fi Direct before payload
-        // streaming.
-        val advertisedMediums = advertisedMediumsForInitialTransport()
-        logger("step 1: advertising mediums=$advertisedMediums")
-        transport.sendFrame(
-            OutboundFrames
-                .connectionRequest(
-                    endpointId = endpointId,
-                    endpointInfo = endpointInfo,
-                    supportedMediums = advertisedMediums,
-                ).toByteArray(),
-        )
-        logger("step 1: sent ConnectionRequest, awaiting Ukey2ServerInit")
+        val preSecureTransport =
+            when (val upgrade = openPreSecureTransport()) {
+                is PreUkey2Negotiation.Ready -> upgrade.transport
+                is PreUkey2Negotiation.Failed -> {
+                    val reason = upgrade.reason
+                    mutableState.value = OutboundConnectionState.Failed(reason)
+                    return OutboundResult.Failed(reason)
+                }
+            }
+        logger("step 1: pre-secure active medium=${preSecureTransport.medium}")
 
         val (handshake, peerResponse) =
-            runInitialHandshakeWithTimeout(transport)
+            runInitialHandshakeWithTimeout(preSecureTransport.connection)
                 ?: return initialHandshakeTimedOut()
 
         // Step 3: send our unencrypted ConnectionResponse{ACCEPT}.
@@ -193,14 +179,16 @@ internal class OutboundConnectionDriver(
         logger("step 5: D2D keys derived, PIN=$pin")
 
         // Step 6: SecureChannel takes over.
-        val channel = SecureChannel(transport, sessionKeys, secureRandom).also { secureChannel = it }
+        val channel =
+            SecureChannel(preSecureTransport.connection, sessionKeys, secureRandom)
+                .also { secureChannel = it }
 
         // Step 7: if the receiver offers a higher-bandwidth medium,
         // adopt it before the Nearby Share payload negotiation begins.
         // Peers that stay on Wi-Fi LAN send the first sharing payload;
         // buffer that frame so the existing receive loop sees it.
         val negotiated =
-            when (val negotiation = negotiateBandwidthUpgrade(channel)) {
+            when (val negotiation = negotiateBandwidthUpgrade(channel, preSecureTransport.medium)) {
                 is BandwidthNegotiation.Ready -> negotiation
                 is BandwidthNegotiation.Failed -> {
                     logger("medium-upgrade: ${negotiation.reason}")
@@ -235,7 +223,10 @@ internal class OutboundConnectionDriver(
         // cancel() in that race would crash the peer with Broken pipe.
         onHandshakeComplete()
 
-        return if (requiresWifiDirectUpgradeForBle() && negotiated.medium != Medium.WIFI_DIRECT) {
+        val shouldRunBleWifiDirectLoop =
+            requiresWifiDirectUpgradeForBle(preSecureTransport.medium) &&
+                negotiated.medium != Medium.WIFI_DIRECT
+        return if (shouldRunBleWifiDirectLoop) {
             runBleWifiDirectReceiveLoop(
                 channel = negotiated.channel,
                 fsm = negotiationFsm,
@@ -246,23 +237,97 @@ internal class OutboundConnectionDriver(
         }
     }
 
-    private fun advertisedMediumsForInitialTransport(): Set<Medium> {
-        val supportedMediums =
-            mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
-        if (initialTransport.medium != Medium.BLE) return supportedMediums
+    private suspend fun openPreSecureTransport(): PreUkey2Negotiation {
+        logger(
+            "step 1: initial transport open medium=${initialTransport.medium} " +
+                "endpointId=$endpointId endpointInfo.size=${endpointInfo.size}",
+        )
+        val transport = FramedConnection(initialTransport).also { framedConnection = it }
 
-        return buildSet {
-            add(Medium.WIFI_LAN)
-            add(Medium.BLE)
-            if (Medium.WIFI_DIRECT in supportedMediums) {
-                add(Medium.WIFI_DIRECT)
+        // BLE/GATT bootstraps still carry the legacy Wi-Fi LAN marker because
+        // stock Quick Share validates that shape before it dispatches the
+        // incoming connection. Same-Wi-Fi LAN, even when the underlying TCP
+        // socket is Nearby-multiplexed, keeps the historical Wi-Fi-only
+        // request shape.
+        val advertisedMediums = advertisedMediumsForInitialTransport()
+        logger("step 1: advertising mediums=$advertisedMediums")
+        transport.sendFrame(
+            OutboundFrames
+                .connectionRequest(
+                    endpointId = endpointId,
+                    endpointInfo = endpointInfo,
+                    supportedMediums = advertisedMediums,
+                ).toByteArray(),
+        )
+        logger("step 1: sent ConnectionRequest, probing pre-UKEY2 upgrade")
+
+        return upgradePreUkey2IfOffered(transport)
+    }
+
+    private suspend fun upgradePreUkey2IfOffered(transport: FramedConnection): PreUkey2Negotiation {
+        if (!shouldProbePreUkey2Upgrade()) {
+            return PreUkey2Negotiation.Ready(PreSecureTransport(transport, initialTransport.medium))
+        }
+        logger("medium-upgrade: probing for pre-UKEY2 BLE upgrade offer")
+        return when (
+            val probe =
+                PreUkey2BandwidthUpgrade.receiveOfferProbe(
+                    framedConnection = transport,
+                    timeoutMillis = PRE_UKEY2_UPGRADE_OFFER_WAIT_TIMEOUT_MILLIS,
+                )
+        ) {
+            UpgradeOfferProbe.None -> {
+                logger("medium-upgrade: no pre-UKEY2 upgrade offer; continuing on ${initialTransport.medium}")
+                PreUkey2Negotiation.Ready(PreSecureTransport(transport, initialTransport.medium))
             }
+            is UpgradeOfferProbe.Other ->
+                PreUkey2Negotiation.Failed(
+                    "Expected pre-UKEY2 upgrade offer, got ${probe.frame.describeFrameType()}",
+                )
+            is UpgradeOfferProbe.Offer ->
+                when (
+                    val upgraded =
+                        PreUkey2BandwidthUpgrade.runClientUpgradeFromOffer(
+                            oldTransport = transport,
+                            offer = probe.frame,
+                            mediumRegistry = mediumRegistry,
+                            endpointId = endpointId,
+                            logger = logger,
+                        )
+                ) {
+                    is PreUkey2UpgradeResult.Ready -> {
+                        framedConnection = upgraded.transport
+                        PreUkey2Negotiation.Ready(PreSecureTransport(upgraded.transport, upgraded.medium))
+                    }
+                    is PreUkey2UpgradeResult.Failed -> PreUkey2Negotiation.Failed(upgraded.reason)
+                }
         }
     }
 
-    private suspend fun negotiateBandwidthUpgrade(channel: SecureChannel): BandwidthNegotiation {
+    private fun advertisedMediumsForInitialTransport(): Set<Medium> {
+        val supportedMediums =
+            mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
+        return when {
+            initialTransport.medium == Medium.WIFI_LAN ->
+                setOf(Medium.WIFI_LAN)
+            !initialTransport.medium.isBleBased() -> supportedMediums
+            else ->
+                buildSet {
+                    add(Medium.WIFI_LAN)
+                    add(initialTransport.medium)
+                    if (Medium.WIFI_DIRECT in supportedMediums) {
+                        add(Medium.WIFI_DIRECT)
+                    }
+                }
+        }
+    }
+
+    private suspend fun negotiateBandwidthUpgrade(
+        channel: SecureChannel,
+        currentMedium: Medium,
+    ): BandwidthNegotiation {
         val initialWireFrames = mutableListOf<OfflineFrame>()
-        val requiresWifiDirect = requiresWifiDirectUpgradeForBle()
+        val requiresWifiDirect = requiresWifiDirectUpgradeForBle(currentMedium)
         val activeTransport =
             when (
                 val probe =
@@ -276,16 +341,16 @@ internal class OutboundConnectionDriver(
                             },
                     )
             ) {
-                UpgradeOfferProbe.None -> ActiveTransportChannel(channel, initialTransport.medium)
+                UpgradeOfferProbe.None -> ActiveTransportChannel(channel, currentMedium)
                 is UpgradeOfferProbe.Other -> {
                     initialWireFrames += probe.frame
-                    ActiveTransportChannel(channel, initialTransport.medium)
+                    ActiveTransportChannel(channel, currentMedium)
                 }
                 is UpgradeOfferProbe.Offer -> {
                     val transport =
                         BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer(
                             oldChannel = channel,
-                            currentMedium = initialTransport.medium,
+                            currentMedium = currentMedium,
                             offer = probe.frame,
                             mediumRegistry = mediumRegistry,
                             endpointId = endpointId,
@@ -301,12 +366,20 @@ internal class OutboundConnectionDriver(
                     transport.also { secureChannel = it.channel }
                 }
             }
-        return BandwidthNegotiation.Ready(activeTransport.channel, activeTransport.medium, initialWireFrames)
+        return BandwidthNegotiation.Ready(
+            activeTransport.channel,
+            activeTransport.medium,
+            initialWireFrames,
+        )
     }
 
-    private fun requiresWifiDirectUpgradeForBle(): Boolean =
-        initialTransport.medium == Medium.BLE &&
+    private fun shouldProbePreUkey2Upgrade(): Boolean =
+        initialTransport.medium.isBleBased() &&
             Medium.WIFI_DIRECT in mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
+
+    private fun requiresWifiDirectUpgradeForBle(currentMedium: Medium): Boolean =
+        currentMedium.isBleBased() &&
+            Medium.WIFI_DIRECT in mediumRegistry.supportedMediumsForCurrentTransport(currentMedium)
 
     /**
      * Tear down all owned resources. Safe to call multiple times; each
@@ -771,8 +844,13 @@ internal class OutboundConnectionDriver(
         logger("medium-upgrade: requested receiver Wi-Fi Direct upgrade before streaming payloads")
         logger("medium-upgrade: waiting for receiver Wi-Fi Direct offer before streaming payloads")
         return when (val probe = pollBleWifiDirectOffer(channel, BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS)) {
-            UpgradeOfferProbe.None ->
-                PayloadChannelSelection.Failed("Wi-Fi Direct upgrade was not offered before payload streaming")
+            UpgradeOfferProbe.None -> {
+                logger(
+                    "medium-upgrade: Wi-Fi Direct upgrade was not offered before payload streaming; " +
+                        "continuing on $currentMedium",
+                )
+                PayloadChannelSelection.Ready(channel, currentMedium)
+            }
             is UpgradeOfferProbe.Other ->
                 PayloadChannelSelection.Failed(
                     "Wi-Fi Direct upgrade was required before payload streaming, " +
@@ -1527,7 +1605,8 @@ internal class OutboundConnectionDriver(
             v1.bandwidthUpgradeNegotiation.eventType == expected
 
     private companion object {
-        private const val BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS: Long = 12_000L
+        private const val PRE_UKEY2_UPGRADE_OFFER_WAIT_TIMEOUT_MILLIS: Long = 1_500L
+        private const val BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS: Long = 3_000L
         private const val BLE_WIFI_DIRECT_POLL_DELAY_MILLIS: Long = 25L
 
         /**
@@ -1555,6 +1634,21 @@ internal class OutboundConnectionDriver(
         ) : BandwidthNegotiation
     }
 
+    private data class PreSecureTransport(
+        val connection: FramedConnection,
+        val medium: Medium,
+    )
+
+    private sealed interface PreUkey2Negotiation {
+        data class Ready(
+            val transport: PreSecureTransport,
+        ) : PreUkey2Negotiation
+
+        data class Failed(
+            val reason: String,
+        ) : PreUkey2Negotiation
+    }
+
     private sealed interface BleWifiDirectOutcome {
         data object Continue : BleWifiDirectOutcome
 
@@ -1575,4 +1669,6 @@ internal class OutboundConnectionDriver(
             val reason: String,
         ) : PayloadChannelSelection
     }
+
+    private fun Medium.isBleBased(): Boolean = this == Medium.BLE || this == Medium.BLE_L2CAP
 }

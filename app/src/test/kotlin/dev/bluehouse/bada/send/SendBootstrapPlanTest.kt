@@ -17,7 +17,7 @@ import java.net.InetAddress
 
 class SendBootstrapPlanTest {
     @Test
-    fun `BLE L2CAP route wins before Wi-Fi LAN and other BLE bootstrap routes`() {
+    fun `same Wi-Fi LAN route wins before BLE route when both are available`() {
         val peer =
             peer(
                 lanAddress = "192.168.1.20",
@@ -29,10 +29,24 @@ class SendBootstrapPlanTest {
 
         val plan = SendBootstrapPlan.resolve(peer = peer)
 
-        // BLE-first preference (see SendBootstrapPlan.directRoute): BLE
-        // bootstraps bypass the AP and stay reachable on Wi-Fi networks
-        // that drop peer-to-peer LAN frames, so we'd rather pay the brief
-        // BLE setup latency than fail with EHOSTUNREACH on isolated SSIDs.
+        assertTrue(plan.isConnectable)
+        assertEquals(
+            NearbyPeerRoute.Lan(InetAddress.getByName("192.168.1.20"), 7654),
+            (plan.action as SendBootstrapPlan.Action.Direct).route,
+        )
+    }
+
+    @Test
+    fun `BLE L2CAP route is used when no same Wi-Fi LAN route is available`() {
+        val peer =
+            peer(
+                bluetoothMac = "11:22:33:44:55:66",
+                bleAddress = "AA:BB:CC:DD:EE:FF",
+                blePsm = 0x1234,
+            )
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
         assertTrue(plan.isConnectable)
         assertEquals(
             NearbyPeerRoute.BleL2cap("AA:BB:CC:DD:EE:FF", 0x1234),
@@ -41,7 +55,7 @@ class SendBootstrapPlanTest {
     }
 
     @Test
-    fun `Wi-Fi LAN is used as a fallback when no BLE route is available`() {
+    fun `Wi-Fi LAN is used when no BLE route is available`() {
         val peer =
             peer(
                 lanAddress = "192.168.1.20",
@@ -54,6 +68,28 @@ class SendBootstrapPlanTest {
         assertEquals(
             NearbyPeerRoute.Lan(InetAddress.getByName("192.168.1.20"), 7654),
             (plan.action as SendBootstrapPlan.Action.Direct).route,
+        )
+    }
+
+    @Test
+    fun `viable routes prefer same Wi-Fi LAN before BLE bootstrap routes`() {
+        val peer =
+            peer(
+                lanAddress = "192.168.1.20",
+                lanPort = 7654,
+                bleAddress = "AA:BB:CC:DD:EE:FF",
+                blePsm = 0x1234,
+            )
+
+        val routes = SendBootstrapPlan.viableRoutes(peer)
+
+        assertEquals(
+            listOf(
+                NearbyPeerRoute.Lan(InetAddress.getByName("192.168.1.20"), 7654),
+                NearbyPeerRoute.BleL2cap("AA:BB:CC:DD:EE:FF", 0x1234),
+                NearbyPeerRoute.BleGatt("AA:BB:CC:DD:EE:FF"),
+            ),
+            routes,
         )
     }
 

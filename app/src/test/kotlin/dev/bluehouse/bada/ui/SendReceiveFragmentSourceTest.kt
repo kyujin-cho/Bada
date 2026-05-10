@@ -21,7 +21,7 @@ class SendReceiveFragmentSourceTest {
     fun `send entry points do not hard gate on wi-fi`() {
         assertFalse(
             "The Send/Receive tab must not require Wi-Fi before launching the file picker; " +
-                "BLE-first routing needs to stay reachable even when Wi-Fi is off.",
+                "BLE routing needs to stay reachable even when Wi-Fi is off.",
             source.contains("ensureWifiEnabled"),
         )
         assertFalse(

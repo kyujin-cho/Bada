@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.io.IOException
+import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -230,6 +231,120 @@ class DiscoveryAdvertiseTest {
     }
 
     @Test
+    fun `same Wi-Fi mDNS advertisement preserves customized Bada receiver name`() {
+        val countingRegistrar = CountingNsdRegistrar()
+        val discovery =
+            Discovery.forTesting(
+                registrar = countingRegistrar,
+                browser = NoopNsdBrowser,
+            )
+        val endpointInfo = sampleEndpointInfo(deviceName = "BadaSameWifi")
+        val handle = discovery.advertise(endpointInfo, port = 51_002)
+        try {
+            val attrs = countingRegistrar.lastRegisteredAttrs.get()
+            val encodedBytes = requireNotNull(attrs[QuickShareMdns.TXT_KEY_ENDPOINT_INFO])
+            val encoded = String(encodedBytes, Charsets.US_ASCII)
+            val decoded = requireNotNull(Base64Url.decode(encoded))
+            val parsed = EndpointInfo.parse(decoded)
+
+            assertThat(parsed).isEqualTo(endpointInfo)
+            assertThat(parsed!!.deviceName).isEqualTo("BadaSameWifi")
+        } finally {
+            handle.close()
+        }
+    }
+
+    @Test
+    fun `advertise includes IPv4 TXT key from local Wi-Fi address provider`() {
+        val countingRegistrar = CountingNsdRegistrar()
+        val discovery =
+            Discovery.forTesting(
+                registrar = countingRegistrar,
+                browser = NoopNsdBrowser,
+                localAddressProvider = {
+                    setOf(
+                        InetAddress.getByName("127.0.0.1"),
+                        InetAddress.getByName("172.17.142.9"),
+                        InetAddress.getByName("fe80::1"),
+                    )
+                },
+            )
+
+        val handle = discovery.advertise(sampleEndpointInfo(deviceName = "BadaSameWifi"), port = 51_003)
+        try {
+            val attrs = countingRegistrar.lastRegisteredAttrs.get()
+            assertThat(String(attrs[QuickShareMdns.TXT_KEY_IPV4_ADDRESS]!!, Charsets.US_ASCII))
+                .isEqualTo("172.17.142.9")
+        } finally {
+            handle.close()
+        }
+    }
+
+    @Test
+    fun `advertise omits IPv4 TXT key when no usable local IPv4 exists`() {
+        val countingRegistrar = CountingNsdRegistrar()
+        val discovery =
+            Discovery.forTesting(
+                registrar = countingRegistrar,
+                browser = NoopNsdBrowser,
+                localAddressProvider = {
+                    setOf(
+                        InetAddress.getByName("127.0.0.1"),
+                        InetAddress.getByName("169.254.10.20"),
+                        InetAddress.getByName("fe80::1"),
+                    )
+                },
+            )
+
+        val handle = discovery.advertise(sampleEndpointInfo(), port = 51_004)
+        try {
+            val attrs = countingRegistrar.lastRegisteredAttrs.get()
+            assertThat(attrs).doesNotContainKey(QuickShareMdns.TXT_KEY_IPV4_ADDRESS)
+        } finally {
+            handle.close()
+        }
+    }
+
+    @Test
+    fun `advertise includes Wi-Fi frequency TXT key from provider`() {
+        val countingRegistrar = CountingNsdRegistrar()
+        val discovery =
+            Discovery.forTesting(
+                registrar = countingRegistrar,
+                browser = NoopNsdBrowser,
+                wifiFrequencyProvider = { 5240 },
+            )
+
+        val handle = discovery.advertise(sampleEndpointInfo(deviceName = "BadaSameWifi"), port = 51_005)
+        try {
+            val attrs = countingRegistrar.lastRegisteredAttrs.get()
+            assertThat(String(attrs[QuickShareMdns.TXT_KEY_WIFI_FREQUENCY]!!, Charsets.US_ASCII))
+                .isEqualTo("5240")
+        } finally {
+            handle.close()
+        }
+    }
+
+    @Test
+    fun `advertise omits Wi-Fi frequency TXT key when provider has no usable frequency`() {
+        val countingRegistrar = CountingNsdRegistrar()
+        val discovery =
+            Discovery.forTesting(
+                registrar = countingRegistrar,
+                browser = NoopNsdBrowser,
+                wifiFrequencyProvider = { 0 },
+            )
+
+        val handle = discovery.advertise(sampleEndpointInfo(), port = 51_006)
+        try {
+            val attrs = countingRegistrar.lastRegisteredAttrs.get()
+            assertThat(attrs).doesNotContainKey(QuickShareMdns.TXT_KEY_WIFI_FREQUENCY)
+        } finally {
+            handle.close()
+        }
+    }
+
+    @Test
     fun `advertise can reuse a caller supplied endpoint ID in the instance name`() {
         val requestedNames = mutableListOf<String>()
         val endpointId = "WvMg".toByteArray(Charsets.US_ASCII)
@@ -255,7 +370,7 @@ class DiscoveryAdvertiseTest {
         }
     }
 
-    private fun sampleEndpointInfo(): EndpointInfo =
+    private fun sampleEndpointInfo(deviceName: String = "Test Device"): EndpointInfo =
         EndpointInfo(
             version = 1,
             hidden = false,
@@ -264,7 +379,7 @@ class DiscoveryAdvertiseTest {
             // Fill metadata with a full 0x00..0xFF round-trip pattern so
             // a regression that mangles high-bit bytes shows up.
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { (it * 17).toByte() },
-            deviceName = "Test Device",
+            deviceName = deviceName,
             tlvRecords = emptyList(),
         )
 
