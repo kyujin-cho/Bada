@@ -8,7 +8,6 @@ package dev.bluehouse.bada.ui
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ContentUris
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -20,11 +19,9 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.widget.Button
@@ -33,7 +30,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.use
 import androidx.fragment.app.Fragment
@@ -131,33 +127,6 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
             }
         }
 
-    /**
-     * Action queued by [ensureWifiEnabled] when the user tapped a Send
-     * entry point with Wi-Fi off. Re-invoked from the Wi-Fi settings
-     * launcher's result callback once the user enables Wi-Fi, so the
-     * deferred picker hand-off proceeds without requiring a second tap
-     * on the original Send button. Cleared when the user cancels the
-     * gating dialog or denies the Wi-Fi enable.
-     */
-    private var pendingPostWifiAction: (() -> Unit)? = null
-
-    /**
-     * Launcher for the system Wi-Fi panel (API 29+) / full Wi-Fi
-     * settings (API 24-28). The result is not used directly — the
-     * panel returns no payload — but the callback firing tells us the
-     * user has dismissed the panel, at which point we re-evaluate
-     * [WifiManager.isWifiEnabled] and resume [pendingPostWifiAction]
-     * if the user did enable Wi-Fi.
-     */
-    private val wifiSettingsLauncher: ActivityResultLauncher<Intent> =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
-            val action = pendingPostWifiAction
-            pendingPostWifiAction = null
-            if (action != null && isWifiEnabled()) {
-                action()
-            }
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -235,27 +204,15 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         }
 
         view.findViewById<Button>(R.id.main_send_files_button).setOnClickListener {
-            // Gate the document picker behind a Wi-Fi check. Wi-Fi LAN is
-            // the only baseline transfer route, so handing off to the
-            // system Files picker while Wi-Fi is off would funnel the
-            // user into a SendActivity surface that can never discover a
-            // peer. Surfacing the prompt at the button-press moment keeps
-            // the dialog inside MainActivity (no activity transition) and
-            // defers the picker hand-off until Wi-Fi is on.
-            ensureWifiEnabled { launchOpenFilesPicker() }
+            launchOpenFilesPicker()
         }
 
         view.findViewById<Button>(R.id.main_send_folder_button).setOnClickListener {
-            // Same Wi-Fi gate as `main_send_files_button` above; folder
-            // sends share the same Wi-Fi LAN path so the same precondition
-            // applies.
-            ensureWifiEnabled {
-                // Passing null means "no initial directory hint"; the
-                // system picker opens at its default landing screen
-                // (typically the most recently used location). The user
-                // is free to navigate to any tree they have access to.
-                openTreeLauncher.launch(null)
-            }
+            // Passing null means "no initial directory hint"; the
+            // system picker opens at its default landing screen
+            // (typically the most recently used location). The user
+            // is free to navigate to any tree they have access to.
+            openTreeLauncher.launch(null)
         }
 
         view.findViewById<Button>(R.id.main_legacy_wvmg_banner_uninstall).setOnClickListener {
@@ -351,72 +308,6 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         if (!galleryPermissionRequested) {
             galleryPermissionRequested = true
             galleryPermissionLauncher.launch(galleryPermissionName())
-        }
-    }
-
-    /**
-     * Run [onWifiOn] only when Wi-Fi is currently enabled; otherwise
-     * stash it as the pending post-Wi-Fi action and surface the gating
-     * dialog so the user can enable Wi-Fi before the picker hand-off.
-     * The dialog itself is rendered modally over the MainActivity
-     * surface — no new activity launches and no theme override — which
-     * is what keeps the prompt feeling like a dialog on the current
-     * screen rather than a screen transition.
-     */
-    private fun ensureWifiEnabled(onWifiOn: () -> Unit) {
-        if (isWifiEnabled()) {
-            onWifiOn()
-            return
-        }
-        pendingPostWifiAction = onWifiOn
-        showWifiRequiredDialog()
-    }
-
-    private fun isWifiEnabled(): Boolean {
-        val ctx = context ?: return true
-        val wifi = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        return wifi?.isWifiEnabled == true
-    }
-
-    private fun showWifiRequiredDialog() {
-        AlertDialog
-            .Builder(requireContext())
-            .setTitle(R.string.send_wifi_required_title)
-            .setMessage(R.string.send_wifi_required_body)
-            .setCancelable(true)
-            .setPositiveButton(R.string.send_wifi_required_open) { _, _ ->
-                openWifiSettings()
-            }.setNegativeButton(R.string.send_cancel) { _, _ ->
-                pendingPostWifiAction = null
-            }.setOnCancelListener {
-                pendingPostWifiAction = null
-            }.show()
-    }
-
-    /**
-     * Launch the system Wi-Fi panel (API 29+) or full Wi-Fi settings
-     * (API 24-28). `FLAG_ACTIVITY_NO_ANIMATION` keeps the panel slide
-     * minimal on OEM ROMs that animate even in-app settings panels.
-     * `WifiManager.setWifiEnabled` is intentionally not used: it is a
-     * no-op on Android 10+ and only available to system-uid apps even
-     * on older builds.
-     */
-    private fun openWifiSettings() {
-        val intent =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                Intent(Settings.Panel.ACTION_WIFI)
-            } else {
-                Intent(Settings.ACTION_WIFI_SETTINGS)
-            }
-        intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
-        try {
-            wifiSettingsLauncher.launch(intent)
-        } catch (e: ActivityNotFoundException) {
-            Log.w(TAG, "No activity to handle Wi-Fi settings intent", e)
-            Toast
-                .makeText(requireContext(), R.string.send_wifi_required_body, Toast.LENGTH_LONG)
-                .show()
-            pendingPostWifiAction = null
         }
     }
 
