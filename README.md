@@ -87,7 +87,7 @@ To send a whole folder, open Bada and tap **Send folder**.
 | Peer | Current expectation |
 | --- | --- |
 | Stock Android Quick Share on Pixel / GMS devices | Shared Wi-Fi LAN is the baseline path. BLE-assisted discovery/bootstrap is covered by the stock Android runbook. |
-| Stock Samsung Quick Share / One UI | Shared Wi-Fi LAN is the baseline path. Recent testing also validated BLE GATT bootstrap into a Galaxy S26 Ultra; read the Samsung note below before interpreting noisy GATT logs. |
+| Stock Samsung Quick Share / One UI | Shared Wi-Fi LAN is the baseline path. Recent testing also validated BLE GATT bootstrap into a Galaxy S26 Ultra and Z Fold 7; read the Samsung note below before interpreting noisy GATT logs. |
 | NearDrop on macOS | Not tested |
 | Quick Share on Windows | Not tested |
 
