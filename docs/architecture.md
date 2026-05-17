@@ -1,4 +1,4 @@
-# LibreDrop
+# bada
 
 A standalone Android port of the **Google Quick Share / Nearby Share** protocol,
 modeled on [NearDrop](https://github.com/grishka/NearDrop) by @grishka. The
