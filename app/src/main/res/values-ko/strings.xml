@@ -129,6 +129,15 @@
     <string name="settings_battery_status_not_exempt">현재: 제외되지 않음. 백그라운드에서 수신이 중단될 수 있습니다</string>
     <string name="settings_battery_open">배터리 설정 열기</string>
 
+    <!-- Settings tab "전체 화면 수신 알림" row + first-launch dialog (Android 14+). -->
+    <string name="settings_fsi_title">전체 화면 수신 알림</string>
+    <string name="settings_fsi_subtitle">전체 화면 알림을 허용하면 Bada가 백그라운드에 있을 때 수신 요청이 와도 다른 앱 위나 잠금 화면에서 PIN이 바로 표시됩니다. 허용하지 않아도 알림을 눌러 PIN을 확인할 수 있습니다.</string>
+    <string name="settings_fsi_status_granted">현재: 전체 화면 알림 허용됨</string>
+    <string name="settings_fsi_status_not_granted">현재: 허용되지 않음. PIN 요청이 알림으로 표시됩니다</string>
+    <string name="settings_fsi_open">알림 설정 열기</string>
+    <string name="fsi_dialog_body">Bada가 백그라운드에 있을 때 수신 요청이 오면, 화면 위로 PIN 요청을 띄우기 위해 전체 화면 알림 권한이 필요합니다. 허용하지 않으면 요청이 일반 알림으로 도착하며, 눌러서 열 수 있습니다. 설정을 열어 허용하거나, 나중에 설정 탭에서 처리하려면 건너뛰세요.</string>
+    <string name="fsi_dialog_skip_toast">설정에서 변경할 수 있습니다.</string>
+
     <!-- Permissions onboarding (#26 + #31). -->
     <string name="onboarding_title">앱 권한</string>
     <string name="onboarding_intro">Quick Share는 로컬 Wi-Fi 네트워크에서 근처 기기를 검색하고, 근처 Quick Share 수신기를 깨우는 짧은 Bluetooth Low Energy 신호를 송수신하며, 전송 상태를 알리기 위해 몇 가지 Android 권한이 필요합니다. 아래에서 각 권한이 어떻게 사용되는지 확인할 수 있습니다.</string>

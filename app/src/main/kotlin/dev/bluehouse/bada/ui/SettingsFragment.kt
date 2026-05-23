@@ -21,6 +21,7 @@ import dev.bluehouse.bada.MainActivity
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.battery.BatteryOptimizationOemHelper
 import dev.bluehouse.bada.bugreport.BugReportPreferences
+import dev.bluehouse.bada.consent.FullScreenIntentPermission
 import dev.bluehouse.bada.service.downloads.SaveLocationDisplayName
 import dev.bluehouse.bada.service.downloads.SaveLocationPreferences
 import dev.bluehouse.bada.service.receiver.AdvertisedDeviceNames
@@ -117,6 +118,10 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
             MainActivity.openBatterySettings(requireContext())
         }
 
+        view.findViewById<Button>(R.id.settings_fsi_open).setOnClickListener {
+            FullScreenIntentPermission.openSettings(requireContext())
+        }
+
         val bugReportSwitch = view.findViewById<SwitchCompat>(R.id.main_bug_report_switch)
         val bugReportPreferences = BugReportPreferences.from(requireContext())
         bugReportSwitch.isChecked = bugReportPreferences.isShakeToReportEnabled()
@@ -135,11 +140,17 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         refreshSaveLocationLabel()
         refreshAdvertisedNameSection()
         refreshBatteryStatus()
+        refreshFullScreenIntentSection()
         refreshBugReportSwitch()
     }
 
     override fun onResume() {
         super.onResume()
+        // Full-screen-intent access is toggled on a system Settings page
+        // that, like the battery overlay, can dismiss without fully
+        // stopping this activity on some OEM ROMs. Re-check on resume so
+        // the status line flips immediately after the user grants it.
+        refreshFullScreenIntentSection()
         // Re-check the battery-optimization exemption on every resume.
         // The platform's `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
         // dialog is a translucent overlay on some OEM ROMs (vivo
@@ -183,6 +194,30 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 getString(R.string.settings_battery_status_exempt)
             } else {
                 getString(R.string.settings_battery_status_not_exempt)
+            }
+    }
+
+    /**
+     * Show the full-screen-alerts card only on Android 14+ (where
+     * `USE_FULL_SCREEN_INTENT` is a grantable special access) and reflect
+     * the current grant state in its status line. On older platforms the
+     * permission is install-time, so the whole card stays hidden.
+     */
+    @Suppress("ReturnCount")
+    private fun refreshFullScreenIntentSection() {
+        val v = view ?: return
+        val card = v.findViewById<View>(R.id.settings_fsi_card) ?: return
+        if (!FullScreenIntentPermission.isApplicable()) {
+            card.visibility = View.GONE
+            return
+        }
+        card.visibility = View.VISIBLE
+        val status = v.findViewById<TextView>(R.id.settings_fsi_status) ?: return
+        status.text =
+            if (FullScreenIntentPermission.isGranted(requireContext())) {
+                getString(R.string.settings_fsi_status_granted)
+            } else {
+                getString(R.string.settings_fsi_status_not_granted)
             }
     }
 
