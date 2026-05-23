@@ -285,4 +285,20 @@
     <string name="consent_state_close">閉じる</string>
     <string name="consent_state_view_image_unavailable">この画像を開けるアプリがありません。</string>
 
+    <!-- Quick Settings tile. `qs_tile_label` ("Bada") is a proper noun
+         and intentionally NOT overridden here. -->
+    <string name="qs_tile_subtitle_on">検出可能</string>
+    <string name="qs_tile_subtitle_off">オフ</string>
+    <string name="qs_tile_content_desc_on">近くの端末から Bada を検出できます</string>
+    <string name="qs_tile_content_desc_off">Bada を検出できません</string>
+
+    <!-- Settings tab "全画面の受信通知" row + first-launch dialog (Android 14+). -->
+    <string name="settings_fsi_title">全画面の受信通知</string>
+    <string name="settings_fsi_subtitle">全画面通知を許可すると、Bada がバックグラウンドにあるときに受信要求が届いても、他のアプリの上やロック画面に PIN がすぐ表示されます。許可しなくても、通知をタップすれば PIN を確認できます。</string>
+    <string name="settings_fsi_status_granted">現在: 全画面通知が許可されています</string>
+    <string name="settings_fsi_status_not_granted">現在: 許可されていません。PIN 要求は通知として届きます</string>
+    <string name="settings_fsi_open">通知設定を開く</string>
+    <string name="fsi_dialog_body">Bada がバックグラウンドにあるときに受信要求が届くと、PIN 要求を画面の上に表示するために全画面通知の権限が必要です。許可しない場合、要求は通常の通知として届き、タップして開けます。設定を開いて許可するか、後で設定タブから対応するにはスキップしてください。</string>
+    <string name="fsi_dialog_skip_toast">設定から変更できます。</string>
+
 </resources>
