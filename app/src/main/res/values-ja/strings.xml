@@ -46,7 +46,7 @@
     <string name="credit_kevin_desc">マイルが足りません</string>
     <!-- YEONFEEL's tagline (Japanese rendering of the Korean source
          "아무도 알지 못하는 세상을 걷는 법"). -->
-    <string name="credit_yeonfeel_desc">誰も知らない世界の歩き方</string>
+    <string name="credit_yeonfeel_desc">だれもが識らない世界の歩き方</string>
     <!-- Credit screen, QA section. -->
     <string name="credit_chiyak_qa_desc">コンサートのチケットが買いたいです</string>
     <string name="credit_parami_desc">毎日感謝の祈りを捧げよう</string>
