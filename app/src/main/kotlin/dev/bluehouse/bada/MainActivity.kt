@@ -26,6 +26,8 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import dev.bluehouse.bada.battery.BatteryOptimizationOemHelper
 import dev.bluehouse.bada.battery.BatteryOptimizationPreferences
 import dev.bluehouse.bada.bugreport.BugReportFlowSupport
+import dev.bluehouse.bada.consent.FullScreenIntentPermission
+import dev.bluehouse.bada.consent.FullScreenIntentPreferences
 import dev.bluehouse.bada.onboarding.PermissionRequirements
 import dev.bluehouse.bada.onboarding.PermissionsOnboardingActivity
 import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
@@ -83,6 +85,14 @@ class MainActivity : AppCompatActivity() {
     private var batteryDialogShownThisSession: Boolean = false
 
     /**
+     * Session latch for the full-screen-intent first-launch prompt,
+     * mirroring [batteryDialogShownThisSession]. Survives configuration
+     * changes via `savedInstanceState`; a fresh cold start clears it and
+     * the dialog re-evaluates against [FullScreenIntentPreferences].
+     */
+    private var fsiDialogShownThisSession: Boolean = false
+
+    /**
      * Shake-to-report bug flow (#166). Lives at the activity level
      * because the support class registers a process-lifetime
      * SensorEventListener, hooks the activity's
@@ -106,6 +116,7 @@ class MainActivity : AppCompatActivity() {
         savedInstanceState?.let {
             onboardingLaunched = it.getBoolean(STATE_ONBOARDING_LAUNCHED, false)
             batteryDialogShownThisSession = it.getBoolean(STATE_BATTERY_DIALOG_SHOWN, false)
+            fsiDialogShownThisSession = it.getBoolean(STATE_FSI_DIALOG_SHOWN, false)
         }
 
         val toolbar = findViewById<MaterialToolbar>(R.id.main_toolbar)
@@ -239,6 +250,7 @@ class MainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
         outState.putBoolean(STATE_ONBOARDING_LAUNCHED, onboardingLaunched)
         outState.putBoolean(STATE_BATTERY_DIALOG_SHOWN, batteryDialogShownThisSession)
+        outState.putBoolean(STATE_FSI_DIALOG_SHOWN, fsiDialogShownThisSession)
     }
 
     override fun onStart() {
@@ -273,13 +285,15 @@ class MainActivity : AppCompatActivity() {
         // internally and gracefully no-op rather than crash.
         ReceiverForegroundService.start(this)
 
-        // Battery-exemption prompt (#47, dialog form). Replaces the
-        // banner that previously lived inline in SendReceiveFragment.
-        // The session latch keeps the dialog from re-raising on
-        // returns from CreditActivity / system Settings; the prefs
-        // dismissal keeps it from re-raising on cold starts after
-        // the user has chosen Skip or Open Settings once.
-        maybeShowBatteryOptimizationDialog()
+        // First-launch prompts (#47 battery, full-screen-intent). Show at
+        // most one per onStart so the user never faces stacked dialogs:
+        // the battery exemption takes priority, and the full-screen-intent
+        // prompt only raises when the battery one did not. Each is gated
+        // by its own session latch + persisted dismissal flag, so the
+        // skipped one still gets its turn on a later cold start.
+        if (!maybeShowBatteryOptimizationDialog()) {
+            maybeShowFullScreenIntentDialog()
+        }
     }
 
     /**
@@ -305,11 +319,11 @@ class MainActivity : AppCompatActivity() {
      *                             will re-prompt.
      */
     @Suppress("ReturnCount")
-    private fun maybeShowBatteryOptimizationDialog() {
-        if (batteryDialogShownThisSession) return
-        if (BatteryOptimizationPreferences.from(this).hasBeenDismissed()) return
-        if (BatteryOptimizationOemHelper.isAlreadyExempt(this)) return
-        if (BatteryOptimizationOemHelper.intentsForCurrentDevice(this).isEmpty()) return
+    private fun maybeShowBatteryOptimizationDialog(): Boolean {
+        if (batteryDialogShownThisSession) return false
+        if (BatteryOptimizationPreferences.from(this).hasBeenDismissed()) return false
+        if (BatteryOptimizationOemHelper.isAlreadyExempt(this)) return false
+        if (BatteryOptimizationOemHelper.intentsForCurrentDevice(this).isEmpty()) return false
 
         batteryDialogShownThisSession = true
 
@@ -327,12 +341,56 @@ class MainActivity : AppCompatActivity() {
                     .show()
             }.setCancelable(true)
             .show()
+        return true
+    }
+
+    /**
+     * Raise the full-screen-intent first-launch prompt at most once per
+     * MainActivity instance. Only relevant on Android 14+, where
+     * `USE_FULL_SCREEN_INTENT` became a special access that is
+     * auto-denied for non-calendar/alarm apps — without it the
+     * incoming-transfer consent prompt cannot pop full-screen while Bada
+     * is backgrounded and degrades to a heads-up notification.
+     *
+     * Gated identically to the battery prompt: session latch + persisted
+     * dismissal. Only shows when the access is actually requestable
+     * (API 34+ and not yet granted).
+     *
+     * Open Settings → route to the system page and mark dismissed.
+     * Skip → mark dismissed and Toast that it lives in the Settings tab.
+     *
+     * @return true when the dialog was shown this call.
+     */
+    @Suppress("ReturnCount")
+    private fun maybeShowFullScreenIntentDialog(): Boolean {
+        if (fsiDialogShownThisSession) return false
+        if (FullScreenIntentPreferences.from(this).hasBeenDismissed()) return false
+        if (!FullScreenIntentPermission.isRequestable(this)) return false
+
+        fsiDialogShownThisSession = true
+
+        AlertDialog
+            .Builder(this)
+            .setTitle(R.string.settings_fsi_title)
+            .setMessage(R.string.fsi_dialog_body)
+            .setPositiveButton(R.string.settings_fsi_open) { _, _ ->
+                FullScreenIntentPermission.openSettings(this)
+                FullScreenIntentPreferences.from(this).markDismissed()
+            }.setNegativeButton(R.string.main_battery_banner_skip) { _, _ ->
+                FullScreenIntentPreferences.from(this).markDismissed()
+                Toast
+                    .makeText(this, R.string.fsi_dialog_skip_toast, Toast.LENGTH_LONG)
+                    .show()
+            }.setCancelable(true)
+            .show()
+        return true
     }
 
     internal companion object {
         private const val TAG = "BadaMain"
         private const val STATE_ONBOARDING_LAUNCHED = "bada.main.onboardingLaunched"
         private const val STATE_BATTERY_DIALOG_SHOWN = "bada.main.batteryDialogShown"
+        private const val STATE_FSI_DIALOG_SHOWN = "bada.main.fsiDialogShown"
 
         // Bottom-nav icon scale on press (matches vivo native).
         private const val PRESSED_ICON_SCALE = 0.85f

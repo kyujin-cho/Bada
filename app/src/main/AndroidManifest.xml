@@ -333,6 +333,34 @@
             android:theme="@style/Theme.Bada.ConsentDialog"
             android:label="@string/consent_activity_label" />
 
+        <!--
+          Quick Settings tile: toggles the receiver's "always visible"
+          override straight from the system Quick Settings panel so the
+          user can make this device discoverable to nearby Quick Share
+          senders without opening the app.
+
+          Required by the platform: exported=true plus the
+          BIND_QUICK_SETTINGS_TILE permission (only system_server, which
+          binds the tile, holds it) and the QS_TILE action filter. The
+          icon must be a 24dp solid-white VectorDrawable.
+
+          TOGGLEABLE_TILE marks this as a two-state on/off switch for
+          accessibility and so the OS understands the tile's behavior.
+        -->
+        <service
+            android:name=".tile.BadaQuickShareTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_qs_bada_visible"
+            android:label="@string/qs_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
     </application>
 
 </manifest>

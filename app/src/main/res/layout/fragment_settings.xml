@@ -275,6 +275,62 @@
 
         </LinearLayout>
 
+        <!-- ============ Card: Full-screen transfer alerts (API 34+) ============
+             Hidden by default; SettingsFragment makes it visible only on
+             Android 14+, where USE_FULL_SCREEN_INTENT became a grantable
+             special access. Lets the consent PIN prompt pop full-screen
+             over other apps / the lock screen when a transfer arrives
+             while Bada is in the background. -->
+        <LinearLayout
+            android:id="@+id/settings_fsi_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/settings_card_background"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/settings_fsi_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_fsi_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/settings_fsi_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/settings_fsi_subtitle"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textColor="?android:attr/textColorSecondary" />
+
+            <TextView
+                android:id="@+id/settings_fsi_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/qr_url_background"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textIsSelectable="true"
+                tools:text="Currently: full-screen alerts not allowed" />
+
+            <Button
+                android:id="@+id/settings_fsi_open"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/settings_fsi_open" />
+
+        </LinearLayout>
+
         <!-- ============ Card 4: Shake-to-report bug ============ -->
         <!--
           Switch row: title and Switch share a horizontal row so

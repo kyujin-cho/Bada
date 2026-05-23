@@ -188,6 +188,22 @@
     <string name="settings_battery_status_not_exempt">Currently: not exempt — receiving may stop in the background</string>
     <string name="settings_battery_open">Open battery settings</string>
 
+    <!-- Settings tab "Full-screen transfer alerts" row + first-launch
+         dialog (Android 14+). On API 34+ USE_FULL_SCREEN_INTENT is a
+         special access that is auto-denied; without it the incoming
+         consent prompt (with the PIN) cannot pop full-screen over other
+         apps / the lock screen while Bada is in the background and
+         degrades to a heads-up notification. The row and dialog route
+         the user to the system page that grants it. The row is hidden
+         entirely below API 34, where the permission is install-time. -->
+    <string name="settings_fsi_title">Full-screen transfer alerts</string>
+    <string name="settings_fsi_subtitle">Allow full-screen notifications so an incoming transfer can show its PIN over other apps and on the lock screen when Bada is in the background. Without it, you still get a notification you can tap to see the PIN.</string>
+    <string name="settings_fsi_status_granted">Currently: full-screen alerts allowed</string>
+    <string name="settings_fsi_status_not_granted">Currently: not allowed — the PIN prompt arrives as a notification instead</string>
+    <string name="settings_fsi_open">Open notification settings</string>
+    <string name="fsi_dialog_body">When a transfer arrives while Bada is in the background, Android needs the full-screen notification permission to pop the PIN prompt over your screen. Without it, the prompt arrives as a regular notification you tap to open. Open settings to allow it, or Skip to handle it later from the Settings tab.</string>
+    <string name="fsi_dialog_skip_toast">You can change this from Settings.</string>
+
     <!-- Permissions onboarding (#26 + #31). -->
     <string name="onboarding_title">App permissions</string>
     <string name="onboarding_intro">Quick Share needs a small set of Android permissions to discover nearby devices over your local Wi-Fi network, to broadcast and listen for short Bluetooth Low Energy pulses that wake nearby Quick Share receivers, and to keep you informed about transfers. Each permission below explains exactly what it is used for.</string>
@@ -445,4 +461,19 @@
       survives string formatting unchanged.
     -->
     <string name="transfer_progress_percent">%1$d%%</string>
+
+    <!--
+      Quick Settings tile (BadaQuickShareTileService). Toggles the
+      receiver's "always visible" override from the system Quick Settings
+      panel. `qs_tile_label` is also the tile's manifest android:label
+      (shown in the Quick Settings edit tray) — keep it under ~18 chars
+      and untranslated (proper noun). The subtitle/state strings render
+      under the tile label on API 29+; the content descriptions back
+      TalkBack on every API level.
+    -->
+    <string name="qs_tile_label">Bada</string>
+    <string name="qs_tile_subtitle_on">Discoverable</string>
+    <string name="qs_tile_subtitle_off">Off</string>
+    <string name="qs_tile_content_desc_on">Bada is discoverable to nearby devices</string>
+    <string name="qs_tile_content_desc_off">Bada is not discoverable</string>
 </resources>
