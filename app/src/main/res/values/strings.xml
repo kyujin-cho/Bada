@@ -442,4 +442,19 @@
       survives string formatting unchanged.
     -->
     <string name="transfer_progress_percent">%1$d%%</string>
+
+    <!--
+      Quick Settings tile (BadaQuickShareTileService). Toggles the
+      receiver's "always visible" override from the system Quick Settings
+      panel. `qs_tile_label` is also the tile's manifest android:label
+      (shown in the Quick Settings edit tray) — keep it under ~18 chars
+      and untranslated (proper noun). The subtitle/state strings render
+      under the tile label on API 29+; the content descriptions back
+      TalkBack on every API level.
+    -->
+    <string name="qs_tile_label">Bada</string>
+    <string name="qs_tile_subtitle_on">Discoverable</string>
+    <string name="qs_tile_subtitle_off">Off</string>
+    <string name="qs_tile_content_desc_on">Bada is discoverable to nearby devices</string>
+    <string name="qs_tile_content_desc_off">Bada is not discoverable</string>
 </resources>
