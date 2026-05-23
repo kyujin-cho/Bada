@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Japanese (`ja`) string overrides. The Android resource system
+  picks this file for any device whose primary locale resolves to
+  Japanese (`ja`, `ja-rJP`); every other locale falls back to the
+  canonical English copy in `values/strings.xml`.
+
+  Pairing additions: when adding a new translatable string, add the
+  English copy in `values/strings.xml` first, then the Japanese
+  rendering here. Keep the resource name identical between both
+  files. Format placeholders (%1$s, %1$d, %%, etc.) and escaped
+  glyphs are preserved verbatim — translators only adjust the
+  surrounding prose.
+
+  A small set of strings is intentionally NOT translated, matching
+  the Korean (`values-ko`) policy:
+    * `app_name`, contributor display names, brand-y labels
+      ("Quick Share", "bada") — proper nouns.
+    * `credit_section_*` headers — render in English on Japanese
+      devices too (designed wordmarks, not translatable labels).
+    * `credit_teqhnikacross_desc` — the contributor explicitly
+      asked for "We all want to be loved" rendered as-is.
+    * `credit_yeonfeel_desc`, `credit_thanks_compact` — already
+      Korean in the canonical file (used as the default for every
+      non-overriding locale, including Japanese).
+-->
+<resources>
+
+    <!-- Bottom-navigation tab labels for MainActivity. -->
+    <string name="nav_send_receive_title">送受信</string>
+    <string name="nav_settings_title">設定</string>
+
+    <!-- Toolbar overflow menu / Credit screen. "クレジット" is the
+         established loanword for a contributor credit list. -->
+    <string name="menu_credit">クレジット</string>
+    <string name="credit_activity_label">クレジット</string>
+
+    <!-- `credit_section_developer`, `credit_section_polisher`,
+         `credit_section_qa`, `credit_section_thanks` are intentionally
+         NOT translated here (no override), matching the Korean policy:
+         the four credit section headers render in English on Japanese
+         devices too. -->
+
+    <!-- Credit screen, Developer section. -->
+    <string name="credit_kevin_desc">マイルが足りません</string>
+    <!-- Credit screen, QA section. -->
+    <string name="credit_chiyak_qa_desc">コンサートのチケットが買いたいです</string>
+    <string name="credit_parami_desc">毎日感謝の祈りを捧げよう</string>
+
+    <string name="credit_avatar_description">貢献者のアバター</string>
+
+    <!-- File-picker entry point on the Send/Receive tab. -->
+    <string name="main_send_files_button">ファイルを送信</string>
+    <string name="main_send_files_subtitle">この端末のファイル（写真、ドキュメントなど何でも）を選んで、近くの Quick Share 端末に送信します。</string>
+    <string name="main_send_files_pick_failed">この端末でファイル選択画面を開けませんでした。</string>
+    <string name="main_send_files_no_selection">ファイルが選択されていません。</string>
+
+    <!-- Idle state caption above the photo preview cards. -->
+    <string name="main_send_waiting">ファイルを待っています…</string>
+    <string name="main_send_preview_photo_description">最近のギャラリー写真のプレビュー</string>
+
+    <!-- Always-visible pill (#34) — ON / OFF labels, tooltip, and
+         caption. -->
+    <string name="main_always_visible_title">常に表示</string>
+    <string name="main_always_visible_subtitle">近くの送信側からの Bluetooth 信号がなくても、この端末を Wi-Fi 上で見つけられる状態に保ちます。省電力のためオフにすると、送信側がスキャンしている間だけ一時的に表示されます。</string>
+    <string name="main_always_visible_off_title">スキャン時に表示</string>
+    <string name="main_always_visible_caption_on">近くにいる誰でも自分にファイルを共有できます。</string>
+    <string name="main_always_visible_caption_off">近くの端末が Bluetooth でスキャンしている間だけ有効になります。</string>
+
+    <!-- Shake-to-report bug toggle. -->
+    <string name="main_bug_report_title">振ってバグを報告</string>
+    <string name="main_bug_report_subtitle">有効にすると、Bada を開いた状態で端末を振ったときに、最近の診断情報・端末の状態・スクリーンショットを zip にまとめて自分で保存できます。自動的にアップロードされることはありません。</string>
+
+    <!-- Save-location settings (#42). -->
+    <string name="main_save_location_title">受信ファイルの保存先</string>
+    <string name="main_save_location_subtitle">受信したファイルの保存場所を選択します。</string>
+    <string name="main_save_location_default">ダウンロード（既定）</string>
+    <string name="main_save_location_current">現在: %1$s</string>
+    <string name="main_save_location_pick">フォルダを選択…</string>
+    <string name="main_save_location_clear">既定に戻す</string>
+    <string name="main_save_location_pick_failed">そのフォルダを保存できませんでした。別の場所を選択してください。</string>
+
+    <!-- Advertised Quick Share device name (#141). -->
+    <string name="main_advertised_name_title">Quick Share 表示名</string>
+    <string name="main_advertised_name_subtitle">近くの Quick Share 端末がこの端末を見つけたときに表示される名前です。空のままにすると Android の端末名が使われます。名前が長すぎる場合は、他の端末で正しく表示できるよう自動的に短縮されます。</string>
+    <string name="main_advertised_name_hint">端末名</string>
+    <string name="main_advertised_name_current">現在の表示名: %1$s</string>
+    <string name="main_advertised_name_save">名前を保存</string>
+    <string name="main_advertised_name_reset">既定値を使用</string>
+
+    <!-- Folder-send entry point (#38). -->
+    <string name="main_send_folder_button">フォルダを送信</string>
+    <string name="main_send_folder_subtitle">この端末のフォルダを選んで、近くの Quick Share 端末に送信します。サブフォルダとフォルダ構造は受信側でそのまま保持されます。</string>
+    <string name="send_folder_subtitle_walking">フォルダの内容を読み込み中…</string>
+    <string name="send_folder_empty">選択したフォルダにファイルがありません。ファイルを 1 つ以上追加してからもう一度お試しください。</string>
+    <string name="send_folder_walk_failed">フォルダの内容を読み込めませんでした。別のフォルダを選んでもう一度お試しください。</string>
+
+    <!-- Legacy package migration banner (#145). -->
+    <string name="main_legacy_wvmg_banner_title">以前のアプリを削除してください</string>
+    <string name="main_legacy_wvmg_banner_body">この端末にはこのアプリの古いバージョンがまだインストールされています。2 つのインストールが Bluetooth 上で干渉し、Galaxy などの標準 Quick Share 送信側がこの端末に接続できなくなります。古いバージョンを削除するには「削除」をタップしてください。</string>
+    <string name="main_legacy_wvmg_banner_uninstall">古いバージョンを削除</string>
+    <string name="main_legacy_wvmg_banner_unavailable">%1$s の削除画面を開けませんでした。システム設定から手動で削除してください。</string>
+
+    <!-- Battery-optimization banner (#47). -->
+    <string name="main_battery_banner_title">バックグラウンド動作を許可</string>
+    <string name="main_battery_banner_body">この端末では、このアプリをバッテリー最適化の対象外にしないと、バックグラウンドで Quick Share ファイルを受信できないことがあります。「設定を開く」をタップして対象外に追加するか、アプリを開いているときだけ Quick Share を使う場合は「スキップ」を選んでください。</string>
+    <string name="main_battery_banner_open">設定を開く</string>
+    <string name="main_battery_banner_skip">スキップ</string>
+    <string name="main_battery_banner_unavailable">この端末で適切な設定画面が見つかりませんでした。システム設定からバッテリー最適化を手動で管理できます。</string>
+    <string name="dialog_battery_skip_toast">設定から変更できます。</string>
+
+    <!-- Settings tab "Background activity" row. -->
+    <string name="settings_battery_title">バックグラウンド動作</string>
+    <string name="settings_battery_subtitle">画面がオフのときでも Quick Share ファイルを受信し続けられるよう、このアプリをバッテリー最適化の対象外にします。</string>
+    <string name="settings_battery_status_exempt">現在: バッテリー最適化の対象外</string>
+    <string name="settings_battery_status_not_exempt">現在: 対象外ではありません。バックグラウンドで受信が停止することがあります</string>
+    <string name="settings_battery_open">バッテリー設定を開く</string>
+
+    <!-- Permissions onboarding (#26 + #31). -->
+    <string name="onboarding_title">アプリの権限</string>
+    <string name="onboarding_intro">Quick Share では、ローカル Wi-Fi ネットワーク上で近くの端末を見つけ、近くの Quick Share 受信側を起こす短い Bluetooth Low Energy 信号を送受信し、転送状況をお知らせするために、いくつかの Android 権限が必要です。各権限が何に使われるかは以下で説明します。</string>
+    <string name="onboarding_empty_state">この端末では Phase 1 に必要なランタイム権限はありません。準備は完了しています。</string>
+    <string name="onboarding_grant_button">権限を許可</string>
+    <string name="onboarding_open_settings">アプリ設定を開く</string>
+    <string name="onboarding_continue">権限なしで続行</string>
+    <string name="onboarding_continue_partial">一部の権限なしで続行</string>
+    <string name="onboarding_continue_degraded">制限モードで続行</string>
+
+    <!-- Same-Wi-Fi-network onboarding card (#85). -->
+    <string name="onboarding_network_card_title">近くの端末を見つける条件</string>
+    <string name="onboarding_network_card_body">共有 Wi-Fi は今も Quick Share の基本経路で、特に受信時に使われます。近くの標準 Quick Share 端末に送信するとき、両端末が同じ LAN 上にない場合は、Bada は Bluetooth 補助によるブートストラップも使えます。この経路のために Bluetooth はオンのままにしてください。</string>
+    <string name="onboarding_network_card_dismiss">OK</string>
+
+    <!-- NEARBY_WIFI_DEVICES (API 33+). -->
+    <string name="permission_nearby_wifi_title">近くの Wi-Fi 端末</string>
+    <string name="permission_nearby_wifi_rationale">同じ Wi-Fi ネットワーク上の他の Quick Share 端末を見つけて広告するために必要です。Quick Share がこの権限であなたの物理的な位置を特定することはありません。</string>
+
+    <!-- POST_NOTIFICATIONS (API 33+). -->
+    <string name="permission_notifications_title">通知</string>
+    <string name="permission_notifications_rationale">フォアグラウンド転送サービスの表示や、受信ファイルのお知らせに使われます。この権限がなくても転送は動作しますが、通知は届きません。</string>
+
+    <!-- BLUETOOTH_ADVERTISE (API 31+, #31 / #121). -->
+    <string name="permission_bluetooth_advertise_title">Bluetooth 広告</string>
+    <string name="permission_bluetooth_advertise_rationale">2 種類の Bluetooth Low Energy 信号を送るために使われます。送信を開始したときに近くの受信側を起こす信号と、他の端末の Quick Share 選択画面にこの端末を表示させる信号です。この権限がなくても転送は動作しますが、接続が始まるまでは一般的なラベルで表示されることがあります。</string>
+
+    <!-- BLUETOOTH_SCAN (API 31+, #31). -->
+    <string name="permission_bluetooth_scan_title">近くの Bluetooth 端末</string>
+    <string name="permission_bluetooth_scan_rationale">近くの Quick Share 送信側を検知し、必要なときだけ受信側を起こすために使われます。Quick Share がこの権限であなたの物理的な位置を特定することはありません。</string>
+
+    <!-- BLUETOOTH_CONNECT (API 31+). -->
+    <string name="permission_bluetooth_connect_title">Bluetooth 接続</string>
+    <string name="permission_bluetooth_connect_rationale">Bluetooth Low Energy の直接リンクを開き、近くの Quick Share 検索のために Bluetooth アダプターの状態を読み取るために使われます。転送には引き続き Quick Share の暗号化が使われます。</string>
+
+    <!-- ACCESS_FINE_LOCATION (legacy nearby-device discovery). -->
+    <string name="permission_legacy_nearby_location_title">近くの端末の位置情報アクセス</string>
+    <string name="permission_legacy_nearby_location_rationale">Android 11 以前では、Bluetooth Low Energy のスキャン結果は位置情報権限を通じて渡されます。Bada はこの権限を近くの Quick Share 端末を見つけるためだけに使い、あなたの物理的な位置は使いません。</string>
+
+    <!-- Permission status labels. -->
+    <string name="permission_status_granted">許可済み</string>
+    <string name="permission_status_denied">必須 - 未許可</string>
+    <string name="permission_status_optional_denied">任意 - 未許可（制限モード）</string>
+    <string name="permission_status_optional_denied_ble">任意 - 未許可（mDNS のみのモード）</string>
+
+    <!-- Share-intent (#24) sender flow. -->
+    <string name="send_activity_label">Quick Share で送信</string>
+    <string name="send_subtitle_discovering">近くの端末を検索中…</string>
+    <string name="send_subtitle_pick_peer">端末をタップして送信します。</string>
+    <string name="send_subtitle_no_usable_route">近くの端末は見つかりましたが、まだ利用できる転送経路がありません。</string>
+    <string name="send_empty_state">近くに端末がありません。受信側で Quick Share が開いているか確認してください。共有 Wi-Fi が基本経路です。両端末が同じ LAN 上にない場合は、近くのブートストラップのために Bluetooth をオンにしておいてください。</string>
+
+    <!-- Same-Wi-Fi-network hint card (#85). -->
+    <string name="send_network_hint_title">近くの端末を見つける条件</string>
+    <string name="send_network_hint_body">共有 Wi-Fi が基本経路です。一部の受信側は、利用できる転送経路を公開する前に BLE から名前だけ分かることがあります。両端末を同じ Wi-Fi ネットワークに接続するか、利用できるブートストラップ経路のために Bluetooth を使える状態にしておいてください。</string>
+    <string name="send_network_hint_dismiss">OK</string>
+    <!-- Picker-state help link + bottom sheet content. -->
+    <string name="send_help_link">端末が見つかりませんか？</string>
+    <string name="send_help_sheet_title">端末が見つかりませんか？</string>
+    <string name="send_help_sheet_visibility_title">受信側のモードを確認</string>
+    <string name="send_help_sheet_visibility_body">受信側の端末で、切り替えが「受信の準備完了」になっているか確認してください。このモードでは、近くにいる誰でもファイルを共有できます。すでにこのモードなのにここに表示されない場合は、両方の端末で Bada を完全に終了してから開き直してみてください。</string>
+    <string name="send_help_sheet_qr_title">または QR コードで共有</string>
+    <string name="send_help_sheet_qr_body">それでも受信側が表示されない場合は、このカードの右上にある QR コードボタンをタップしてください。受信側にコードをスキャンしてもらうか、リンクを開いてもらうと転送を開始できます。</string>
+    <string name="send_help_sheet_close">OK</string>
+
+    <string name="send_show_qr">QR を表示</string>
+    <string name="send_cancel">キャンセル</string>
+    <string name="send_done">完了</string>
+    <string name="send_unsupported">この共有は送信できませんでした。インテントにファイルやテキストが含まれていません。</string>
+
+    <!-- Payload summary templates. -->
+    <string name="send_payload_text">テキストを共有中</string>
+    <string name="send_payload_single_file">ファイル 1 件</string>
+    <string name="send_payload_single_file_with_size">ファイル 1 件 • %1$s</string>
+    <string name="send_payload_multiple_files">ファイル %1$d 件</string>
+    <string name="send_payload_multiple_files_with_size">ファイル %1$d 件 • %2$s</string>
+
+    <!-- Connection-phase labels. -->
+    <string name="send_phase_connecting">接続中…</string>
+    <string name="send_phase_handshaking">安全にペアリング中…</string>
+    <string name="send_phase_awaiting_acceptance">受信側の承諾を待っています</string>
+    <string name="send_phase_sending">送信中</string>
+    <string name="send_phase_completed">送信が完了しました</string>
+    <string name="send_phase_rejected">受信側が転送を拒否しました</string>
+    <!-- Named-receiver variant of the rejection terminal. -->
+    <string name="send_phase_rejected_by_named">%1$s がファイル転送を拒否しました</string>
+    <string name="send_phase_cancelled">転送がキャンセルされました</string>
+    <string name="send_phase_failed">転送に失敗しました</string>
+
+    <!-- Status-panel messages. -->
+    <string name="send_status_target">送信先: %1$s</string>
+    <string name="send_status_pin_prompt">このコードが受信側の画面と一致するか確認してください。</string>
+    <string name="send_status_failure_reason">理由: %1$s</string>
+    <string name="send_status_progress">%1$s / %2$s</string>
+    <string name="send_status_retrying_route">%1$s で再試行中…</string>
+
+    <!-- Rate + ETA suffixes. -->
+    <string name="send_status_rate">%1$s/秒</string>
+    <string name="send_status_eta">残り %1$s</string>
+    <string name="send_status_duration_few_seconds">1 秒未満</string>
+    <string name="send_status_duration_seconds">%1$d 秒</string>
+    <string name="send_status_duration_about_minutes">約 %1$d 分</string>
+    <string name="send_status_duration_about_hours">約 %1$d 時間</string>
+
+    <!-- Shake-to-report bug-report flow (#162). -->
+    <string name="bug_report_confirm_title">バグを報告しますか？</string>
+    <string name="bug_report_confirm_body">Bada は最近のアプリの診断情報・端末の状態・スクリーンショットを zip にまとめ、保存先を選ぶまで端末内にのみ保管します。</string>
+    <string name="bug_report_confirm_yes">はい</string>
+    <string name="bug_report_confirm_no">いいえ</string>
+    <string name="bug_report_include_bssid_label">現在の Wi-Fi BSSID を含める（識別性が高くなります）</string>
+    <string name="bug_report_collecting">バグ報告を準備中…</string>
+    <string name="bug_report_collect_failed">バグ報告を準備できませんでした: %1$s</string>
+    <string name="bug_report_save_cancelled">バグ報告の保存がキャンセルされました。</string>
+    <string name="bug_report_save_failed">バグ報告を保存できませんでした: %1$s</string>
+    <string name="bug_report_saved_title">バグ報告を保存しました</string>
+    <string name="bug_report_saved_body">バグ報告の zip を保存しました。GitHub を開いて、新しいイシューに手動で添付できます。</string>
+    <string name="bug_report_saved_open_issue">GitHub のイシューを開く</string>
+    <string name="bug_report_saved_dismiss">閉じる</string>
+    <string name="bug_report_issue_chooser">アプリで開く</string>
+    <string name="bug_report_issue_unavailable">GitHub を開けるブラウザや対応アプリがありません。</string>
+
+    <!-- QR-code (#20 + #84) screen. -->
+    <string name="show_qr_title">QR コードとリンク</string>
+    <string name="show_qr_intro">受け取る相手に QR コードのスキャンか、リンクを開くようお願いしてください。QR コードやリンクを持っている人は、あなたの追加の承認なしにファイルを受け取れます。</string>
+    <string name="show_qr_image_description">Quick Share ペアリング URL の QR コード</string>
+    <string name="show_qr_done">完了</string>
+    <string name="show_qr_close">閉じる</string>
+    <string name="show_qr_copy_link">リンクをコピー</string>
+    <string name="show_qr_link_copied">リンクをコピーしました</string>
+
+    <!-- Consent trampoline (#22). -->
+    <string name="consent_activity_label">受信リクエスト</string>
+    <!-- Short header above the 4-digit confirmation PIN. -->
+    <string name="consent_pin_label">PIN</string>
+    <string name="consent_files_label">受信するファイル</string>
+    <string name="consent_button_accept">承諾</string>
+    <string name="consent_button_reject">拒否</string>
+    <string name="consent_unknown_sender">近くの端末が共有しようとしています</string>
+    <!-- Type-specific consent title templates. %1$s is the sender
+         device name. -->
+    <string name="consent_title_with_name">%1$s が共有しようとしています</string>
+    <string name="consent_title_with_name_images">%1$s が画像を共有しようとしています</string>
+    <string name="consent_title_with_name_videos">%1$s が動画を共有しようとしています</string>
+    <string name="consent_title_with_name_files">%1$s がファイルを共有しようとしています</string>
+    <string name="consent_summary_n_items">%1$d 件（%2$s）</string>
+    <string name="consent_summary_no_items">項目なし</string>
+    <string name="consent_summary_folder">フォルダ \"%1$s\"（ファイル %2$d 件、%3$s）</string>
+    <!-- Per-item rows: name on one line, size on the next. -->
+    <string name="consent_file_line">%1$s\n%2$s</string>
+    <string name="consent_text_line_with_title">%1$s\n%2$s</string>
+    <string name="consent_more_items">…他 %1$d 件</string>
+    <string name="consent_dismissed">転送は保留中ではなくなりました</string>
+
+    <!-- Post-Accept consent flow states. -->
+    <string name="consent_state_receiving">受信中…</string>
+    <string name="consent_state_progress">%1$s / %2$s</string>
+    <string name="consent_state_completed">転送が完了しました</string>
+    <string name="consent_state_completed_one">ファイル 1 件を受信しました</string>
+    <string name="consent_state_completed_many">ファイル %1$d 件を受信しました</string>
+    <string name="consent_state_failed">転送に失敗しました</string>
+    <string name="consent_state_cancelled">転送がキャンセルされました</string>
+    <string name="consent_state_view_image">画像を表示</string>
+    <string name="consent_state_close">閉じる</string>
+    <string name="consent_state_view_image_unavailable">この画像を開けるアプリがありません。</string>
+
+</resources>
