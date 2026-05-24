@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.security.PrivateKey
 import java.security.SecureRandom
 
 /**
@@ -128,10 +129,13 @@ import java.security.SecureRandom
  *   [dev.bluehouse.bada.protocol.endpoint.EndpointInfo] bytes
  *   describing the sender. Default: empty (sender does not advertise a
  *   name; the receiver shows a generic "Someone wants to share").
- * @param qrCodeHandshakeData Optional QR-handshake bytes
- *   ([dev.bluehouse.bada.protocol.qr]) used when the user
- *   reached the sender via a scanned QR code. When non-null, attached
- *   to the outgoing `PairedKeyEncryptionFrame.qr_code_handshake_data`.
+ * @param qrSigningKey Optional EC P-256 private key matching the public
+ *   key published in a QR code/link this sender showed
+ *   ([dev.bluehouse.bada.protocol.qr]). When non-null, the driver signs
+ *   the UKEY2 `authString` with it (see [QrHandshakeSigner]) and attaches
+ *   the IEEE-P1363 signature to the outgoing
+ *   `PairedKeyEncryptionFrame.qr_code_handshake_data`, proving to the
+ *   QR-bonded receiver that this sender owns the QR keypair.
  * @param connectTimeoutMillis TCP connect timeout. Default 5 seconds —
  *   matches NearDrop's default and is generous enough for Wi-Fi LAN
  *   without making "host is down" cases linger.
@@ -172,7 +176,7 @@ public class OutboundConnection private constructor(
     private val transport: ConnectedTransport?,
     private val endpointId: String = generateEndpointId(),
     private val endpointInfo: ByteArray = ByteArray(0),
-    private val qrCodeHandshakeData: ByteArray? = null,
+    private val qrSigningKey: PrivateKey? = null,
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
     private val initialHandshakeTimeoutMillis: Long = DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
     private val useNearbyMultiplexInitialTransport: Boolean = false,
@@ -194,7 +198,7 @@ public class OutboundConnection private constructor(
         port: Int,
         endpointId: String = generateEndpointId(),
         endpointInfo: ByteArray = ByteArray(0),
-        qrCodeHandshakeData: ByteArray? = null,
+        qrSigningKey: PrivateKey? = null,
         connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
         initialHandshakeTimeoutMillis: Long = DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
         useNearbyMultiplexInitialTransport: Boolean = false,
@@ -208,7 +212,7 @@ public class OutboundConnection private constructor(
         transport = null,
         endpointId = endpointId,
         endpointInfo = endpointInfo,
-        qrCodeHandshakeData = qrCodeHandshakeData,
+        qrSigningKey = qrSigningKey,
         connectTimeoutMillis = connectTimeoutMillis,
         initialHandshakeTimeoutMillis = initialHandshakeTimeoutMillis,
         useNearbyMultiplexInitialTransport = useNearbyMultiplexInitialTransport,
@@ -222,7 +226,7 @@ public class OutboundConnection private constructor(
         transport: ConnectedTransport,
         endpointId: String = generateEndpointId(),
         endpointInfo: ByteArray = ByteArray(0),
-        qrCodeHandshakeData: ByteArray? = null,
+        qrSigningKey: PrivateKey? = null,
         connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
         initialHandshakeTimeoutMillis: Long = DEFAULT_INITIAL_HANDSHAKE_TIMEOUT_MILLIS,
         remoteAcceptanceTimeoutMillis: Long = DEFAULT_REMOTE_ACCEPTANCE_TIMEOUT_MILLIS,
@@ -235,7 +239,7 @@ public class OutboundConnection private constructor(
         transport = transport,
         endpointId = endpointId,
         endpointInfo = endpointInfo,
-        qrCodeHandshakeData = qrCodeHandshakeData,
+        qrSigningKey = qrSigningKey,
         connectTimeoutMillis = connectTimeoutMillis,
         initialHandshakeTimeoutMillis = initialHandshakeTimeoutMillis,
         useNearbyMultiplexInitialTransport = false,
@@ -384,7 +388,7 @@ public class OutboundConnection private constructor(
                 mutableState = mutableState,
                 endpointId = endpointId,
                 endpointInfo = endpointInfo,
-                qrCodeHandshakeData = qrCodeHandshakeData,
+                qrSigningKey = qrSigningKey,
                 files = files,
                 mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,

@@ -26,12 +26,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog as Log
 
+@Suppress("LongParameterList") // Every collaborator (UI, lifecycle, callbacks, sender id) is needed.
 internal class SendPeerPickerController(
     private val context: Context,
     private val binding: ActivitySendBinding,
     private val lifecycle: Lifecycle,
     private val scope: CoroutineScope,
     private val onPeerSelected: (NearbyPeer) -> Unit,
+    /**
+     * Invoked after every discovery update with the current resolved-peer
+     * snapshot. The QR-code/link share path (#28) uses it to match peers
+     * against the active QR session and auto-connect; the normal picker
+     * flow ignores it. Default no-op so non-QR callers need not supply it.
+     */
+    private val onPeersResolved: (List<NearbyPeer>) -> Unit = {},
     private val logDiagnostic: (String) -> Unit,
     /**
      * Sender's 4-byte endpoint slug. Threaded into the BLE FastInitiation
@@ -221,6 +229,7 @@ internal class SendPeerPickerController(
             }
         }
         renderPeerList()
+        onPeersResolved(peers.toList())
     }
 
     private fun upsertResolvedPeer(incoming: NearbyPeer) {

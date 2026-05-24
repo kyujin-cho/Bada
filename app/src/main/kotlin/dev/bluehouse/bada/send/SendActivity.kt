@@ -21,6 +21,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.transition.ChangeBounds
 import android.transition.Transition
 import android.transition.TransitionManager
@@ -52,7 +53,11 @@ import dev.bluehouse.bada.protocol.connection.OutboundConnectionState
 import dev.bluehouse.bada.protocol.connection.OutboundResult
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
+import dev.bluehouse.bada.protocol.qr.DerivedQrKeys
+import dev.bluehouse.bada.protocol.qr.GeneratedQrKeyData
 import dev.bluehouse.bada.protocol.qr.QrKeyData
+import dev.bluehouse.bada.protocol.qr.QrKeyDerivation
+import dev.bluehouse.bada.protocol.qr.QrTlvMatcher
 import dev.bluehouse.bada.protocol.qr.QrUrl
 import dev.bluehouse.bada.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.bada.service.receiver.OutboundSessionActiveHolder
@@ -60,6 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.PrivateKey
 import java.security.SecureRandom
 import kotlin.math.min
 
@@ -124,6 +130,32 @@ public class SendActivity : AppCompatActivity() {
      * through the picker→terminal→picker bounce.
      */
     private var pendingFallback: Boolean = false
+
+    /**
+     * QR-code/link share session (#28, direction B). While the QR panel
+     * is showing, [qrSession] holds the freshly generated keypair whose
+     * public X coordinate is published in the QR/link, and [qrDerivedKeys]
+     * the HKDF advertising token + name-encryption key derived from it.
+     * The discovery callback matches each resolved peer's EndpointInfo
+     * against [qrDerivedKeys] via [dev.bluehouse.bada.protocol.qr.QrTlvMatcher];
+     * on a match it auto-connects to that peer. [qrSigningKey] is the
+     * private half threaded into the outbound connection so it can sign
+     * the UKEY2 authString for `qr_code_handshake_data`. [qrMatchConnectStarted]
+     * latches the auto-connect to fire at most once per QR session.
+     */
+    private var qrSession: GeneratedQrKeyData? = null
+    private var qrDerivedKeys: DerivedQrKeys? = null
+    private var qrSigningKey: PrivateKey? = null
+    private var qrMatchConnectStarted: Boolean = false
+
+    /**
+     * `SystemClock.elapsedRealtime()` of the first QR match seen with only
+     * a BLE route (no Wi-Fi LAN yet), or 0 if none. Used by [chooseQrMatch]
+     * to wait briefly for the QR endpoint's Wi-Fi LAN route to surface
+     * before falling back to a BLE connection.
+     */
+    private var qrFirstBleOnlyMatchAtMs: Long = 0L
+
     private lateinit var senderEndpointId: String
     private lateinit var senderEndpointInfo: EndpointInfo
     private lateinit var senderEndpointInfoBytes: ByteArray
@@ -173,6 +205,7 @@ public class SendActivity : AppCompatActivity() {
                 lifecycle = lifecycle,
                 scope = lifecycleScope,
                 onPeerSelected = ::onPeerSelected,
+                onPeersResolved = ::onQrPeersResolved,
                 logDiagnostic = ::logOutboundDiagnostic,
                 senderEndpointId = senderEndpointId,
             )
@@ -282,6 +315,7 @@ public class SendActivity : AppCompatActivity() {
                     endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
                     useNearbyMultiplexInitialTransport = useNearbyMultiplexInitialTransport,
+                    qrSigningKey = qrSigningKey,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
                 )
@@ -299,6 +333,7 @@ public class SendActivity : AppCompatActivity() {
                     transport = transport,
                     endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
+                    qrSigningKey = qrSigningKey,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
                 )
@@ -316,6 +351,7 @@ public class SendActivity : AppCompatActivity() {
                     transport = transport,
                     endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
+                    qrSigningKey = qrSigningKey,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
                 )
@@ -333,6 +369,7 @@ public class SendActivity : AppCompatActivity() {
                     transport = transport,
                     endpointId = senderEndpointId,
                     endpointInfo = endpointInfo,
+                    qrSigningKey = qrSigningKey,
                     mediumRegistry = mediumRegistry,
                     logger = ::logOutboundWireMessage,
                 )
@@ -370,6 +407,69 @@ public class SendActivity : AppCompatActivity() {
     // -----------------------------------------------------------------
     // Outbound connection
     // -----------------------------------------------------------------
+
+    /**
+     * Discovery callback for the QR-code/link share path (#28, direction
+     * B). While a QR session is active, test each resolved peer's
+     * EndpointInfo against the QR-derived keys: the device that opened our
+     * QR/link is now advertising a type=1 TLV carrying the advertising
+     * token (visible mode) or the AES-GCM-encrypted device name (hidden
+     * mode). On the first match, latch [qrMatchConnectStarted], stash the
+     * QR private key for `qr_code_handshake_data`, dismiss the QR panel,
+     * and auto-connect to that peer.
+     */
+    private fun onQrPeersResolved(resolved: List<NearbyPeer>) {
+        val keys = qrDerivedKeys
+        if (keys == null || qrMatchConnectStarted) return
+        val matches =
+            resolved.mapNotNull { peer ->
+                peer.endpointInfo?.let { info ->
+                    val result = QrTlvMatcher.matches(info, keys)
+                    if (result is QrTlvMatcher.QrMatchResult.NoMatch) null else peer to result
+                }
+            }
+        val chosen = chooseQrMatch(matches) ?: return
+        qrMatchConnectStarted = true
+        qrSigningKey = qrSession?.keyPair?.private
+        val (peer, result) = chosen
+        logOutboundDiagnostic(
+            "qr: connecting matched peer=${peer.stableId} result=${result::class.simpleName} " +
+                "route=${if (peer.lanEndpoint != null) "wifi-lan" else "ble"}",
+        )
+        dismissQrPanelForConnect()
+        onPeerSelected(peer)
+    }
+
+    /**
+     * Pick which QR-matched peer to connect to. Stock Quick Share's QR
+     * receiver first advertises the QR token over BLE only, then upgrades
+     * the same endpoint to also carry a Wi-Fi LAN route. Wi-Fi LAN is far
+     * more reliable than the BLE bootstrap, so prefer a LAN-capable match;
+     * if only BLE-only matches exist, wait up to [QR_LAN_WAIT_GRACE_MS] for
+     * the LAN route to surface before falling back to BLE.
+     */
+    @Suppress("ReturnCount")
+    private fun chooseQrMatch(
+        matches: List<Pair<NearbyPeer, QrTlvMatcher.QrMatchResult>>,
+    ): Pair<NearbyPeer, QrTlvMatcher.QrMatchResult>? {
+        if (matches.isEmpty()) return null
+        matches.firstOrNull { it.first.lanEndpoint != null }?.let { return it }
+        val now = SystemClock.elapsedRealtime()
+        if (qrFirstBleOnlyMatchAtMs == 0L) qrFirstBleOnlyMatchAtMs = now
+        return if (now - qrFirstBleOnlyMatchAtMs >= QR_LAN_WAIT_GRACE_MS) matches.first() else null
+    }
+
+    /**
+     * Instantly tear down the QR panel (no exit animation) so the
+     * connection status panel can take over when a QR match auto-connects.
+     */
+    private fun dismissQrPanelForConnect() {
+        binding.sendQrPanel.animate().cancel()
+        binding.sendQrScroll.visibility = View.GONE
+        binding.sendPickerContent.alpha = 1f
+        binding.sendPickerContent.visibility = View.VISIBLE
+        binding.sendShowQrButton.visibility = View.GONE
+    }
 
     private fun onPeerSelected(peer: NearbyPeer) {
         val plan = SendBootstrapPlan.resolve(peer = peer)
@@ -1195,6 +1295,13 @@ public class SendActivity : AppCompatActivity() {
         if (binding.sendQrScroll.isVisible) return
 
         val generated = QrKeyData.generate()
+        // Persist the keypair for this QR session: the discovery callback
+        // matches resolved peers against the derived keys and the matched
+        // connection signs the UKEY2 authString with the private half.
+        qrSession = generated
+        qrDerivedKeys = QrKeyDerivation.deriveKeys(generated.qrKeyData)
+        qrMatchConnectStarted = false
+        qrFirstBleOnlyMatchAtMs = 0L
         val url = QrUrl.build(generated.qrKeyData)
         binding.sendQrUrl.text = url
 
@@ -1271,6 +1378,10 @@ public class SendActivity : AppCompatActivity() {
      * single continuous shrink.
      */
     private fun onQrDoneClicked() {
+        // User dismissed the QR panel without a match — end the QR session
+        // so the discovery callback stops auto-matching resolved peers.
+        qrDerivedKeys = null
+        qrSession = null
         val panel = binding.sendQrPanel
         panel
             .animate()
@@ -1463,6 +1574,14 @@ public class SendActivity : AppCompatActivity() {
 
         private const val OUTBOUND_TAG: String = "BadaOutbound"
         private const val PERCENT_SCALE = 100
+
+        /**
+         * How long to wait for a QR-matched peer's Wi-Fi LAN route to
+         * surface before falling back to a BLE connection (#28). Stock
+         * Quick Share advertises the QR token over BLE first and upgrades
+         * the same endpoint to Wi-Fi LAN a beat later.
+         */
+        private const val QR_LAN_WAIT_GRACE_MS: Long = 5000L
 
         // In-card QR panel animation tunables. Entry uses an
         // overshoot easing so the panel briefly scales past 1.0 before

@@ -18,6 +18,7 @@ import dev.bluehouse.bada.protocol.medium.MediumRegistry
 import dev.bluehouse.bada.protocol.payload.PayloadAssembler
 import dev.bluehouse.bada.protocol.payload.PayloadEvent
 import dev.bluehouse.bada.protocol.payload.PayloadTransferEncoder
+import dev.bluehouse.bada.protocol.qr.QrHandshakeSigner
 import dev.bluehouse.bada.protocol.sharing.OutboundSharingFsm
 import dev.bluehouse.bada.protocol.sharing.OutboundSharingState
 import dev.bluehouse.bada.protocol.sharing.PairedKeyEncryptionFrame
@@ -45,6 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
+import java.security.PrivateKey
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -76,7 +78,7 @@ internal class OutboundConnectionDriver(
     private val mutableState: MutableStateFlow<OutboundConnectionState>,
     private val endpointId: String,
     private val endpointInfo: ByteArray,
-    private val qrCodeHandshakeData: ByteArray?,
+    private val qrSigningKey: PrivateKey?,
     private val files: List<FileSource>,
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
@@ -102,6 +104,15 @@ internal class OutboundConnectionDriver(
     private var framedConnection: FramedConnection? = null
     private var secureChannel: SecureChannel? = null
     private var fsm: OutboundSharingFsm? = null
+
+    /**
+     * `qr_code_handshake_data` for the outgoing PairedKeyEncryption frame:
+     * an IEEE-P1363 ECDSA signature of the UKEY2 `authString` made with
+     * [qrSigningKey]. Computed once the session keys are derived (the
+     * authString is not known until then) and consumed by
+     * [rewriteForQrIfNeeded]. Stays null when this is not a QR-bonded send.
+     */
+    private var qrCodeHandshakeData: ByteArray? = null
 
     /** 4-digit confirmation PIN derived from UKEY2 `authString`. */
     private var pin: String = ""
@@ -177,6 +188,15 @@ internal class OutboundConnectionDriver(
             )
         pin = PinDerivation.deriveFourDigitPin(sessionKeys.authString)
         logger("step 5: D2D keys derived, PIN=$pin")
+
+        // QR-bonded send: sign the UKEY2 authString with the QR keypair's
+        // private key now that the authString exists. The signature rides
+        // the PairedKeyEncryption frame via rewriteForQrIfNeeded, proving
+        // to the QR receiver that this sender owns the published QR key.
+        qrSigningKey?.let { key ->
+            qrCodeHandshakeData = QrHandshakeSigner.sign(key, sessionKeys.authString)
+            logger("step 5: signed UKEY2 authString for QR handshake (${qrCodeHandshakeData?.size} bytes)")
+        }
 
         // Step 6: SecureChannel takes over.
         val channel =
