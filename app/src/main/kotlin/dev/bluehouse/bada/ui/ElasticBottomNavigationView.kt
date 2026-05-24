@@ -6,16 +6,24 @@
 package dev.bluehouse.bada.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.RenderEffect
+import android.graphics.RenderNode
+import android.graphics.Shader
+import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import android.view.View.MeasureSpec
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import androidx.dynamicanimation.animation.FloatValueHolder
 import androidx.dynamicanimation.animation.SpringAnimation
@@ -79,7 +87,40 @@ internal class ElasticBottomNavigationView
         private var dragging = false
         private var downX = 0f
 
+        // Backdrop ("liquid glass") blur: capture the content behind the
+        // floating pill and blur it. Only wired on API 31+, where a
+        // RenderNode + RenderEffect can blur a recorded hierarchy without a
+        // third-party library; below 31 we fall back to the translucent
+        // pill surface alone. See [attachBackdropBlur].
+        private var blurRoot: ViewGroup? = null
+        private var backdropNode: RenderNode? = null
+        private var captureBitmap: Bitmap? = null
+        private var captureCanvas: Canvas? = null
+        private val backdropClip = Path()
+        private val locThis = IntArray(2)
+        private val locRoot = IntArray(2)
+
+        /** True while the pill is being recorded into its own backdrop — skip self-draw. */
+        private var capturing = false
+
         private fun dp(value: Float): Float = value * resources.displayMetrics.density
+
+        /**
+         * Blur the content behind the floating nav pill so it reads as a
+         * frosted "liquid glass" bar. [root] is the view hierarchy whose
+         * pixels show through the pill (e.g. the activity content frame);
+         * it is re-captured and blurred each frame, clipped to the pill's
+         * rounded outline. No-op below API 31, where the translucent pill
+         * surface stands in for the blur.
+         */
+        fun attachBackdropBlur(root: ViewGroup) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+            blurRoot = root
+            viewTreeObserver.addOnPreDrawListener {
+                if (blurRoot != null && !capturing) invalidate()
+                true
+            }
+        }
 
         private fun menuView(): ViewGroup? = getChildAt(0) as? ViewGroup
 
@@ -99,6 +140,30 @@ internal class ElasticBottomNavigationView
                 result.add(Slot(child.id, left + child.width / 2f, child.width.toFloat()))
             }
             return result
+        }
+
+        /**
+         * Squeeze the bar to [NAV_WIDTH_SCALE] of its natural width.
+         * BottomNavigationView exposes no public attribute to set the tab
+         * cell width, so we measure normally (wrap_content → the natural
+         * sum of cell widths) and then re-measure the bar at a fixed
+         * fraction of that. Material's menu view redistributes the items
+         * evenly into the narrower EXACTLY width and keeps each tab's
+         * icon+label centred, so the pill just gets tighter without
+         * clipping. No-op when the width is already constrained.
+         */
+        override fun onMeasure(
+            widthMeasureSpec: Int,
+            heightMeasureSpec: Int,
+        ) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY) return
+            val target = (measuredWidth * NAV_WIDTH_SCALE).toInt()
+            if (target <= 0) return
+            super.onMeasure(
+                MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY),
+                heightMeasureSpec,
+            )
         }
 
         override fun onSizeChanged(
@@ -167,6 +232,78 @@ internal class ElasticBottomNavigationView
                 if (group.getChildAt(j) is TextView) return true
             }
             return false
+        }
+
+        override fun draw(canvas: Canvas) {
+            // While being captured into our own backdrop, draw nothing so
+            // the pill (and its icons) don't blur into their own backdrop.
+            if (capturing) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) drawBackdrop(canvas)
+            super.draw(canvas)
+        }
+
+        @RequiresApi(Build.VERSION_CODES.S)
+        @Suppress("ReturnCount")
+        private fun drawBackdrop(canvas: Canvas) {
+            val root = blurRoot ?: return
+            if (width == 0 || height == 0 || !canvas.isHardwareAccelerated) return
+
+            // Capture the content behind the pill into a SOFTWARE bitmap.
+            // We must not draw the view tree into a hardware RenderNode
+            // RecordingCanvas: hardware-accelerated children would try to
+            // begin their own display-list recording mid-recording and
+            // crash ("Recording currently in progress"). A software canvas
+            // takes the direct onDraw path with no nested render nodes.
+            val bitmap = ensureCaptureBitmap() ?: return
+            bitmap.eraseColor(0)
+            val capture = captureCanvas ?: return
+            capture.save()
+            try {
+                getLocationInWindow(locThis)
+                root.getLocationInWindow(locRoot)
+                capture.translate((locRoot[0] - locThis[0]).toFloat(), (locRoot[1] - locThis[1]).toFloat())
+                capturing = true
+                root.draw(capture)
+            } finally {
+                capturing = false
+                capture.restore()
+            }
+
+            // Blur the captured bitmap through a RenderEffect node and paint
+            // it clipped to the pill's rounded outline.
+            val node = backdropNode ?: RenderNode("navBackdropBlur").also { backdropNode = it }
+            node.setPosition(0, 0, width, height)
+            node.setRenderEffect(
+                RenderEffect.createBlurEffect(
+                    dp(BACKDROP_BLUR_RADIUS_DP),
+                    dp(BACKDROP_BLUR_RADIUS_DP),
+                    Shader.TileMode.CLAMP,
+                ),
+            )
+            val recording = node.beginRecording()
+            try {
+                recording.drawBitmap(bitmap, 0f, 0f, null)
+            } finally {
+                node.endRecording()
+            }
+            val radius = (height / 2f).coerceAtMost(dp(PILL_CORNER_DP))
+            backdropClip.reset()
+            backdropClip.addRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radius, radius, Path.Direction.CW)
+            canvas.save()
+            canvas.clipPath(backdropClip)
+            canvas.drawRenderNode(node)
+            canvas.restore()
+        }
+
+        /** Lazily (re)allocate the offscreen capture bitmap to match the pill size. */
+        private fun ensureCaptureBitmap(): Bitmap? {
+            val existing = captureBitmap
+            if (existing != null && existing.width == width && existing.height == height) return existing
+            existing?.recycle()
+            val created = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            captureBitmap = created
+            captureCanvas = Canvas(created)
+            return created
         }
 
         override fun dispatchDraw(canvas: Canvas) {
@@ -272,5 +409,8 @@ internal class ElasticBottomNavigationView
             private const val CENTRE_DAMPING = 0.72f
             private const val WIDTH_DAMPING = 0.85f
             private const val LABEL_GAP_REDUCTION_DP = 8f
+            private const val NAV_WIDTH_SCALE = 0.8f
+            private const val BACKDROP_BLUR_RADIUS_DP = 16f
+            private const val PILL_CORNER_DP = 32f
         }
     }
