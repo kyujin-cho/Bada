@@ -148,13 +148,16 @@
                 android:layout_width="24dp"
                 android:layout_height="match_parent" />
 
-            <!-- RIGHT: controls, centered vertically in their half. -->
+            <!-- RIGHT: controls. Centered vertically, then nudged up with a
+                 bottom padding so the group sits a touch higher (balancing
+                 the lifted left preview rather than hugging screen center). -->
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:gravity="center_vertical"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:paddingBottom="48dp">
 
                 <Button
                     android:id="@+id/main_always_visible_button"

@@ -68,7 +68,7 @@
           start margin lines its left edge up with the toolbar content
           (16dp content inset) and the bottom margin floats it up.
         -->
-        <com.google.android.material.bottomnavigation.BottomNavigationView
+        <dev.bluehouse.bada.ui.ElasticBottomNavigationView
             android:id="@+id/main_bottom_nav"
             android:layout_width="wrap_content"
             android:layout_height="64dp"
@@ -79,7 +79,7 @@
             android:elevation="8dp"
             android:paddingHorizontal="4dp"
             app:elevation="0dp"
-            app:itemBackground="@drawable/nav_item_background"
+            app:itemBackground="@android:color/transparent"
             app:itemIconTint="@color/bottom_nav_item_color"
             app:itemRippleColor="@android:color/transparent"
             app:itemTextAppearanceActive="@style/TextAppearance.Bada.BottomNavLabel"
