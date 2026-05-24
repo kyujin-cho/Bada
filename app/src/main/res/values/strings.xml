@@ -295,6 +295,8 @@
     <string name="send_help_sheet_visibility_body">On the receiving device, make sure the toggle reads "Ready to receive". In that mode, anyone nearby can share files with it. If it\'s already in that mode but still doesn\'t appear here, try fully closing Bada on both devices and reopening it.</string>
     <string name="send_help_sheet_qr_title">Or share via QR code</string>
     <string name="send_help_sheet_qr_body">If the receiver still does not appear, tap the QR code button at the top right of this card. Have the receiver scan the code or open the link to start the transfer.</string>
+    <string name="send_help_sheet_compat_title">Check device compatibility</string>
+    <string name="send_help_sheet_compat_body">Bada is currently an experimental project. On some devices a peer may be discoverable but unable to receive files, and some devices may not be discoverable at all. We plan to widen device support in future updates.</string>
     <string name="send_help_sheet_close">Got it</string>
 
     <string name="send_show_qr">Show QR</string>

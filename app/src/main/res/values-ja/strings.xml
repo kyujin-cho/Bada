@@ -187,6 +187,8 @@
     <string name="send_help_sheet_visibility_body">受信側の端末で、切り替えが「受信の準備完了」になっているか確認してください。このモードでは、近くにいる誰でもファイルを共有できます。すでにこのモードなのにここに表示されない場合は、両方の端末で Bada を完全に終了してから開き直してみてください。</string>
     <string name="send_help_sheet_qr_title">または QR コードで共有</string>
     <string name="send_help_sheet_qr_body">それでも受信側が表示されない場合は、このカードの右上にある QR コードボタンをタップしてください。受信側にコードをスキャンしてもらうか、リンクを開いてもらうと転送を開始できます。</string>
+    <string name="send_help_sheet_compat_title">対応端末の確認</string>
+    <string name="send_help_sheet_compat_body">bada は現在、実験的なプロジェクトです。一部の端末では、検出はできてもファイルを送信できないことがあり、検出自体ができないこともあります。今後のアップデートで対応端末を広げていく予定です。</string>
     <string name="send_help_sheet_close">OK</string>
 
     <string name="send_show_qr">QR を表示</string>
