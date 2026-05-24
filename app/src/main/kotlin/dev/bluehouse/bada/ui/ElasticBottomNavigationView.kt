@@ -14,6 +14,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.dynamicanimation.animation.FloatValueHolder
 import androidx.dynamicanimation.animation.SpringAnimation
@@ -108,6 +110,63 @@ internal class ElasticBottomNavigationView
             super.onSizeChanged(w, h, oldw, oldh)
             // Re-anchor the capsule to the selected tab after a relayout.
             pillInitialized = false
+        }
+
+        override fun onLayout(
+            changed: Boolean,
+            left: Int,
+            top: Int,
+            right: Int,
+            bottom: Int,
+        ) {
+            super.onLayout(changed, left, top, right, bottom)
+            tightenLabelGaps()
+        }
+
+        /**
+         * Tighten each tab's icon-to-label gap and keep the icon+label
+         * block vertically centred in the capsule. Material's
+         * NavigationBarItemView leaves a generous gap with no public
+         * attribute to shrink it, so we pull the label up; pulling only the
+         * label up would leave the block top-heavy, so we also nudge both
+         * the icon and the label down by half the reduction to re-centre.
+         * Net: gap shrinks by [LABEL_GAP_REDUCTION_DP], block stays centred.
+         * translationY survives relayout and re-applies on every [onLayout].
+         */
+        private fun tightenLabelGaps() {
+            val menu = menuView() ?: return
+            val down = dp(LABEL_GAP_REDUCTION_DP) / 2f
+            val labelShift = -dp(LABEL_GAP_REDUCTION_DP) + down
+            for (i in 0 until menu.childCount) {
+                val item = menu.getChildAt(i) as? ViewGroup ?: continue
+                labelGroup(item)?.translationY = labelShift
+                iconView(item)?.translationY = down
+            }
+        }
+
+        /** The label container inside a tab (the child group holding the text labels). */
+        private fun labelGroup(item: ViewGroup): View? {
+            for (j in 0 until item.childCount) {
+                val child = item.getChildAt(j)
+                if (child is ViewGroup && containsText(child)) return child
+            }
+            return null
+        }
+
+        /** The icon view inside a tab. */
+        private fun iconView(item: ViewGroup): View? {
+            for (j in 0 until item.childCount) {
+                val child = item.getChildAt(j)
+                if (child is ImageView) return child
+            }
+            return null
+        }
+
+        private fun containsText(group: ViewGroup): Boolean {
+            for (j in 0 until group.childCount) {
+                if (group.getChildAt(j) is TextView) return true
+            }
+            return false
         }
 
         override fun dispatchDraw(canvas: Canvas) {
@@ -212,5 +271,6 @@ internal class ElasticBottomNavigationView
             private const val PILL_INSET_HORIZONTAL_DP = 4f
             private const val CENTRE_DAMPING = 0.72f
             private const val WIDTH_DAMPING = 0.85f
+            private const val LABEL_GAP_REDUCTION_DP = 8f
         }
     }
