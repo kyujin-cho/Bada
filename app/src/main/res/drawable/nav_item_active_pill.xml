@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Full-cell selection highlight for the landscape floating nav. Unlike
+  Material's default active indicator (a small pill behind the icon
+  only), this is the item's entire background, so the selected tab's
+  icon AND label sit inside one tall capsule — the Apple-Music
+  liquid-glass tab style. A large corner radius (clamped to half the
+  height by the platform) keeps the ends fully round at any bar height;
+  the inset insets the capsule slightly from the bar edges so it reads as
+  a pill within a pill.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetTop="6dp"
+    android:insetBottom="6dp"
+    android:insetLeft="4dp"
+    android:insetRight="4dp">
+    <shape android:shape="rectangle">
+        <solid android:color="@color/nav_active_indicator" />
+        <corners android:radius="100dp" />
+    </shape>
+</inset>
