@@ -62,10 +62,13 @@
 
     <!--
       Toolbar geometry follows the vivo / OriginOS native pattern:
-        * `layout_height="88dp"` — taller than the AOSP default 56dp.
-        * `paddingTop="32dp"` — pushes the title + action row to the
-          bottom 56dp of the toolbar so the title sits near the
-          content below it, not floating in the center.
+        * `layout_height="@dimen/app_toolbar_height"` — 88dp in portrait
+          (taller than the AOSP default 56dp), compacted to 56dp in
+          landscape (values-land/dimens.xml) so the short landscape
+          viewport is not dominated by the header.
+        * `paddingTop="@dimen/app_toolbar_padding_top"` — 32dp in
+          portrait pushes the title toward the bottom of the bar so it
+          sits near the content; 6dp in landscape brings it up.
         * `paddingEnd="12dp"` — moves the kebab icon further inward
           from the right edge so it does not hug the screen border;
           matches vivo's native action-icon offset.
@@ -84,10 +87,10 @@
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/main_toolbar"
         android:layout_width="match_parent"
-        android:layout_height="88dp"
+        android:layout_height="@dimen/app_toolbar_height"
         android:background="@android:color/transparent"
         android:paddingEnd="12dp"
-        android:paddingTop="32dp"
+        android:paddingTop="@dimen/app_toolbar_padding_top"
         android:theme="@style/ThemeOverlay.Bada.ToolbarNoRipple"
         app:popupTheme="@style/ThemeOverlay.Bada.PopupMenu"
         app:title="@string/app_name"

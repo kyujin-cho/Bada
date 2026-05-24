@@ -79,9 +79,9 @@
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/send_toolbar"
         android:layout_width="match_parent"
-        android:layout_height="88dp"
+        android:layout_height="@dimen/app_toolbar_height"
         android:background="?android:attr/colorBackground"
-        android:paddingTop="32dp"
+        android:paddingTop="@dimen/app_toolbar_padding_top"
         app:contentInsetEnd="0dp"
         app:contentInsetLeft="0dp"
         app:contentInsetRight="0dp"

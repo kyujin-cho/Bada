@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Landscape variant of the Send/Receive tab (SendReceiveFragment).
+
+  Portrait stacks everything vertically (pill → preview → buttons),
+  which in landscape would push the action buttons below the fold and
+  force a scroll. Landscape instead splits the viewport left/right so
+  every primary control is visible without scrolling:
+
+    * LEFT half  — the "gallery" image-preview area: the
+      "Waiting for files…" caption above the two polaroid-style photo
+      cards (SendReceiveFragment fills R.id.main_send_preview_photo_1/2
+      exactly as in portrait).
+    * RIGHT half — the controls: the always-visible pill + its caption,
+      then the Send Files / Send Folder action row.
+
+  Every id SendReceiveFragment looks up is present here so the same
+  fragment code drives both orientations. The conditional legacy-WVMG
+  banner spans the full width on top (gone by default); the
+  ScrollView + fillViewport keeps the split filling the viewport with
+  no scroll normally, and only scrolls on the rare tall-content case
+  (banner visible on a very short landscape window).
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingHorizontal="24dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp">
+
+        <!-- Legacy WhenVivoMeetsGoogle migration banner (#145). Full-width
+             on top, gone by default (see portrait layout for rationale). -->
+        <LinearLayout
+            android:id="@+id/main_legacy_wvmg_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:background="?android:attr/colorBackgroundFloating"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/main_legacy_wvmg_banner_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/main_legacy_wvmg_banner_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/main_legacy_wvmg_banner_body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/main_legacy_wvmg_banner_body"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="end"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/main_legacy_wvmg_banner_uninstall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/main_legacy_wvmg_banner_uninstall" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- 50/50 split filling the remaining viewport height. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:baselineAligned="false"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <!-- LEFT: gallery image preview, centered in its half. -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/main_send_waiting"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/main_send_waiting"
+                    android:textAppearance="?android:attr/textAppearanceSmall" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="160dp"
+                    android:layout_marginTop="12dp"
+                    android:clipChildren="false"
+                    android:clipToPadding="false">
+
+                    <ImageView
+                        android:id="@+id/main_send_preview_photo_1"
+                        android:layout_width="140dp"
+                        android:layout_height="140dp"
+                        android:layout_gravity="center"
+                        android:contentDescription="@string/main_send_preview_photo_description"
+                        android:scaleType="fitCenter"
+                        android:translationX="-32dp" />
+
+                    <ImageView
+                        android:id="@+id/main_send_preview_photo_2"
+                        android:layout_width="140dp"
+                        android:layout_height="140dp"
+                        android:layout_gravity="center"
+                        android:contentDescription="@string/main_send_preview_photo_description"
+                        android:scaleType="fitCenter"
+                        android:translationX="32dp" />
+
+                </FrameLayout>
+
+            </LinearLayout>
+
+            <!-- Column gutter. -->
+            <Space
+                android:layout_width="24dp"
+                android:layout_height="match_parent" />
+
+            <!-- RIGHT: controls, centered vertically in their half. -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:orientation="vertical">
+
+                <Button
+                    android:id="@+id/main_always_visible_button"
+                    style="@style/Widget.Bada.Button"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/main_always_visible_off_title" />
+
+                <TextView
+                    android:id="@+id/main_always_visible_caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text="@string/main_always_visible_caption_off"
+                    android:textAppearance="?android:attr/textAppearanceSmall"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/main_send_files_button"
+                        style="@style/Widget.Bada.Button"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/main_send_files_button" />
+
+                    <Space
+                        android:layout_width="12dp"
+                        android:layout_height="wrap_content" />
+
+                    <Button
+                        android:id="@+id/main_send_folder_button"
+                        style="@style/Widget.Bada.Button"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/main_send_folder_button" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</ScrollView>

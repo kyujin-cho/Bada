@@ -53,10 +53,10 @@
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/credit_toolbar"
         android:layout_width="match_parent"
-        android:layout_height="88dp"
+        android:layout_height="@dimen/app_toolbar_height"
         android:background="?android:attr/colorBackground"
         android:paddingEnd="12dp"
-        android:paddingTop="32dp"
+        android:paddingTop="@dimen/app_toolbar_padding_top"
         app:contentInsetStartWithNavigation="0dp"
         app:navigationIcon="?attr/homeAsUpIndicator"
         app:title="@string/credit_activity_label"
