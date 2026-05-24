@@ -18,10 +18,11 @@
     * `credit_teqhnikacross_desc` — the contributor explicitly
       asked for "We all want to be loved" rendered as-is on Korean
       devices too.
-    * `credit_thanks_compact` — already Korean in the canonical file
-      (used as the default for both English and Korean locales).
-      (`credit_yeonfeel_desc` is now fully localized: English canonical,
-      Korean here, Japanese in values-ja.)
+
+  `credit_yeonfeel_desc` and `credit_thanks_compact` used to be left
+  Korean-in-canonical; both are now fully localized (English canonical,
+  Korean here, Japanese in values-ja). For `credit_thanks_compact` only
+  the parenthetical contribution note is translated — "Chiyak" stays.
 -->
 <resources>
 
@@ -62,6 +63,9 @@
     <string name="credit_parami_desc">매일 감사하는 기도를 올리자</string>
 
     <string name="credit_avatar_description">기여자 프로필 사진</string>
+    <!-- Special Thanks compact line. "Chiyak" is a proper noun; only the
+         parenthetical contribution note is localized. -->
+    <string name="credit_thanks_compact">Chiyak (개발 토큰 제공)</string>
 
     <!-- File-picker entry point on the Send/Receive tab. -->
     <string name="main_send_files_button">파일 보내기</string>

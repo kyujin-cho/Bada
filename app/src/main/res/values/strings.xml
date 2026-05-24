@@ -58,7 +58,7 @@
          Thanks section. Pre-baked into a single string so the layout
          can render it as one small caption rather than the per-row
          image-+-stack pattern used by the main category sections. -->
-    <string name="credit_thanks_compact">Chiyak (개발 토큰 제공)</string>
+    <string name="credit_thanks_compact">Chiyak (provided the dev token)</string>
     <string name="credit_avatar_description">Contributor avatar</string>
 
     <!-- File-picker entry point on the Send/Receive tab. Opens
