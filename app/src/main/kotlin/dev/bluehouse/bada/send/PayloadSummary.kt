@@ -16,27 +16,31 @@ import dev.bluehouse.bada.protocol.connection.FileSource
  */
 internal object PayloadSummary {
     /**
-     * Build the headline string for a list of file sources, e.g.
-     * `"3 files • 12.4 MB"` or `"1 file • 4.2 MB"`. Sizes are
-     * formatted via [formatBytes]; if the total size is zero (e.g. all
-     * sizes were unknown), the size suffix is omitted.
+     * Build the headline string for a list of file sources — the file
+     * count only, e.g. `"1 file"` or `"3 files"`. The transfer size is
+     * rendered separately via [sizeFor] on its own line so the count
+     * stays the dominant element (and long localized strings no longer
+     * collide with the size on a single line).
      */
     fun forFiles(
         context: Context,
         files: List<FileSource>,
-    ): String {
-        val totalBytes = files.sumOf { it.size }
-        val sizeText = if (totalBytes > 0) formatBytes(totalBytes) else null
-        return when {
-            files.size == 1 && sizeText != null ->
-                context.getString(R.string.send_payload_single_file_with_size, sizeText)
-            files.size == 1 ->
-                context.getString(R.string.send_payload_single_file)
-            sizeText != null ->
-                context.getString(R.string.send_payload_multiple_files_with_size, files.size, sizeText)
-            else ->
-                context.getString(R.string.send_payload_multiple_files, files.size)
+    ): String =
+        if (files.size == 1) {
+            context.getString(R.string.send_payload_single_file)
+        } else {
+            context.getString(R.string.send_payload_multiple_files, files.size)
         }
+
+    /**
+     * The human-readable total transfer size for [files] (e.g.
+     * `"4.2 MB"`), or `null` when the total is zero — typically because
+     * every source reported an unknown size. Callers hide the size line
+     * when this returns `null`.
+     */
+    fun sizeFor(files: List<FileSource>): String? {
+        val totalBytes = files.sumOf { it.size }
+        return if (totalBytes > 0) formatBytes(totalBytes) else null
     }
 
     /**

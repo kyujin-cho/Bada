@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  QR-code glyph for the send card's top-right share button. Converted
+  from the supplied qr-code-2.svg (24x24 viewBox): three rounded finder
+  patterns drawn as hollow squares via `fillType="evenOdd"`, plus the
+  data modules / centre detail as solid rounded cells.
+
+  Paths fill white; the send card's QR button applies an `android:tint`
+  (secondary text color) so the glyph reads as a quiet gray mark on the
+  frosted button surface rather than a bold accent.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Top-left finder pattern (hollow). -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="m2 3c0-.55228.44772-1 1-1h7c.5523 0 1 .44772 1 1v7c0 .5523-.4477 1-1 1h-7c-.55228 0-1-.4477-1-1zm3 3c0-.55228.44772-1 1-1h1c.55228 0 1 .44772 1 1v1c0 .55228-.44772 1-1 1h-1c-.55228 0-1-.44772-1-1z" />
+
+    <!-- Bottom-left finder pattern (hollow). -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="m2 14c0-.5523.44772-1 1-1h7c.5523 0 1 .4477 1 1v7c0 .5523-.4477 1-1 1h-7c-.55228 0-1-.4477-1-1zm4 2c-.55228 0-1 .4477-1 1v1c0 .5523.44772 1 1 1h1c.55228 0 1-.4477 1-1v-1c0-.5523-.44772-1-1-1z" />
+
+    <!-- Top-right finder pattern (hollow). -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="m14 2c-.5523 0-1 .44772-1 1v7c0 .5523.4477 1 1 1h7c.5523 0 1-.4477 1-1v-7c0-.55228-.4477-1-1-1zm2 4c0-.55228.4477-1 1-1h1c.5523 0 1 .44772 1 1v1c0 .55228-.4477 1-1 1h-1c-.5523 0-1-.44772-1-1z" />
+
+    <!-- Data modules in the bottom-right quadrant. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="m14 13c-.5523 0-1 .4477-1 1v1c0 .5523.4477 1 1 1h1v2c0 .5523.4477 1 1 1h1c.5523 0 1-.4477 1-1v-2c0-.5523-.4477-1-1-1h-1v-1c0-.5523-.4477-1-1-1z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="m14 19c-.5523 0-1 .4477-1 1v1c0 .5523.4477 1 1 1h1c.5523 0 1-.4477 1-1v-1c0-.5523-.4477-1-1-1z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="m18 14c0-.5523.4477-1 1-1h1c.5523 0 1 .4477 1 1v1c0 .5523-.4477 1-1 1h-1c-.5523 0-1-.4477-1-1z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="m19 19c-.5523 0-1 .4477-1 1v1c0 .5523.4477 1 1 1h1c.5523 0 1-.4477 1-1v-1c0-.5523-.4477-1-1-1z" />
+
+</vector>

@@ -193,9 +193,7 @@
     <!-- Payload summary templates. -->
     <string name="send_payload_text">テキストを共有中</string>
     <string name="send_payload_single_file">ファイル 1 件</string>
-    <string name="send_payload_single_file_with_size">ファイル 1 件 • %1$s</string>
     <string name="send_payload_multiple_files">ファイル %1$d 件</string>
-    <string name="send_payload_multiple_files_with_size">ファイル %1$d 件 • %2$s</string>
 
     <!-- Connection-phase labels. -->
     <string name="send_phase_connecting">接続中…</string>

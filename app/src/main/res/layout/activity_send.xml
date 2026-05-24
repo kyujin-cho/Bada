@@ -264,7 +264,27 @@
                         android:layout_height="wrap_content"
                         android:textAppearance="@style/TextAppearance.AppCompat.Headline"
                         android:textStyle="bold"
-                        tools:text="1 file • 4.2 MB" />
+                        tools:text="1 file" />
+
+                    <!--
+                      Transfer size, broken out onto its own line below
+                      the file-count headline. Kept small + secondary so
+                      the count stays the dominant element and the size
+                      reads as supporting detail. Hidden (gone) by default
+                      and shown by SendActivity only for the file-send
+                      path when a non-zero total size is known; the text /
+                      folder-terminal states leave it hidden.
+                    -->
+                    <TextView
+                        android:id="@+id/send_payload_size"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:visibility="gone"
+                        tools:text="4.2 MB"
+                        tools:visibility="visible" />
 
                     <TextView
                         android:id="@+id/send_subtitle"
@@ -802,16 +822,15 @@
 
                 <!--
                   Compact QR-share icon button at the card's
-                  top-right corner. Replaces the previous full-width
-                  bottom button. Sits as the topmost child of the
+                  top-right corner. Sits as the topmost child of the
                   card's FrameLayout so it floats over picker /
-                  status / QR content; the deep-blue gradient
-                  background + simplified QR glyph keeps it visually
-                  distinct from the frosted action buttons inside
-                  the card. Visibility logic is unchanged from the
-                  old button — it follows
-                  `binding.sendShowQrButton` references throughout
-                  SendActivity.
+                  status / QR content. Styled to recede rather than
+                  compete with the card content: the same frosted-glass
+                  surface as the app's other buttons plus a secondary
+                  (gray) tint on the QR glyph, instead of the previous
+                  bold deep-blue gradient + white glyph. Visibility logic
+                  is unchanged — it follows `binding.sendShowQrButton`
+                  references throughout SendActivity.
                 -->
                 <ImageButton
                     android:id="@+id/send_show_qr_button"
@@ -820,11 +839,11 @@
                     android:layout_gravity="top|end"
                     android:layout_marginTop="16dp"
                     android:layout_marginEnd="16dp"
-                    android:background="@drawable/qr_button_background"
+                    android:background="@drawable/qr_button_subtle_background"
                     android:contentDescription="@string/send_show_qr"
-                    android:elevation="4dp"
                     android:padding="10dp"
-                    android:src="@drawable/ic_qr_simplified" />
+                    android:src="@drawable/ic_qr_code"
+                    android:tint="?android:attr/textColorSecondary" />
 
                 </FrameLayout>
 

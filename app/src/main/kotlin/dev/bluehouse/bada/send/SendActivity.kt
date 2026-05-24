@@ -221,8 +221,27 @@ public class SendActivity : AppCompatActivity() {
         logResolvedFiles(files)
 
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
+        applyPayloadSize()
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
         peerPickerController.start()
+    }
+
+    /**
+     * Render the transfer-size line ([R.id.send_payload_size]) from the
+     * currently resolved [files]: the formatted total below the
+     * file-count headline, or hidden when the total size is unknown.
+     * Called for the file-send path and when restoring the picker after
+     * a rejection; the text / folder-terminal states leave the line
+     * hidden (it defaults to `gone` in the layout).
+     */
+    private fun applyPayloadSize() {
+        val sizeText = PayloadSummary.sizeFor(files)
+        if (sizeText != null) {
+            binding.sendPayloadSize.text = sizeText
+            binding.sendPayloadSize.visibility = View.VISIBLE
+        } else {
+            binding.sendPayloadSize.visibility = View.GONE
+        }
     }
 
     override fun onDestroy() {
@@ -713,6 +732,7 @@ public class SendActivity : AppCompatActivity() {
             // status-message line all become noise once the transfer
             // has settled.
             binding.sendPayloadSummary.visibility = View.GONE
+            binding.sendPayloadSize.visibility = View.GONE
             binding.sendSubtitle.visibility = View.GONE
             binding.sendStatusMessage.visibility = View.GONE
             renderSuccessPreview(sentImagePreviewUri)
@@ -757,6 +777,7 @@ public class SendActivity : AppCompatActivity() {
         // discovery event; we just have to re-show the wrapper +
         // floating QR icon and reset the bottom button row.
         binding.sendPayloadSummary.visibility = View.VISIBLE
+        applyPayloadSize()
         binding.sendSubtitle.visibility = View.VISIBLE
         binding.sendPeerScroll.visibility = View.VISIBLE
         binding.sendPeerList.visibility = View.VISIBLE

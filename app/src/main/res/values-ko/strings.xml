@@ -215,9 +215,7 @@
     <!-- Payload summary templates. -->
     <string name="send_payload_text">텍스트 공유 중</string>
     <string name="send_payload_single_file">파일 1개</string>
-    <string name="send_payload_single_file_with_size">파일 1개 • %1$s</string>
     <string name="send_payload_multiple_files">파일 %1$d개</string>
-    <string name="send_payload_multiple_files_with_size">파일 %1$d개 • %2$s</string>
 
     <!-- Connection-phase labels. -->
     <string name="send_phase_connecting">연결 중…</string>
