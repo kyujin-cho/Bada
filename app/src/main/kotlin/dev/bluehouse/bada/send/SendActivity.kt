@@ -21,6 +21,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.transition.ChangeBounds
 import android.transition.Transition
 import android.transition.TransitionManager
@@ -146,6 +147,14 @@ public class SendActivity : AppCompatActivity() {
     private var qrDerivedKeys: DerivedQrKeys? = null
     private var qrSigningKey: PrivateKey? = null
     private var qrMatchConnectStarted: Boolean = false
+
+    /**
+     * `SystemClock.elapsedRealtime()` of the first QR match seen with only
+     * a BLE route (no Wi-Fi LAN yet), or 0 if none. Used by [chooseQrMatch]
+     * to wait briefly for the QR endpoint's Wi-Fi LAN route to surface
+     * before falling back to a BLE connection.
+     */
+    private var qrFirstBleOnlyMatchAtMs: Long = 0L
 
     private lateinit var senderEndpointId: String
     private lateinit var senderEndpointInfo: EndpointInfo
@@ -393,21 +402,42 @@ public class SendActivity : AppCompatActivity() {
     private fun onQrPeersResolved(resolved: List<NearbyPeer>) {
         val keys = qrDerivedKeys
         if (keys == null || qrMatchConnectStarted) return
-        val match =
-            resolved.firstNotNullOfOrNull { peer ->
+        val matches =
+            resolved.mapNotNull { peer ->
                 peer.endpointInfo?.let { info ->
                     val result = QrTlvMatcher.matches(info, keys)
                     if (result is QrTlvMatcher.QrMatchResult.NoMatch) null else peer to result
                 }
-            } ?: return
-        val (peer, result) = match
+            }
+        val chosen = chooseQrMatch(matches) ?: return
         qrMatchConnectStarted = true
         qrSigningKey = qrSession?.keyPair?.private
+        val (peer, result) = chosen
         logOutboundDiagnostic(
-            "qr: matched peer=${peer.stableId} result=${result::class.simpleName}",
+            "qr: connecting matched peer=${peer.stableId} result=${result::class.simpleName} " +
+                "route=${if (peer.lanEndpoint != null) "wifi-lan" else "ble"}",
         )
         dismissQrPanelForConnect()
         onPeerSelected(peer)
+    }
+
+    /**
+     * Pick which QR-matched peer to connect to. Stock Quick Share's QR
+     * receiver first advertises the QR token over BLE only, then upgrades
+     * the same endpoint to also carry a Wi-Fi LAN route. Wi-Fi LAN is far
+     * more reliable than the BLE bootstrap, so prefer a LAN-capable match;
+     * if only BLE-only matches exist, wait up to [QR_LAN_WAIT_GRACE_MS] for
+     * the LAN route to surface before falling back to BLE.
+     */
+    @Suppress("ReturnCount")
+    private fun chooseQrMatch(
+        matches: List<Pair<NearbyPeer, QrTlvMatcher.QrMatchResult>>,
+    ): Pair<NearbyPeer, QrTlvMatcher.QrMatchResult>? {
+        if (matches.isEmpty()) return null
+        matches.firstOrNull { it.first.lanEndpoint != null }?.let { return it }
+        val now = SystemClock.elapsedRealtime()
+        if (qrFirstBleOnlyMatchAtMs == 0L) qrFirstBleOnlyMatchAtMs = now
+        return if (now - qrFirstBleOnlyMatchAtMs >= QR_LAN_WAIT_GRACE_MS) matches.first() else null
     }
 
     /**
@@ -1250,6 +1280,7 @@ public class SendActivity : AppCompatActivity() {
         qrSession = generated
         qrDerivedKeys = QrKeyDerivation.deriveKeys(generated.qrKeyData)
         qrMatchConnectStarted = false
+        qrFirstBleOnlyMatchAtMs = 0L
         val url = QrUrl.build(generated.qrKeyData)
         binding.sendQrUrl.text = url
 
@@ -1523,6 +1554,14 @@ public class SendActivity : AppCompatActivity() {
 
         private const val OUTBOUND_TAG: String = "BadaOutbound"
         private const val PERCENT_SCALE = 100
+
+        /**
+         * How long to wait for a QR-matched peer's Wi-Fi LAN route to
+         * surface before falling back to a BLE connection (#28). Stock
+         * Quick Share advertises the QR token over BLE first and upgrades
+         * the same endpoint to Wi-Fi LAN a beat later.
+         */
+        private const val QR_LAN_WAIT_GRACE_MS: Long = 5000L
 
         // In-card QR panel animation tunables. Entry uses an
         // overshoot easing so the panel briefly scales past 1.0 before
