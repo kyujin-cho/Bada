@@ -33,6 +33,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.bugreport.BugReportFlowSupport
@@ -930,6 +931,14 @@ public class SendActivity : AppCompatActivity() {
         sheet.setContentView(R.layout.bottom_sheet_send_help)
         sheet.findViewById<View>(R.id.send_help_sheet_close)?.setOnClickListener {
             sheet.dismiss()
+        }
+        // On a short landscape window the default half-open peek shows
+        // almost none of the troubleshooting content; open the sheet fully
+        // (and skip the collapsed stop) so it rises high enough to read
+        // without the user having to drag it up.
+        sheet.behavior.skipCollapsed = true
+        sheet.setOnShowListener {
+            sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         }
         sheet.show()
     }
