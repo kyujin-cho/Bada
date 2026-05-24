@@ -35,8 +35,8 @@
         android:clipToPadding="false"
         android:orientation="vertical"
         android:paddingHorizontal="24dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp">
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
 
         <!-- Legacy WhenVivoMeetsGoogle migration banner (#145). Full-width
              on top, gone by default (see portrait layout for rationale). -->
@@ -104,7 +104,7 @@
                 android:clipToPadding="false"
                 android:gravity="center"
                 android:orientation="vertical"
-                android:paddingBottom="80dp">
+                android:paddingBottom="56dp">
 
                 <TextView
                     android:id="@+id/main_send_waiting"
@@ -116,15 +116,15 @@
 
                 <FrameLayout
                     android:layout_width="match_parent"
-                    android:layout_height="160dp"
-                    android:layout_marginTop="12dp"
+                    android:layout_height="132dp"
+                    android:layout_marginTop="8dp"
                     android:clipChildren="false"
                     android:clipToPadding="false">
 
                     <ImageView
                         android:id="@+id/main_send_preview_photo_1"
-                        android:layout_width="140dp"
-                        android:layout_height="140dp"
+                        android:layout_width="120dp"
+                        android:layout_height="120dp"
                         android:layout_gravity="center"
                         android:contentDescription="@string/main_send_preview_photo_description"
                         android:scaleType="fitCenter"
@@ -132,8 +132,8 @@
 
                     <ImageView
                         android:id="@+id/main_send_preview_photo_2"
-                        android:layout_width="140dp"
-                        android:layout_height="140dp"
+                        android:layout_width="120dp"
+                        android:layout_height="120dp"
                         android:layout_gravity="center"
                         android:contentDescription="@string/main_send_preview_photo_description"
                         android:scaleType="fitCenter"
@@ -157,7 +157,7 @@
                 android:layout_weight="1"
                 android:gravity="center_vertical"
                 android:orientation="vertical"
-                android:paddingBottom="48dp">
+                android:paddingBottom="24dp">
 
                 <Button
                     android:id="@+id/main_always_visible_button"
