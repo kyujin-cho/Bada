@@ -1,15 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Landscape MainActivity layout. Same shell as portrait
-  (res/layout/activity_main.xml) — ambient pulse layer, compact toolbar,
-  fragment container — EXCEPT the bottom navigation is lifted out of the
-  vertical stack and floated as a rounded pill in the bottom-LEFT corner
-  with a small bottom/left margin, rather than spanning the full width.
-  This frees the wide-but-short landscape viewport: the fragment fills
-  the whole area and the nav reads as a compact floating control.
+  (res/layout/activity_main.xml) — full-bleed ambient pulse, compact
+  toolbar, fragment container — EXCEPT the bottom navigation is lifted
+  out of the vertical stack and floated as a rounded pill in the
+  bottom-LEFT corner.
 
-  The nav keeps id @id/main_bottom_nav and all the same item styling as
-  portrait so MainActivity's tab/animation wiring is unchanged.
+  Inset handling: the pulse stays full-bleed (edge to edge). Everything
+  else lives inside an inset-aware FrameLayout (fitsSystemWindows) so the
+  toolbar AND the floating pill both start after the system safe area —
+  the pill's left edge lines up with the toolbar content rather than
+  hugging a notch/cutout, and its bottom margin floats it above the
+  gesture area.
+
+  The nav keeps id @id/main_bottom_nav and the same item styling as
+  portrait; it adds a pill-shaped active indicator
+  (Widget.Bada.BottomNav.ActiveIndicator) so the selected tab reads as a
+  capsule-in-a-capsule.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -21,61 +28,67 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Toolbar + fragment fill the window; no bottom-nav row here. -->
-    <LinearLayout
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:fitsSystemWindows="true"
-        android:orientation="vertical">
+        android:fitsSystemWindows="true">
 
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/main_toolbar"
+        <!-- Toolbar + fragment fill the safe area; no bottom-nav row. -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="@dimen/app_toolbar_height"
-            android:background="@android:color/transparent"
-            android:paddingEnd="12dp"
-            android:paddingTop="@dimen/app_toolbar_padding_top"
-            android:theme="@style/ThemeOverlay.Bada.ToolbarNoRipple"
-            app:popupTheme="@style/ThemeOverlay.Bada.PopupMenu"
-            app:title="@string/app_name"
-            app:titleCentered="false"
-            app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
-            app:titleTextColor="?android:attr/textColorPrimary" />
+            android:layout_height="match_parent"
+            android:orientation="vertical">
 
-        <androidx.fragment.app.FragmentContainerView
-            android:id="@+id/main_fragment_container"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/main_toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/app_toolbar_height"
+                android:background="@android:color/transparent"
+                android:paddingEnd="12dp"
+                android:paddingTop="@dimen/app_toolbar_padding_top"
+                android:theme="@style/ThemeOverlay.Bada.ToolbarNoRipple"
+                app:popupTheme="@style/ThemeOverlay.Bada.PopupMenu"
+                app:title="@string/app_name"
+                app:titleCentered="false"
+                app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
+                app:titleTextColor="?android:attr/textColorPrimary" />
 
-    </LinearLayout>
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/main_fragment_container"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
 
-    <!--
-      Floating bottom-left pill nav. wrap_content width sizes it to the
-      two tabs; the pill background + elevation lift it off the content,
-      and the start/bottom margins pull it into the corner and float it
-      up off the bottom edge. fitsSystemWindows is intentionally NOT set
-      here (it lives on the LinearLayout above); the bottom margin
-      doubles as the gesture-area clearance.
-    -->
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/main_bottom_nav"
-        android:layout_width="wrap_content"
-        android:layout_height="64dp"
-        android:layout_gravity="bottom|start"
-        android:layout_marginStart="16dp"
-        android:layout_marginBottom="16dp"
-        android:background="@drawable/nav_pill_background"
-        android:elevation="6dp"
-        android:paddingHorizontal="12dp"
-        app:elevation="0dp"
-        app:itemBackground="@android:color/transparent"
-        app:itemIconTint="@color/bottom_nav_item_color"
-        app:itemRippleColor="@android:color/transparent"
-        app:itemTextAppearanceActive="@style/TextAppearance.Bada.BottomNavLabel"
-        app:itemTextAppearanceInactive="@style/TextAppearance.Bada.BottomNavLabel"
-        app:itemTextColor="@color/bottom_nav_item_color"
-        app:labelVisibilityMode="labeled"
-        app:menu="@menu/bottom_nav_menu" />
+        </LinearLayout>
+
+        <!--
+          Floating bottom-left pill nav. wrap_content + a small horizontal
+          padding keep it tight around the two tabs; the translucent
+          rounded surface + elevation lift it off the content; the
+          start margin lines its left edge up with the toolbar content
+          (16dp content inset) and the bottom margin floats it up.
+        -->
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/main_bottom_nav"
+            android:layout_width="wrap_content"
+            android:layout_height="64dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="16dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/nav_pill_background"
+            android:elevation="8dp"
+            android:paddingHorizontal="6dp"
+            app:elevation="0dp"
+            app:itemActiveIndicatorStyle="@style/Widget.Bada.BottomNav.ActiveIndicator"
+            app:itemBackground="@android:color/transparent"
+            app:itemIconTint="@color/bottom_nav_item_color"
+            app:itemRippleColor="@android:color/transparent"
+            app:itemTextAppearanceActive="@style/TextAppearance.Bada.BottomNavLabel"
+            app:itemTextAppearanceInactive="@style/TextAppearance.Bada.BottomNavLabel"
+            app:itemTextColor="@color/bottom_nav_item_color"
+            app:labelVisibilityMode="labeled"
+            app:menu="@menu/bottom_nav_menu" />
+
+    </FrameLayout>
 
 </FrameLayout>

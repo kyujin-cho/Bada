@@ -287,6 +287,27 @@
     </style>
 
     <!--
+      Active-tab indicator for the landscape floating pill nav. Material
+      draws this rounded shape behind the selected item; we give it the
+      same fully-rounded (pill) silhouette as the bar itself and a soft
+      brand tint so the selection reads as a capsule-in-a-capsule, in the
+      spirit of Apple's liquid-glass bottom bar. Portrait does not set
+      `itemActiveIndicatorStyle`, so this only applies in landscape.
+    -->
+    <style name="ShapeAppearance.Bada.NavIndicator" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <style name="Widget.Bada.BottomNav.ActiveIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:width">52dp</item>
+        <item name="android:height">32dp</item>
+        <item name="marginHorizontal">8dp</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.Bada.NavIndicator</item>
+        <item name="android:color">@color/nav_active_indicator</item>
+    </style>
+
+    <!--
       Popup theme overlay applied to MainActivity's MaterialToolbar via
       `app:popupTheme`. Overrides `listPreferredItemHeightSmall`
       (default 48dp on MaterialComponents) to 38dp — about a 20% cut

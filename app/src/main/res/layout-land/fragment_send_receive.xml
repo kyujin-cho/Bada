@@ -93,7 +93,9 @@
             android:clipToPadding="false"
             android:orientation="horizontal">
 
-            <!-- LEFT: gallery image preview, centered in its half. -->
+            <!-- LEFT: gallery image preview. The bottom padding lifts the
+                 (vertically-centered) preview up so it clears the
+                 floating bottom-left nav pill instead of crowding it. -->
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
@@ -101,7 +103,8 @@
                 android:clipChildren="false"
                 android:clipToPadding="false"
                 android:gravity="center"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:paddingBottom="80dp">
 
                 <TextView
                     android:id="@+id/main_send_waiting"

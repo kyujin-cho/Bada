@@ -25,6 +25,14 @@
     <color name="nav_surface">#FFFFFFFF</color>
     <color name="nav_item_active">#0F62FE</color>
     <color name="nav_item_inactive">#FF5F6368</color>
+    <!-- Soft brand-tinted pill behind the selected tab in the landscape
+         floating nav (Material active indicator). Low alpha so the
+         saturated brand-blue active icon still reads on top. -->
+    <color name="nav_active_indicator">#1F0F62FE</color>
+    <!-- Translucent surface for the landscape floating-pill nav — an
+         "almost frosted" white that hints at the content behind without
+         a true backdrop blur (approximating Apple's liquid-glass bar). -->
+    <color name="nav_pill_surface">#F2FFFFFF</color>
 
     <!--
       Surface tokens for cards, chips, and inputs. The whole app's
