@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Background for the send card's compact QR-share icon button. Uses the
+  app's frosted-glass treatment (translucent fill + hairline stroke +
+  soft ripple) so the button recedes against the card, but keeps the
+  14dp rounded-square corner shape the QR button has always had rather
+  than the 24dp near-circle of the shared global button background.
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/frosted_button_ripple">
+
+    <item android:id="@android:id/mask">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFFFF" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/frosted_button_fill" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/frosted_button_stroke" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+
+</ripple>

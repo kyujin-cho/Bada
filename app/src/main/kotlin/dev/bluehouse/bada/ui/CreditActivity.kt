@@ -19,6 +19,7 @@ import androidx.activity.addCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.shape.ShapeAppearanceModel
 import dev.bluehouse.bada.MainActivity
@@ -93,7 +94,7 @@ internal class CreditActivity : AppCompatActivity() {
             )
         startStaggeredHighlights(nameViews)
 
-        // Replace the avatars' default `RoundedCornerTreatment`
+        // Replace the avatar cards' default `RoundedCornerTreatment`
         // (G1 — quarter-circle arc, with a visible curvature jump
         // where the arc meets the straight edge) with our
         // `SmoothCornerTreatment` (G2-ish — cubic Bézier whose
@@ -103,6 +104,17 @@ internal class CreditActivity : AppCompatActivity() {
         // "clumped" corner shoulder; the smooth corner treatment
         // distributes the same transition across more pixels and
         // reads as a softer, continuous curve.
+        //
+        // Each avatar is a MaterialCardView wrapping a ShapeableImageView.
+        // The card draws the 1dp identity border evenly all the way around
+        // the shape (ShapeableImageView's own stroke rendered noticeably
+        // thicker at the rounded corners), while the inner
+        // ShapeableImageView clips the photo to the SAME smooth-corner
+        // shape. The card alone cannot do the clipping: it falls back to a
+        // square content clip for non-round-rect (smooth) corner
+        // treatments, which left photos with colored corners looking
+        // square inside the rounded border. Applying the shape to both
+        // keeps the border and the clipped photo on one smooth path.
         val smoothShape =
             ShapeAppearanceModel
                 .builder()
@@ -116,7 +128,9 @@ internal class CreditActivity : AppCompatActivity() {
             R.id.credit_teqhnikacross_avatar,
             R.id.credit_parami_avatar,
         ).forEach { id ->
-            findViewById<ShapeableImageView>(id)?.shapeAppearanceModel = smoothShape
+            val card = findViewById<MaterialCardView>(id) ?: return@forEach
+            card.shapeAppearanceModel = smoothShape
+            (card.getChildAt(0) as? ShapeableImageView)?.shapeAppearanceModel = smoothShape
         }
     }
 

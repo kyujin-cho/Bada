@@ -221,8 +221,27 @@ public class SendActivity : AppCompatActivity() {
         logResolvedFiles(files)
 
         binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
+        applyPayloadSize()
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
         peerPickerController.start()
+    }
+
+    /**
+     * Render the transfer-size line ([R.id.send_payload_size]) from the
+     * currently resolved [files]: the formatted total below the
+     * file-count headline, or hidden when the total size is unknown.
+     * Called for the file-send path and when restoring the picker after
+     * a rejection; the text / folder-terminal states leave the line
+     * hidden (it defaults to `gone` in the layout).
+     */
+    private fun applyPayloadSize() {
+        val sizeText = PayloadSummary.sizeFor(files)
+        if (sizeText != null) {
+            binding.sendPayloadSize.text = sizeText
+            binding.sendPayloadSize.visibility = View.VISIBLE
+        } else {
+            binding.sendPayloadSize.visibility = View.GONE
+        }
     }
 
     override fun onDestroy() {
@@ -713,6 +732,7 @@ public class SendActivity : AppCompatActivity() {
             // status-message line all become noise once the transfer
             // has settled.
             binding.sendPayloadSummary.visibility = View.GONE
+            binding.sendPayloadSize.visibility = View.GONE
             binding.sendSubtitle.visibility = View.GONE
             binding.sendStatusMessage.visibility = View.GONE
             renderSuccessPreview(sentImagePreviewUri)
@@ -757,6 +777,7 @@ public class SendActivity : AppCompatActivity() {
         // discovery event; we just have to re-show the wrapper +
         // floating QR icon and reset the bottom button row.
         binding.sendPayloadSummary.visibility = View.VISIBLE
+        applyPayloadSize()
         binding.sendSubtitle.visibility = View.VISIBLE
         binding.sendPeerScroll.visibility = View.VISIBLE
         binding.sendPeerList.visibility = View.VISIBLE
@@ -1237,13 +1258,12 @@ public class SendActivity : AppCompatActivity() {
         if (url.isEmpty()) return
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.show_qr_title), url))
-        // On Android 12L+ the platform shows its own "Copied to
-        // clipboard" overlay so a second toast would be redundant.
-        // Versions below that have no system surface for the action,
-        // so we provide our own.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            Toast.makeText(this, R.string.show_qr_link_copied, Toast.LENGTH_SHORT).show()
-        }
+        // Always acknowledge with our own toast. Android 13+ normally
+        // shows a system "Copied" overlay, but several OEM ROMs (vivo
+        // OriginOS among them, which we test on) suppress or replace it,
+        // leaving the tap with no visible feedback — so we surface the
+        // confirmation ourselves regardless of platform version.
+        Toast.makeText(this, R.string.show_qr_link_copied, Toast.LENGTH_SHORT).show()
     }
 
     /**

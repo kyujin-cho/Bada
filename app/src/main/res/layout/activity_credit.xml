@@ -57,6 +57,7 @@
         android:background="?android:attr/colorBackground"
         android:paddingEnd="12dp"
         android:paddingTop="32dp"
+        app:contentInsetStartWithNavigation="0dp"
         app:navigationIcon="?attr/homeAsUpIndicator"
         app:title="@string/credit_activity_label"
         app:titleCentered="false"
@@ -99,16 +100,25 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <com.google.android.material.imageview.ShapeableImageView
+                    <com.google.android.material.card.MaterialCardView
                         android:id="@+id/credit_kevin_avatar"
                         android:layout_width="56dp"
                         android:layout_height="56dp"
-                        android:contentDescription="@string/credit_avatar_description"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/credit_kevin_avatar"
+                        app:cardBackgroundColor="@android:color/transparent"
+                        app:cardElevation="0dp"
                         app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
-                        app:strokeWidth="1dp" />
+                        app:strokeWidth="1dp">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/credit_avatar_description"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/credit_kevin_avatar"
+                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+
+                    </com.google.android.material.card.MaterialCardView>
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -163,16 +173,25 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <com.google.android.material.imageview.ShapeableImageView
+                    <com.google.android.material.card.MaterialCardView
                         android:id="@+id/credit_yeonfeel_avatar"
                         android:layout_width="56dp"
                         android:layout_height="56dp"
-                        android:contentDescription="@string/credit_avatar_description"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/credit_yeonfeel_avatar"
+                        app:cardBackgroundColor="@android:color/transparent"
+                        app:cardElevation="0dp"
                         app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
-                        app:strokeWidth="1dp" />
+                        app:strokeWidth="1dp">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/credit_avatar_description"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/credit_yeonfeel_avatar"
+                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+
+                    </com.google.android.material.card.MaterialCardView>
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -227,16 +246,25 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <com.google.android.material.imageview.ShapeableImageView
+                    <com.google.android.material.card.MaterialCardView
                         android:id="@+id/credit_chiyak_avatar"
                         android:layout_width="56dp"
                         android:layout_height="56dp"
-                        android:contentDescription="@string/credit_avatar_description"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/credit_chiyak_avatar"
+                        app:cardBackgroundColor="@android:color/transparent"
+                        app:cardElevation="0dp"
                         app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
-                        app:strokeWidth="1dp" />
+                        app:strokeWidth="1dp">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/credit_avatar_description"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/credit_chiyak_avatar"
+                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+
+                    </com.google.android.material.card.MaterialCardView>
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -272,16 +300,25 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <com.google.android.material.imageview.ShapeableImageView
+                    <com.google.android.material.card.MaterialCardView
                         android:id="@+id/credit_teqhnikacross_avatar"
                         android:layout_width="56dp"
                         android:layout_height="56dp"
-                        android:contentDescription="@string/credit_avatar_description"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/credit_teqhnikacross_avatar"
+                        app:cardBackgroundColor="@android:color/transparent"
+                        app:cardElevation="0dp"
                         app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
-                        app:strokeWidth="1dp" />
+                        app:strokeWidth="1dp">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/credit_avatar_description"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/credit_teqhnikacross_avatar"
+                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+
+                    </com.google.android.material.card.MaterialCardView>
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -317,16 +354,25 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <com.google.android.material.imageview.ShapeableImageView
+                    <com.google.android.material.card.MaterialCardView
                         android:id="@+id/credit_parami_avatar"
                         android:layout_width="56dp"
                         android:layout_height="56dp"
-                        android:contentDescription="@string/credit_avatar_description"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/credit_parami_avatar"
+                        app:cardBackgroundColor="@android:color/transparent"
+                        app:cardElevation="0dp"
                         app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
                         app:strokeColor="@color/credit_avatar_stroke"
-                        app:strokeWidth="1dp" />
+                        app:strokeWidth="1dp">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/credit_avatar_description"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/credit_parami_avatar"
+                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+
+                    </com.google.android.material.card.MaterialCardView>
 
                     <LinearLayout
                         android:layout_width="match_parent"

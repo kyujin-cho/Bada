@@ -18,10 +18,11 @@
     * `credit_teqhnikacross_desc` — the contributor explicitly
       asked for "We all want to be loved" rendered as-is on Korean
       devices too.
-    * `credit_thanks_compact` — already Korean in the canonical file
-      (used as the default for both English and Korean locales).
-      (`credit_yeonfeel_desc` is now fully localized: English canonical,
-      Korean here, Japanese in values-ja.)
+
+  `credit_yeonfeel_desc` and `credit_thanks_compact` used to be left
+  Korean-in-canonical; both are now fully localized (English canonical,
+  Korean here, Japanese in values-ja). For `credit_thanks_compact` only
+  the parenthetical contribution note is translated — "Chiyak" stays.
 -->
 <resources>
 
@@ -62,6 +63,9 @@
     <string name="credit_parami_desc">매일 감사하는 기도를 올리자</string>
 
     <string name="credit_avatar_description">기여자 프로필 사진</string>
+    <!-- Special Thanks compact line. "Chiyak" is a proper noun; only the
+         parenthetical contribution note is localized. -->
+    <string name="credit_thanks_compact">Chiyak (개발 토큰 제공)</string>
 
     <!-- File-picker entry point on the Send/Receive tab. -->
     <string name="main_send_files_button">파일 보내기</string>
@@ -205,6 +209,8 @@
     <string name="send_help_sheet_visibility_body">받는 기기에서 \'받을 준비 완료\' 상태인지 확인하세요. 이 상태일 때 주변의 모든 사람이 파일을 공유할 수 있습니다. 이미 이 상태인데도 여기에 나타나지 않는다면 양쪽 기기에서 Bada를 완전히 종료한 뒤 다시 실행해 보세요.</string>
     <string name="send_help_sheet_qr_title">QR 코드로 공유</string>
     <string name="send_help_sheet_qr_body">그래도 기기가 보이지 않는다면 카드 우측 상단의 QR 코드 버튼을 누르세요. 받는 사람이 QR 코드를 스캔하거나 링크에 접속하면 파일을 전송할 수 있습니다.</string>
+    <string name="send_help_sheet_compat_title">호환 가능 기기 확인</string>
+    <string name="send_help_sheet_compat_body">bada는 현재 실험적인 프로젝트입니다. 일부 기기에서는 검색은 가능하지만 파일 전송이 불가능할 수도 있고, 검색도 되지 않을 수 있습니다. 업데이트를 통해 지원 가능 기기를 확대할 예정입니다.</string>
     <string name="send_help_sheet_close">확인</string>
 
     <string name="send_show_qr">QR 표시</string>
@@ -215,9 +221,7 @@
     <!-- Payload summary templates. -->
     <string name="send_payload_text">텍스트 공유 중</string>
     <string name="send_payload_single_file">파일 1개</string>
-    <string name="send_payload_single_file_with_size">파일 1개 • %1$s</string>
     <string name="send_payload_multiple_files">파일 %1$d개</string>
-    <string name="send_payload_multiple_files_with_size">파일 %1$d개 • %2$s</string>
 
     <!-- Connection-phase labels. -->
     <string name="send_phase_connecting">연결 중…</string>

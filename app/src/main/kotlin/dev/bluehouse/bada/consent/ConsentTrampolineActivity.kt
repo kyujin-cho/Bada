@@ -25,6 +25,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -740,8 +741,32 @@ class ConsentTrampolineActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 blurView.setRenderEffect(buildPrettyBlurEffect())
             }
-            blurView.visibility = View.VISIBLE
-            overlayView.visibility = View.VISIBLE
+            // Cross-fade the backdrop in instead of snapping it visible,
+            // so the blurred image eases onto the white dialog rather
+            // than popping in once the async decode lands. The blur layer
+            // and its dampening overlay fade together as one backdrop.
+            fadeInBlurBackdrop(blurView, overlayView)
+        }
+    }
+
+    /**
+     * Reveal the completion blur backdrop with a short alpha fade. Both
+     * the blurred image and the translucent overlay start fully
+     * transparent and ease to opaque together over [BLUR_FADE_IN_MS].
+     */
+    private fun fadeInBlurBackdrop(
+        blurView: View,
+        overlayView: View,
+    ) {
+        for (view in listOf(blurView, overlayView)) {
+            view.alpha = 0f
+            view.visibility = View.VISIBLE
+            view
+                .animate()
+                .alpha(1f)
+                .setDuration(BLUR_FADE_IN_MS)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
         }
     }
 
@@ -977,5 +1002,14 @@ class ConsentTrampolineActivity : AppCompatActivity() {
          */
         private const val BLUR_RADIUS_PX: Float = 80f
         private const val BLUR_SATURATION_BOOST: Float = 1.4f
+
+        /**
+         * Fade-in duration for the blurred completion backdrop. The
+         * bitmap decode finishes a beat after the panel is already on
+         * screen, so cross-fading it in (rather than snapping it from
+         * GONE to VISIBLE) keeps the image from popping onto the white
+         * dialog surface.
+         */
+        private const val BLUR_FADE_IN_MS: Long = 320L
     }
 }

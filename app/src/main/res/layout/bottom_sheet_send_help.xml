@@ -74,6 +74,24 @@
             android:text="@string/send_help_sheet_qr_body"
             android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
 
+        <!-- Section 3: experimental-compatibility note. Some peers may be
+             discoverable but not yet transferable (or not discoverable at
+             all); device support widens over future updates. -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/send_help_sheet_compat_title"
+            android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/send_help_sheet_compat_body"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
         <!--
           Apply Widget.Bada.Button explicitly here. BottomSheetDialog
           uses its own ThemeOverlay (Material BottomSheetDialog) that does

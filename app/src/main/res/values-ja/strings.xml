@@ -20,10 +20,11 @@
       devices too (designed wordmarks, not translatable labels).
     * `credit_teqhnikacross_desc` — the contributor explicitly
       asked for "We all want to be loved" rendered as-is.
-    * `credit_thanks_compact` — already Korean in the canonical file
-      (used as the default for every non-overriding locale, including
-      Japanese). (`credit_yeonfeel_desc` is now fully localized:
-      English canonical, Korean in values-ko, Japanese here.)
+
+  `credit_yeonfeel_desc` and `credit_thanks_compact` used to be left
+  Korean-in-canonical; both are now fully localized (English canonical,
+  Korean in values-ko, Japanese here). For `credit_thanks_compact` only
+  the parenthetical contribution note is translated — "Chiyak" stays.
 -->
 <resources>
 
@@ -52,6 +53,9 @@
     <string name="credit_parami_desc">毎日感謝の祈りを捧げよう</string>
 
     <string name="credit_avatar_description">貢献者のアバター</string>
+    <!-- Special Thanks compact line. "Chiyak" is a proper noun; only the
+         parenthetical contribution note is localized. -->
+    <string name="credit_thanks_compact">Chiyak (開発トークンを提供)</string>
 
     <!-- File-picker entry point on the Send/Receive tab. -->
     <string name="main_send_files_button">ファイルを送信</string>
@@ -183,6 +187,8 @@
     <string name="send_help_sheet_visibility_body">受信側の端末で、切り替えが「受信の準備完了」になっているか確認してください。このモードでは、近くにいる誰でもファイルを共有できます。すでにこのモードなのにここに表示されない場合は、両方の端末で Bada を完全に終了してから開き直してみてください。</string>
     <string name="send_help_sheet_qr_title">または QR コードで共有</string>
     <string name="send_help_sheet_qr_body">それでも受信側が表示されない場合は、このカードの右上にある QR コードボタンをタップしてください。受信側にコードをスキャンしてもらうか、リンクを開いてもらうと転送を開始できます。</string>
+    <string name="send_help_sheet_compat_title">対応端末の確認</string>
+    <string name="send_help_sheet_compat_body">bada は現在、実験的なプロジェクトです。一部の端末では、検出はできてもファイルを送信できないことがあり、検出自体ができないこともあります。今後のアップデートで対応端末を広げていく予定です。</string>
     <string name="send_help_sheet_close">OK</string>
 
     <string name="send_show_qr">QR を表示</string>
@@ -193,9 +199,7 @@
     <!-- Payload summary templates. -->
     <string name="send_payload_text">テキストを共有中</string>
     <string name="send_payload_single_file">ファイル 1 件</string>
-    <string name="send_payload_single_file_with_size">ファイル 1 件 • %1$s</string>
     <string name="send_payload_multiple_files">ファイル %1$d 件</string>
-    <string name="send_payload_multiple_files_with_size">ファイル %1$d 件 • %2$s</string>
 
     <!-- Connection-phase labels. -->
     <string name="send_phase_connecting">接続中…</string>
