@@ -1258,13 +1258,12 @@ public class SendActivity : AppCompatActivity() {
         if (url.isEmpty()) return
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.show_qr_title), url))
-        // On Android 12L+ the platform shows its own "Copied to
-        // clipboard" overlay so a second toast would be redundant.
-        // Versions below that have no system surface for the action,
-        // so we provide our own.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            Toast.makeText(this, R.string.show_qr_link_copied, Toast.LENGTH_SHORT).show()
-        }
+        // Always acknowledge with our own toast. Android 13+ normally
+        // shows a system "Copied" overlay, but several OEM ROMs (vivo
+        // OriginOS among them, which we test on) suppress or replace it,
+        // leaving the tap with no visible feedback — so we surface the
+        // confirmation ourselves regardless of platform version.
+        Toast.makeText(this, R.string.show_qr_link_copied, Toast.LENGTH_SHORT).show()
     }
 
     /**
