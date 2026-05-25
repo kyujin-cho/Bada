@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Button background for the send-screen Cancel / Done plate. Like
+  btn_frosted_background but with a TRANSPARENT fill so the
+  BackdropBlurView sitting behind the button shows through, while keeping
+  the same 1dp frosted-button stroke + 24dp rounded shape + ripple so the
+  button still reads with its usual outline and tap feedback.
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/frosted_button_ripple">
+
+    <item android:id="@android:id/mask">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFFFF" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+
+    <item>
+        <selector>
+            <item android:state_enabled="false">
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent" />
+                    <corners android:radius="24dp" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent" />
+                    <stroke
+                        android:width="1dp"
+                        android:color="@color/frosted_button_stroke" />
+                    <corners android:radius="24dp" />
+                </shape>
+            </item>
+        </selector>
+    </item>
+
+</ripple>

@@ -262,10 +262,9 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:clipToPadding="false"
-                        android:fadingEdgeLength="32dp"
                         android:fillViewport="true"
-                        android:paddingBottom="96dp"
-                        android:requiresFadingEdge="vertical">
+                        android:paddingTop="40dp"
+                        android:paddingBottom="96dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -326,6 +325,15 @@
                         </LinearLayout>
 
                     </ScrollView>
+
+                    <!-- Top scrim: rows pass under this gradient as they
+                         scroll up and fade into the card surface, so they
+                         never overflow past the top of the gradient card. -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_gravity="top"
+                        android:background="@drawable/picker_top_scrim" />
 
                     <!-- Status panel (sending / awaiting PIN / terminal),
                          centered in the right half. Hidden during picking. -->
@@ -458,16 +466,14 @@
                                 android:id="@+id/send_cancel_button"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:background="@android:color/transparent"
-                                android:foreground="?attr/selectableItemBackground"
+                                android:background="@drawable/btn_frosted_outline_background"
                                 android:text="@string/send_cancel" />
 
                             <Button
                                 android:id="@+id/send_done_button"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:background="@android:color/transparent"
-                                android:foreground="?attr/selectableItemBackground"
+                                android:background="@drawable/btn_frosted_outline_background"
                                 android:text="@string/send_done"
                                 android:visibility="gone" />
 
