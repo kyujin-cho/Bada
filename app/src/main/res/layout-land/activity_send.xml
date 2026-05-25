@@ -504,8 +504,8 @@
                 <!-- LEFT: QR code. -->
                 <ImageView
                     android:id="@+id/send_qr_bitmap"
-                    android:layout_width="220dp"
-                    android:layout_height="220dp"
+                    android:layout_width="180dp"
+                    android:layout_height="180dp"
                     android:layout_gravity="center_vertical"
                     android:background="@android:color/white"
                     android:contentDescription="@string/show_qr_image_description" />
