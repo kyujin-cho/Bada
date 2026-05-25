@@ -10,4 +10,9 @@
 <resources>
     <dimen name="app_toolbar_height">88dp</dimen>
     <dimen name="app_toolbar_padding_top">32dp</dimen>
+    <!-- Bottom padding for the Settings scroll content. Portrait uses the
+         normal card spacing; landscape (values-land) adds room so the last
+         item can scroll clear of the floating bottom-left nav pill that
+         overlays the fragment. -->
+    <dimen name="settings_content_bottom_padding">24dp</dimen>
 </resources>
