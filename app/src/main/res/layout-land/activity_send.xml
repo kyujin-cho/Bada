@@ -332,17 +332,30 @@
 
                     </ScrollView>
 
-                    <!-- Status panel (sending / awaiting PIN / terminal),
-                         centered in the right half. Hidden during picking. -->
-                    <LinearLayout
+                    <!-- Status panel (sending / awaiting PIN / terminal).
+                         Wrapped in a scroll so a tall PIN state (PIN digits +
+                         confirm message) centres when it fits and scrolls
+                         when it doesn't, never clipping the top nor slipping
+                         behind the button. The bottom padding reserves the
+                         floating Cancel/Done button zone. Hidden during
+                         picking. -->
+                    <ScrollView
                         android:id="@+id/send_status_panel"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:clipChildren="false"
+                        android:layout_height="match_parent"
                         android:clipToPadding="false"
-                        android:orientation="vertical"
+                        android:fillViewport="true"
+                        android:overScrollMode="never"
+                        android:paddingBottom="80dp"
                         android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:clipChildren="false"
+                            android:clipToPadding="false"
+                            android:gravity="center_vertical"
+                            android:orientation="vertical">
 
                         <TextView
                             android:id="@+id/send_status_phase"
@@ -432,7 +445,9 @@
                             android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                             tools:text="Confirm this code matches the receiver's screen." />
 
-                    </LinearLayout>
+                        </LinearLayout>
+
+                    </ScrollView>
 
                     <!-- Bottom action, pinned bottom-right over the scrolling
                          list: the Cancel / Done button floats as a frosted
