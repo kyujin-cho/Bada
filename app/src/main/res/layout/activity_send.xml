@@ -256,7 +256,9 @@
                     android:clipChildren="false"
                     android:clipToPadding="false"
                     android:orientation="vertical"
-                    android:padding="24dp">
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="24dp"
+                    android:paddingBottom="24dp">
 
                     <TextView
                         android:id="@+id/send_payload_summary"
@@ -311,9 +313,16 @@
                       vertically centered inside this slot rather than
                       hugging the slot's top edge.
                     -->
+                    <!-- Negative side margins cancel the picker's 16dp side
+                         padding so the peer list (and its press ripple) spans
+                         the full card width to the rounded edges. Each row's
+                         own 16dp padding then aligns the row text with the
+                         16dp-inset header above. -->
                     <FrameLayout
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
+                        android:layout_marginStart="-16dp"
+                        android:layout_marginEnd="-16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
                         android:clipChildren="false"
