@@ -82,10 +82,15 @@
         android:paddingTop="28dp"
         android:paddingBottom="24dp">
 
-        <View
+        <!-- Rounded card surface. clipToOutline clips the picker / peer
+             list / QR content to the gradient card's rounded corners so
+             rows can't scroll out into the white margin around the card. -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@drawable/dialog_gradient_background" />
+            android:background="@drawable/dialog_gradient_background"
+            android:clipChildren="true"
+            android:clipToOutline="true">
 
         <View
             android:id="@+id/send_pin_state_background"
@@ -455,7 +460,9 @@
 
                         <FrameLayout
                             android:layout_width="match_parent"
-                            android:layout_height="wrap_content">
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="16dp"
+                            android:layout_marginBottom="16dp">
 
                             <dev.bluehouse.bada.ui.BackdropBlurView
                                 android:id="@+id/send_cancel_blur"
@@ -584,6 +591,8 @@
             </LinearLayout>
 
         </androidx.core.widget.NestedScrollView>
+
+        </FrameLayout>
 
     </FrameLayout>
 

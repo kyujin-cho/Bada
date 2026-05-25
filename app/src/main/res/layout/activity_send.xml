@@ -606,14 +606,20 @@
                       as a quiet helper rather than competing with
                       the Cancel button below.
                     -->
+                    <!-- Raised above the peer list (elevation + opaque card
+                         surface) so a long, scrolling list never shows
+                         through or overlaps the "Can't find the device?"
+                         link sitting just below it. -->
                     <TextView
                         android:id="@+id/send_help_link"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:background="?attr/selectableItemBackground"
+                        android:background="@color/surface_card"
                         android:clickable="true"
+                        android:elevation="4dp"
                         android:focusable="true"
+                        android:foreground="?attr/selectableItemBackground"
                         android:gravity="center"
                         android:paddingTop="6dp"
                         android:paddingBottom="6dp"
