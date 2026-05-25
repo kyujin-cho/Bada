@@ -25,6 +25,17 @@
     <color name="nav_surface">#FFFFFFFF</color>
     <color name="nav_item_active">#0F62FE</color>
     <color name="nav_item_inactive">#FF5F6368</color>
+    <!-- Soft brand-tinted pill behind the selected tab in the landscape
+         floating nav (Material active indicator). Low alpha so the
+         saturated brand-blue active icon still reads on top. -->
+    <color name="nav_active_indicator">#1F0F62FE</color>
+    <!-- Translucent surface for the landscape floating-pill nav. The pill
+         draws a real backdrop blur of the content behind it on API 31+
+         (ElasticBottomNavigationView.attachBackdropBlur); this semi-opaque
+         white tints that blur into a frosted "liquid glass" bar and, on
+         pre-31 devices without the blur, still reads as a soft frosted
+         surface over the content. -->
+    <color name="nav_pill_surface">#B3FFFFFF</color>
 
     <!--
       Surface tokens for cards, chips, and inputs. The whole app's

@@ -27,12 +27,15 @@ import android.transition.Transition
 import android.transition.TransitionManager
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.bugreport.BugReportFlowSupport
@@ -61,6 +64,7 @@ import dev.bluehouse.bada.protocol.qr.QrTlvMatcher
 import dev.bluehouse.bada.protocol.qr.QrUrl
 import dev.bluehouse.bada.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.bada.service.receiver.OutboundSessionActiveHolder
+import dev.bluehouse.bada.ui.BackdropBlurView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -217,6 +221,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendQrCopyLink.setOnClickListener { onCopyQrLinkClicked() }
         binding.sendNetworkHintDismiss.setOnClickListener { peerPickerController.onHintDismissed() }
         wireHelpLink()
+        wireCancelButtonBlur()
 
         // Capture the first image attachment URI now so the success
         // terminal can render a preview without re-resolving the intent.
@@ -925,11 +930,37 @@ public class SendActivity : AppCompatActivity() {
         link.setOnClickListener { showHelpSheet() }
     }
 
+    /**
+     * Turn the Cancel / Done plate into frosted "liquid glass": the
+     * [BackdropBlurView] behind the transparent-background button blurs the
+     * peer list scrolling behind it (so rows fade out illegibly rather than
+     * showing readable text behind the button), tinted with the same
+     * frosted-button fill the rest of the app uses, rounded to the button's
+     * 24dp corner. The activity content frame is the hierarchy it captures.
+     */
+    private fun wireCancelButtonBlur() {
+        val root = binding.root as? ViewGroup ?: return
+        binding.sendCancelBlur.attachBackdropBlur(
+            root = root,
+            blurRadiusDp = CANCEL_BLUR_RADIUS_DP,
+            cornerRadiusDp = CANCEL_BLUR_CORNER_DP,
+            tint = ContextCompat.getColor(this, R.color.frosted_button_fill),
+        )
+    }
+
     private fun showHelpSheet() {
         val sheet = BottomSheetDialog(this)
         sheet.setContentView(R.layout.bottom_sheet_send_help)
         sheet.findViewById<View>(R.id.send_help_sheet_close)?.setOnClickListener {
             sheet.dismiss()
+        }
+        // On a short landscape window the default half-open peek shows
+        // almost none of the troubleshooting content; open the sheet fully
+        // (and skip the collapsed stop) so it rises high enough to read
+        // without the user having to drag it up.
+        sheet.behavior.skipCollapsed = true
+        sheet.setOnShowListener {
+            sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         }
         sheet.show()
     }
@@ -1619,6 +1650,8 @@ public class SendActivity : AppCompatActivity() {
         // gradient of color rather than a recognizable photo, but
         // not so large that the result collapses into a single
         // muddy hue.
+        private const val CANCEL_BLUR_RADIUS_DP: Float = 16f
+        private const val CANCEL_BLUR_CORNER_DP: Float = 24f
         private const val BLUR_RADIUS_PX: Float = 80f
         private const val BLUR_SATURATION_BOOST: Float = 1.4f
 

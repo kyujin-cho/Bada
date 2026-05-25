@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Landscape top-bar geometry: a compact bar so the short landscape
+  viewport is not dominated by an oversized header. Smaller height and a
+  much smaller top padding bring the title up and free vertical room for
+  the content below. See values/dimens.xml for the portrait values.
+-->
+<resources>
+    <dimen name="app_toolbar_height">56dp</dimen>
+    <dimen name="app_toolbar_padding_top">6dp</dimen>
+    <!-- Extra bottom padding so the last Settings item (shake-to-report)
+         can scroll above the floating bottom-left nav pill (64dp tall +
+         16dp bottom margin) that overlays the fragment in landscape. -->
+    <dimen name="settings_content_bottom_padding">96dp</dimen>
+</resources>

@@ -36,10 +36,10 @@
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/onboarding_toolbar"
         android:layout_width="match_parent"
-        android:layout_height="88dp"
+        android:layout_height="@dimen/app_toolbar_height"
         android:background="?android:attr/colorBackground"
         android:paddingEnd="12dp"
-        android:paddingTop="32dp"
+        android:paddingTop="@dimen/app_toolbar_padding_top"
         app:title="@string/onboarding_title"
         app:titleCentered="false"
         app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"

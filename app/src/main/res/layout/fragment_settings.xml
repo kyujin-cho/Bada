@@ -45,7 +45,7 @@
         android:orientation="vertical"
         android:paddingHorizontal="16dp"
         android:paddingTop="8dp"
-        android:paddingBottom="24dp">
+        android:paddingBottom="@dimen/settings_content_bottom_padding">
 
         <!-- ============ Card 1: Save location ============ -->
         <LinearLayout

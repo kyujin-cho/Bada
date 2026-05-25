@@ -32,6 +32,7 @@ import dev.bluehouse.bada.onboarding.PermissionRequirements
 import dev.bluehouse.bada.onboarding.PermissionsOnboardingActivity
 import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
 import dev.bluehouse.bada.ui.CreditActivity
+import dev.bluehouse.bada.ui.ElasticBottomNavigationView
 import dev.bluehouse.bada.ui.SendReceiveFragment
 import dev.bluehouse.bada.ui.SettingsFragment
 
@@ -170,6 +171,14 @@ class MainActivity : AppCompatActivity() {
         // hookup to the next run-loop tick so children definitely
         // exist by the time we reach for them.
         bottomNav.post { installItemPressAnimations(bottomNav) }
+
+        // Landscape floats the nav as a frosted-glass pill: blur whatever
+        // content sits behind it. Portrait inflates a plain
+        // BottomNavigationView, so the cast is null there and this is a
+        // no-op. The activity content frame is the hierarchy to capture.
+        (bottomNav as? ElasticBottomNavigationView)?.let { pill ->
+            (findViewById<View>(android.R.id.content) as? ViewGroup)?.let(pill::attachBackdropBlur)
+        }
     }
 
     /**

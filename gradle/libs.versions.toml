@@ -15,6 +15,8 @@ androidxAppcompat = "1.7.0"
 androidxActivity = "1.9.3"
 androidxLifecycle = "2.8.7"
 androidxFragment = "1.8.5"
+# Spring physics for the landscape nav pill's elastic drag-follow.
+androidxDynamicAnimation = "1.0.0"
 
 # Material Components for Android — ships BottomNavigationView and the
 # MaterialComponents themes that BottomNavigationView's styles inherit
@@ -60,6 +62,7 @@ detekt = "1.23.7"
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidxAppcompat" }
 androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "androidxActivity" }
+androidx-dynamicanimation = { module = "androidx.dynamicanimation:dynamicanimation", version.ref = "androidxDynamicAnimation" }
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }
 androidx-fragment-ktx = { module = "androidx.fragment:fragment-ktx", version.ref = "androidxFragment" }
 material = { module = "com.google.android.material:material", version.ref = "material" }

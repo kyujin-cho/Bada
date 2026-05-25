@@ -146,6 +146,9 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.fragment.ktx)
+    // Spring physics (SpringAnimation) for the landscape nav pill's
+    // elastic drag-follow selection (ElasticBottomNavigationView).
+    implementation(libs.androidx.dynamicanimation)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
 

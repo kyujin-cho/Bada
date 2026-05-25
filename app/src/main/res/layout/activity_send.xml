@@ -79,9 +79,9 @@
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/send_toolbar"
         android:layout_width="match_parent"
-        android:layout_height="88dp"
+        android:layout_height="@dimen/app_toolbar_height"
         android:background="?android:attr/colorBackground"
-        android:paddingTop="32dp"
+        android:paddingTop="@dimen/app_toolbar_padding_top"
         app:contentInsetEnd="0dp"
         app:contentInsetLeft="0dp"
         app:contentInsetRight="0dp"
@@ -256,7 +256,9 @@
                     android:clipChildren="false"
                     android:clipToPadding="false"
                     android:orientation="vertical"
-                    android:padding="24dp">
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="24dp"
+                    android:paddingBottom="24dp">
 
                     <TextView
                         android:id="@+id/send_payload_summary"
@@ -311,9 +313,16 @@
                       vertically centered inside this slot rather than
                       hugging the slot's top edge.
                     -->
+                    <!-- Negative side margins cancel the picker's 16dp side
+                         padding so the peer list (and its press ripple) spans
+                         the full card width to the rounded edges. Each row's
+                         own 16dp padding then aligns the row text with the
+                         16dp-inset header above. -->
                     <FrameLayout
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
+                        android:layout_marginStart="-16dp"
+                        android:layout_marginEnd="-16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
                         android:clipChildren="false"
@@ -323,7 +332,9 @@
                             android:id="@+id/send_peer_scroll"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:fillViewport="true">
+                            android:fadingEdgeLength="48dp"
+                            android:fillViewport="true"
+                            android:requiresFadingEdge="vertical">
 
                             <LinearLayout
                                 android:layout_width="match_parent"
@@ -615,20 +626,36 @@
                       the bottom row reads as a single fixed-position
                       button regardless of state.
                     -->
-                    <Button
-                        android:id="@+id/send_cancel_button"
+                    <!-- Cancel / Done as a frosted "glass" plate: a backdrop
+                         blur sits behind a transparent-background button so
+                         it reads as the same liquid-glass surface used
+                         elsewhere. Cancel and Done are mutually exclusive. -->
+                    <FrameLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="@string/send_cancel" />
+                        android:layout_marginTop="16dp">
 
-                    <Button
-                        android:id="@+id/send_done_button"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="@string/send_done"
-                        android:visibility="gone" />
+                        <dev.bluehouse.bada.ui.BackdropBlurView
+                            android:id="@+id/send_cancel_blur"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent" />
+
+                        <Button
+                            android:id="@+id/send_cancel_button"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/btn_frosted_outline_background"
+                            android:text="@string/send_cancel" />
+
+                        <Button
+                            android:id="@+id/send_done_button"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/btn_frosted_outline_background"
+                            android:text="@string/send_done"
+                            android:visibility="gone" />
+
+                    </FrameLayout>
 
                 </LinearLayout>
 
@@ -661,6 +688,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:fillViewport="true"
+                    android:overScrollMode="never"
                     android:visibility="gone">
 
                     <LinearLayout

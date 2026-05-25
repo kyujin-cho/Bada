@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared dimensions. The app's vivo/OriginOS-style top bar is tall
+  (88dp) with a large top padding (32dp) that pushes the 32sp title
+  toward the bottom of the bar. That reads well in portrait but wastes
+  scarce vertical space in landscape, so these two values are overridden
+  in values-land to a compact bar. Every screen's MaterialToolbar
+  references them so the whole app compacts consistently when rotated.
+-->
+<resources>
+    <dimen name="app_toolbar_height">88dp</dimen>
+    <dimen name="app_toolbar_padding_top">32dp</dimen>
+    <!-- Bottom padding for the Settings scroll content. Portrait uses the
+         normal card spacing; landscape (values-land) adds room so the last
+         item can scroll clear of the floating bottom-left nav pill that
+         overlays the fragment. -->
+    <dimen name="settings_content_bottom_padding">24dp</dimen>
+</resources>
