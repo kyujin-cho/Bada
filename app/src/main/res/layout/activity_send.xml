@@ -323,10 +323,9 @@
                             android:id="@+id/send_peer_scroll"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:clipToPadding="false"
+                            android:fadingEdgeLength="48dp"
                             android:fillViewport="true"
-                            android:paddingTop="40dp"
-                            android:paddingBottom="40dp">
+                            android:requiresFadingEdge="vertical">
 
                             <LinearLayout
                                 android:layout_width="match_parent"
@@ -403,15 +402,6 @@
                             </LinearLayout>
 
                         </ScrollView>
-
-                        <!-- Top scrim: rows pass under this gradient as they
-                             scroll up and fade into the card surface, so they
-                             never overflow past the top of the card. -->
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="40dp"
-                            android:layout_gravity="top"
-                            android:background="@drawable/picker_top_scrim" />
 
                         <LinearLayout
                             android:id="@+id/send_status_panel"
@@ -543,15 +533,6 @@
 
                         </LinearLayout>
 
-                        <!-- Bottom scrim: fade the list out at the bottom of
-                             the scroll so rows blend into the card surface
-                             instead of reading as a hard cut-off. -->
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="40dp"
-                            android:layout_gravity="bottom"
-                            android:background="@drawable/picker_bottom_scrim" />
-
                     </FrameLayout>
 
                     <!--
@@ -606,20 +587,14 @@
                       as a quiet helper rather than competing with
                       the Cancel button below.
                     -->
-                    <!-- Raised above the peer list (elevation + opaque card
-                         surface) so a long, scrolling list never shows
-                         through or overlaps the "Can't find the device?"
-                         link sitting just below it. -->
                     <TextView
                         android:id="@+id/send_help_link"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:background="@color/surface_card"
+                        android:background="?attr/selectableItemBackground"
                         android:clickable="true"
-                        android:elevation="4dp"
                         android:focusable="true"
-                        android:foreground="?attr/selectableItemBackground"
                         android:gravity="center"
                         android:paddingTop="6dp"
                         android:paddingBottom="6dp"

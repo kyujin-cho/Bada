@@ -267,9 +267,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:clipToPadding="false"
+                        android:fadingEdgeLength="48dp"
                         android:fillViewport="true"
-                        android:paddingTop="40dp"
-                        android:paddingBottom="96dp">
+                        android:paddingBottom="96dp"
+                        android:requiresFadingEdge="vertical">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -330,15 +331,6 @@
                         </LinearLayout>
 
                     </ScrollView>
-
-                    <!-- Top scrim: rows pass under this gradient as they
-                         scroll up and fade into the card surface, so they
-                         never overflow past the top of the gradient card. -->
-                    <View
-                        android:layout_width="match_parent"
-                        android:layout_height="40dp"
-                        android:layout_gravity="top"
-                        android:background="@drawable/picker_top_scrim" />
 
                     <!-- Status panel (sending / awaiting PIN / terminal),
                          centered in the right half. Hidden during picking. -->
@@ -442,21 +434,16 @@
 
                     </LinearLayout>
 
-                    <!-- Bottom action stack, pinned over the scrolling list:
-                         a gradient scrim fades the list out, then the
-                         Cancel / Done button floats as a frosted "glass"
-                         plate (backdrop blur behind a transparent button).
-                         Cancel and Done are mutually exclusive. -->
+                    <!-- Bottom action, pinned bottom-right over the scrolling
+                         list: the Cancel / Done button floats as a frosted
+                         "glass" plate (backdrop blur behind a transparent,
+                         outlined button). Cancel and Done are mutually
+                         exclusive. -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_gravity="bottom"
                         android:orientation="vertical">
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="40dp"
-                            android:background="@drawable/picker_bottom_scrim" />
 
                         <FrameLayout
                             android:layout_width="match_parent"
