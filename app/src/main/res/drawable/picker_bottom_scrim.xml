@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Bottom scrim for the send-screen peer list: a vertical gradient from
+  transparent at the top to the opaque card surface colour at the bottom.
+  Laid over the bottom of the scrolling list (just above the floating
+  Cancel button) so list rows fade into the surface as they approach the
+  button instead of showing readable text behind/around it. Pairs with
+  the list's top fading edge and the Cancel button's backdrop blur.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:endColor="@color/surface_card"
+        android:startColor="#00FFFFFF" />
+</shape>

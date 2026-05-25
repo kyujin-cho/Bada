@@ -323,7 +323,11 @@
                             android:id="@+id/send_peer_scroll"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:fillViewport="true">
+                            android:clipToPadding="false"
+                            android:fadingEdgeLength="32dp"
+                            android:fillViewport="true"
+                            android:paddingBottom="40dp"
+                            android:requiresFadingEdge="vertical">
 
                             <LinearLayout
                                 android:layout_width="match_parent"
@@ -531,6 +535,15 @@
 
                         </LinearLayout>
 
+                        <!-- Bottom scrim: fade the list out at the bottom of
+                             the scroll so rows blend into the card surface
+                             instead of reading as a hard cut-off. -->
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="40dp"
+                            android:layout_gravity="bottom"
+                            android:background="@drawable/picker_bottom_scrim" />
+
                     </FrameLayout>
 
                     <!--
@@ -615,20 +628,38 @@
                       the bottom row reads as a single fixed-position
                       button regardless of state.
                     -->
-                    <Button
-                        android:id="@+id/send_cancel_button"
+                    <!-- Cancel / Done as a frosted "glass" plate: a backdrop
+                         blur sits behind a transparent-background button so
+                         it reads as the same liquid-glass surface used
+                         elsewhere. Cancel and Done are mutually exclusive. -->
+                    <FrameLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="@string/send_cancel" />
+                        android:layout_marginTop="16dp">
 
-                    <Button
-                        android:id="@+id/send_done_button"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="@string/send_done"
-                        android:visibility="gone" />
+                        <dev.bluehouse.bada.ui.BackdropBlurView
+                            android:id="@+id/send_cancel_blur"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent" />
+
+                        <Button
+                            android:id="@+id/send_cancel_button"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@android:color/transparent"
+                            android:foreground="?attr/selectableItemBackground"
+                            android:text="@string/send_cancel" />
+
+                        <Button
+                            android:id="@+id/send_done_button"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@android:color/transparent"
+                            android:foreground="?attr/selectableItemBackground"
+                            android:text="@string/send_done"
+                            android:visibility="gone" />
+
+                    </FrameLayout>
 
                 </LinearLayout>
 
