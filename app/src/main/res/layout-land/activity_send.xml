@@ -488,6 +488,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:fillViewport="true"
+            android:overScrollMode="never"
             android:visibility="gone">
 
             <!-- Landscape QR panel: QR code on the LEFT, the title / intro /

@@ -247,7 +247,7 @@
 
     <!-- QR-code (#20 + #84) screen. -->
     <string name="show_qr_title">QR コードとリンク</string>
-    <string name="show_qr_intro">受け取る相手に QR コードのスキャンか、リンクを開くようお願いしてください。QR コードやリンクを持っている人は、あなたの追加の承認なしにファイルを受け取れます。</string>
+    <string name="show_qr_intro">受け取る相手に QR コードのスキャンか、リンクを開くようお願いしてください。QR コードやリンクを持っている人は、ファイルを受け取れます。</string>
     <string name="show_qr_image_description">Quick Share ペアリング URL の QR コード</string>
     <string name="show_qr_done">完了</string>
     <string name="show_qr_close">閉じる</string>

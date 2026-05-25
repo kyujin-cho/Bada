@@ -379,7 +379,7 @@
          to share AND that the QR / link grants unconditional access
          to whoever holds it. Avoids em dashes in line with the rest
          of the app's copy. -->
-    <string name="show_qr_intro">Ask the recipient to scan the QR code or open the link. Anyone holding the QR code or link can receive the files without further approval from you.</string>
+    <string name="show_qr_intro">Ask the recipient to scan the QR code or open the link. Anyone holding the QR code or link can receive the files.</string>
     <string name="show_qr_image_description">QR code for the Quick Share pairing URL</string>
     <!-- Used by the standalone ShowQrActivity, which still has a
          single-button bottom row. The in-card QR panel inside
