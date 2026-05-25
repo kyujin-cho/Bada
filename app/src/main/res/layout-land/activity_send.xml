@@ -490,88 +490,101 @@
             android:fillViewport="true"
             android:visibility="gone">
 
+            <!-- Landscape QR panel: QR code on the LEFT, the title / intro /
+                 URL / action buttons on the RIGHT, centred in the viewport. -->
             <LinearLayout
                 android:id="@+id/send_qr_panel"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="top|center_horizontal"
-                android:orientation="vertical"
+                android:layout_height="match_parent"
+                android:baselineAligned="false"
+                android:gravity="center"
+                android:orientation="horizontal"
                 android:padding="24dp">
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/show_qr_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Headline"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/show_qr_intro"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
-
+                <!-- LEFT: QR code. -->
                 <ImageView
                     android:id="@+id/send_qr_bitmap"
-                    android:layout_width="200dp"
-                    android:layout_height="200dp"
-                    android:layout_gravity="center_horizontal"
-                    android:layout_marginTop="16dp"
+                    android:layout_width="220dp"
+                    android:layout_height="220dp"
+                    android:layout_gravity="center_vertical"
                     android:background="@android:color/white"
                     android:contentDescription="@string/show_qr_image_description" />
 
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
+                <!-- RIGHT: description, URL, action buttons. -->
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:background="@drawable/qr_url_background"
-                    android:fillViewport="true"
-                    android:scrollbars="none">
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="32dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
-                        android:id="@+id/send_qr_url"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:fontFamily="monospace"
-                        android:paddingHorizontal="12dp"
-                        android:paddingVertical="10dp"
-                        android:singleLine="true"
-                        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
-                        android:textIsSelectable="true" />
+                        android:text="@string/show_qr_title"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                        android:textStyle="bold" />
 
-                </HorizontalScrollView>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:gravity="center"
-                    android:orientation="horizontal">
-
-                    <Button
-                        android:id="@+id/send_qr_close"
-                        style="@style/Widget.Bada.Button"
-                        android:layout_width="wrap_content"
+                    <TextView
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:minWidth="140dp"
-                        android:text="@string/show_qr_close"
-                        android:textAlignment="center" />
+                        android:layout_marginTop="8dp"
+                        android:text="@string/show_qr_intro"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
 
-                    <Space
-                        android:layout_width="12dp"
-                        android:layout_height="wrap_content" />
-
-                    <Button
-                        android:id="@+id/send_qr_copy_link"
-                        style="@style/Widget.Bada.Button"
-                        android:layout_width="wrap_content"
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:minWidth="140dp"
-                        android:text="@string/show_qr_copy_link"
-                        android:textAlignment="center" />
+                        android:layout_marginTop="16dp"
+                        android:background="@drawable/qr_url_background"
+                        android:fillViewport="true"
+                        android:scrollbars="none">
+
+                        <TextView
+                            android:id="@+id/send_qr_url"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="monospace"
+                            android:paddingHorizontal="12dp"
+                            android:paddingVertical="10dp"
+                            android:singleLine="true"
+                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textIsSelectable="true" />
+
+                    </HorizontalScrollView>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:id="@+id/send_qr_close"
+                            style="@style/Widget.Bada.Button"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:text="@string/show_qr_close"
+                            android:textAlignment="center" />
+
+                        <Space
+                            android:layout_width="12dp"
+                            android:layout_height="wrap_content" />
+
+                        <Button
+                            android:id="@+id/send_qr_copy_link"
+                            style="@style/Widget.Bada.Button"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:text="@string/show_qr_copy_link"
+                            android:textAlignment="center" />
+
+                    </LinearLayout>
 
                 </LinearLayout>
 
