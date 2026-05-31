@@ -233,10 +233,13 @@ public object TransferProgressNotification {
         connectionId: Long,
     ): Intent =
         Intent(ConsentIntents.ACTION_CANCEL_TRANSFER).apply {
-            // Explicit component scoping so the broadcast cannot be
-            // observed by an exported receiver in a sibling package.
+            // setPackage-only routing. ConsentBroadcastReceiver is
+            // registered dynamically (RECEIVER_NOT_EXPORTED) — explicit
+            // setClass(receiver::class) does not resolve at the
+            // BroadcastQueue and silently drops the broadcast on stricter
+            // Android 14+ devices (Vivo Funtouch 16 / OnePlus 15 Android
+            // 16 ColorOS). setPackage keeps delivery inside our process.
             setPackage(context.packageName)
-            setClass(context, ConsentBroadcastReceiver::class.java)
             putExtra(ConsentIntents.EXTRA_CONNECTION_ID, connectionId)
         }
 
