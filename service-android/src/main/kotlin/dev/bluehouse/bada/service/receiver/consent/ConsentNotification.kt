@@ -271,12 +271,18 @@ public object ConsentNotification {
         connectionId: Long,
     ): Intent =
         Intent(action).apply {
-            // Explicit component scoping locks the broadcast to our
-            // process. Without this, an `ACTION_ACCEPT` intent could
-            // theoretically be observed by an exported receiver in a
-            // sibling package (none exist today; future-proofing).
+            // Dispatch via setPackage + action only. ConsentBroadcastReceiver
+            // is registered dynamically by ReceiverForegroundService with
+            // RECEIVER_NOT_EXPORTED — there is no manifest entry, so an
+            // explicit setClass(receiver::class) component reference does
+            // not resolve at the BroadcastQueue and the broadcast is
+            // silently dropped (observed on Vivo Funtouch 16 during the
+            // #151 hardware loop, and on OnePlus 15 / Android 16 / ColorOS
+            // 16 where the strict broadcast routing also drops it).
+            // setPackage(packageName) is enough to keep delivery inside
+            // our process; the dynamic receiver's IntentFilter is the
+            // only listener for ACCEPT / REJECT in the package.
             setPackage(context.packageName)
-            setClass(context, ConsentBroadcastReceiver::class.java)
             putExtra(ConsentIntents.EXTRA_CONNECTION_ID, connectionId)
         }
 
