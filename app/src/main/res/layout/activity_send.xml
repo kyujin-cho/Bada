@@ -361,6 +361,7 @@
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="24dp"
+                                    android:paddingHorizontal="16dp"
                                     android:text="@string/send_empty_state"
                                     android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                                     android:visibility="gone" />
@@ -376,6 +377,8 @@
                                     android:id="@+id/send_network_hint"
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
+                                    android:layout_marginStart="16dp"
+                                    android:layout_marginEnd="16dp"
                                     android:layout_marginTop="16dp"
                                     android:background="?android:attr/colorBackgroundFloating"
                                     android:orientation="vertical"

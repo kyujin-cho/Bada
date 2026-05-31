@@ -50,7 +50,7 @@
     <string name="credit_yeonfeel_desc">だれもが識らない世界の歩き方</string>
     <!-- Credit screen, QA section. -->
     <string name="credit_chiyak_qa_desc">コンサートのチケットが買いたいです</string>
-    <string name="credit_parami_desc">毎日感謝の祈りを捧げよう</string>
+    <string name="credit_parami_desc">Justice will be served.</string>
 
     <string name="credit_avatar_description">貢献者のアバター</string>
     <!-- Special Thanks compact line. "Chiyak" is a proper noun; only the
@@ -84,8 +84,8 @@
     <string name="main_save_location_subtitle">受信したファイルの保存場所を選択します。</string>
     <string name="main_save_location_default">ダウンロード（既定）</string>
     <string name="main_save_location_current">現在: %1$s</string>
-    <string name="main_save_location_pick">フォルダを選択…</string>
-    <string name="main_save_location_clear">既定に戻す</string>
+    <string name="main_save_location_pick">フォルダを選択</string>
+    <string name="main_save_location_clear">リセット</string>
     <string name="main_save_location_pick_failed">そのフォルダを保存できませんでした。別の場所を選択してください。</string>
 
     <!-- Advertised Quick Share device name (#141). -->
@@ -94,7 +94,7 @@
     <string name="main_advertised_name_hint">端末名</string>
     <string name="main_advertised_name_current">現在の表示名: %1$s</string>
     <string name="main_advertised_name_save">名前を保存</string>
-    <string name="main_advertised_name_reset">既定値を使用</string>
+    <string name="main_advertised_name_reset">リセット</string>
 
     <!-- Folder-send entry point (#38). -->
     <string name="main_send_folder_button">フォルダを送信</string>
@@ -174,7 +174,7 @@
     <string name="send_subtitle_discovering">近くの端末を検索中…</string>
     <string name="send_subtitle_pick_peer">端末をタップして送信します。</string>
     <string name="send_subtitle_no_usable_route">近くの端末は見つかりましたが、まだ利用できる転送経路がありません。</string>
-    <string name="send_empty_state">近くに端末がありません。受信側で Quick Share が開いているか確認してください。共有 Wi-Fi が基本経路です。両端末が同じ LAN 上にない場合は、近くのブートストラップのために Bluetooth をオンにしておいてください。</string>
+    <string name="send_empty_state">近くに端末がありません。受信側で Quick Share が開いているか確認してください。</string>
 
     <!-- Same-Wi-Fi-network hint card (#85). -->
     <string name="send_network_hint_title">近くの端末を見つける条件</string>

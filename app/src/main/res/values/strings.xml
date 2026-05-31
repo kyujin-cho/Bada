@@ -49,11 +49,9 @@
          locale. -->
     <string name="credit_teqhnikacross_desc">We all want to be loved</string>
     <string name="credit_parami_name">Parami</string>
-    <!-- Parami's tagline is a self-exhortation in Korean ("매일 감사하는
-         기도를 올리자" — "let's give thanks in prayer every day"); the
-         English form mirrors that "let's …" self-encouraging tone rather
-         than translating the religious/prayer connotation literally. -->
-    <string name="credit_parami_desc">Let\'s give thanks in prayer every day</string>
+    <!-- Parami's tagline. Kept as the same English motto across all
+         locales. -->
+    <string name="credit_parami_desc">Justice will be served.</string>
     <!-- Combined "Name (note)" line for the bottom-centered Special
          Thanks section. Pre-baked into a single string so the layout
          can render it as one small caption rather than the per-row
@@ -118,8 +116,8 @@
     <string name="main_save_location_subtitle">Choose where incoming files are saved.</string>
     <string name="main_save_location_default">Downloads (default)</string>
     <string name="main_save_location_current">Current: %1$s</string>
-    <string name="main_save_location_pick">Choose folder…</string>
-    <string name="main_save_location_clear">Use default</string>
+    <string name="main_save_location_pick">Choose folder</string>
+    <string name="main_save_location_clear">Reset</string>
     <string name="main_save_location_pick_failed">Could not save that folder. Please pick a different location.</string>
 
     <!-- Advertised Quick Share device name (#141). The receiver uses
@@ -131,7 +129,7 @@
     <string name="main_advertised_name_hint">Device name</string>
     <string name="main_advertised_name_current">Currently advertised: %1$s</string>
     <string name="main_advertised_name_save">Save name</string>
-    <string name="main_advertised_name_reset">Use default</string>
+    <string name="main_advertised_name_reset">Reset</string>
 
     <!-- Folder-send entry point (#38). Android's share sheet only routes
          individual files; to ship a directory tree (preserving the
@@ -269,7 +267,7 @@
     <string name="send_subtitle_discovering">Looking for nearby devices…</string>
     <string name="send_subtitle_pick_peer">Tap a device to send.</string>
     <string name="send_subtitle_no_usable_route">Nearby device found, but no supported transfer route is available yet.</string>
-    <string name="send_empty_state">No devices nearby yet. Make sure the receiver has Quick Share open. Shared Wi-Fi is still the baseline path; if the devices are off-LAN, keep Bluetooth on for nearby bootstrap.</string>
+    <string name="send_empty_state">No devices nearby yet. Make sure the receiver has Quick Share open.</string>
 
     <!-- Same-Wi-Fi-network hint card (#85). Surfaced after a few seconds
          of empty peer list so the user understands why nothing has
