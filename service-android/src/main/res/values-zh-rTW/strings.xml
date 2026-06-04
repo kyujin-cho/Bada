@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Traditional Chinese — Taiwan (`zh-rTW`) string overrides for
+  :service-android. Mirrors every user-visible string in
+  `values/strings.xml` so receiver and consent notifications render in
+  Traditional Chinese on zh-TW devices while every other locale falls
+  back to the English originals.
+
+  Format placeholders (%1$s, %1$d, etc.) and escaped quotes are
+  preserved verbatim — translators only adjust the surrounding prose.
+  Pluralisation is still handled in code (no `<plurals>` resources here
+  yet); the segment strings below match what the consent / progress
+  notification builders interpolate.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Receiver foreground notification channel + body (#21). -->
+    <string name="receiver_notification_channel_name">Quick Share 接收器</string>
+    <string name="receiver_notification_channel_description">等待接收 Quick Share 傳輸時顯示的狀態通知</string>
+    <string name="receiver_notification_title">Quick Share 已啟用</string>
+    <string name="receiver_notification_text">正在接收附近檔案…</string>
+    <string name="receiver_notification_text_with_ssid">正在「%1$s」網路上接收</string>
+    <string name="receiver_notification_text_unknown_ssid">正在此網路上接收</string>
+
+    <!-- Consent notification (#22). -->
+    <string name="consent_notification_channel_name">傳入傳輸請求</string>
+    <string name="consent_notification_channel_description">其他裝置要求傳送檔案時顯示的彈出通知</string>
+    <string name="consent_notification_title_with_name">%1$s 想要分享</string>
+    <string name="consent_notification_title_unknown_sender">附近有裝置想要分享內容</string>
+
+    <string name="consent_notification_summary_n_items" tools:ignore="PluralsCandidate">%1$d 項（%2$s）</string>
+    <string name="consent_notification_summary_no_items">沒有內容</string>
+
+    <!-- Mixed-introduction summary (#40). -->
+    <string name="consent_notification_summary_kinds_with_size">%1$s（%2$s）</string>
+    <string name="consent_notification_segment_files" tools:ignore="PluralsCandidate">%1$d 個檔案</string>
+    <string name="consent_notification_segment_urls" tools:ignore="PluralsCandidate">%1$d 個 URL</string>
+    <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">%1$d 個地址</string>
+    <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">%1$d 組電話號碼</string>
+    <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">%1$d 段文字</string>
+
+    <!-- Folder-receive summary (#39). -->
+    <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">資料夾「%1$s」（%2$d 個檔案，%3$s）</string>
+
+    <string name="consent_notification_body">%1$s · PIN %2$s</string>
+    <string name="consent_notification_bigtext_pin_line">確認 PIN 碼：%1$s</string>
+
+    <string name="consent_notification_action_accept">接受</string>
+    <string name="consent_notification_action_reject">拒絕</string>
+
+    <!-- Transfer progress notification (#46). -->
+    <string name="transfer_progress_channel_name">傳輸進度</string>
+    <string name="transfer_progress_channel_description">Quick Share 傳輸進行中時顯示的靜音進度通知</string>
+
+    <string name="transfer_progress_title_with_name">正在接收來自 %1$s 的檔案</string>
+    <string name="transfer_progress_title_unknown_sender">正在接收檔案</string>
+
+    <string name="transfer_progress_body_size">%1$s / %2$s</string>
+    <string name="transfer_progress_body_rate">%1$s/s</string>
+    <string name="transfer_progress_body_eta">剩餘 %1$s</string>
+
+    <string name="transfer_progress_duration_few_seconds">不到一秒</string>
+    <string name="transfer_progress_duration_seconds" tools:ignore="PluralsCandidate">%1$d 秒</string>
+    <string name="transfer_progress_duration_about_minutes" tools:ignore="PluralsCandidate">約 %1$d 分鐘</string>
+    <string name="transfer_progress_duration_about_hours" tools:ignore="PluralsCandidate">約 %1$d 小時</string>
+
+    <string name="transfer_progress_action_cancel">取消</string>
+
+</resources>

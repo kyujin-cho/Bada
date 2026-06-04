@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Traditional Chinese — Taiwan (`zh-rTW`) string overrides. The Android
+  resource system picks this file for any device whose primary locale
+  resolves to Traditional Chinese — Taiwan (`zh`, `zh-rTW`); every other
+  locale falls back to the canonical English copy in `values/strings.xml`.
+
+  Pairing additions: when adding a new translatable string, add the
+  English copy in `values/strings.xml` first, then the Traditional
+  Chinese rendering here. Keep the resource name identical between both
+  files. Format placeholders (%1$s, %1$d, %%, etc.) and escaped
+  glyphs are preserved verbatim — translators only adjust the
+  surrounding prose.
+
+  A small set of strings is intentionally NOT translated, matching
+  the Korean (`values-ko`) and Japanese (`values-ja`) policy:
+    * `app_name`, contributor display names, brand-y labels
+      ("Quick Share", "bada") — proper nouns.
+    * `credit_section_*` headers — render in English on Traditional
+      Chinese devices too (designed wordmarks, not translatable labels).
+    * `credit_teqhnikacross_desc` — the contributor explicitly
+      asked for "We all want to be loved" rendered as-is.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Bottom-navigation tab labels for MainActivity. -->
+    <string name="nav_send_receive_title">傳送／接收</string>
+    <string name="nav_settings_title">設定</string>
+
+    <!-- Toolbar overflow menu / Credit screen. "致謝" is the standard
+         Traditional Chinese rendering of a contributor credit list. -->
+    <string name="menu_credit">致謝</string>
+    <string name="credit_activity_label">致謝</string>
+
+    <!-- `credit_section_developer`, `credit_section_polisher`,
+         `credit_section_qa`, `credit_section_thanks` are intentionally
+         NOT translated here (no override), matching the Korean and
+         Japanese policy: the four credit section headers render in
+         English on Traditional Chinese devices too. -->
+
+    <!-- Credit screen, Developer section. -->
+    <string name="credit_kevin_desc">哩程快不夠了</string>
+    <!-- YEONFEEL's tagline (Traditional Chinese rendering of the Korean
+         source "아무도 알지 못하는 세상을 걷는 법"). -->
+    <string name="credit_yeonfeel_desc">漫步在無人知曉的世界</string>
+    <!-- Credit screen, QA section. -->
+    <string name="credit_chiyak_qa_desc">好想買演唱會門票</string>
+    <string name="credit_parami_desc">每天懷著感恩的心禱告吧</string>
+
+    <string name="credit_avatar_description">貢獻者頭像</string>
+    <!-- Special Thanks compact line. "Chiyak" is a proper noun; only the
+         parenthetical contribution note is localized. -->
+    <string name="credit_thanks_compact">Chiyak（提供開發用權杖）</string>
+
+    <!-- File-picker entry point on the Send/Receive tab. -->
+    <string name="main_send_files_button">傳送檔案</string>
+    <string name="main_send_files_subtitle">從裝置中挑選一或多個檔案（照片、文件或其他任何格式），傳送給附近的 Quick Share 裝置。</string>
+    <string name="main_send_files_pick_failed">無法在此裝置上開啟檔案選取器。</string>
+    <string name="main_send_files_no_selection">未選取任何檔案。</string>
+
+    <!-- Idle state caption above the photo preview cards. -->
+    <string name="main_send_waiting">正在等待檔案…</string>
+    <string name="main_send_preview_photo_description">近期相簿照片預覽</string>
+
+    <!-- Always-visible pill (#34) — ON / OFF labels, tooltip, and
+         caption. -->
+    <string name="main_always_visible_title">隨時可見</string>
+    <string name="main_always_visible_subtitle">即使附近沒有傳送端送出的藍牙脈衝，也讓這部裝置在 Wi-Fi 上保持可被搜尋。關閉此選項可節省電力；接收端僅會在傳送端掃描時短暫顯示。</string>
+    <string name="main_always_visible_off_title">掃描時可見</string>
+    <string name="main_always_visible_caption_on">附近所有人都可以傳送檔案過來。</string>
+    <string name="main_always_visible_caption_off">僅在附近裝置透過藍牙掃描時啟用。</string>
+
+    <!-- Shake-to-report bug toggle. -->
+    <string name="main_bug_report_title">搖動手機回報錯誤</string>
+    <string name="main_bug_report_subtitle">啟用後，在 Bada 開啟時搖動手機，即可將近期診斷紀錄、裝置狀態與螢幕截圖打包成 ZIP 檔，自行儲存。不會自動上傳任何內容。</string>
+
+    <!-- Save-location settings (#42). -->
+    <string name="main_save_location_title">接收檔案儲存位置</string>
+    <string name="main_save_location_subtitle">選擇接收檔案的儲存位置。</string>
+    <string name="main_save_location_default">下載（預設）</string>
+    <string name="main_save_location_current">目前：%1$s</string>
+    <string name="main_save_location_pick">選擇資料夾…</string>
+    <string name="main_save_location_clear">使用預設值</string>
+    <string name="main_save_location_pick_failed">無法儲存該資料夾，請選擇其他位置。</string>
+
+    <!-- Advertised Quick Share device name (#141). -->
+    <string name="main_advertised_name_title">Quick Share 顯示名稱</string>
+    <string name="main_advertised_name_subtitle">附近的 Quick Share 裝置搜尋到這部裝置時，會看到此名稱。留空則使用 Android 裝置名稱。名稱過長時會自動縮短，以確保其他裝置能正確讀取。</string>
+    <string name="main_advertised_name_hint">裝置名稱</string>
+    <string name="main_advertised_name_current">目前顯示名稱：%1$s</string>
+    <string name="main_advertised_name_save">儲存名稱</string>
+    <string name="main_advertised_name_reset">使用預設值</string>
+
+    <!-- Folder-send entry point (#38). -->
+    <string name="main_send_folder_button">傳送資料夾</string>
+    <string name="main_send_folder_subtitle">從裝置中挑選一個資料夾，傳送給附近的 Quick Share 裝置。接收端會保留子資料夾與原始資料夾結構。</string>
+    <string name="send_folder_subtitle_walking">正在讀取資料夾內容…</string>
+    <string name="send_folder_empty">所選資料夾中沒有任何檔案，請新增至少一個檔案後再試一次。</string>
+    <string name="send_folder_walk_failed">無法讀取資料夾內容，請選擇其他資料夾後再試一次。</string>
+
+    <!-- Legacy package migration banner (#145). -->
+    <string name="main_legacy_wvmg_banner_title">請解除安裝舊版應用程式</string>
+    <string name="main_legacy_wvmg_banner_body">此裝置仍安裝了舊版應用程式，兩個版本會在藍牙上互相干擾，導致 Galaxy 及其他原生 Quick Share 傳送端無法連線到這部裝置。請點選 [解除安裝舊版] 將其移除。</string>
+    <string name="main_legacy_wvmg_banner_uninstall">解除安裝舊版</string>
+    <string name="main_legacy_wvmg_banner_unavailable">無法開啟 %1$s 的解除安裝畫面，請至系統設定中手動解除安裝。</string>
+
+    <!-- Battery-optimization banner (#47). -->
+    <string name="main_battery_banner_title">允許背景活動</string>
+    <string name="main_battery_banner_body">除非將此應用程式加入電池最佳化的豁免清單，否則手機可能會在背景中停止接收 Quick Share 檔案。請點選 [開啟設定] 加入豁免清單；如果只在應用程式開啟時使用 Quick Share，也可以選擇 [略過]。</string>
+    <string name="main_battery_banner_open">開啟設定</string>
+    <string name="main_battery_banner_skip">略過</string>
+    <string name="main_battery_banner_unavailable">在此裝置上找不到合適的設定頁面，請至系統設定中手動管理電池最佳化。</string>
+    <string name="dialog_battery_skip_toast">稍後可從設定中變更。</string>
+
+    <!-- Settings tab "Background activity" row. -->
+    <string name="settings_battery_title">背景活動</string>
+    <string name="settings_battery_subtitle">將此應用程式加入電池最佳化豁免清單，以便在螢幕關閉時持續接收 Quick Share 檔案。</string>
+    <string name="settings_battery_status_exempt">目前：已豁免電池最佳化</string>
+    <string name="settings_battery_status_not_exempt">目前：未豁免，背景接收可能會中斷</string>
+    <string name="settings_battery_open">開啟電池設定</string>
+
+    <!-- Settings tab "Full-screen transfer alerts" row + first-launch
+         dialog (Android 14+). -->
+    <string name="settings_fsi_title">全螢幕傳輸提醒</string>
+    <string name="settings_fsi_subtitle">允許全螢幕通知，以便在 Bada 於背景執行時，將傳入的傳輸 PIN 碼顯示在其他應用程式上方或鎖定畫面上。未啟用時，仍會收到可點選來檢視 PIN 碼的通知。</string>
+    <string name="settings_fsi_status_granted">目前：已允許全螢幕提醒</string>
+    <string name="settings_fsi_status_not_granted">目前：未允許，PIN 碼提醒會以通知形式呈現</string>
+    <string name="settings_fsi_open">開啟通知設定</string>
+    <string name="fsi_dialog_body">當 Bada 在背景執行時收到傳輸請求，Android 需要全螢幕通知權限才能將 PIN 碼提醒顯示在畫面上。未授予此權限時，提醒會以一般通知形式出現，點選即可開啟。請開啟設定以允許，或選擇 [略過] 稍後從設定頁籤處理。</string>
+    <string name="fsi_dialog_skip_toast">稍後可從設定中變更。</string>
+
+    <!-- Permissions onboarding (#26 + #31). -->
+    <string name="onboarding_title">應用程式權限</string>
+    <string name="onboarding_intro">Quick Share 需要少數 Android 權限，以便透過區域 Wi-Fi 網路搜尋附近裝置、廣播並接收可喚醒附近 Quick Share 接收端的藍牙低功耗脈衝，以及在傳輸時發出通知。以下逐一說明各項權限的用途。</string>
+    <string name="onboarding_empty_state">此裝置不需要任何執行階段權限即可使用 Phase 1 功能，一切就緒。</string>
+    <string name="onboarding_grant_button">授予權限</string>
+    <string name="onboarding_open_settings">開啟應用程式設定</string>
+    <string name="onboarding_continue">不授予權限，繼續</string>
+    <string name="onboarding_continue_partial">不授予全部權限，繼續</string>
+    <string name="onboarding_continue_degraded">以功能受限模式繼續</string>
+
+    <!-- Same-Wi-Fi-network onboarding card (#85). -->
+    <string name="onboarding_network_card_title">搜尋附近裝置的需求</string>
+    <string name="onboarding_network_card_body">共用 Wi-Fi 仍是 Quick Share 的基本路徑，尤其在接收時。傳送給附近的原生 Quick Share 裝置時，若兩端不在同一區域網路，Bada 也可使用藍牙輔助連線。請保持藍牙開啟以使用該路徑。</string>
+    <string name="onboarding_network_card_dismiss">好</string>
+
+    <!-- NEARBY_WIFI_DEVICES (API 33+). -->
+    <string name="permission_nearby_wifi_title">附近的 Wi-Fi 裝置</string>
+    <string name="permission_nearby_wifi_rationale">用於在同一 Wi-Fi 網路上搜尋其他 Quick Share 裝置，並讓這部裝置可被其他裝置搜尋。Quick Share 不會使用此權限判斷實際位置。</string>
+
+    <!-- POST_NOTIFICATIONS (API 33+). -->
+    <string name="permission_notifications_title">通知</string>
+    <string name="permission_notifications_rationale">用於顯示前景傳輸服務指示器，以及在有傳入檔案時發出提醒。未授予此權限時，傳輸仍可正常運作，但不會收到通知。</string>
+
+    <!-- BLUETOOTH_ADVERTISE (API 31+, #31 / #121). -->
+    <string name="permission_bluetooth_advertise_title">藍牙廣播</string>
+    <string name="permission_bluetooth_advertise_rationale">用於廣播藍牙低功耗脈衝：一個在開始傳送時喚醒附近接收端，另一個讓這部裝置顯示在其他手機的 Quick Share 選取器中。未授予此權限時，傳輸仍可正常運作，但選取器可能會以通用名稱顯示這部裝置，直到連線建立為止。</string>
+
+    <!-- BLUETOOTH_SCAN (API 31+, #31). -->
+    <string name="permission_bluetooth_scan_title">附近的藍牙裝置</string>
+    <string name="permission_bluetooth_scan_rationale">用於偵聽附近 Quick Share 傳送端的訊號，以便僅在需要時喚醒接收端。Quick Share 不會使用此權限判斷實際位置。</string>
+
+    <!-- BLUETOOTH_CONNECT (API 31+). -->
+    <string name="permission_bluetooth_connect_title">藍牙連線</string>
+    <string name="permission_bluetooth_connect_rationale">用於開啟藍牙低功耗直接連線，並讀取藍牙介面卡狀態以進行附近 Quick Share 裝置搜尋。傳輸仍使用 Quick Share 加密。</string>
+
+    <!-- ACCESS_FINE_LOCATION (legacy nearby-device discovery). -->
+    <string name="permission_legacy_nearby_location_title">附近裝置的位置存取權</string>
+    <string name="permission_legacy_nearby_location_rationale">Android 11 及更早版本會透過定位權限提供藍牙低功耗掃描結果。Bada 僅使用此權限搜尋附近的 Quick Share 裝置，不會使用實際位置。</string>
+
+    <!-- Permission status labels. -->
+    <string name="permission_status_granted">已授予</string>
+    <string name="permission_status_denied">必要：尚未授予</string>
+    <string name="permission_status_optional_denied">選用：尚未授予（功能受限模式）</string>
+    <string name="permission_status_optional_denied_ble">選用：尚未授予（僅 mDNS 模式）</string>
+
+    <!-- Share-intent (#24) sender flow. -->
+    <string name="send_activity_label">透過 Quick Share 傳送</string>
+    <string name="send_subtitle_discovering">正在搜尋附近裝置…</string>
+    <string name="send_subtitle_pick_peer">點選裝置即可傳送。</string>
+    <string name="send_subtitle_no_usable_route">已找到附近裝置，但尚無可用的傳輸路徑。</string>
+    <string name="send_empty_state">尚未找到附近裝置。請確認接收端已開啟 Quick Share。共用 Wi-Fi 仍是基本路徑；若兩端不在同一區域網路，請保持藍牙開啟，以透過支援的路徑輔助連線。</string>
+
+    <!-- Same-Wi-Fi-network hint card (#85). -->
+    <string name="send_network_hint_title">搜尋附近裝置的需求</string>
+    <string name="send_network_hint_body">共用 Wi-Fi 仍是基本路徑。部分接收端會先透過 BLE 顯示名稱，但可能還沒有可用的傳輸路徑；請將兩端連線至同一 Wi-Fi 網路，或保持藍牙可用，以使用支援的輔助連線路徑。</string>
+    <string name="send_network_hint_dismiss">了解</string>
+    <!-- Picker-state help link + bottom sheet content. -->
+    <string name="send_help_link">找不到裝置？</string>
+    <string name="send_help_sheet_title">找不到裝置？</string>
+    <string name="send_help_sheet_visibility_title">確認接收端的模式</string>
+    <string name="send_help_sheet_visibility_body">請在接收端確認切換鈕顯示為「準備接收」。在此模式下，附近所有人都能傳送檔案過來。若已在此模式但仍未在清單中出現，請嘗試在兩端完全關閉 Bada 後重新開啟。</string>
+    <string name="send_help_sheet_qr_title">或透過 QR code 分享</string>
+    <string name="send_help_sheet_qr_body">若接收端仍未出現，請點選此卡片右上方的 QR code 按鈕。請讓接收端掃描 QR code 或開啟連結以開始傳輸。</string>
+    <string name="send_help_sheet_compat_title">確認裝置相容性</string>
+    <string name="send_help_sheet_compat_body">Bada 目前是實驗性專案。在某些裝置上，對方可能可被搜尋到但無法接收檔案，部分裝置可能完全無法被搜尋。未來更新預計會擴大裝置支援範圍。</string>
+    <string name="send_help_sheet_close">瞭解</string>
+
+    <string name="send_show_qr">顯示 QR code</string>
+    <string name="send_cancel">取消</string>
+    <string name="send_done">完成</string>
+    <string name="send_unsupported">無法傳送此分享內容，其中不包含檔案或文字。</string>
+
+    <!-- Payload summary templates. -->
+    <string name="send_payload_text">分享文字</string>
+    <string name="send_payload_single_file">1 個檔案</string>
+    <string name="send_payload_multiple_files">%1$d 個檔案</string>
+
+    <!-- Connection-phase labels. -->
+    <string name="send_phase_connecting">連線中…</string>
+    <string name="send_phase_handshaking">安全配對中…</string>
+    <string name="send_phase_awaiting_acceptance">等待接收端接受</string>
+    <string name="send_phase_sending">傳送中</string>
+    <string name="send_phase_completed">傳送成功</string>
+    <string name="send_phase_rejected">接收端已拒絕傳輸</string>
+    <!-- Named-receiver variant of the rejection terminal. -->
+    <string name="send_phase_rejected_by_named">%1$s 已拒絕檔案傳輸</string>
+    <string name="send_phase_cancelled">傳輸已取消</string>
+    <string name="send_phase_failed">傳輸失敗</string>
+
+    <!-- Status-panel messages. -->
+    <string name="send_status_target">目標：%1$s</string>
+    <string name="send_status_pin_prompt">請確認此 PIN 碼與接收端螢幕上顯示的相同。</string>
+    <string name="send_status_failure_reason">原因：%1$s</string>
+    <string name="send_status_progress">%1$s / %2$s</string>
+    <string name="send_status_retrying_route">正在透過 %1$s 重試…</string>
+
+    <!-- Rate + ETA suffixes. -->
+    <string name="send_status_rate">%1$s/s</string>
+    <string name="send_status_eta">剩餘 %1$s</string>
+    <string name="send_status_duration_few_seconds">不到一秒</string>
+    <string name="send_status_duration_seconds" tools:ignore="PluralsCandidate">%1$d 秒</string>
+    <string name="send_status_duration_about_minutes" tools:ignore="PluralsCandidate">約 %1$d 分鐘</string>
+    <string name="send_status_duration_about_hours" tools:ignore="PluralsCandidate">約 %1$d 小時</string>
+
+    <!-- Shake-to-report bug-report flow (#162). -->
+    <string name="bug_report_confirm_title">是否要回報錯誤？</string>
+    <string name="bug_report_confirm_body">Bada 將收集近期的應用程式診斷紀錄、裝置狀態及螢幕截圖，打包成 ZIP 檔留存在裝置上，直到選擇儲存位置為止。</string>
+    <string name="bug_report_confirm_yes">是</string>
+    <string name="bug_report_confirm_no">否</string>
+    <string name="bug_report_include_bssid_label">包含目前 Wi-Fi BSSID（較容易識別身分）</string>
+    <string name="bug_report_collecting">正在準備錯誤報告…</string>
+    <string name="bug_report_collect_failed">無法準備錯誤報告：%1$s</string>
+    <string name="bug_report_save_cancelled">錯誤報告儲存已取消。</string>
+    <string name="bug_report_save_failed">無法儲存錯誤報告：%1$s</string>
+    <string name="bug_report_saved_title">錯誤報告已儲存</string>
+    <string name="bug_report_saved_body">錯誤報告 ZIP 檔已儲存，現在可以開啟 GitHub 並手動附加至新的 issue。</string>
+    <string name="bug_report_saved_open_issue">開啟 GitHub issue</string>
+    <string name="bug_report_saved_dismiss">關閉</string>
+    <string name="bug_report_issue_chooser">開啟方式</string>
+    <string name="bug_report_issue_unavailable">沒有可用的瀏覽器或相容應用程式可開啟 GitHub。</string>
+
+    <!-- QR-code (#20 + #84) screen. -->
+    <string name="show_qr_title">QR code 與連結</string>
+    <string name="show_qr_intro">請讓接收端掃描 QR code 或開啟連結。任何取得此 QR code 或連結的人都可以接收這些檔案。</string>
+    <string name="show_qr_image_description">Quick Share 配對 URL 的 QR code</string>
+    <string name="show_qr_done">完成</string>
+    <string name="show_qr_close">關閉</string>
+    <string name="show_qr_copy_link">複製連結</string>
+    <string name="show_qr_link_copied">已複製連結</string>
+
+    <!-- Consent trampoline (#22). -->
+    <string name="consent_activity_label">傳入傳輸</string>
+    <string name="consent_pin_label">PIN 碼</string>
+    <string name="consent_files_label">即將接收的檔案</string>
+    <string name="consent_button_accept">接受</string>
+    <string name="consent_button_reject">拒絕</string>
+    <string name="consent_unknown_sender">附近有裝置想要分享內容</string>
+    <!-- Type-specific consent title templates. %1$s is the sender
+         device name. -->
+    <string name="consent_title_with_name">%1$s 想要分享</string>
+    <string name="consent_title_with_name_images">%1$s 想要分享圖片</string>
+    <string name="consent_title_with_name_videos">%1$s 想要分享影片</string>
+    <string name="consent_title_with_name_files">%1$s 想要分享檔案</string>
+    <string name="consent_summary_n_items">%1$d 項（%2$s）</string>
+    <string name="consent_summary_no_items">沒有內容</string>
+    <string name="consent_summary_folder">資料夾「%1$s」（%2$d 個檔案，%3$s）</string>
+    <!-- Per-item rows: name on one line, size on the next. -->
+    <string name="consent_file_line">%1$s\n%2$s</string>
+    <string name="consent_text_line_with_title">%1$s\n%2$s</string>
+    <string name="consent_more_items">…另外 %1$d 項</string>
+    <string name="consent_dismissed">傳輸已不再待處理</string>
+
+    <!-- Post-Accept consent flow states. -->
+    <string name="consent_state_receiving">接收中…</string>
+    <string name="consent_state_progress">%1$s / %2$s</string>
+    <string name="consent_state_completed">傳輸完成</string>
+    <string name="consent_state_completed_one">已接收 1 個檔案</string>
+    <string name="consent_state_completed_many">已接收 %1$d 個檔案</string>
+    <string name="consent_state_failed">傳輸失敗</string>
+    <string name="consent_state_cancelled">傳輸已取消</string>
+    <string name="consent_state_view_image">開啟圖片</string>
+    <string name="consent_state_close">關閉</string>
+    <string name="consent_state_view_image_unavailable">沒有應用程式可以開啟此圖片。</string>
+
+    <string name="transfer_progress_percent">%1$d%%</string>
+
+    <!-- Quick Settings tile. `qs_tile_label` ("Bada") is a proper noun
+         and intentionally NOT overridden here. -->
+    <string name="qs_tile_subtitle_on">可供搜尋</string>
+    <string name="qs_tile_subtitle_off">關閉</string>
+    <string name="qs_tile_content_desc_on">附近裝置目前可以搜尋到 Bada</string>
+    <string name="qs_tile_content_desc_off">附近裝置目前無法搜尋到 Bada</string>
+
+</resources>
