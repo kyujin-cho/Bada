@@ -358,7 +358,7 @@
     <string name="bug_report_confirm_body">Bada will collect recent app diagnostics, device state, and a screenshot into a zip that stays on this device until you choose where to save it.</string>
     <string name="bug_report_confirm_yes">Yes</string>
     <string name="bug_report_confirm_no">No</string>
-    <string name="bug_report_include_bssid_label">Include the current Wi-Fi BSSID (more identifying)</string>
+    <string name="bug_report_include_bssid_label">Include more-identifying details (Wi-Fi BSSID and nearby-device diagnostics)</string>
     <string name="bug_report_collecting">Preparing bug report…</string>
     <string name="bug_report_collect_failed">Could not prepare the bug report: %1$s</string>
     <string name="bug_report_save_cancelled">Bug report save cancelled.</string>

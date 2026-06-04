@@ -257,7 +257,7 @@
     <string name="bug_report_confirm_body">Bada가 최근 앱 진단 정보, 기기 상태, 스크린샷을 압축 파일로 모은 뒤 사용자가 저장 위치를 선택할 때까지 기기에만 보관합니다.</string>
     <string name="bug_report_confirm_yes">예</string>
     <string name="bug_report_confirm_no">아니요</string>
-    <string name="bug_report_include_bssid_label">현재 Wi-Fi BSSID 포함 (식별 정보가 더 많아짐)</string>
+    <string name="bug_report_include_bssid_label">식별 가능성이 높은 정보 포함 (Wi-Fi BSSID 및 주변 기기 진단 정보)</string>
     <string name="bug_report_collecting">버그 보고서 준비 중…</string>
     <string name="bug_report_collect_failed">버그 보고서를 준비할 수 없습니다: %1$s</string>
     <string name="bug_report_save_cancelled">버그 보고서 저장이 취소되었습니다.</string>

@@ -238,7 +238,7 @@
     <string name="bug_report_confirm_body">Bada 將收集近期的應用程式診斷紀錄、裝置狀態及螢幕截圖，打包成 ZIP 檔留存在裝置上，直到選擇儲存位置為止。</string>
     <string name="bug_report_confirm_yes">是</string>
     <string name="bug_report_confirm_no">否</string>
-    <string name="bug_report_include_bssid_label">包含目前 Wi-Fi BSSID（較容易識別身分）</string>
+    <string name="bug_report_include_bssid_label">包含較容易識別身分的詳細資訊（Wi-Fi BSSID 與鄰近裝置診斷資訊）</string>
     <string name="bug_report_collecting">正在準備錯誤報告…</string>
     <string name="bug_report_collect_failed">無法準備錯誤報告：%1$s</string>
     <string name="bug_report_save_cancelled">錯誤報告儲存已取消。</string>

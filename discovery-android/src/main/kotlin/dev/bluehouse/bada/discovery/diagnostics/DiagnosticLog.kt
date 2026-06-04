@@ -180,9 +180,14 @@ internal class DiagnosticFileSink(
     @Synchronized
     fun append(line: String) {
         runCatching {
-            if (file.length() >= maxBytes && file.exists()) {
+            // length() is 0 for a missing file, so this only trips once the
+            // current file actually exists and is over the cap.
+            if (file.length() >= maxBytes) {
                 if (backup.exists()) backup.delete()
-                file.renameTo(backup)
+                // If the rename fails (filesystem-dependent), fall back to
+                // truncating so the cap stays a real bound instead of letting
+                // the file grow without limit.
+                if (!file.renameTo(backup)) file.writeText("")
             }
             file.appendText("$line\n")
         }

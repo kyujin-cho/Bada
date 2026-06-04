@@ -233,7 +233,7 @@
     <string name="bug_report_confirm_body">Bada は最近のアプリの診断情報・端末の状態・スクリーンショットを zip にまとめ、保存先を選ぶまで端末内にのみ保管します。</string>
     <string name="bug_report_confirm_yes">はい</string>
     <string name="bug_report_confirm_no">いいえ</string>
-    <string name="bug_report_include_bssid_label">現在の Wi-Fi BSSID を含める（識別性が高くなります）</string>
+    <string name="bug_report_include_bssid_label">識別性の高い詳細情報を含める（Wi-Fi BSSID と周辺デバイスの診断情報）</string>
     <string name="bug_report_collecting">バグ報告を準備中…</string>
     <string name="bug_report_collect_failed">バグ報告を準備できませんでした: %1$s</string>
     <string name="bug_report_save_cancelled">バグ報告の保存がキャンセルされました。</string>

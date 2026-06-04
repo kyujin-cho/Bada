@@ -36,6 +36,9 @@ class BadaApplication : Application() {
         super.onCreate()
         ReceiverForegroundService.openAppTarget = MainActivity::class.java
         ReceiverForegroundService.consentTrampolineTarget = ConsentTrampolineActivity::class.java
-        (getExternalFilesDir(null) ?: filesDir)?.let { DiagnosticLog.configureFileSink(it) }
+        // Must match where BugReportCollector reads the log back from
+        // (getExternalFilesDir(null)); a filesDir fallback would write logs
+        // the collector never picks up.
+        getExternalFilesDir(null)?.let { DiagnosticLog.configureFileSink(it) }
     }
 }

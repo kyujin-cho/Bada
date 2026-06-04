@@ -218,7 +218,7 @@
     <string name="bug_report_confirm_body">Bada 将收集最近的应用诊断信息、设备状态和截图并打包成 zip 文件，保存在本设备上，直到您选择保存位置为止。</string>
     <string name="bug_report_confirm_yes">是</string>
     <string name="bug_report_confirm_no">否</string>
-    <string name="bug_report_include_bssid_label">包含当前 Wi-Fi BSSID（含更多标识信息）</string>
+    <string name="bug_report_include_bssid_label">包含更具标识性的详细信息（Wi-Fi BSSID 和附近设备诊断信息）</string>
     <string name="bug_report_collecting">正在准备 Bug 报告…</string>
     <string name="bug_report_collect_failed">无法准备 Bug 报告：%1$s</string>
     <string name="bug_report_save_cancelled">Bug 报告保存已取消。</string>

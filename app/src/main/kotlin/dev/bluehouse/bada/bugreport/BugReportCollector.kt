@@ -78,7 +78,7 @@ internal class BugReportCollector(
             }
 
             val outboundLogBytes = readOptionalExternalFile("bada-outbound.log", failures, "outbound_log")
-            val diagnosticsLogBytes = readRotatedExternalFile("bada-diagnostics.log", failures, "diagnostics_log")
+            val diagnosticsLogBytes = collectDiagnosticsLog(includeWifiBssid, failures)
             val ringbufferText =
                 DiagnosticLog.dumpRecent(
                     maxAgeMillis = DiagnosticLog.DEFAULT_MAX_AGE_MILLIS,
@@ -127,7 +127,8 @@ internal class BugReportCollector(
                     ),
                     BugReportArchiveEntry(
                         "logs/diagnostics.log",
-                        diagnosticsLogBytes ?: "not_available\n".encodeToByteArray(),
+                        diagnosticsLogBytes
+                            ?: "${failures["diagnostics_log"] ?: "not_available"}\n".encodeToByteArray(),
                     ),
                     BugReportArchiveEntry(
                         "logs/ringbuffer.txt",
@@ -168,7 +169,7 @@ internal class BugReportCollector(
         - permissions.txt: granted/denied runtime permissions
         - discovery.txt: receiver/discovery runtime state
         - logs/outbound.log: on-disk outbound diagnostic log when available
-        - logs/diagnostics.log: persisted BLE/discovery diagnostics (rotated), incl. L2CAP/GATT bootstrap detail
+        - logs/diagnostics.log: persisted BLE/discovery diagnostics (rotated), incl. L2CAP/GATT bootstrap detail; only when more-identifying details consent is given
         - logs/ringbuffer.txt: recent in-memory diagnostics from the last 15 minutes
         - screenshot.png: screenshot of the current Bada activity, or a placeholder when redacted
         
@@ -405,6 +406,24 @@ internal class BugReportCollector(
             failures[failureKey] = "not_available: could not read $fileName (${t.message})"
             null
         }
+    }
+
+    /**
+     * `bada-diagnostics.log` carries BLE/discovery detail that includes
+     * nearby-device identifiers (peer BLE MACs, advertisement payloads), so it
+     * ships only when the user opts in via the same more-identifying-details
+     * consent that gates the Wi-Fi BSSID (#201).
+     */
+    private fun collectDiagnosticsLog(
+        includeWifiBssid: Boolean,
+        failures: MutableMap<String, String>,
+    ): ByteArray? {
+        if (!includeWifiBssid) {
+            failures["diagnostics_log"] =
+                "redacted: contains nearby-device identifiers; not collected without consent"
+            return null
+        }
+        return readRotatedExternalFile("bada-diagnostics.log", failures, "diagnostics_log")
     }
 
     /**
