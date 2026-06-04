@@ -6,10 +6,17 @@
 package dev.bluehouse.bada.discovery.diagnostics
 
 import android.util.Log
+import java.io.BufferedWriter
 import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStreamWriter
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.util.ArrayDeque
+import java.util.concurrent.BlockingQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * Shared Android logging facade that also mirrors recent lines into an in-memory
@@ -43,9 +50,20 @@ public object DiagnosticLog {
         directory: File,
         maxBytes: Long = DEFAULT_FILE_MAX_BYTES,
     ) {
+        val previous = fileSink
         fileSink =
             runCatching { DiagnosticFileSink(File(directory, FILE_NAME), maxBytes) }
                 .getOrNull()
+        previous?.shutdown()
+    }
+
+    /**
+     * Block up to [timeoutMillis] until queued diagnostics are written and
+     * flushed to disk. The bug-report collector calls this before reading the
+     * file back so the lines that prompted the report are not still buffered.
+     */
+    public fun flushFileSink(timeoutMillis: Long = DEFAULT_FLUSH_TIMEOUT_MILLIS) {
+        fileSink?.flush(timeoutMillis)
     }
 
     public fun i(
@@ -102,12 +120,6 @@ public object DiagnosticLog {
                 cutoffMillis = nowMillis - maxAgeMillis,
             ).joinToString(separator = "\n") { line -> formatLine(line) }
 
-    /**
-     * Absolute path of the on-disk diagnostics file, or `null` if no sink is
-     * configured. The bug-report collector reads this back into the archive.
-     */
-    public fun fileSinkPath(): String? = fileSink?.path
-
     private fun emit(
         level: Char,
         tag: String,
@@ -137,6 +149,7 @@ public object DiagnosticLog {
 
     internal fun clearForTesting() {
         recentLogBuffer.clear()
+        fileSink?.shutdown()
         fileSink = null
     }
 
@@ -155,42 +168,127 @@ public object DiagnosticLog {
     public const val DEFAULT_FILE_MAX_BYTES: Long = 512 * 1024L
 
     internal const val FILE_NAME: String = "bada-diagnostics.log"
+
+    /** Default barrier for [flushFileSink] at bug-report time. */
+    public const val DEFAULT_FLUSH_TIMEOUT_MILLIS: Long = 2_000L
 }
 
 /**
- * Append-only text sink with a single-backup size rotation. When [file] grows
- * past [maxBytes] it is renamed to `<file>.1` (replacing any previous backup)
- * and a fresh [file] is started. Reading both `<file>.1` then `<file>` yields
- * the lines in chronological order.
+ * Append-only text sink with a single-backup size rotation. When the current
+ * file grows past [maxBytes] it is renamed to `<file>.1` (replacing any
+ * previous backup) and a fresh file is started; reading `<file>.1` then
+ * `<file>` yields the lines in chronological order.
  *
- * Pure `java.io` so it stays JVM-testable; all writes are serialized on the
- * instance lock because diagnostics arrive from arbitrary BLE/GATT threads.
+ * Diagnostics arrive from arbitrary BLE/GATT binder threads, where blocking on
+ * disk I/O could stall callback processing during the very bootstrap path we
+ * are trying to diagnose (#201). So [append] only hands the line to an
+ * unbounded queue drained by a single daemon writer thread that holds one
+ * long-lived [BufferedWriter] — no `open`/`write`/`close` per line, and no disk
+ * work on the caller. The writer flushes after each drained batch (so a burst
+ * lands on disk promptly once it quiesces); [flush] adds an explicit barrier
+ * for read-back at report time.
  */
 internal class DiagnosticFileSink(
     private val file: File,
     private val maxBytes: Long,
 ) {
-    val path: String = file.absolutePath
     private val backup: File = File(file.parentFile, "${file.name}.1")
+    private val queue: BlockingQueue<Item> = LinkedBlockingQueue()
 
     init {
         file.parentFile?.mkdirs()
+        Thread(::runLoop, "bada-diag-sink").apply {
+            isDaemon = true
+            start()
+        }
     }
 
-    @Synchronized
     fun append(line: String) {
-        runCatching {
-            // length() is 0 for a missing file, so this only trips once the
-            // current file actually exists and is over the cap.
-            if (file.length() >= maxBytes) {
-                if (backup.exists()) backup.delete()
-                // If the rename fails (filesystem-dependent), fall back to
-                // truncating so the cap stays a real bound instead of letting
-                // the file grow without limit.
-                if (!file.renameTo(backup)) file.writeText("")
+        queue.offer(Item.Line(line))
+    }
+
+    fun flush(timeoutMillis: Long) {
+        val latch = CountDownLatch(1)
+        queue.offer(Item.Flush(latch))
+        runCatching { latch.await(timeoutMillis, TimeUnit.MILLISECONDS) }
+    }
+
+    fun shutdown() {
+        queue.offer(Item.Stop)
+    }
+
+    @Suppress("NestedBlockDepth")
+    private fun runLoop() {
+        var out: BufferedWriter? = null
+        // Append mode preserves earlier-session logs; seed the byte counter
+        // from disk so the size cap accounts for them.
+        var written: Long = if (file.exists()) file.length() else 0L
+        try {
+            while (true) {
+                val batch = ArrayList<Item>()
+                batch.add(queue.take())
+                queue.drainTo(batch)
+                for (item in batch) {
+                    when (item) {
+                        is Item.Line -> {
+                            val text = item.line + "\n"
+                            if (written >= maxBytes) {
+                                out?.close()
+                                out = null
+                                rotate()
+                                written = 0L
+                            }
+                            val writer = out ?: openWriter().also { out = it }
+                            writer.write(text)
+                            written += text.toByteArray(Charsets.UTF_8).size
+                        }
+
+                        is Item.Flush -> {
+                            runCatching { out?.flush() }
+                            item.latch.countDown()
+                        }
+
+                        Item.Stop -> {
+                            runCatching {
+                                out?.flush()
+                                out?.close()
+                            }
+                            return
+                        }
+                    }
+                }
+                runCatching { out?.flush() }
             }
-            file.appendText("$line\n")
+        } catch (_: InterruptedException) {
+            runCatching {
+                out?.flush()
+                out?.close()
+            }
         }
+    }
+
+    private fun openWriter(): BufferedWriter =
+        BufferedWriter(OutputStreamWriter(FileOutputStream(file, true), Charsets.UTF_8))
+
+    private fun rotate() {
+        runCatching {
+            if (backup.exists()) backup.delete()
+            // If the rename fails (filesystem-dependent), truncate instead so
+            // the cap stays a real bound rather than letting the file grow.
+            if (!file.renameTo(backup)) file.writeText("")
+        }
+    }
+
+    private sealed interface Item {
+        data class Line(
+            val line: String,
+        ) : Item
+
+        data class Flush(
+            val latch: CountDownLatch,
+        ) : Item
+
+        data object Stop : Item
     }
 }
 

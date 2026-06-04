@@ -423,6 +423,9 @@ internal class BugReportCollector(
                 "redacted: contains nearby-device identifiers; not collected without consent"
             return null
         }
+        // The sink writes asynchronously off the BLE/GATT threads, so drain any
+        // queued lines to disk before reading the file back.
+        DiagnosticLog.flushFileSink()
         return readRotatedExternalFile("bada-diagnostics.log", failures, "diagnostics_log")
     }
 

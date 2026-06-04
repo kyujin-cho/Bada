@@ -12,10 +12,18 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
 class DiagnosticFileSinkTest {
+    private val sinks = mutableListOf<DiagnosticFileSink>()
+
+    private fun sink(
+        file: File,
+        maxBytes: Long,
+    ): DiagnosticFileSink = DiagnosticFileSink(file, maxBytes).also { sinks += it }
+
     @AfterEach
     fun tearDown() {
-        // The sink is configured on the DiagnosticLog singleton; reset it so
-        // one test's file path never leaks into another's.
+        sinks.forEach { it.shutdown() }
+        // The sink is also configured on the DiagnosticLog singleton in one
+        // test; reset it so no writer thread or path leaks across tests.
         DiagnosticLog.clearForTesting()
     }
 
@@ -23,10 +31,11 @@ class DiagnosticFileSinkTest {
     fun `append writes lines to the configured file`(
         @TempDir dir: File,
     ) {
-        val sink = DiagnosticFileSink(File(dir, "diag.log"), maxBytes = 1_024)
+        val sink = sink(File(dir, "diag.log"), maxBytes = 1_024)
 
         sink.append("first")
         sink.append("second")
+        sink.flush(FLUSH_TIMEOUT_MILLIS)
 
         assertThat(File(dir, "diag.log").readText()).isEqualTo("first\nsecond\n")
     }
@@ -39,16 +48,18 @@ class DiagnosticFileSinkTest {
         val backup = File(dir, "diag.log.1")
         // Cap smaller than any single line, so every append after the first
         // finds the file already over the cap and rotates it.
-        val sink = DiagnosticFileSink(file, maxBytes = 4)
+        val sink = sink(file, maxBytes = 4)
 
         sink.append("aaaaaaaa") // file empty -> no rotation, file now over cap
         sink.append("bbbbbbbb") // file over cap -> rotate to .1, fresh file gets this
+        sink.flush(FLUSH_TIMEOUT_MILLIS)
 
         assertThat(backup.readText()).isEqualTo("aaaaaaaa\n")
         assertThat(file.readText()).isEqualTo("bbbbbbbb\n")
 
         // A second rotation must replace (not append to) the existing backup.
         sink.append("cccccccc")
+        sink.flush(FLUSH_TIMEOUT_MILLIS)
 
         assertThat(backup.readText()).isEqualTo("bbbbbbbb\n")
         assertThat(file.readText()).isEqualTo("cccccccc\n")
@@ -61,8 +72,13 @@ class DiagnosticFileSinkTest {
         DiagnosticLog.configureFileSink(dir, maxBytes = 64 * 1_024)
 
         DiagnosticLog.w("BadaBleL2cap", "L2CAP connect failed psm=135: IOException: connect failed")
+        DiagnosticLog.flushFileSink(FLUSH_TIMEOUT_MILLIS)
 
         val written = File(dir, DiagnosticLog.FILE_NAME).readText()
         assertThat(written).contains("W/BadaBleL2cap: L2CAP connect failed psm=135: IOException: connect failed")
+    }
+
+    private companion object {
+        const val FLUSH_TIMEOUT_MILLIS: Long = 2_000L
     }
 }
