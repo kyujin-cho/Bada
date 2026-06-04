@@ -29,10 +29,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.google.location.nearby.mediums.proto.BleFramesProto
+import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.protocol.endpoint.NearbyServiceId
 import dev.bluehouse.bada.protocol.medium.Medium
 import dev.bluehouse.bada.protocol.medium.NearbyBleSocketFrames
@@ -75,7 +75,7 @@ public class BleGattInitialControlClient internal constructor(
     public suspend fun connect(macAddress: String): ConnectedTransport? =
         withContext(dispatcher) {
             if (!isAvailable()) {
-                Log.w(TAG, "BLE GATT initial connect unavailable")
+                DiagnosticLog.w(TAG, "BLE GATT initial connect unavailable")
                 return@withContext null
             }
             val adapter =
@@ -87,7 +87,7 @@ public class BleGattInitialControlClient internal constructor(
                 try {
                     adapter.getRemoteDevice(macAddress)
                 } catch (badAddress: IllegalArgumentException) {
-                    Log.w(TAG, "invalid BLE GATT address=$macAddress", badAddress)
+                    DiagnosticLog.w(TAG, "invalid BLE GATT address=$macAddress", badAddress)
                     return@withContext null
                 }
             val transport =
@@ -103,11 +103,11 @@ public class BleGattInitialControlClient internal constructor(
             }
             val ready = transport.awaitReady(CONNECTION_READY_TIMEOUT_MILLIS)
             if (!ready) {
-                Log.w(TAG, "BLE GATT initial connect timed out waiting for socket ready")
+                DiagnosticLog.w(TAG, "BLE GATT initial connect timed out waiting for socket ready")
                 transport.close()
                 return@withContext null
             }
-            Log.w(TAG, "BLE GATT initial connect ready mac=$macAddress")
+            DiagnosticLog.w(TAG, "BLE GATT initial connect ready mac=$macAddress")
             transport
         }
 
@@ -224,8 +224,8 @@ private class BleGattClientTransport(
             runCatching {
                 val refresh = BluetoothGatt::class.java.getMethod("refresh")
                 val ok = refresh.invoke(opened) as? Boolean
-                Log.w(TAG, "BluetoothGatt.refresh() invoked result=$ok")
-            }.onFailure { Log.w(TAG, "refresh() reflection failed", it) }
+                DiagnosticLog.w(TAG, "BluetoothGatt.refresh() invoked result=$ok")
+            }.onFailure { DiagnosticLog.w(TAG, "refresh() reflection failed", it) }
         }
         return opened != null
     }
@@ -237,7 +237,7 @@ private class BleGattClientTransport(
         status: Int,
         newState: Int,
     ) {
-        Log.w(TAG, "gatt state device=${device.safeAddress()} status=$status newState=$newState")
+        DiagnosticLog.w(TAG, "gatt state device=${device.safeAddress()} status=$status newState=$newState")
         if (status != BluetoothGatt.GATT_SUCCESS || newState != BluetoothProfile.STATE_CONNECTED) {
             close()
             return
@@ -255,10 +255,10 @@ private class BleGattClientTransport(
         // exchange and only drop priority once they switch to the
         // upgraded medium.
         runCatching { gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
-            .onFailure { Log.w(TAG, "requestConnectionPriority(HIGH) threw", it) }
+            .onFailure { DiagnosticLog.w(TAG, "requestConnectionPriority(HIGH) threw", it) }
         mainHandler.postDelayed({
             if (closed) return@postDelayed
-            Log.w(TAG, "post-connect grace expired; requesting MTU device=${device.safeAddress()}")
+            DiagnosticLog.w(TAG, "post-connect grace expired; requesting MTU device=${device.safeAddress()}")
             val requested = gatt.requestMtu(REQUESTED_MTU)
             if (!requested) discoverServicesOnce(gatt)
         }, POST_CONNECT_DELAY_MILLIS)
@@ -269,7 +269,7 @@ private class BleGattClientTransport(
         mtu: Int,
         status: Int,
     ) {
-        Log.w(TAG, "mtu changed mtu=$mtu status=$status device=${device.safeAddress()}")
+        DiagnosticLog.w(TAG, "mtu changed mtu=$mtu status=$status device=${device.safeAddress()}")
         if (status == BluetoothGatt.GATT_SUCCESS) {
             mtuPayloadSize = (mtu - GATT_ATT_HEADER_BYTES).coerceAtLeast(WeaveFrames.DEFAULT_ATT_PAYLOAD_SIZE)
         }
@@ -281,7 +281,7 @@ private class BleGattClientTransport(
         status: Int,
     ) {
         if (status != BluetoothGatt.GATT_SUCCESS) {
-            Log.w(TAG, "service discovery failed status=$status")
+            DiagnosticLog.w(TAG, "service discovery failed status=$status")
             close()
             return
         }
@@ -295,10 +295,10 @@ private class BleGattClientTransport(
                 s.characteristics.joinToString(",") { c ->
                     "${c.uuid}(props=${c.properties})"
                 }
-            Log.w(TAG, "gatt service ${s.uuid} chars=[$charDump]")
+            DiagnosticLog.w(TAG, "gatt service ${s.uuid} chars=[$charDump]")
         }
         if (!bindWeaveAndSlotsAcrossServices(gatt)) {
-            Log.w(TAG, "BLE GATT bootstrap missing Weave write/notify characteristics")
+            DiagnosticLog.w(TAG, "BLE GATT bootstrap missing Weave write/notify characteristics")
             close()
             return
         }
@@ -309,7 +309,7 @@ private class BleGattClientTransport(
         // parity and for receivers that expect it before the Weave
         // request.
         if (slotCharacteristics.isEmpty()) {
-            Log.w(TAG, "no advertisement slot characteristics found; subscribing immediately")
+            DiagnosticLog.w(TAG, "no advertisement slot characteristics found; subscribing immediately")
             subscribeAndConnect(gatt)
             return
         }
@@ -320,20 +320,20 @@ private class BleGattClientTransport(
     private fun readNextSlot(gatt: BluetoothGatt) {
         val slot = slotCharacteristics.getOrNull(slotReadIndex)
         if (slot == null) {
-            Log.w(TAG, "all advertisement slots read; waiting before CCCD subscribe")
+            DiagnosticLog.w(TAG, "all advertisement slots read; waiting before CCCD subscribe")
             // Hold another grace window before CCCD. Some receivers may
             // take additional time after slot reads to wire their GATT
             // handler.
             mainHandler.postDelayed({
                 if (closed) return@postDelayed
-                Log.w(TAG, "post-slot grace expired; subscribing CCCD")
+                DiagnosticLog.w(TAG, "post-slot grace expired; subscribing CCCD")
                 subscribeAndConnect(gatt)
             }, POST_SLOT_DELAY_MILLIS)
             return
         }
-        Log.w(TAG, "reading advertisement slot[$slotReadIndex] uuid=${slot.uuid}")
+        DiagnosticLog.w(TAG, "reading advertisement slot[$slotReadIndex] uuid=${slot.uuid}")
         if (!gatt.readCharacteristic(slot)) {
-            Log.w(TAG, "readCharacteristic returned false for slot[$slotReadIndex]; skipping rest")
+            DiagnosticLog.w(TAG, "readCharacteristic returned false for slot[$slotReadIndex]; skipping rest")
             subscribeAndConnect(gatt)
         }
     }
@@ -341,19 +341,19 @@ private class BleGattClientTransport(
     private fun subscribeAndConnect(gatt: BluetoothGatt) {
         val outgoing = fromPeripheral ?: return close()
         if (!gatt.setCharacteristicNotification(outgoing, true)) {
-            Log.w(TAG, "setCharacteristicNotification returned false")
+            DiagnosticLog.w(TAG, "setCharacteristicNotification returned false")
             close()
             return
         }
         val descriptor = outgoing.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID)
         if (descriptor == null) {
-            Log.w(TAG, "notification descriptor missing")
+            DiagnosticLog.w(TAG, "notification descriptor missing")
             close()
             return
         }
         descriptor.value = cccdValueFor(outgoing)
         if (!gatt.writeDescriptor(descriptor)) {
-            Log.w(TAG, "write notification descriptor returned false")
+            DiagnosticLog.w(TAG, "write notification descriptor returned false")
             close()
         }
     }
@@ -382,7 +382,7 @@ private class BleGattClientTransport(
         value: ByteArray,
         status: Int,
     ) {
-        Log.w(
+        DiagnosticLog.w(
             TAG,
             "slot read uuid=${characteristic.uuid} status=$status " +
                 "len=${value.size} preview=${value.previewHex()} full=${value.toHex()}",
@@ -397,7 +397,7 @@ private class BleGattClientTransport(
         status: Int,
     ) {
         if (descriptor.uuid != CLIENT_CHARACTERISTIC_CONFIG_UUID || status != BluetoothGatt.GATT_SUCCESS) {
-            Log.w(TAG, "descriptor write failed uuid=${descriptor.uuid} status=$status")
+            DiagnosticLog.w(TAG, "descriptor write failed uuid=${descriptor.uuid} status=$status")
             close()
             return
         }
@@ -412,11 +412,11 @@ private class BleGattClientTransport(
         synchronized(this) {
             writeInFlight = false
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.w(TAG, "characteristic write failed status=$status")
+                DiagnosticLog.w(TAG, "characteristic write failed status=$status")
                 close()
                 return
             }
-            Log.w(TAG, "characteristic write complete device=${device.safeAddress()}")
+            DiagnosticLog.w(TAG, "characteristic write complete device=${device.safeAddress()}")
             drainWritesLocked()
         }
     }
@@ -456,7 +456,7 @@ private class BleGattClientTransport(
         if (serviceDiscoveryStarted) return
         serviceDiscoveryStarted = true
         if (!gatt.discoverServices()) {
-            Log.w(TAG, "discoverServices returned false")
+            DiagnosticLog.w(TAG, "discoverServices returned false")
             close()
         }
     }
@@ -478,7 +478,7 @@ private class BleGattClientTransport(
             .filter { it.uuid == BleGattInitialControlServer.SERVICE_UUID }
             .forEach { service -> bindServiceShape(service, slots) }
         slotCharacteristics = slots
-        Log.w(TAG, "bound Weave chars=${toPeripheral != null}/${fromPeripheral != null} slots=${slots.size}")
+        DiagnosticLog.w(TAG, "bound Weave chars=${toPeripheral != null}/${fromPeripheral != null} slots=${slots.size}")
         return toPeripheral != null && fromPeripheral != null
     }
 
@@ -534,7 +534,7 @@ private class BleGattClientTransport(
         mainHandler.postDelayed({
             synchronized(this) {
                 if (closed || weaveConnected) return@synchronized
-                Log.w(
+                DiagnosticLog.w(
                     TAG,
                     "no Weave CONNECTION_CONFIRM after attempt=$attempt; " +
                         "resending CONNECTION_REQUEST device=${device.safeAddress()}",
@@ -556,19 +556,19 @@ private class BleGattClientTransport(
     @Synchronized
     private fun handleNotification(packetBytes: ByteArray) {
         if (closed) return
-        Log.w(TAG, "notification len=${packetBytes.size} header=${packetBytes.firstByteHex()}")
+        DiagnosticLog.w(TAG, "notification len=${packetBytes.size} header=${packetBytes.firstByteHex()}")
         when (val packet = WeaveFrames.parse(packetBytes)) {
             is WeavePacket.ConnectionConfirm -> handleConnectionConfirm(packet)
             is WeavePacket.Data -> handleDataPacket(packet)
             is WeavePacket.ConnectionClose -> close()
             is WeavePacket.ConnectionRequest -> Unit
-            null -> Log.w(TAG, "invalid Weave packet ${packetBytes.toHex()}")
+            null -> DiagnosticLog.w(TAG, "invalid Weave packet ${packetBytes.toHex()}")
         }
     }
 
     private fun handleConnectionConfirm(packet: WeavePacket.ConnectionConfirm) {
         if (packet.version != WeaveFrames.VERSION) {
-            Log.w(TAG, "unsupported Weave version=${packet.version}")
+            DiagnosticLog.w(TAG, "unsupported Weave version=${packet.version}")
             close()
             return
         }
@@ -578,7 +578,10 @@ private class BleGattClientTransport(
                 ?.coerceAtMost(WeaveFrames.MAX_PACKET_SIZE)
                 ?: WeaveFrames.MIN_PACKET_SIZE
         weaveConnected = true
-        Log.w(TAG, "Weave connected raw Nearby stream packetSize=$negotiatedPacketSize device=${device.safeAddress()}")
+        DiagnosticLog.w(
+            TAG,
+            "Weave connected raw Nearby stream packetSize=$negotiatedPacketSize device=${device.safeAddress()}",
+        )
         sendWeaveMessage(NearbyBleSocketFrames.encodeIntroductionPacket())
         // Samsung's GMS raw Nearby handler expects the first app payload
         // immediately after the socket-introduction packet. Waiting after
@@ -599,7 +602,7 @@ private class BleGattClientTransport(
 
     private fun handleSocketMessage(message: ByteArray) {
         if (message.size < SERVICE_ID_HASH_LEN) {
-            Log.w(TAG, "discarded undersized BLE GATT socket message")
+            DiagnosticLog.w(TAG, "discarded undersized BLE GATT socket message")
             close()
             return
         }
@@ -612,7 +615,7 @@ private class BleGattClientTransport(
                 feedIncoming(payload)
             }
             else -> {
-                Log.w(TAG, "discarded BLE GATT socket message for unexpected service hash")
+                DiagnosticLog.w(TAG, "discarded BLE GATT socket message for unexpected service hash")
                 close()
             }
         }
@@ -621,15 +624,15 @@ private class BleGattClientTransport(
     private fun handleControlPacket(packet: ByteArray) {
         val control = NearbyBleSocketFrames.parseControlPacket(packet)
         if (control == null) {
-            Log.w(TAG, "BLE GATT unknown control packet raw=${packet.toHex()}")
+            DiagnosticLog.w(TAG, "BLE GATT unknown control packet raw=${packet.toHex()}")
             return
         }
         when (control.type) {
             BleFramesProto.SocketControlFrame.ControlFrameType.PACKET_ACKNOWLEDGEMENT -> {
-                Log.w(TAG, "BLE GATT packet ack size=${control.packetAcknowledgement.receivedSize}")
+                DiagnosticLog.w(TAG, "BLE GATT packet ack size=${control.packetAcknowledgement.receivedSize}")
             }
             BleFramesProto.SocketControlFrame.ControlFrameType.DISCONNECTION -> close()
-            else -> Log.w(TAG, "BLE GATT control frame type=${control.type}")
+            else -> DiagnosticLog.w(TAG, "BLE GATT control frame type=${control.type}")
         }
     }
 
@@ -639,23 +642,23 @@ private class BleGattClientTransport(
             inputWriter.write(bytes)
             inputWriter.flush()
         } catch (io: IOException) {
-            Log.w(TAG, "BLE GATT virtual input closed while feeding data", io)
+            DiagnosticLog.w(TAG, "BLE GATT virtual input closed while feeding data", io)
             close()
         }
     }
 
     private fun sendSocketServiceBytes(bytes: ByteArray) {
         if (bytes.isEmpty()) return
-        // Log.w (not Log.i) here is the Funtouch OS / vivo workaround from PR #144:
-        // Funtouch filters Log.i for non-system apps, leaving us blind to the
-        // outbound write path during BLE GATT bootstrap diagnostics. Log.w
-        // also lands in `getExternalFilesDir(null)/bada-outbound.log` via
-        // OutboundConnection's logger so on-device logs survive a logcat
-        // flush. The function split (sendSocketServiceBytes vs.
-        // sendSocketServiceMessage) is from PR #146, where new callers send
-        // already-prefixed socket payloads and want the inner helper without
-        // the extra logging.
-        Log.w(TAG, "BLE GATT service write bytes=${bytes.size} preview=${bytes.previewHex()}")
+        // DiagnosticLog.w (not .i) here is the Funtouch OS / vivo workaround
+        // from PR #144: Funtouch filters Log.i for non-system apps, leaving us
+        // blind to the outbound write path during BLE GATT bootstrap
+        // diagnostics. DiagnosticLog mirrors to Log.w *and* persists to
+        // `getExternalFilesDir(null)/bada-diagnostics.log` (#201) so on-device
+        // logs survive a logcat flush and reach the bug report. The function
+        // split (sendSocketServiceBytes vs. sendSocketServiceMessage) is from
+        // PR #146, where new callers send already-prefixed socket payloads and
+        // want the inner helper without the extra logging.
+        DiagnosticLog.w(TAG, "BLE GATT service write bytes=${bytes.size} preview=${bytes.previewHex()}")
         sendSocketServiceMessage(bytes)
     }
 
@@ -686,11 +689,11 @@ private class BleGattClientTransport(
 
     private fun enqueueWriteLocked(packet: ByteArray) {
         if (closed) return
-        // Log.w (not Log.i): same Funtouch OS / vivo workaround as
+        // DiagnosticLog.w (not .i): same Funtouch OS / vivo workaround as
         // sendSocketServiceBytes above — Log.i is filtered by Funtouch
         // for non-system apps, leaving us blind to the per-packet
         // enqueue path during BLE GATT bootstrap diagnostics.
-        Log.w(
+        DiagnosticLog.w(
             TAG,
             "enqueue write len=${packet.size} header=${packet.firstByteHex()} device=${device.safeAddress()}",
         )
@@ -705,14 +708,14 @@ private class BleGattClientTransport(
         val outgoing = toPeripheral ?: return close()
         outgoing.writeType = writeTypeFor(outgoing)
         outgoing.value = packet
-        Log.i(
+        DiagnosticLog.i(
             TAG,
             "write characteristic len=${packet.size} header=${packet.firstByteHex()} " +
                 "type=${outgoing.writeType} properties=${outgoing.properties} device=${device.safeAddress()}",
         )
         writeInFlight = openGatt.writeCharacteristic(outgoing)
         if (!writeInFlight) {
-            Log.w(TAG, "writeCharacteristic returned false")
+            DiagnosticLog.w(TAG, "writeCharacteristic returned false")
             close()
         }
     }

@@ -78,6 +78,7 @@ internal class BugReportCollector(
             }
 
             val outboundLogBytes = readOptionalExternalFile("bada-outbound.log", failures, "outbound_log")
+            val diagnosticsLogBytes = readRotatedExternalFile("bada-diagnostics.log", failures, "diagnostics_log")
             val ringbufferText =
                 DiagnosticLog.dumpRecent(
                     maxAgeMillis = DiagnosticLog.DEFAULT_MAX_AGE_MILLIS,
@@ -125,6 +126,10 @@ internal class BugReportCollector(
                         outboundLogBytes ?: "not_available\n".encodeToByteArray(),
                     ),
                     BugReportArchiveEntry(
+                        "logs/diagnostics.log",
+                        diagnosticsLogBytes ?: "not_available\n".encodeToByteArray(),
+                    ),
+                    BugReportArchiveEntry(
                         "logs/ringbuffer.txt",
                         ringbufferText.ifBlank { "not_available\n" }.encodeToByteArray(),
                     ),
@@ -163,6 +168,7 @@ internal class BugReportCollector(
         - permissions.txt: granted/denied runtime permissions
         - discovery.txt: receiver/discovery runtime state
         - logs/outbound.log: on-disk outbound diagnostic log when available
+        - logs/diagnostics.log: persisted BLE/discovery diagnostics (rotated), incl. L2CAP/GATT bootstrap detail
         - logs/ringbuffer.txt: recent in-memory diagnostics from the last 15 minutes
         - screenshot.png: screenshot of the current Bada activity, or a placeholder when redacted
         
@@ -396,6 +402,39 @@ internal class BugReportCollector(
             return null
         }
         return runCatching { file.readBytes() }.getOrElse { t ->
+            failures[failureKey] = "not_available: could not read $fileName (${t.message})"
+            null
+        }
+    }
+
+    /**
+     * Reads a size-rotated log written by [DiagnosticLog]'s file sink:
+     * the single `<name>.1` backup (older lines) followed by `<name>`
+     * (newer lines), concatenated in chronological order. Returns `null`
+     * and records a failure when neither file exists.
+     */
+    private fun readRotatedExternalFile(
+        fileName: String,
+        failures: MutableMap<String, String>,
+        failureKey: String,
+    ): ByteArray? {
+        val dir = context.getExternalFilesDir(null)
+        val ordered =
+            if (dir == null) {
+                emptyList()
+            } else {
+                listOf(File(dir, "$fileName.1"), File(dir, fileName)).filter { it.exists() }
+            }
+        if (ordered.isEmpty()) {
+            failures[failureKey] = "not_available: $fileName does not exist"
+            return null
+        }
+        return runCatching {
+            ByteArrayOutputStream().use { out ->
+                ordered.forEach { out.write(it.readBytes()) }
+                out.toByteArray()
+            }
+        }.getOrElse { t ->
             failures[failureKey] = "not_available: could not read $fileName (${t.message})"
             null
         }

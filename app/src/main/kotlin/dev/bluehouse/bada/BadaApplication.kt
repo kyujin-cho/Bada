@@ -7,6 +7,7 @@ package dev.bluehouse.bada
 
 import android.app.Application
 import dev.bluehouse.bada.consent.ConsentTrampolineActivity
+import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
 
 /**
@@ -25,11 +26,16 @@ import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
  * `BroadcastReceiver`, `Activity`) of the app, so by the time the
  * receiver service first tries to build a notification PendingIntent
  * the targets are already set.
+ *
+ * It also points [DiagnosticLog]'s on-disk sink at the app's external
+ * files dir so BLE/discovery diagnostics persist into the bug report past
+ * the 15-minute in-memory ring-buffer window (#201).
  */
 class BadaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ReceiverForegroundService.openAppTarget = MainActivity::class.java
         ReceiverForegroundService.consentTrampolineTarget = ConsentTrampolineActivity::class.java
+        (getExternalFilesDir(null) ?: filesDir)?.let { DiagnosticLog.configureFileSink(it) }
     }
 }

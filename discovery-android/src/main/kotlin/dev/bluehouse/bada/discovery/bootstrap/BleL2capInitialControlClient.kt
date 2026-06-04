@@ -10,11 +10,11 @@ package dev.bluehouse.bada.discovery.bootstrap
 
 import android.content.Context
 import android.os.Build
-import android.util.Log
 import androidx.annotation.ChecksSdkIntAtLeast
 import androidx.annotation.RequiresApi
 import com.google.location.nearby.mediums.proto.BleFramesProto
 import com.google.location.nearby.mediums.proto.MultiplexFramesProto
+import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.discovery.medium.BluetoothL2capIo
 import dev.bluehouse.bada.discovery.medium.DefaultBluetoothL2capIo
 import dev.bluehouse.bada.discovery.medium.L2capChannel
@@ -60,7 +60,7 @@ public class BleL2capInitialControlClient internal constructor(
     ): ConnectedTransport? =
         withContext(dispatcher) {
             if (!isAvailable() || psm !in PSM_RANGE) {
-                Log.i(TAG, "BLE L2CAP initial connect unavailable psm=$psm")
+                DiagnosticLog.i(TAG, "BLE L2CAP initial connect unavailable psm=$psm")
                 return@withContext null
             }
             val channel = connectOnQ(macAddress, psm) ?: return@withContext null
@@ -74,11 +74,11 @@ public class BleL2capInitialControlClient internal constructor(
             transport.start()
             val ready = transport.awaitReady(CONNECTION_READY_TIMEOUT_MILLIS)
             if (!ready) {
-                Log.w(TAG, "BLE L2CAP initial connect timed out waiting for multiplex accept")
+                DiagnosticLog.w(TAG, "BLE L2CAP initial connect timed out waiting for multiplex accept")
                 transport.close()
                 return@withContext null
             }
-            Log.i(TAG, "BLE L2CAP initial connect ready mac=$macAddress psm=$psm")
+            DiagnosticLog.i(TAG, "BLE L2CAP initial connect ready mac=$macAddress psm=$psm")
             transport
         }
 
@@ -202,7 +202,7 @@ private class BleL2capClientTransport(
                 val packetLengthPrefix = channel.inputStream.readExactly(L2CAP_PACKET_LENGTH_BYTES)
                 val packetLength = packetLengthPrefix.decodeLength()
                 if (packetLength <= 0 || packetLength >= FramedConnection.SANE_FRAME_LENGTH) {
-                    Log.w(TAG, "invalid BLE L2CAP packet length=$packetLength")
+                    DiagnosticLog.w(TAG, "invalid BLE L2CAP packet length=$packetLength")
                     close()
                     return
                 }
@@ -211,10 +211,10 @@ private class BleL2capClientTransport(
         } catch (_: EOFException) {
             close()
         } catch (io: IOException) {
-            if (!closed) Log.w(TAG, "BLE L2CAP client pump failed", io)
+            if (!closed) DiagnosticLog.w(TAG, "BLE L2CAP client pump failed", io)
             close()
         } catch (t: Throwable) {
-            if (!closed) Log.w(TAG, "BLE L2CAP client pump crashed", t)
+            if (!closed) DiagnosticLog.w(TAG, "BLE L2CAP client pump crashed", t)
             close()
         }
     }
@@ -224,10 +224,10 @@ private class BleL2capClientTransport(
         channel.outputStream.flush()
         val response = channel.inputStream.read()
         if (response == COMMAND_RESPONSE_DATA_CONNECTION_READY) {
-            Log.i(TAG, "BLE L2CAP data connection ready")
+            DiagnosticLog.i(TAG, "BLE L2CAP data connection ready")
             return true
         }
-        Log.w(TAG, "unexpected BLE L2CAP data-connection response=$response")
+        DiagnosticLog.w(TAG, "unexpected BLE L2CAP data-connection response=$response")
         return false
     }
 
@@ -244,7 +244,7 @@ private class BleL2capClientTransport(
 
     private fun handleIncomingPacket(packet: ByteArray) {
         if (packet.size < SERVICE_ID_HASH_LEN) {
-            Log.w(TAG, "discarded undersized BLE L2CAP packet=${packet.toHex()}")
+            DiagnosticLog.w(TAG, "discarded undersized BLE L2CAP packet=${packet.toHex()}")
             close()
             return
         }
@@ -257,7 +257,7 @@ private class BleL2capClientTransport(
                 receiveMultiplexBytes(payload)
             }
             else -> {
-                Log.w(TAG, "discarded BLE L2CAP packet for unexpected service hash packet=${packet.toHex()}")
+                DiagnosticLog.w(TAG, "discarded BLE L2CAP packet for unexpected service hash packet=${packet.toHex()}")
                 close()
             }
         }
@@ -266,13 +266,13 @@ private class BleL2capClientTransport(
     private fun handleControlPacket(packet: ByteArray) {
         val control = NearbyBleSocketFrames.parseControlPacket(packet)
         if (control == null) {
-            Log.w(TAG, "BLE L2CAP unknown control packet raw=${packet.toHex()}")
+            DiagnosticLog.w(TAG, "BLE L2CAP unknown control packet raw=${packet.toHex()}")
             return
         }
         when (control.type) {
             BleFramesProto.SocketControlFrame.ControlFrameType.PACKET_ACKNOWLEDGEMENT -> Unit
             BleFramesProto.SocketControlFrame.ControlFrameType.DISCONNECTION -> close()
-            else -> Log.i(TAG, "BLE L2CAP control frame type=${control.type}")
+            else -> DiagnosticLog.i(TAG, "BLE L2CAP control frame type=${control.type}")
         }
     }
 
@@ -306,7 +306,7 @@ private class BleL2capClientTransport(
     private fun handleMultiplexFrame(frameBytes: ByteArray) {
         val frame =
             NearbyMultiplexFrames.parseFrame(frameBytes) ?: run {
-                Log.w(TAG, "discarded invalid multiplex frame=${frameBytes.toHex()}")
+                DiagnosticLog.w(TAG, "discarded invalid multiplex frame=${frameBytes.toHex()}")
                 return
             }
         when (frame.frameType) {
@@ -337,7 +337,7 @@ private class BleL2capClientTransport(
             inputWriter.write(bytes)
             inputWriter.flush()
         } catch (io: IOException) {
-            Log.w(TAG, "BLE L2CAP virtual input closed while feeding data", io)
+            DiagnosticLog.w(TAG, "BLE L2CAP virtual input closed while feeding data", io)
             close()
         }
     }

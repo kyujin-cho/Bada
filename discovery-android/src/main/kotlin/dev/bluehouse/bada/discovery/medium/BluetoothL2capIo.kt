@@ -24,6 +24,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
+import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import java.io.Closeable
 import java.io.InputStream
 import java.io.OutputStream
@@ -255,6 +256,9 @@ public class DefaultBluetoothL2capIo(
             // and the platform call. Both map to "skip the upgrade".
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
+            // The reason is otherwise invisible to the bug report (#201);
+            // record the exception class + message before demoting.
+            DiagnosticLog.w(TAG, "L2CAP listen failed: ${t.describe()}")
             null
         }
     }
@@ -279,6 +283,10 @@ public class DefaultBluetoothL2capIo(
             // null so the framework can demote the medium cleanly.
             @Suppress("TooGenericExceptionCaught") t: Throwable,
         ) {
+            // This catch is exactly where #189/#191/#192 lose the reason
+            // the BLE L2CAP bootstrap fails. Record the concrete cause so
+            // the bug report shows it instead of a bare "Pipe closed".
+            DiagnosticLog.w(TAG, "L2CAP connect failed psm=$psm: ${t.describe()}")
             null
         }
     }
@@ -325,6 +333,8 @@ public class DefaultBluetoothL2capIo(
     }
 
     private companion object {
+        private const val TAG: String = "BadaBleL2cap"
+
         /** Parse `"AA:BB:CC:DD:EE:FF"` into 6 bytes, or `null`. */
         fun parseMacAddress(value: String): ByteArray? {
             val parts = value.split(':')
@@ -338,5 +348,8 @@ public class DefaultBluetoothL2capIo(
             }
             return out
         }
+
+        /** Class name + message, e.g. `IOException: connect failed`. */
+        fun Throwable.describe(): String = "${javaClass.simpleName}: ${message ?: "no message"}"
     }
 }
