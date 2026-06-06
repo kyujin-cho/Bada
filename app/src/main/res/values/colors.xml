@@ -136,4 +136,10 @@
       the edge needs more visual weight to delineate.
     -->
     <color name="credit_avatar_stroke">#1F000000</color>
+
+    <!-- "New release available" badge red. Painted on top of the
+         toolbar kebab (ic_overflow_kebab_with_dot_24) and as the
+         bullet appended to the "Check for updates" overflow item
+         when UpdateRepository surfaces UpdateAvailable. -->
+    <color name="update_badge_red">#FFE53935</color>
 </resources>

@@ -37,6 +37,18 @@
     <string name="menu_credit">クレジット</string>
     <string name="credit_activity_label">クレジット</string>
 
+    <!-- "アップデートを確認" オーバーフロー項目 + 画面。 -->
+    <string name="menu_check_updates">アップデートを確認</string>
+    <string name="update_activity_label">アップデートを確認</string>
+    <string name="update_status_checking">アップデートを確認しています…</string>
+    <string name="update_status_up_to_date">最新バージョンです</string>
+    <string name="update_status_available">新しいアップデートがあります</string>
+    <string name="update_status_error">アップデートを確認できませんでした</string>
+    <string name="update_subtitle_current_version">現在: %1$s</string>
+    <string name="update_subtitle_latest_version">%1$s</string>
+    <string name="update_button_check_again">再確認</string>
+    <string name="update_button_update">アップデート</string>
+
     <!-- `credit_section_developer`, `credit_section_polisher`,
          `credit_section_qa`, `credit_section_thanks` are intentionally
          NOT translated here (no override), matching the Korean policy:

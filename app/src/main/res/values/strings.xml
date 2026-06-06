@@ -14,6 +14,21 @@
          there. -->
     <string name="menu_credit">Credit</string>
     <string name="credit_activity_label">Credit</string>
+
+    <!-- "Check for updates" overflow entry + screen. Reached from the
+         toolbar overflow on MainActivity; runs a one-shot GitHub
+         releases/latest check and lets the user open the release page
+         to download the APK. -->
+    <string name="menu_check_updates">Check for updates</string>
+    <string name="update_activity_label">Check for updates</string>
+    <string name="update_status_checking">Checking for updates…</string>
+    <string name="update_status_up_to_date">You\'re on the latest version</string>
+    <string name="update_status_available">New update available</string>
+    <string name="update_status_error">Couldn\'t check for updates</string>
+    <string name="update_subtitle_current_version">Current: %1$s</string>
+    <string name="update_subtitle_latest_version">%1$s</string>
+    <string name="update_button_check_again">Check again</string>
+    <string name="update_button_update">Update</string>
     <string name="credit_placeholder_text">credit</string>
 
     <!--

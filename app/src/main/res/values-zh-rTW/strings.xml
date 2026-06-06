@@ -302,4 +302,16 @@
     <string name="qs_tile_content_desc_on">附近裝置目前可以搜尋到 Bada</string>
     <string name="qs_tile_content_desc_off">附近裝置目前無法搜尋到 Bada</string>
 
+    <!-- "檢查更新" overflow item + screen. -->
+    <string name="menu_check_updates">檢查更新</string>
+    <string name="update_activity_label">檢查更新</string>
+    <string name="update_status_checking">正在檢查更新…</string>
+    <string name="update_status_up_to_date">已是最新版本</string>
+    <string name="update_status_available">有新版本可用</string>
+    <string name="update_status_error">無法檢查更新</string>
+    <string name="update_subtitle_current_version">目前: %1$s</string>
+    <string name="update_subtitle_latest_version">%1$s</string>
+    <string name="update_button_check_again">再次檢查</string>
+    <string name="update_button_update">更新</string>
+
 </resources>

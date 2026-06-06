@@ -265,6 +265,18 @@
             android:parentActivityName=".MainActivity" />
 
         <!--
+          "Check for updates" screen reachable from MainActivity's
+          overflow menu. Runs a one-shot GitHub releases/latest query
+          via UpdateRepository / UpdateChecker and opens the matching
+          release page when the user taps "Update".
+        -->
+        <activity
+            android:name=".update.CheckForUpdatesActivity"
+            android:exported="false"
+            android:label="@string/update_activity_label"
+            android:parentActivityName=".MainActivity" />
+
+        <!--
           Sender share-intent target (#24).
 
           ACTION_SEND (single attachment) and ACTION_SEND_MULTIPLE
