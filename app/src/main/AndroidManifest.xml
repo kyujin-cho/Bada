@@ -243,6 +243,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+              Long-press on Bada's Quick Settings tile (issue #207). The
+              platform fires ACTION_QS_TILE_PREFERENCES; without a matching
+              activity it falls back to the system App Info page. Routing
+              it to MainActivity opens the in-app surface the user actually
+              expects when they long-press the tile.
+            -->
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
         </activity>
 
         <activity
