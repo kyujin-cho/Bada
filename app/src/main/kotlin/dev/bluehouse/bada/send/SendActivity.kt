@@ -574,7 +574,11 @@ public class SendActivity : AppCompatActivity() {
                             SendBootstrapPlan.forRoute(peer, route)
                         }
                     val isLastAttempt = index == routes.lastIndex
-                    pendingFallback = !isLastAttempt
+                    // Suppress the per-attempt terminal while another
+                    // attempt may still follow — either a lower-priority
+                    // fallback route, or (for a LAN route) an in-place
+                    // re-resolve retry against a refreshed address.
+                    pendingFallback = !isLastAttempt || route is NearbyPeerRoute.Lan
                     if (index > 0) {
                         // Re-paint the status panel for the fallback
                         // attempt so the user sees the transport switch
@@ -586,7 +590,7 @@ public class SendActivity : AppCompatActivity() {
                             "retry: attempting fallback route=$route after primary failed",
                         )
                     }
-                    val outcome = attemptOutbound(peer, attemptPlan)
+                    val outcome = attemptRouteOutcome(peer, route, attemptPlan)
                     pendingFallback = false
                     val shouldFallback =
                         !isLastAttempt &&
@@ -614,6 +618,72 @@ public class SendActivity : AppCompatActivity() {
                     return@launch
                 }
             }
+    }
+
+    /**
+     * Run one route's connect attempt and, for a LAN route, fold in the
+     * re-resolve retry (#203). Keeps [proceedWithPeer]'s fallback loop
+     * focused on route ordering: a non-failing attempt is returned as-is,
+     * and a failing one is handed to [retryLanAfterReresolve], which only
+     * acts on a stale-address LAN failure and otherwise returns the
+     * original outcome unchanged.
+     */
+    private suspend fun attemptRouteOutcome(
+        peer: NearbyPeer,
+        route: NearbyPeerRoute,
+        attemptPlan: SendBootstrapPlan,
+    ): OutboundResult {
+        val firstOutcome = attemptOutbound(peer, attemptPlan)
+        if (firstOutcome !is OutboundResult.Failed) return firstOutcome
+        return retryLanAfterReresolve(peer, route, firstOutcome) ?: firstOutcome
+    }
+
+    /**
+     * LAN re-resolve-on-connect-failure retry (issue #203).
+     *
+     * When a LAN bootstrap fails before a SecureChannel exists, the
+     * cached address may be stale — the peer roamed Wi-Fi or its DHCP
+     * lease renewed while we held a frozen route snapshot from pick time
+     * and discovery was suspended. Re-resolve the peer's current LAN
+     * address and, if a fresh LAN route surfaces, retry the connection
+     * once with it.
+     *
+     * Returns the retry's [OutboundResult], or `null` when no re-resolve
+     * was warranted (non-LAN route, or a post-secure failure that a new
+     * address cannot fix) or no fresh LAN address surfaced in time — in
+     * which case the caller keeps the original failure and proceeds to
+     * the next viable route.
+     */
+    @Suppress("ReturnCount") // Two early bail-outs (no re-resolve warranted /
+    // no fresh address) plus the retry result read clearer as guards.
+    private suspend fun retryLanAfterReresolve(
+        peer: NearbyPeer,
+        failedRoute: NearbyPeerRoute,
+        failure: OutboundResult.Failed,
+    ): OutboundResult? {
+        if (!LanReresolvePolicy.shouldReresolveLan(failedRoute, failure.reason)) return null
+        val previousLan = failedRoute as NearbyPeerRoute.Lan
+        val freshLan =
+            peerPickerController.reresolveLan(peer, LanReresolvePolicy.DEFAULT_TIMEOUT_MILLIS)
+        if (freshLan == null) {
+            logOutboundDiagnostic(
+                "reresolve: no fresh LAN address for peer=${peer.stableId}; keeping original failure",
+            )
+            return null
+        }
+        logOutboundDiagnostic(
+            "reresolve: retrying LAN peer=${peer.stableId} " +
+                "old=${previousLan.address.hostAddress}:${previousLan.port} " +
+                "new=${freshLan.address.hostAddress}:${freshLan.port} " +
+                "changed=${LanReresolvePolicy.addressChanged(previousLan, freshLan)}",
+        )
+        binding.sendStatusPhase.setText(R.string.send_phase_connecting)
+        binding.sendStatusMessage.text =
+            getString(
+                R.string.send_status_retrying_route,
+                SendBootstrapPlan.forRoute(peer, freshLan).subtitle,
+            )
+        return attemptOutbound(peer, SendBootstrapPlan.forRoute(peer, freshLan))
     }
 
     /**

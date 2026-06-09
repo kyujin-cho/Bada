@@ -23,7 +23,9 @@ import dev.bluehouse.bada.service.receiver.ReceiverAdvertisementStateHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog as Log
 
 @Suppress("LongParameterList") // Every collaborator (UI, lifecycle, callbacks, sender id) is needed.
@@ -130,6 +132,69 @@ internal class SendPeerPickerController(
     fun onHintDismissed() {
         emptyPeerHintTimer.markDismissed()
         binding.sendNetworkHint.visibility = View.GONE
+    }
+
+    /**
+     * Re-resolve [peer]'s current LAN address by running a short,
+     * transient discovery session, and return the fresh LAN route — or
+     * `null` if no matching LAN-capable peer surfaces within [timeoutMs].
+     *
+     * Used by the sender's LAN re-resolve-on-connect-failure retry
+     * (issue #203): the picker stops discovery the moment a peer is
+     * picked ([suspendPicker]), so the route's baked-in address can go
+     * stale (Wi-Fi roam / DHCP renew) with no live discovery to refresh
+     * it. This spins up a fresh [NearbyPeerDiscovery] browse, waits for
+     * the same peer to re-resolve, and tears the browse down again as
+     * soon as it matches (or the timeout elapses).
+     *
+     * Matching is by `endpointId` when both sides have one — it is
+     * stable across an IP change within a single advertising session —
+     * and falls back to `stableId` otherwise. The fresh LAN route is
+     * built through [SendBootstrapPlan.viableRoutes] so it honours the
+     * same connectability gates (parseable endpoint info, dialable
+     * primary address) the picker applies.
+     */
+    suspend fun reresolveLan(
+        peer: NearbyPeer,
+        timeoutMs: Long,
+    ): NearbyPeerRoute.Lan? {
+        logDiagnostic(
+            "reresolve: browsing for peer=${peer.stableId} " +
+                "endpointId=${peer.endpointId ?: "<none>"} timeoutMs=$timeoutMs",
+        )
+        val discovery = NearbyPeerDiscovery(context.applicationContext)
+        val match =
+            withTimeoutOrNull(timeoutMs) {
+                discovery.browse().firstOrNull { event ->
+                    event is NearbyPeerEvent.Resolved &&
+                        matchesReresolveTarget(event.peer, peer) &&
+                        freshLanRoute(event.peer) != null
+                } as? NearbyPeerEvent.Resolved
+            }
+        val route = match?.peer?.let(::freshLanRoute)
+        logDiagnostic(
+            "reresolve: result peer=${peer.stableId} found=${route != null}" +
+                (route?.let { " addr=${it.address.hostAddress}:${it.port}" } ?: ""),
+        )
+        return route
+    }
+
+    private fun freshLanRoute(peer: NearbyPeer): NearbyPeerRoute.Lan? =
+        SendBootstrapPlan
+            .viableRoutes(peer)
+            .filterIsInstance<NearbyPeerRoute.Lan>()
+            .firstOrNull()
+
+    private fun matchesReresolveTarget(
+        candidate: NearbyPeer,
+        target: NearbyPeer,
+    ): Boolean {
+        val targetEndpoint = target.endpointId
+        return if (targetEndpoint != null && candidate.endpointId != null) {
+            candidate.endpointId == targetEndpoint
+        } else {
+            candidate.stableId == target.stableId
+        }
     }
 
     fun peerLabel(peer: NearbyPeer): String = peer.displayName()
