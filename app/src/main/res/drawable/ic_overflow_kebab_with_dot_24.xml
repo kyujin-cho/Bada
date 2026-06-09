@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Variant of `ic_overflow_kebab_24` with a solid red dot in the top-right
+  corner. Swapped onto the MaterialToolbar's `overflowIcon` when
+  `UpdateRepository` reports an `UpdateState.UpdateAvailable`. Same 24dp
+  viewport / pure-white rings as the no-dot variant so the active /
+  inactive toolbar tinting still applies to the kebab; the dot keeps its
+  red fill regardless of tinting state.
+
+  Geometry: kebab pair at the exact same geometry as ic_overflow_kebab_24
+  — no scaling, full original size — so the overflow button never
+  shrinks when the dot is on. The red dot is a 3-radius circle centred
+  at (21, 3), tucked into the top-right corner so it touches the
+  viewport edge (no wasted right whitespace) while still leaving a
+  ~3-unit gap from the kebab's right extent at x=15.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,7 m-3.0,0 a3.0,3.0 0 1,0 6.0,0 a3.0,3.0 0 1,0 -6.0,0 M12,17 m-3.0,0 a3.0,3.0 0 1,0 6.0,0 a3.0,3.0 0 1,0 -6.0,0"
+        android:strokeColor="@color/toolbar_overflow_tint"
+        android:strokeWidth="2.0" />
+    <path
+        android:fillColor="@color/update_badge_red"
+        android:pathData="M21,3 m-3.0,0 a3.0,3.0 0 1,0 6.0,0 a3.0,3.0 0 1,0 -6.0,0" />
+</vector>

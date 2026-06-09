@@ -1,17 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Overflow menu shown by MainActivity's Toolbar. Currently a single
-  destination — the Credit screen. Items use
-  `app:showAsAction="never"` so they never spill out of the overflow
-  popup as a top-level icon, matching the kebab-only pattern users
-  expect from the vivo / OriginOS native apps.
+  Overflow menu shown by MainActivity's Toolbar. Two destinations —
+  the "Check for updates" screen (red dot when an update is available;
+  see UpdateRepository / MainActivity.onPrepareOptionsMenu) and the
+  Credit screen. Items use `app:showAsAction="never"` so they never
+  spill out of the overflow popup as a top-level icon, matching the
+  kebab-only pattern users expect from the vivo / OriginOS native apps.
+
+  Two groups so the popup renders a faint divider between the
+  diagnostic and acknowledgements destinations rather than stacking
+  them as a single-cell list.
 -->
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <item
-        android:id="@+id/menu_credit"
-        android:title="@string/menu_credit"
-        app:showAsAction="never" />
+    <group android:id="@+id/menu_group_updates">
+        <item
+            android:id="@+id/menu_check_updates"
+            android:title="@string/menu_check_updates"
+            app:showAsAction="never" />
+    </group>
+
+    <group android:id="@+id/menu_group_credit">
+        <item
+            android:id="@+id/menu_credit"
+            android:title="@string/menu_credit"
+            app:showAsAction="never" />
+    </group>
 
 </menu>

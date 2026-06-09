@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  "Check for updates" screen. Same shell as CreditActivity (vivo-style
+  toolbar above a colorBackground page) so it reads as part of the same
+  family of overflow-menu destinations.
+
+  Inside the page, a single white panel hosts every UI state — the
+  status title, an optional secondary line carrying the latest version,
+  and one CTA button:
+
+    * `Checking…`              → title shows the in-flight string;
+                                  subtitle hidden; button shown as
+                                  "Check again" but disabled.
+    * `You're on the latest`   → title shows the up-to-date string;
+                                  subtitle shows the installed version;
+                                  button is "Check again".
+    * `New update available`   → title shows the announcement; subtitle
+                                  shows the latest version; button is
+                                  "Update" and opens the GitHub release
+                                  page so the user can download the APK.
+    * `Couldn't check…`        → title shows the error string; subtitle
+                                  shows the underlying message; button
+                                  is "Check again".
+
+  CheckForUpdatesActivity drives the state transitions; this layout is
+  state-agnostic and just exposes the four ids it touches.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/update_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/app_toolbar_height"
+        android:background="?android:attr/colorBackground"
+        android:paddingTop="@dimen/app_toolbar_padding_top"
+        app:navigationIcon="?attr/homeAsUpIndicator"
+        app:title="@string/update_activity_label"
+        app:titleCentered="false"
+        app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
+        app:titleTextColor="?android:attr/textColorPrimary" />
+
+    <!--
+      Body sits on the same colorBackground as the toolbar (no card)
+      so the page reads as a single calm surface; the status block is
+      vertically and horizontally centred inside the available area.
+      A ScrollView wraps it so the block stays reachable on the rare
+      tall content case (e.g. a long error message wrapping multiple
+      lines on a short landscape window).
+    -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingHorizontal="32dp"
+            android:paddingVertical="24dp">
+
+            <TextView
+                android:id="@+id/update_status_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                tools:text="New update available" />
+
+            <TextView
+                android:id="@+id/update_status_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center"
+                android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                android:textColor="?android:attr/textColorSecondary"
+                tools:text="20260606.01" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/update_primary_button"
+                style="@style/Widget.Bada.Button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/update_button_update"
+                tools:text="Update" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

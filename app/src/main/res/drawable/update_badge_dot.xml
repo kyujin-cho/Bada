@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Small filled red circle painted next to the "Check for updates"
+  overflow item title when UpdateRepository surfaces UpdateAvailable.
+  Drawn through a CenteredImageSpan so the dot lines up with the
+  vertical centre of the menu text (the U+25CF BLACK CIRCLE glyph the
+  span replaces was naturally pulled down to the typographic baseline
+  by the CJK font metrics, leaving the dot looking low against the
+  large Korean glyphs).
+
+  Sized to ≈ 8dp diameter so the rendered size matches the radius-3
+  red badge painted on the kebab in `ic_overflow_kebab_with_dot_24`.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <size
+        android:width="8dp"
+        android:height="8dp" />
+    <solid android:color="@color/update_badge_red" />
+</shape>

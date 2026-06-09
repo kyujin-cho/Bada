@@ -115,6 +115,10 @@ android {
 
     buildFeatures {
         viewBinding = true
+        // BuildConfig is opt-in on AGP 8+; UpdateRepository reads
+        // BuildConfig.VERSION_NAME to compare the installed app against
+        // the latest GitHub release tag, so it needs to be generated.
+        buildConfig = true
     }
 }
 
