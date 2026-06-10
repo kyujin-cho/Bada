@@ -120,6 +120,56 @@ class BleServiceDataTest {
         assertThat(parsed.version).isEqualTo(BleServiceData.DEFAULT_VERSION)
         assertThat(parsed.pcp).isEqualTo(BleServiceData.DEFAULT_PCP)
         assertThat(parsed.endpointInfo).isEqualTo(info)
+        assertThat(parsed.bluetoothMacAddress).isEqualTo("70:4E:E0:12:DE:3A")
+    }
+
+    @Test
+    fun `parse extracts the Bluetooth Classic MAC from a captured stock regular advertisement body`() {
+        // 49-byte regular advertisement body captured by HCI snoop from a
+        // Xiaomi 17 Ultra stock receiver (GMS 26.20.31) in
+        // foreground-visible mode during the #214 investigation. Layout:
+        // [0x23 PCP | fc9f5e hash | "17NT" | 0x20 | EndpointInfo(32) |
+        //  BT MAC 08:B3:39:10:C2:6A | 2 trailing bytes]. Stock senders use
+        // this MAC for the RFCOMM initial connection.
+        val payload =
+            hex(
+                "23fc9f5e31374e542022fce18cb548757c1582bdd2cf9c" +
+                    "f9eb910eeab79ceca78427732070686f6e6508b33910c26a0000",
+            )
+
+        val parsed = BleServiceData.parse(payload)
+
+        assertThat(parsed).isNotNull()
+        assertThat(String(parsed!!.endpointId, Charsets.US_ASCII)).isEqualTo("17NT")
+        assertThat(parsed.endpointInfo.deviceName).isEqualTo("규진's phone")
+        assertThat(parsed.bluetoothMacAddress).isEqualTo("08:B3:39:10:C2:6A")
+    }
+
+    @Test
+    fun `parse returns a null MAC when the regular advertisement body zeroes it out`() {
+        val info = hiddenPhoneEndpointInfo()
+        val payload = regularBleBody("LPPM", info)
+        val macOffset =
+            BleServiceData.REGULAR_FIXED_HEADER_LEN + info.serialize().size
+        for (i in 0 until BleServiceData.BLUETOOTH_MAC_LEN) {
+            payload[macOffset + i] = 0x00
+        }
+
+        val parsed = BleServiceData.parse(payload)
+
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.bluetoothMacAddress).isNull()
+    }
+
+    @Test
+    fun `parse leaves the MAC null for fast advertisement bodies`() {
+        val info = hiddenPhoneEndpointInfo()
+        val payload = BleServiceData.encodeFramed("DROP", info)
+
+        val parsed = BleServiceData.parse(payload)
+
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.bluetoothMacAddress).isNull()
     }
 
     @Test
@@ -374,4 +424,11 @@ class BleServiceDataTest {
             .getInstance("SHA-256")
             .digest(bytes)
             .copyOfRange(0, BleServiceData.DEVICE_TOKEN_LEN)
+
+    private fun hex(value: String): ByteArray {
+        require(value.length % 2 == 0) { "hex string must have even length" }
+        return ByteArray(value.length / 2) { i ->
+            value.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+        }
+    }
 }

@@ -7,7 +7,6 @@ package dev.bluehouse.bada.send
 
 import dev.bluehouse.bada.discovery.NearbyPeer
 import dev.bluehouse.bada.discovery.NearbyPeerRoute
-import dev.bluehouse.bada.discovery.UserFacingMediumFeatures
 
 internal data class SendBootstrapPlan(
     val action: Action,
@@ -83,17 +82,19 @@ internal data class SendBootstrapPlan(
          * bootstrap-route failure, so we stop falling back.
          *
          * The order mirrors [directRoute]'s `when` chain:
-         * Wi-Fi LAN → BLE-L2CAP → BLE-GATT → Bluetooth Classic. An
-         * empty list means no usable route; the caller falls through
-         * to the same "no route" terminal that [Action.Unavailable]
-         * would render.
+         * Wi-Fi LAN → Bluetooth RFCOMM → BLE-L2CAP → BLE-GATT. RFCOMM
+         * leads the off-LAN ladder because stock GMS receivers bootstrap
+         * stock senders over it, while their BLE L2CAP/GATT server paths
+         * are unreliable (#214). An empty list means no usable route; the
+         * caller falls through to the same "no route" terminal that
+         * [Action.Unavailable] would render.
          */
         fun viableRoutes(peer: NearbyPeer): List<NearbyPeerRoute> =
             listOfNotNull(
                 lanRoute(peer),
+                bluetoothRoute(peer),
                 bleL2capRoute(peer),
                 bleGattRoute(peer),
-                bluetoothRoute(peer),
             )
 
         /**
@@ -123,7 +124,7 @@ internal data class SendBootstrapPlan(
             val subtitle =
                 when (route) {
                     is NearbyPeerRoute.Lan -> "Wi-Fi LAN ${route.address.hostAddress}:${route.port}"
-                    is NearbyPeerRoute.BluetoothClassic -> "Unsupported Bluetooth route"
+                    is NearbyPeerRoute.BluetoothClassic -> "Bluetooth RFCOMM ${route.macAddress}"
                     is NearbyPeerRoute.BleL2cap -> "BLE L2CAP ${route.macAddress} psm=${route.psm}"
                     is NearbyPeerRoute.BleGatt -> "BLE GATT ${route.macAddress}"
                 }
@@ -140,29 +141,28 @@ internal data class SendBootstrapPlan(
             rejectedCandidates: MutableList<String>,
         ): NearbyPeerRoute? {
             val lanRoute = lanRoute(peer)
+            val bluetoothRoute = bluetoothRoute(peer)
             val bleL2capRoute = bleL2capRoute(peer)
             val bleGattRoute = bleGattRoute(peer)
-            val bluetoothRoute = bluetoothRoute(peer)
             return when {
                 lanRoute != null -> lanRoute
-                bleL2capRoute != null -> bleL2capRoute
+                bluetoothRoute != null -> bluetoothRoute
+                bleL2capRoute != null -> {
+                    rejectedCandidates += bluetoothClassicRejection(peer)
+                    bleL2capRoute
+                }
+
                 bleGattRoute != null -> {
+                    rejectedCandidates += bluetoothClassicRejection(peer)
                     rejectedCandidates += bleL2capRejection(peer)
                     bleGattRoute
                 }
 
-                bluetoothRoute != null -> {
-                    rejectedCandidates += lanRejection(peer)
-                    rejectedCandidates += bleL2capRejection(peer)
-                    rejectedCandidates += bleGattRejection(peer)
-                    bluetoothRoute
-                }
-
                 else -> {
+                    rejectedCandidates += bluetoothClassicRejection(peer)
                     rejectedCandidates += bleL2capRejection(peer)
                     rejectedCandidates += bleGattRejection(peer)
                     rejectedCandidates += lanRejection(peer)
-                    rejectedCandidates += bluetoothClassicRejection(peer)
                     null
                 }
             }
@@ -275,18 +275,18 @@ internal data class SendBootstrapPlan(
         }
 
         private fun bluetoothRoute(peer: NearbyPeer): NearbyPeerRoute.BluetoothClassic? =
-            if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) {
-                peer.bluetoothEndpoint?.let { NearbyPeerRoute.BluetoothClassic(it.macAddress) }
-            } else {
-                null
-            }
+            peer.takeIf { it.endpointInfo != null }?.bluetoothClassicRoute()
 
-        private fun bluetoothClassicRejection(peer: NearbyPeer): String =
-            when {
-                !UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED ->
-                    "bluetooth-classic=disabled"
-                peer.bluetoothEndpoint == null -> "bluetooth-classic=missing"
+        private fun bluetoothClassicRejection(peer: NearbyPeer): String {
+            val macKnown =
+                peer.publishedBluetoothMac != null ||
+                    peer.bluetoothEndpoint != null
+            return when {
+                !macKnown -> "bluetooth-classic=no-mac"
+                peer.endpointInfo == null -> "bluetooth-classic=no-endpoint-info"
+                peer.bluetoothClassicRoute() == null -> "bluetooth-classic=disabled"
                 else -> "bluetooth-classic=unusable"
             }
+        }
     }
 }

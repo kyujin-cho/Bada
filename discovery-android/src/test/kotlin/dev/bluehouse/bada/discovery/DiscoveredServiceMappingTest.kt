@@ -49,6 +49,64 @@ class DiscoveredServiceMappingTest {
     }
 
     @Test
+    fun `TXT b record decodes the published Bluetooth Classic MAC`() {
+        // Literal value captured from a stock GMS 26.20.31 record:
+        // base64("B8:A2:5D:EF:63:73").
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 54_321,
+                attributes =
+                    mapOf(
+                        QuickShareMdns.TXT_KEY_BLUETOOTH_MAC to
+                            "Qjg6QTI6NUQ6RUY6NjM6NzM".toByteArray(Charsets.US_ASCII),
+                    ),
+            )
+
+        val result = newDiscovery().toDiscoveredService(event)
+        assertThat(result).isNotNull()
+        assertThat(result!!.bluetoothMacAddress).isEqualTo("B8:A2:5D:EF:63:73")
+    }
+
+    @Test
+    fun `TXT b record tolerates a raw MAC string and normalizes case`() {
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 54_321,
+                attributes =
+                    mapOf(
+                        QuickShareMdns.TXT_KEY_BLUETOOTH_MAC to
+                            "08:b3:39:10:c2:6a".toByteArray(Charsets.US_ASCII),
+                    ),
+            )
+
+        val result = newDiscovery().toDiscoveredService(event)
+        assertThat(result).isNotNull()
+        assertThat(result!!.bluetoothMacAddress).isEqualTo("08:B3:39:10:C2:6A")
+    }
+
+    @Test
+    fun `garbage TXT b record yields a null MAC without crashing`() {
+        val event =
+            NsdBrowserEvent.Resolved(
+                instanceName = "IzAxMjP8n14AAA",
+                addresses = listOf(InetAddress.getByName("192.168.1.42")),
+                port = 54_321,
+                attributes =
+                    mapOf(
+                        QuickShareMdns.TXT_KEY_BLUETOOTH_MAC to byteArrayOf(0xFF.toByte(), 0x00),
+                    ),
+            )
+
+        val result = newDiscovery().toDiscoveredService(event)
+        assertThat(result).isNotNull()
+        assertThat(result!!.bluetoothMacAddress).isNull()
+    }
+
+    @Test
     fun `missing TXT key yields null endpointInfo but still surfaces the peer`() {
         val event =
             NsdBrowserEvent.Resolved(

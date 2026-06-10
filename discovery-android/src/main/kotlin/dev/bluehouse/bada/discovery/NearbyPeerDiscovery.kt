@@ -142,6 +142,7 @@ private class PeerAggregator {
         lanInstanceIndex[service.instanceName] = state.stableId
         state.lanAddresses = service.addresses
         state.lanPort = service.port
+        service.bluetoothMacAddress?.let { state.publishedBluetoothMac = it }
 
         return changeEvents(before, state.toPeerOrNull())
     }
@@ -183,6 +184,7 @@ private class PeerAggregator {
         state.bleRssi = observation.rssi
         state.bleL2capPsm = observation.l2capPsm
         state.bleGattConnectable = state.bleGattConnectable || observation.gattConnectable
+        observation.bluetoothMacAddress?.let { state.publishedBluetoothMac = it }
         observation.displayName?.toDisplayNameOrNull()?.let { displayName ->
             state.bleDisplayName = displayName
             state.bleDisplayNameSource = observation.displayNameSource?.logLabel
@@ -288,6 +290,7 @@ private class PeerAggregator {
             val ble = peer.bleAdvertisement
             when {
                 ble == null -> add("ble-missing")
+                peer.bluetoothClassicRoute() != null -> Unit
                 ble.advertiserAddress == null -> add("ble-no-address")
                 ble.l2capPsm != null -> Unit
                 ble.gattConnectable -> add("ble-gatt-pending-endpoint-info")
@@ -319,6 +322,7 @@ private data class MutablePeer(
     var bleGattConnectable: Boolean = false,
     var bleDisplayName: String? = null,
     var bleDisplayNameSource: String? = null,
+    var publishedBluetoothMac: String? = null,
 ) {
     fun toPeerOrNull(): NearbyPeer? {
         val lan =
@@ -357,6 +361,7 @@ private data class MutablePeer(
             lanEndpoint = lan,
             bluetoothEndpoint = bluetooth,
             bleAdvertisement = ble,
+            publishedBluetoothMac = publishedBluetoothMac,
         )
     }
 }

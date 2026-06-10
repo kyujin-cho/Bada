@@ -89,6 +89,14 @@ public object QuickShareMdns {
     public const val TXT_KEY_WIFI_FREQUENCY: String = "f"
 
     /**
+     * TXT-record key carrying the advertiser's Bluetooth Classic MAC as
+     * base64 of the ASCII "AA:BB:CC:DD:EE:FF" string (shape observed on
+     * stock GMS 26.20.31 records). Senders use it for the RFCOMM
+     * bootstrap fallback when the TCP route fails (#214).
+     */
+    public const val TXT_KEY_BLUETOOTH_MAC: String = "b"
+
+    /**
      * Alphabet used when generating the random 4-byte endpoint ID portion of
      * the service-instance name. Restricting to alphanumeric ASCII keeps the
      * raw bytes safely round-trippable through every URL-safe-base64

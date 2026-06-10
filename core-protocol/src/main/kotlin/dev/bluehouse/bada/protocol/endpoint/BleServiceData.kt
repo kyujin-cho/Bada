@@ -525,12 +525,26 @@ public object BleServiceData {
         if (offset + len + BLUETOOTH_MAC_LEN > bytes.size) return null
         val infoBytes = bytes.copyOfRange(offset, offset + len)
         val info = EndpointInfo.parse(infoBytes) ?: return null
+        offset += len
+        val macBytes = bytes.copyOfRange(offset, offset + BLUETOOTH_MAC_LEN)
         return Parsed(
             version = version,
             pcp = pcp,
             endpointId = endpointId,
             endpointInfo = info,
+            bluetoothMacAddress = formatBluetoothMac(macBytes),
         )
+    }
+
+    /**
+     * Renders the 6-byte Bluetooth Classic MAC that follows the
+     * EndpointInfo in the regular (non-fast) advertisement body as the
+     * canonical colon-separated upper-case string, or `null` when the
+     * advertiser left it zeroed (no BR/EDR listener).
+     */
+    private fun formatBluetoothMac(macBytes: ByteArray): String? {
+        if (macBytes.all { it == 0.toByte() }) return null
+        return macBytes.joinToString(":") { "%02X".format(it.toInt() and UNSIGNED_BYTE_MASK) }
     }
 
     @Suppress("ReturnCount")
@@ -607,6 +621,13 @@ public object BleServiceData {
         public val pcp: Int,
         public val endpointId: ByteArray,
         public val endpointInfo: EndpointInfo,
+        /**
+         * Bluetooth Classic MAC ("AA:BB:CC:DD:EE:FF") carried by the
+         * regular (non-fast) advertisement body; `null` for fast
+         * advertisements and zeroed-out regular ones. Stock senders use
+         * this address for the RFCOMM initial connection.
+         */
+        public val bluetoothMacAddress: String? = null,
     ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -614,7 +635,8 @@ public object BleServiceData {
             return version == other.version &&
                 pcp == other.pcp &&
                 endpointId.contentEquals(other.endpointId) &&
-                endpointInfo == other.endpointInfo
+                endpointInfo == other.endpointInfo &&
+                bluetoothMacAddress == other.bluetoothMacAddress
         }
 
         override fun hashCode(): Int {
@@ -622,6 +644,7 @@ public object BleServiceData {
             result = 31 * result + pcp
             result = 31 * result + endpointId.contentHashCode()
             result = 31 * result + endpointInfo.hashCode()
+            result = 31 * result + (bluetoothMacAddress?.hashCode() ?: 0)
             return result
         }
     }

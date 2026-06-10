@@ -325,7 +325,12 @@ public class SendActivity : AppCompatActivity() {
                     logger = ::logOutboundWireMessage,
                 )
             is NearbyPeerRoute.BluetoothClassic -> {
-                if (!UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) return null
+                if (
+                    !UserFacingMediumFeatures.BLUETOOTH_CLASSIC_BOOTSTRAP_ROUTE_ENABLED &&
+                    !UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED
+                ) {
+                    return null
+                }
                 val client = BluetoothClassicBootstrapClient(applicationContext)
                 bluetoothBootstrapClient = client
                 val transport =

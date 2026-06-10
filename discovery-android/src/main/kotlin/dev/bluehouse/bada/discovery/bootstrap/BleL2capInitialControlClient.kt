@@ -219,15 +219,29 @@ private class BleL2capClientTransport(
         }
     }
 
+    @Suppress("ReturnCount")
     private fun openDataConnection(): Boolean {
-        channel.outputStream.write(COMMAND_REQUEST_DATA_CONNECTION)
-        channel.outputStream.flush()
-        val response = channel.inputStream.read()
-        if (response == COMMAND_RESPONSE_DATA_CONNECTION_READY) {
+        // Shipped GMS (observed on 26.20.31) frames every L2CAP packet with a
+        // 4-byte big-endian length prefix and times out the incoming socket
+        // after 1000 ms if the first readInt() never completes. The raw
+        // single-byte command from OSS google/nearby mainline starves that
+        // read and the server closes the channel.
+        synchronized(writeLock) {
+            channel.outputStream.writeLengthPrefixedPacket(
+                byteArrayOf(COMMAND_REQUEST_DATA_CONNECTION.toByte()),
+            )
+        }
+        val responseLength = channel.inputStream.readExactly(L2CAP_PACKET_LENGTH_BYTES).decodeLength()
+        if (responseLength <= 0 || responseLength > MAX_DATA_CONNECTION_RESPONSE_BYTES) {
+            DiagnosticLog.w(TAG, "unexpected BLE L2CAP data-connection response length=$responseLength")
+            return false
+        }
+        val response = channel.inputStream.readExactly(responseLength)
+        if (response[0].toInt() == COMMAND_RESPONSE_DATA_CONNECTION_READY) {
             DiagnosticLog.i(TAG, "BLE L2CAP data connection ready")
             return true
         }
-        DiagnosticLog.w(TAG, "unexpected BLE L2CAP data-connection response=$response")
+        DiagnosticLog.w(TAG, "unexpected BLE L2CAP data-connection response=${response[0]}")
         return false
     }
 
@@ -362,6 +376,7 @@ private class BleL2capClientTransport(
         private const val COMMAND_RESPONSE_DATA_CONNECTION_READY: Int = 23
         private const val SERVICE_ID_HASH_LEN: Int = 3
         private const val L2CAP_PACKET_LENGTH_BYTES: Int = 4
+        private const val MAX_DATA_CONNECTION_RESPONSE_BYTES: Int = 64
         private val CONTROL_PACKET_PREFIX: ByteArray = ByteArray(SERVICE_ID_HASH_LEN)
     }
 }

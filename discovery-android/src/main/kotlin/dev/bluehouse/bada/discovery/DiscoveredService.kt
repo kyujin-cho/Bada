@@ -40,6 +40,11 @@ public data class DiscoveredService(
     val addresses: List<InetAddress>,
     val port: Int,
     val endpointInfo: EndpointInfo?,
+    /**
+     * Bluetooth Classic MAC from the TXT `b` record, when the advertiser
+     * published one. Feeds the RFCOMM bootstrap fallback (#214).
+     */
+    val bluetoothMacAddress: String? = null,
 ) {
     /**
      * Convenience helper: returns the first non-loopback InetAddress, falling
@@ -61,7 +66,8 @@ public data class DiscoveredService(
             (endpointId?.contentEquals(other.endpointId) ?: (other.endpointId == null)) &&
             addresses == other.addresses &&
             port == other.port &&
-            endpointInfo == other.endpointInfo
+            endpointInfo == other.endpointInfo &&
+            bluetoothMacAddress == other.bluetoothMacAddress
     }
 
     override fun hashCode(): Int {
@@ -70,6 +76,7 @@ public data class DiscoveredService(
         result = 31 * result + addresses.hashCode()
         result = 31 * result + port
         result = 31 * result + (endpointInfo?.hashCode() ?: 0)
+        result = 31 * result + (bluetoothMacAddress?.hashCode() ?: 0)
         return result
     }
 }

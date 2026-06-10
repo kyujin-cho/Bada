@@ -94,6 +94,91 @@ class SendBootstrapPlanTest {
     }
 
     @Test
+    fun `published Bluetooth MAC routes over RFCOMM before BLE off-LAN`() {
+        val peer =
+            peer(
+                publishedBluetoothMac = "08:B3:39:10:C2:6A",
+                bleAddress = "AA:BB:CC:DD:EE:FF",
+                blePsm = 0x1234,
+            )
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
+        assertTrue(plan.isConnectable)
+        assertEquals(
+            NearbyPeerRoute.BluetoothClassic("08:B3:39:10:C2:6A"),
+            (plan.action as SendBootstrapPlan.Action.Direct).route,
+        )
+    }
+
+    @Test
+    fun `same Wi-Fi LAN still wins over a published Bluetooth MAC`() {
+        val peer =
+            peer(
+                lanAddress = "192.168.1.20",
+                lanPort = 7654,
+                publishedBluetoothMac = "08:B3:39:10:C2:6A",
+            )
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
+        assertEquals(
+            NearbyPeerRoute.Lan(InetAddress.getByName("192.168.1.20"), 7654),
+            (plan.action as SendBootstrapPlan.Action.Direct).route,
+        )
+    }
+
+    @Test
+    fun `viable routes order RFCOMM between LAN and the BLE fallbacks`() {
+        val peer =
+            peer(
+                lanAddress = "192.168.1.20",
+                lanPort = 7654,
+                publishedBluetoothMac = "08:B3:39:10:C2:6A",
+                bleAddress = "AA:BB:CC:DD:EE:FF",
+                blePsm = 0x1234,
+            )
+
+        val routes = SendBootstrapPlan.viableRoutes(peer)
+
+        assertEquals(
+            listOf(
+                NearbyPeerRoute.Lan(InetAddress.getByName("192.168.1.20"), 7654),
+                NearbyPeerRoute.BluetoothClassic("08:B3:39:10:C2:6A"),
+                NearbyPeerRoute.BleL2cap("AA:BB:CC:DD:EE:FF", 0x1234),
+                NearbyPeerRoute.BleGatt("AA:BB:CC:DD:EE:FF"),
+            ),
+            routes,
+        )
+    }
+
+    @Test
+    fun `published Bluetooth MAC alone makes an off-LAN peer connectable`() {
+        val peer = peer(publishedBluetoothMac = "08:B3:39:10:C2:6A")
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
+        assertTrue(plan.isConnectable)
+        assertEquals(
+            NearbyPeerRoute.BluetoothClassic("08:B3:39:10:C2:6A"),
+            (plan.action as SendBootstrapPlan.Action.Direct).route,
+        )
+    }
+
+    @Test
+    fun `published Bluetooth MAC requires parsed endpoint info`() {
+        val peer =
+            peer(
+                publishedBluetoothMac = "08:B3:39:10:C2:6A",
+                endpointInfoPresent = false,
+            )
+
+        val plan = SendBootstrapPlan.resolve(peer = peer)
+
+        assertFalse(plan.isConnectable)
+    }
+
+    @Test
     fun `peer with malformed endpoint info stays unavailable`() {
         val peer =
             peer(
@@ -195,6 +280,7 @@ class SendBootstrapPlanTest {
         lanAddress: String? = null,
         lanPort: Int = 7654,
         bluetoothMac: String? = null,
+        publishedBluetoothMac: String? = null,
         bleAddress: String? = null,
         blePsm: Int? = null,
         bleGattConnectable: Boolean = true,
@@ -243,5 +329,6 @@ class SendBootstrapPlanTest {
                         displayNameSource = "fast-advertisement-endpoint-info",
                     )
                 },
+            publishedBluetoothMac = publishedBluetoothMac,
         )
 }

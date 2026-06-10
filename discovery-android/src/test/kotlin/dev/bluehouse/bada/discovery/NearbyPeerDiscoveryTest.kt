@@ -236,6 +236,55 @@ class NearbyPeerDiscoveryTest {
         }
 
     @Test
+    fun `regular advertisement Bluetooth MAC makes the peer connectable over RFCOMM`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            // A foreground-visible stock receiver: regular 0xFEF3
+            // advertisement carries the BR/EDR MAC but no PSM, and the
+            // GATT slot probe has not verified anything. RFCOMM must be
+            // the route (#214) — this peer was previously hidden as
+            // "ble-no-verified-bootstrap".
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "17NT",
+                    endpointInfo = endpointInfo(name = "규진's phone"),
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -47,
+                    l2capPsm = null,
+                    gattConnectable = false,
+                    bluetoothMacAddress = "08:B3:39:10:C2:6A",
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.single() as NearbyPeerEvent.Resolved
+            assertThat(resolved.peer.publishedBluetoothMac).isEqualTo("08:B3:39:10:C2:6A")
+            assertThat(resolved.peer.isConnectable).isTrue()
+            assertThat(resolved.peer.candidateMediums)
+                .containsExactly(Medium.BLE, Medium.BLUETOOTH)
+            assertThat(resolved.peer.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.BluetoothClassic(macAddress = "08:B3:39:10:C2:6A"),
+            )
+
+            collector.cancel()
+        }
+
+    @Test
     fun `same Wi-Fi LAN is preferred after peer also advertises BLE bootstrap`() =
         runTest {
             val lanEvents = MutableSharedFlow<DiscoveryEvent>()
