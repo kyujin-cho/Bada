@@ -288,7 +288,10 @@ internal class OutboundConnectionDriver(
         if (!shouldProbePreUkey2Upgrade()) {
             return PreUkey2Negotiation.Ready(PreSecureTransport(transport, initialTransport.medium))
         }
-        logger("medium-upgrade: probing for pre-UKEY2 BLE upgrade offer")
+        logger(
+            "medium-upgrade: probing ${PRE_UKEY2_UPGRADE_OFFER_WAIT_TIMEOUT_MILLIS}ms " +
+                "for pre-UKEY2 BLE upgrade offer before sending ClientInit",
+        )
         return when (
             val probe =
                 PreUkey2BandwidthUpgrade.receiveOfferProbe(
@@ -1637,7 +1640,18 @@ internal class OutboundConnectionDriver(
             v1.bandwidthUpgradeNegotiation.eventType == expected
 
     private companion object {
-        private const val PRE_UKEY2_UPGRADE_OFFER_WAIT_TIMEOUT_MILLIS: Long = 1_500L
+        // How long to wait for a pre-UKEY2 BLE bandwidth-upgrade offer
+        // before giving up and sending ClientInit on the current medium.
+        // This bounds ONLY the no-offer path: the probe returns the instant
+        // an offer is buffered, so a receiver that does send one is detected
+        // just as fast regardless of this value. Stock GMS receivers never
+        // send a pre-UKEY2 offer (issue #216) — they sit silent waiting for
+        // ClientInit and drop the BLE GATT link ~1.05–1.24s after our
+        // ConnectionRequest. The old 1500ms wait pushed ClientInit past that
+        // window, so the receiver tore us down before UKEY2 began. 400ms is
+        // comfortably under the earliest observed drop (≥650ms margin) while
+        // still leaving ample headroom to catch a real proactive offer.
+        private const val PRE_UKEY2_UPGRADE_OFFER_WAIT_TIMEOUT_MILLIS: Long = 400L
         private const val BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS: Long = 3_000L
         private const val BLE_WIFI_DIRECT_POLL_DELAY_MILLIS: Long = 25L
 

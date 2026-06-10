@@ -744,6 +744,56 @@ class OutboundConnectionTest {
         }
 
     @Test
+    fun `preconnected BLE bootstrap sends ClientInit when no pre-UKEY2 offer arrives`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val directUpgradePair = LoopbackUpgradePair(Medium.WIFI_DIRECT)
+                val logs = mutableListOf<String>()
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLE),
+                        secureRandom = SecureRandom("outbound-ble-no-offer-clientinit".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        directUpgradePair.clientProvider,
+                                        SupportedProvider(Medium.BLE),
+                                    ),
+                                ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLE)),
+                            ),
+                        initialHandshakeTimeoutMillis = SHORT_INITIAL_HANDSHAKE_TIMEOUT_MS,
+                        logger = logs::add,
+                    )
+                val oldWire = FramedConnection(server.asConnectedTransport(Medium.BLE))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(emptyList()) }
+                        // Peer reads ConnectionRequest and, like a stock GMS
+                        // receiver, sends NO pre-UKEY2 upgrade offer.
+                        assertThat(OfflineFrame.parseFrom(oldWire.receiveFrame()).isConnectionRequest()).isTrue()
+                        // Issue #216: rather than stalling until the receiver
+                        // drops the link, the sender must give up waiting for an
+                        // offer and send ClientInit on the BLE medium.
+                        val next = Ukey2Message.parseFrom(oldWire.receiveFrame())
+                        assertThat(next.messageType).isEqualTo(Ukey2Message.Type.CLIENT_INIT)
+
+                        oldWire.close()
+                        assertThat(outboundJob.await()).isInstanceOf(OutboundResult.Failed::class.java)
+                    }
+
+                    assertThat(logs).contains("medium-upgrade: no pre-UKEY2 upgrade offer; continuing on BLE")
+                } finally {
+                    runCatching { oldWire.close() }
+                    directUpgradePair.close()
+                }
+            }
+        }
+
+    @Test
     fun `preconnected BLE bootstrap times out when pre-UKEY2 peer stays silent`() =
         runBlocking {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {
