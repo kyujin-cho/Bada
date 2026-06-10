@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test
 import java.net.InetAddress
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LargeClass") // Accumulating aggregation-scenario cases; one class keeps fixtures shared.
 class NearbyPeerDiscoveryTest {
     @Test
     fun `Bluetooth metadata stays hidden until LAN route arrives`() =
@@ -277,6 +278,124 @@ class NearbyPeerDiscoveryTest {
             assertThat(resolved.peer.isConnectable).isTrue()
             assertThat(resolved.peer.candidateMediums)
                 .containsExactly(Medium.BLE, Medium.BLUETOOTH)
+            assertThat(resolved.peer.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.BluetoothClassic(macAddress = "08:B3:39:10:C2:6A"),
+            )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `mDNS TXT Bluetooth MAC aggregates and yields an RFCOMM route when no LAN address resolves`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            // Resolved mDNS record carrying the TXT 'b' MAC but no usable IP
+            // (addresses empty): the LAN route is unavailable, so the
+            // aggregated publishedBluetoothMac must surface an RFCOMM route.
+            lanEvents.emit(
+                DiscoveryEvent.Resolved(
+                    DiscoveredService(
+                        instanceName = "instance-17nt",
+                        endpointId = "17NT".toByteArray(Charsets.US_ASCII),
+                        addresses = emptyList(),
+                        port = 53601,
+                        endpointInfo = endpointInfo(name = "규진's phone"),
+                        bluetoothMacAddress = "08:B3:39:10:C2:6A",
+                    ),
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.last() as NearbyPeerEvent.Resolved
+            assertThat(resolved.peer.publishedBluetoothMac).isEqualTo("08:B3:39:10:C2:6A")
+            assertThat(resolved.peer.isConnectable).isTrue()
+            assertThat(resolved.peer.preferredRoute()).isEqualTo(
+                NearbyPeerRoute.BluetoothClassic(macAddress = "08:B3:39:10:C2:6A"),
+            )
+
+            collector.cancel()
+        }
+
+    @Test
+    fun `mDNS Bluetooth MAC wins over a different BLE-advertised MAC regardless of arrival order`() =
+        runTest {
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            // BLE advertises one MAC first; the authoritative mDNS TXT 'b'
+            // record then supplies a different one. mDNS must win — the BLE
+            // value must not clobber it, and the merge must be deterministic
+            // across the two parallel collectors.
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "17NT",
+                    endpointInfo = endpointInfo(name = "규진's phone"),
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -47,
+                    l2capPsm = null,
+                    gattConnectable = false,
+                    bluetoothMacAddress = "AA:AA:AA:AA:AA:AA",
+                ),
+            )
+            lanEvents.emit(
+                DiscoveryEvent.Resolved(
+                    DiscoveredService(
+                        instanceName = "instance-17nt",
+                        endpointId = "17NT".toByteArray(Charsets.US_ASCII),
+                        addresses = emptyList(),
+                        port = 53601,
+                        endpointInfo = endpointInfo(name = "규진's phone"),
+                        bluetoothMacAddress = "08:B3:39:10:C2:6A",
+                    ),
+                ),
+            )
+            runCurrent()
+
+            // A later BLE observation with yet another MAC must still not
+            // override the authoritative mDNS-sourced value.
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = "17NT",
+                    endpointInfo = endpointInfo(name = "규진's phone"),
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -50,
+                    l2capPsm = null,
+                    gattConnectable = false,
+                    bluetoothMacAddress = "BB:BB:BB:BB:BB:BB",
+                ),
+            )
+            runCurrent()
+
+            val resolved = seen.last() as NearbyPeerEvent.Resolved
+            assertThat(resolved.peer.publishedBluetoothMac).isEqualTo("08:B3:39:10:C2:6A")
             assertThat(resolved.peer.preferredRoute()).isEqualTo(
                 NearbyPeerRoute.BluetoothClassic(macAddress = "08:B3:39:10:C2:6A"),
             )

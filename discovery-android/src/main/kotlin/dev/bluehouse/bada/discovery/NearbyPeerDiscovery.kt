@@ -142,7 +142,13 @@ private class PeerAggregator {
         lanInstanceIndex[service.instanceName] = state.stableId
         state.lanAddresses = service.addresses
         state.lanPort = service.port
-        service.bluetoothMacAddress?.let { state.publishedBluetoothMac = it }
+        // mDNS TXT 'b' is the authoritative MAC source: it is the device's
+        // own published record over a reliable channel. Let it win over a
+        // BLE-advertised MAC regardless of which collector observed first.
+        service.bluetoothMacAddress?.let {
+            state.publishedBluetoothMac = it
+            state.publishedBluetoothMacFromLan = true
+        }
 
         return changeEvents(before, state.toPeerOrNull())
     }
@@ -184,7 +190,12 @@ private class PeerAggregator {
         state.bleRssi = observation.rssi
         state.bleL2capPsm = observation.l2capPsm
         state.bleGattConnectable = state.bleGattConnectable || observation.gattConnectable
-        observation.bluetoothMacAddress?.let { state.publishedBluetoothMac = it }
+        // Only adopt a BLE-advertised MAC when mDNS has not already supplied
+        // the authoritative one (see onLanResolved); avoids a last-writer-wins
+        // race between the parallel LAN and BLE collectors.
+        observation.bluetoothMacAddress?.let {
+            if (!state.publishedBluetoothMacFromLan) state.publishedBluetoothMac = it
+        }
         observation.displayName?.toDisplayNameOrNull()?.let { displayName ->
             state.bleDisplayName = displayName
             state.bleDisplayNameSource = observation.displayNameSource?.logLabel
@@ -323,6 +334,7 @@ private data class MutablePeer(
     var bleDisplayName: String? = null,
     var bleDisplayNameSource: String? = null,
     var publishedBluetoothMac: String? = null,
+    var publishedBluetoothMacFromLan: Boolean = false,
 ) {
     fun toPeerOrNull(): NearbyPeer? {
         val lan =

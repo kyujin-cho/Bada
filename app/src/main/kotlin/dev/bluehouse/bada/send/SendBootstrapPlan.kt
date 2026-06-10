@@ -159,10 +159,12 @@ internal data class SendBootstrapPlan(
                 }
 
                 else -> {
+                    // Emit rejections in the same priority order as the
+                    // when-chain / viableRoutes(): LAN, RFCOMM, L2CAP, GATT.
+                    rejectedCandidates += lanRejection(peer)
                     rejectedCandidates += bluetoothClassicRejection(peer)
                     rejectedCandidates += bleL2capRejection(peer)
                     rejectedCandidates += bleGattRejection(peer)
-                    rejectedCandidates += lanRejection(peer)
                     null
                 }
             }

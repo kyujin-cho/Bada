@@ -349,6 +349,19 @@ class BleServiceDataTest {
     }
 
     @Test
+    fun `parse rejects a regular body whose declared EndpointInfo leaves no room for the MAC`() {
+        // Regular-form header (hash prefix present) with a valid EndpointInfo
+        // length, but the buffer is cut into the trailing 6-byte MAC (the
+        // helper appends 2 bytes after the MAC, so drop those plus one MAC
+        // byte). parseRegularBody must reject rather than read past the buffer
+        // when extracting the Bluetooth MAC (#214).
+        val info = hiddenPhoneEndpointInfo()
+        val full = regularBleBody("LPPM", info)
+        val truncated = full.copyOfRange(0, full.size - 3)
+        assertThat(BleServiceData.parse(truncated)).isNull()
+    }
+
+    @Test
     fun `parse returns null when the embedded EndpointInfo cannot be decoded`() {
         // The 1-byte length prefix says 4 EndpointInfo bytes follow, but
         // EndpointInfo.parse requires at least 17 bytes (1 header + 16
