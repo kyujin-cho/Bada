@@ -197,6 +197,12 @@ public class BleFastAdvertisementScanner(
         val gattConnectable: Boolean,
         val displayName: String? = null,
         val displayNameSource: DisplayNameSource? = null,
+        /**
+         * Bluetooth Classic MAC carried by the regular (non-fast) 0xFEF3
+         * advertisement body. Stock receivers in foreground-visible mode
+         * publish it so senders can bootstrap over RFCOMM (#214).
+         */
+        val bluetoothMacAddress: String? = null,
     )
 
     public enum class DisplayNameSource(
@@ -493,6 +499,7 @@ public class BleFastAdvertisementScanner(
                         displayName != null -> fallbackDisplayNameSource
                         else -> null
                     },
+                bluetoothMacAddress = parsed.bluetoothMacAddress,
             )
         }
 
@@ -545,6 +552,7 @@ public class BleFastAdvertisementScanner(
                 rssi = rssi,
                 l2capPsm = l2capPsm,
                 gattConnectable = gattConnectable && advertiserAddress != null && l2capPsm != null,
+                bluetoothMacAddress = parsed.bluetoothMacAddress,
                 displayName = displayName,
                 displayNameSource =
                     when {

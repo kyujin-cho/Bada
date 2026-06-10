@@ -372,8 +372,39 @@ public class Discovery internal constructor(
             addresses = addresses,
             port = event.port,
             endpointInfo = endpointInfo,
+            bluetoothMacAddress =
+                decodeTxtBluetoothMac(event.attributes[QuickShareMdns.TXT_KEY_BLUETOOTH_MAC]),
         )
     }
+
+    /**
+     * Decodes the TXT `b` value into a canonical colon-separated MAC.
+     * Stock GMS records carry base64 of the ASCII MAC string; tolerate a
+     * raw MAC string too. Returns `null` for anything else.
+     */
+    private fun decodeTxtBluetoothMac(raw: ByteArray?): String? {
+        val text = raw?.let { String(it, Charsets.US_ASCII) }?.trim()
+        val candidate =
+            when {
+                text == null -> null
+                BLUETOOTH_MAC_REGEX.matches(text) -> text
+                else ->
+                    decodeBase64Lenient(text)
+                        ?.let { String(it, Charsets.US_ASCII).trim() }
+                        ?.takeIf { BLUETOOTH_MAC_REGEX.matches(it) }
+            }
+        return candidate?.uppercase(java.util.Locale.ROOT)
+    }
+
+    private fun decodeBase64Lenient(text: String): ByteArray? =
+        Base64Url.decode(text)
+            ?: try {
+                java.util.Base64
+                    .getDecoder()
+                    .decode(text)
+            } catch (_: IllegalArgumentException) {
+                null
+            }
 
     private fun isLocalInterfaceRecord(addresses: List<InetAddress>): Boolean {
         val localAddresses = localAddressProvider()
@@ -489,6 +520,9 @@ public class Discovery internal constructor(
 
         /** logcat tag — shared with the rest of the discovery module. */
         internal const val TAG: String = "BadaDiscovery"
+
+        /** Canonical colon-separated Bluetooth MAC, case-insensitive. */
+        private val BLUETOOTH_MAC_REGEX = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
 
         /**
          * Test-only factory that wires up [Discovery] with caller-supplied

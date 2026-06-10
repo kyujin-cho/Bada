@@ -142,6 +142,13 @@ private class PeerAggregator {
         lanInstanceIndex[service.instanceName] = state.stableId
         state.lanAddresses = service.addresses
         state.lanPort = service.port
+        // mDNS TXT 'b' is the authoritative MAC source: it is the device's
+        // own published record over a reliable channel. Let it win over a
+        // BLE-advertised MAC regardless of which collector observed first.
+        service.bluetoothMacAddress?.let {
+            state.publishedBluetoothMac = it
+            state.publishedBluetoothMacFromLan = true
+        }
 
         return changeEvents(before, state.toPeerOrNull())
     }
@@ -183,6 +190,12 @@ private class PeerAggregator {
         state.bleRssi = observation.rssi
         state.bleL2capPsm = observation.l2capPsm
         state.bleGattConnectable = state.bleGattConnectable || observation.gattConnectable
+        // Only adopt a BLE-advertised MAC when mDNS has not already supplied
+        // the authoritative one (see onLanResolved); avoids a last-writer-wins
+        // race between the parallel LAN and BLE collectors.
+        observation.bluetoothMacAddress?.let {
+            if (!state.publishedBluetoothMacFromLan) state.publishedBluetoothMac = it
+        }
         observation.displayName?.toDisplayNameOrNull()?.let { displayName ->
             state.bleDisplayName = displayName
             state.bleDisplayNameSource = observation.displayNameSource?.logLabel
@@ -288,6 +301,7 @@ private class PeerAggregator {
             val ble = peer.bleAdvertisement
             when {
                 ble == null -> add("ble-missing")
+                peer.bluetoothClassicRoute() != null -> Unit
                 ble.advertiserAddress == null -> add("ble-no-address")
                 ble.l2capPsm != null -> Unit
                 ble.gattConnectable -> add("ble-gatt-pending-endpoint-info")
@@ -319,6 +333,8 @@ private data class MutablePeer(
     var bleGattConnectable: Boolean = false,
     var bleDisplayName: String? = null,
     var bleDisplayNameSource: String? = null,
+    var publishedBluetoothMac: String? = null,
+    var publishedBluetoothMacFromLan: Boolean = false,
 ) {
     fun toPeerOrNull(): NearbyPeer? {
         val lan =
@@ -357,6 +373,7 @@ private data class MutablePeer(
             lanEndpoint = lan,
             bluetoothEndpoint = bluetooth,
             bleAdvertisement = ble,
+            publishedBluetoothMac = publishedBluetoothMac,
         )
     }
 }

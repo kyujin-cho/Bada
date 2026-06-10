@@ -32,6 +32,14 @@ public data class NearbyPeer(
     val lanEndpoint: LanEndpoint? = null,
     val bluetoothEndpoint: BluetoothEndpoint? = null,
     val bleAdvertisement: BleAdvertisement? = null,
+    /**
+     * Bluetooth Classic MAC the peer itself published — via the regular
+     * (non-fast) 0xFEF3 advertisement body or the mDNS TXT `b` record.
+     * Distinct from [bluetoothEndpoint], which is produced by Bluetooth
+     * Classic *discovery*. When present, the peer accepts the RFCOMM
+     * bootstrap route (#214).
+     */
+    val publishedBluetoothMac: String? = null,
 ) {
     /**
      * Discovery / candidate mediums currently known for this peer.
@@ -49,6 +57,12 @@ public data class NearbyPeer(
                 ) {
                     add(Medium.BLUETOOTH)
                 }
+                if (
+                    publishedBluetoothMac != null &&
+                    UserFacingMediumFeatures.BLUETOOTH_CLASSIC_BOOTSTRAP_ROUTE_ENABLED
+                ) {
+                    add(Medium.BLUETOOTH)
+                }
                 if (bleAdvertisement != null) {
                     add(Medium.BLE)
                     if (bleAdvertisement.l2capPsm != null) add(Medium.BLE_L2CAP)
@@ -63,13 +77,16 @@ public data class NearbyPeer(
      * Select the initial-control route.
      *
      * LAN remains first priority to preserve the direct same-Wi-Fi path when
-     * a peer is already reachable by mDNS + TCP. BLE L2CAP is the preferred
-     * off-LAN bootstrap path when the receiver advertises a PSM. A visible
-     * BLE receiver without a PSM is only a GATT bootstrap candidate after the
-     * GATT advertisement-slot probe verifies the service; header-only and raw
-     * scan-result-only BLE observations remain discovery metadata until
-     * another route confirms a transport.
+     * a peer is already reachable by mDNS + TCP. Off-LAN, Bluetooth Classic
+     * RFCOMM is preferred when the peer published its BR/EDR MAC — stock
+     * GMS receivers bootstrap stock senders over RFCOMM, while their BLE
+     * GATT/L2CAP server paths are unreliable (#214). BLE L2CAP follows when
+     * the receiver advertises a PSM, then GATT once the advertisement-slot
+     * probe verifies the service; header-only and raw scan-result-only BLE
+     * observations remain discovery metadata until another route confirms a
+     * transport.
      */
+    @Suppress("ReturnCount")
     public fun preferredRoute(): NearbyPeerRoute? {
         if (endpointInfo == null) {
             return null
@@ -82,6 +99,7 @@ public data class NearbyPeer(
                 port = lan.port,
             )
         }
+        bluetoothClassicRoute()?.let { return it }
         val ble = bleAdvertisement
         val bleAddress = ble?.advertiserAddress
         val l2capPsm = ble?.l2capPsm
@@ -91,10 +109,23 @@ public data class NearbyPeer(
         if (bleAddress != null && ble.gattConnectable) {
             return NearbyPeerRoute.BleGatt(macAddress = bleAddress)
         }
+        return null
+    }
+
+    /**
+     * RFCOMM connect-route candidate. The BLE-derived MAC (regular
+     * advertisement body) rides the bootstrap-route gate; a MAC found by
+     * Bluetooth Classic *discovery* stays behind the user-facing gate.
+     */
+    public fun bluetoothClassicRoute(): NearbyPeerRoute.BluetoothClassic? {
+        if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_BOOTSTRAP_ROUTE_ENABLED) {
+            publishedBluetoothMac?.let {
+                return NearbyPeerRoute.BluetoothClassic(it)
+            }
+        }
         if (UserFacingMediumFeatures.BLUETOOTH_CLASSIC_USER_FACING_ENABLED) {
-            val bluetooth = bluetoothEndpoint
-            if (bluetooth != null) {
-                return NearbyPeerRoute.BluetoothClassic(bluetooth.macAddress)
+            bluetoothEndpoint?.let {
+                return NearbyPeerRoute.BluetoothClassic(it.macAddress)
             }
         }
         return null
