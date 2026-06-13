@@ -440,8 +440,15 @@ internal class SendPeerPickerController(
      * state. Called from [SendActivity.onResume] so that toggling
      * Bluetooth or Wi-Fi in system settings and returning to the picker
      * reflects immediately (#209).
+     *
+     * No-op once the picker is no longer actively discovering (after
+     * [suspendPicker] or [stop] null out [discoveryJob]): the empty-state
+     * hint is only meaningful while discovery is running, so resuming
+     * during an in-progress transfer must not re-surface it over the
+     * status panel.
      */
     fun onRadioStateChanged() {
+        if (discoveryJob == null) return
         updateEmptyPeerHintVisibility()
     }
 
