@@ -231,6 +231,10 @@
     <string name="send_subtitle_pick_peer">기기를 눌러 보내세요.</string>
     <string name="send_subtitle_no_usable_route">근처 기기가 발견되었지만 아직 지원되는 전송 경로가 없습니다.</string>
     <string name="send_empty_state">근처에 기기가 없습니다. 받는 기기에서 Quick Share가 열려 있는지 확인하세요.</string>
+    <!-- Contextual empty-state variants (#209). -->
+    <string name="send_empty_state_no_bt_no_wifi">기기를 찾지 못했습니다. Bluetooth를 켜고 받는 기기와 같은 Wi-Fi 네트워크에 연결한 후, 받는 기기에서 Quick Share가 열려 있는지 확인하세요.</string>
+    <string name="send_empty_state_no_bt">Wi-Fi로 기기를 찾지 못했습니다. Bluetooth를 켜면 같은 Wi-Fi에 없는 기기도 검색할 수 있습니다. 받는 기기에서 Quick Share가 열려 있는지 확인하세요.</string>
+    <string name="send_empty_state_no_wifi">기기를 찾지 못했습니다. 두 기기를 같은 Wi-Fi 네트워크에 연결하면 더 안정적으로 검색할 수 있습니다. 받는 기기에서 Quick Share가 열려 있는지 확인하세요.</string>
 
     <!-- Same-Wi-Fi-network hint card (#85). -->
     <string name="send_network_hint_title">근처 검색 요건</string>

@@ -313,6 +313,13 @@ public class SendActivity : AppCompatActivity() {
         OutboundSessionActiveHolder.setOutboundSessionActive(false)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Re-evaluate the contextual empty-state hint when the user returns
+        // from system settings after toggling Bluetooth or Wi-Fi (#209).
+        peerPickerController.onRadioStateChanged()
+    }
+
     @Suppress("ReturnCount")
     private suspend fun buildOutboundConnection(
         route: NearbyPeerRoute,

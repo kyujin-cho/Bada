@@ -305,6 +305,11 @@
     <string name="send_subtitle_pick_peer">Tap a device to send.</string>
     <string name="send_subtitle_no_usable_route">Nearby device found, but no supported transfer route is available yet.</string>
     <string name="send_empty_state">No devices nearby yet. Make sure the receiver has Quick Share open.</string>
+    <!-- Contextual empty-state variants surfaced by EmptyPeerRadioHint
+         when one or both radios are unavailable (#209). -->
+    <string name="send_empty_state_no_bt_no_wifi">No devices found. Turn on Bluetooth and connect to the same Wi-Fi network as the receiver, then make sure Quick Share is open on the receiver.</string>
+    <string name="send_empty_state_no_bt">No devices found over Wi-Fi. Turn on Bluetooth to also reach devices not on this Wi-Fi network, and make sure Quick Share is open on the receiver.</string>
+    <string name="send_empty_state_no_wifi">No devices found. Connect both devices to the same Wi-Fi network for the most reliable discovery, and make sure Quick Share is open on the receiver.</string>
 
     <!-- Same-Wi-Fi-network hint card (#85). Surfaced after a few seconds
          of empty peer list so the user understands why nothing has
