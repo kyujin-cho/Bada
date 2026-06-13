@@ -50,6 +50,12 @@ internal class SendPeerPickerController(
      * `type=SILENT` pulse.
      */
     private val senderEndpointId: String,
+    /**
+     * Reads the current Bluetooth and Wi-Fi state so the empty-state
+     * text can surface a contextual hint (#209). Defaults to a real
+     * reader backed by the system services; override in tests if needed.
+     */
+    private val radioStateReader: RadioStateReader = RadioStateReader(context),
 ) {
     private val peers: MutableList<NearbyPeer> = mutableListOf()
 
@@ -404,12 +410,19 @@ internal class SendPeerPickerController(
         // expires with no peers found.
         val now = System.currentTimeMillis()
         val isEmpty = peers.isEmpty()
-        binding.sendEmptyState.visibility =
-            if (emptyPeerHintTimer.shouldShowEmptyState(now, isEmpty)) {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
+        if (emptyPeerHintTimer.shouldShowEmptyState(now, isEmpty)) {
+            // Pick a contextual message based on the current radio state
+            // so the user understands why no peers appeared (#209).
+            val hintRes =
+                EmptyPeerRadioHint.stringResFor(
+                    bluetoothEnabled = radioStateReader.isBluetoothEnabled(),
+                    wifiConnected = radioStateReader.isWifiConnected(),
+                )
+            binding.sendEmptyState.setText(hintRes)
+            binding.sendEmptyState.visibility = View.VISIBLE
+        } else {
+            binding.sendEmptyState.visibility = View.GONE
+        }
 
         // The "Same Wi-Fi network required" inline card is intentionally
         // disabled in favour of the help link + bottom-sheet flow added
@@ -420,6 +433,16 @@ internal class SendPeerPickerController(
         // guidance (and adds the QR fallback section), so the inline
         // card is kept in the layout for now but never raised.
         binding.sendNetworkHint.visibility = View.GONE
+    }
+
+    /**
+     * Re-evaluate the contextual empty-state text with the latest radio
+     * state. Called from [SendActivity.onResume] so that toggling
+     * Bluetooth or Wi-Fi in system settings and returning to the picker
+     * reflects immediately (#209).
+     */
+    fun onRadioStateChanged() {
+        updateEmptyPeerHintVisibility()
     }
 
     @Suppress("MissingPermission")
