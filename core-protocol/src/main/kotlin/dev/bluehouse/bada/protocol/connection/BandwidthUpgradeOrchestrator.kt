@@ -131,7 +131,12 @@ internal object BandwidthUpgradeOrchestrator {
             )
         closePriorChannelAfterUpgrade(oldChannel, consumedPeerSafe, logger)
         logger("medium-upgrade: server completed ${credentials.medium}")
-        return ActiveTransportChannel(newChannel, credentials.medium, bufferedFrames)
+        return ActiveTransportChannel(
+            channel = newChannel,
+            medium = credentials.medium,
+            bufferedFrames = bufferedFrames,
+            wifiFrequencyMhz = credentials.wifiDirectFrequencyMhzOrNull(),
+        )
     }
 
     @Suppress("ReturnCount")
@@ -220,7 +225,12 @@ internal object BandwidthUpgradeOrchestrator {
             applicationFrames = bufferedFrames,
         )
         logger("medium-upgrade: client completed ${credentials.medium}")
-        return ActiveTransportChannel(newChannel, credentials.medium, bufferedFrames)
+        return ActiveTransportChannel(
+            channel = newChannel,
+            medium = credentials.medium,
+            bufferedFrames = bufferedFrames,
+            wifiFrequencyMhz = credentials.wifiDirectFrequencyMhzOrNull(),
+        )
     }
 
     private suspend fun exchangeClientPriorChannelClose(
@@ -639,6 +649,7 @@ internal data class ActiveTransportChannel(
     val channel: SecureChannel,
     val medium: Medium,
     val bufferedFrames: List<OfflineFrame> = emptyList(),
+    val wifiFrequencyMhz: Int? = null,
 )
 
 internal sealed interface UpgradeOfferProbe {

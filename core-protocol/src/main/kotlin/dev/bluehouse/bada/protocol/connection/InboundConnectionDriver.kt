@@ -69,6 +69,7 @@ internal class InboundConnectionDriver(
     private val externalEvents: Channel<ExternalEvent>,
     private val mutableState: MutableStateFlow<InboundConnectionState>,
     private val mutableActiveMedium: MutableStateFlow<Medium>,
+    private val mutableActiveWifiFrequencyMhz: MutableStateFlow<Int?>,
     private val factory: FileDestinationFactory,
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
@@ -160,7 +161,7 @@ internal class InboundConnectionDriver(
      */
     suspend fun runLifecycle(): InboundResult {
         mutableState.value = InboundConnectionState.Handshaking
-        mutableActiveMedium.value = transport.medium
+        publishActiveTransport(transport.medium, wifiFrequencyMhz = null)
         val framedTransport = FramedConnection(transport).also { framedConnection = it }
 
         // Step 1: read the unencrypted ConnectionRequest from the peer.
@@ -265,7 +266,7 @@ internal class InboundConnectionDriver(
                     logger = logger,
                 )
         val activeChannel = activeTransport.channel.also { secureChannel = it }
-        mutableActiveMedium.value = activeTransport.medium
+        publishActiveTransport(activeTransport.medium, activeTransport.wifiFrequencyMhz)
         val initialWireFrames =
             buildList {
                 if (requestedUpgradeMediums == null) {
@@ -294,6 +295,14 @@ internal class InboundConnectionDriver(
         onHandshakeComplete()
 
         return runReceiveLoop(activeChannel, negotiationFsm, initialWireFrames)
+    }
+
+    private fun publishActiveTransport(
+        medium: Medium,
+        wifiFrequencyMhz: Int?,
+    ) {
+        mutableActiveMedium.value = medium
+        mutableActiveWifiFrequencyMhz.value = wifiFrequencyMhz.takeIf { medium == Medium.WIFI_DIRECT }
     }
 
     private suspend fun pollBufferedInitialWireFrame(channel: SecureChannel): OfflineFrame? {

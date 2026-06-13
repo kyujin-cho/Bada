@@ -5,6 +5,7 @@
  */
 package dev.bluehouse.bada.protocol.connection
 
+import dev.bluehouse.bada.protocol.medium.Medium
 import dev.bluehouse.bada.protocol.medium.MediumRegistry
 import dev.bluehouse.bada.protocol.medium.NearbyMultiplexClientTransport
 import dev.bluehouse.bada.protocol.payload.PayloadProtocolException
@@ -252,6 +253,12 @@ public class OutboundConnection private constructor(
     private val mutableState: MutableStateFlow<OutboundConnectionState> =
         MutableStateFlow(OutboundConnectionState.Idle)
 
+    private val mutableActiveMedium: MutableStateFlow<Medium> =
+        MutableStateFlow(transport?.medium ?: Medium.WIFI_LAN)
+
+    private val mutableActiveWifiFrequencyMhz: MutableStateFlow<Int?> =
+        MutableStateFlow(null)
+
     /**
      * Observable lifecycle state.
      *
@@ -261,6 +268,21 @@ public class OutboundConnection private constructor(
      * are the last value the flow ever publishes.
      */
     public val state: StateFlow<OutboundConnectionState> = mutableState.asStateFlow()
+
+    /**
+     * Medium the live control/payload channel currently runs over.
+     *
+     * Starts at the initial transport and flips if a successful
+     * bandwidth upgrade swaps onto a different medium.
+     */
+    public val activeMedium: StateFlow<Medium> = mutableActiveMedium.asStateFlow()
+
+    /**
+     * Active Wi-Fi channel frequency in MHz when the current medium can
+     * report one. Today this is populated for Wi-Fi Direct upgrades and
+     * remains `null` for Wi-Fi LAN, Bluetooth, BLE, and unknown channels.
+     */
+    public val activeWifiFrequencyMhz: StateFlow<Int?> = mutableActiveWifiFrequencyMhz.asStateFlow()
 
     /**
      * External-event channel. The dispatch loop drains this between
@@ -386,6 +408,8 @@ public class OutboundConnection private constructor(
                 secureRandom = secureRandom,
                 externalEvents = externalEvents,
                 mutableState = mutableState,
+                mutableActiveMedium = mutableActiveMedium,
+                mutableActiveWifiFrequencyMhz = mutableActiveWifiFrequencyMhz,
                 endpointId = endpointId,
                 endpointInfo = endpointInfo,
                 qrSigningKey = qrSigningKey,

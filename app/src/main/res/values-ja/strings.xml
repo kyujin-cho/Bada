@@ -92,6 +92,26 @@
     <string name="main_bug_report_subtitle">有効にすると、Bada を開いた状態で端末を振ったときに、最近の診断情報・端末の状態・スクリーンショットを zip にまとめて自分で保存できます。自動的にアップロードされることはありません。</string>
     <string name="main_keep_screen_on_title">転送中は画面をオンのままにする</string>
     <string name="main_keep_screen_on_subtitle">ファイルの送受信中に画面が消えないようにして、長い転送の進行状況と安定性を保ちます。</string>
+    <string name="main_transfer_expert_title">転送の詳細情報</string>
+    <string name="main_transfer_expert_subtitle">転送画面に現在の速度、残り時間、使用中の転送方式、Wi-Fi Direct の帯域を表示します。</string>
+
+    <string name="transfer_expert_speed">速度: %1$s</string>
+    <string name="transfer_expert_speed_value">%1$s/秒</string>
+    <string name="transfer_expert_eta">残り時間: %1$s</string>
+    <string name="transfer_expert_medium">転送方式: %1$s</string>
+    <string name="transfer_expert_wifi_band">Wi-Fi 帯域: %1$s</string>
+    <string name="transfer_expert_calculating">計算中…</string>
+    <string name="transfer_expert_unknown">不明</string>
+    <string name="transfer_expert_wifi_band_24">2.4 GHz</string>
+    <string name="transfer_expert_wifi_band_5">5 GHz</string>
+    <string name="transfer_expert_medium_bluetooth">Bluetooth</string>
+    <string name="transfer_expert_medium_wifi_hotspot">Wi-Fi ホットスポット</string>
+    <string name="transfer_expert_medium_ble">Bluetooth LE</string>
+    <string name="transfer_expert_medium_wifi_lan">Wi-Fi LAN</string>
+    <string name="transfer_expert_medium_wifi_aware">Wi-Fi Aware</string>
+    <string name="transfer_expert_medium_wifi_direct">Wi-Fi Direct</string>
+    <string name="transfer_expert_medium_web_rtc">WebRTC</string>
+    <string name="transfer_expert_medium_ble_l2cap">Bluetooth LE L2CAP</string>
 
     <!-- Save-location settings (#42). -->
     <string name="main_save_location_title">受信ファイルの保存先</string>

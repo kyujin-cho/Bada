@@ -185,7 +185,24 @@ class OutboundConnectionTest {
     private class LoopbackUpgradePair(
         private val medium: Medium = Medium.BLUETOOTH,
     ) {
-        private val credentials = UpgradePathCredentials.Generic(medium)
+        val wifiFrequencyMhz: Int? =
+            if (medium == Medium.WIFI_DIRECT) {
+                WIFI_DIRECT_TEST_FREQUENCY_MHZ
+            } else {
+                null
+            }
+        private val credentials: UpgradePathCredentials =
+            if (medium == Medium.WIFI_DIRECT) {
+                UpgradePathCredentials.WifiDirect(
+                    ipAddress = byteArrayOf(127, 0, 0, 1),
+                    port = 1,
+                    ssid = "DIRECT-bada-test",
+                    passphrase = "12345678",
+                    frequency = WIFI_DIRECT_TEST_FREQUENCY_MHZ,
+                )
+            } else {
+                UpgradePathCredentials.Generic(medium)
+            }
         private val clientSocket: Socket
         private val serverSocket: Socket
 
@@ -598,7 +615,7 @@ class OutboundConnectionTest {
 
                         assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
                         assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
-                        assertThat(inbound.activeMedium.value).isEqualTo(Medium.WIFI_DIRECT)
+                        assertWifiDirectMetadata(outbound, inbound, directUpgradePair.wifiFrequencyMhz)
                     }
 
                     assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
@@ -1425,7 +1442,20 @@ class OutboundConnectionTest {
             else -> false
         }
 
+    private fun assertWifiDirectMetadata(
+        outbound: OutboundConnection,
+        inbound: InboundConnection,
+        frequencyMhz: Int?,
+    ) {
+        assertThat(inbound.activeMedium.value).isEqualTo(Medium.WIFI_DIRECT)
+        assertThat(outbound.activeMedium.value).isEqualTo(Medium.WIFI_DIRECT)
+        assertThat(inbound.activeWifiFrequencyMhz.value).isEqualTo(frequencyMhz)
+        assertThat(outbound.activeWifiFrequencyMhz.value).isEqualTo(frequencyMhz)
+    }
+
     private companion object {
+        private const val WIFI_DIRECT_TEST_FREQUENCY_MHZ: Int = 5_180
+
         // Hard wall-clock cap for individual short tests. Real Socket I/O is
         // blocking, so we use [withTimeout] (not runTest's virtual scheduler)
         // to bound each scenario. 30 s leaves plenty of slack on slow CI.

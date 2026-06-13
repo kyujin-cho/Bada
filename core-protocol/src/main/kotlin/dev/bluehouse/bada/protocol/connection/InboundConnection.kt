@@ -144,6 +144,9 @@ public class InboundConnection(
     private val mutableActiveMedium: MutableStateFlow<Medium> =
         MutableStateFlow(transport.medium)
 
+    private val mutableActiveWifiFrequencyMhz: MutableStateFlow<Int?> =
+        MutableStateFlow(null)
+
     /**
      * Observable lifecycle state.
      *
@@ -162,6 +165,13 @@ public class InboundConnection(
      * different medium.
      */
     public val activeMedium: StateFlow<Medium> = mutableActiveMedium.asStateFlow()
+
+    /**
+     * Active Wi-Fi channel frequency in MHz when the current medium can
+     * report one. Today this is populated for Wi-Fi Direct upgrades and
+     * remains `null` for Wi-Fi LAN, Bluetooth, BLE, and unknown channels.
+     */
+    public val activeWifiFrequencyMhz: StateFlow<Int?> = mutableActiveWifiFrequencyMhz.asStateFlow()
 
     /**
      * External-event channel. The receive loop drains this between
@@ -250,6 +260,7 @@ public class InboundConnection(
                 externalEvents = externalEvents,
                 mutableState = mutableState,
                 mutableActiveMedium = mutableActiveMedium,
+                mutableActiveWifiFrequencyMhz = mutableActiveWifiFrequencyMhz,
                 factory = factory,
                 mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,

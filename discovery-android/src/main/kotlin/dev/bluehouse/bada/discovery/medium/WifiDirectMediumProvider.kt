@@ -253,8 +253,14 @@ public class WifiDirectMediumProvider internal constructor(
         return WifiDirectTransport(
             socket = socket,
             teardown = pending.handle.teardown,
+            frequencyMhz = pending.handle.credentials.frequencyMhzOrNull(),
         )
     }
+
+    private fun UpgradePathCredentials.WifiDirect.frequencyMhzOrNull(): Int? =
+        frequency.takeIf {
+            it != UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET && it > 0
+        }
 
     /**
      * **Internal — for the orchestrator wired in #54.** Hands back the

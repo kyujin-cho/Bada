@@ -55,8 +55,10 @@ import dev.bluehouse.bada.protocol.connection.FileSource
 import dev.bluehouse.bada.protocol.connection.OutboundConnection
 import dev.bluehouse.bada.protocol.connection.OutboundConnectionState
 import dev.bluehouse.bada.protocol.connection.OutboundResult
+import dev.bluehouse.bada.protocol.connection.TransferProgress
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
+import dev.bluehouse.bada.protocol.medium.Medium
 import dev.bluehouse.bada.protocol.qr.DerivedQrKeys
 import dev.bluehouse.bada.protocol.qr.GeneratedQrKeyData
 import dev.bluehouse.bada.protocol.qr.QrKeyData
@@ -66,9 +68,12 @@ import dev.bluehouse.bada.protocol.qr.QrUrl
 import dev.bluehouse.bada.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.bada.service.receiver.OutboundSessionActiveHolder
 import dev.bluehouse.bada.transfer.KeepScreenOnPreferences
+import dev.bluehouse.bada.transfer.TransferExpertDetailsFormatter
+import dev.bluehouse.bada.transfer.TransferExpertViewPreferences
 import dev.bluehouse.bada.ui.BackdropBlurView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.security.PrivateKey
@@ -728,9 +733,22 @@ public class SendActivity : AppCompatActivity() {
                 activeConnection = connection
                 val collector =
                     lifecycleScope.launch {
-                        connection.state.collect { state ->
-                            renderConnectionState(state, peer)
-                        }
+                        connection.state
+                            .combine(connection.activeMedium) { state, medium -> state to medium }
+                            .combine(connection.activeWifiFrequencyMhz) { (state, medium), frequencyMhz ->
+                                SendRenderSnapshot(
+                                    state = state,
+                                    activeMedium = medium,
+                                    wifiFrequencyMhz = frequencyMhz,
+                                )
+                            }.collect { snapshot ->
+                                renderConnectionState(
+                                    state = snapshot.state,
+                                    peer = peer,
+                                    activeMedium = snapshot.activeMedium,
+                                    wifiFrequencyMhz = snapshot.wifiFrequencyMhz,
+                                )
+                            }
                     }
                 try {
                     connection.run(files)
@@ -754,11 +772,22 @@ public class SendActivity : AppCompatActivity() {
         ) : PreparedConnection
     }
 
+    private data class SendRenderSnapshot(
+        val state: OutboundConnectionState,
+        val activeMedium: Medium,
+        val wifiFrequencyMhz: Int?,
+    )
+
     private fun renderConnectionState(
         state: OutboundConnectionState,
         peer: NearbyPeer,
+        activeMedium: Medium,
+        wifiFrequencyMhz: Int?,
     ) {
         setTransferKeepScreenOn(active = state is OutboundConnectionState.Sending)
+        if (state !is OutboundConnectionState.Sending) {
+            binding.sendExpertDetails?.visibility = View.GONE
+        }
         // Animate any bounds change in the status panel triggered by
         // this state — chiefly the PIN appearing on
         // AwaitingRemoteAcceptance / Sending and disappearing on
@@ -809,7 +838,8 @@ public class SendActivity : AppCompatActivity() {
                 // just phase + target + circle.
                 binding.sendPin.visibility = View.GONE
                 binding.sendStatusMessage.visibility = View.GONE
-                renderCircularProgress(state.progress.bytesTransferred, state.progress.totalSize)
+                renderCircularProgress(state.progress)
+                renderExpertDetails(state.progress, activeMedium, wifiFrequencyMhz)
             }
             OutboundConnectionState.Completed ->
                 renderTerminal(
@@ -896,6 +926,7 @@ public class SendActivity : AppCompatActivity() {
         peerPickerController.stopBleAdvertise()
         beginCardBoundsTransition(BOUNDS_DURATION_MS)
         binding.sendStatusPanel.visibility = View.VISIBLE
+        binding.sendExpertDetails?.visibility = View.GONE
         binding.sendStatusPhase.text = phaseText
         binding.sendDoneButton.visibility = View.VISIBLE
         binding.sendCancelButton.visibility = View.GONE
@@ -964,6 +995,7 @@ public class SendActivity : AppCompatActivity() {
         binding.sendStatusPanel.visibility = View.GONE
         binding.sendPin.visibility = View.GONE
         binding.sendStatusCircleWrapper.visibility = View.GONE
+        binding.sendExpertDetails?.visibility = View.GONE
         binding.sendPinStateBackground.visibility = View.GONE
         binding.sendTerminalPreviewCard.visibility = View.GONE
         binding.sendCardBlur.visibility = View.GONE
@@ -1091,17 +1123,13 @@ public class SendActivity : AppCompatActivity() {
      * `setProgressCompat` is also the API that handles the indeterminate
      * → determinate transition cleanly.
      */
-    private fun renderCircularProgress(
-        bytesTransferred: Long,
-        totalSize: Long,
-    ) {
+    private fun renderCircularProgress(progress: TransferProgress) {
         binding.sendStatusCircleWrapper.visibility = View.VISIBLE
         val pct =
-            if (totalSize > 0L) {
-                ((bytesTransferred.toDouble() / totalSize.toDouble()) * PERCENT_SCALE).toInt().coerceIn(
-                    0,
-                    PERCENT_SCALE,
-                )
+            if (progress.totalSize > 0L) {
+                ((progress.bytesTransferred.toDouble() / progress.totalSize.toDouble()) * PERCENT_SCALE)
+                    .toInt()
+                    .coerceIn(0, PERCENT_SCALE)
             } else {
                 0
             }
@@ -1110,6 +1138,26 @@ public class SendActivity : AppCompatActivity() {
         }
         binding.sendStatusCircle.setProgressCompat(pct, true)
         binding.sendStatusCirclePct.text = getString(R.string.transfer_progress_percent, pct)
+    }
+
+    private fun renderExpertDetails(
+        progress: TransferProgress,
+        activeMedium: Medium,
+        wifiFrequencyMhz: Int?,
+    ) {
+        if (!TransferExpertViewPreferences.from(this).isExpertViewEnabled()) {
+            binding.sendExpertDetails?.visibility = View.GONE
+            return
+        }
+        val expertDetails = binding.sendExpertDetails ?: return
+        expertDetails.text =
+            TransferExpertDetailsFormatter.format(
+                context = this,
+                progress = progress,
+                activeMedium = activeMedium,
+                wifiFrequencyMhz = wifiFrequencyMhz,
+            )
+        expertDetails.visibility = View.VISIBLE
     }
 
     /**

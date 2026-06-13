@@ -37,10 +37,13 @@ import java.net.Socket
  *   from this point on.
  * @property teardown Cleanup hook for the underlying P2P group.
  *   Idempotent; safe to call from any thread.
+ * @property frequencyMhz Operating channel frequency in MHz when the
+ *   Wi-Fi Direct credentials supplied it.
  */
 public data class WifiDirectTransport(
     val socket: Socket,
     val teardown: Closeable,
+    val frequencyMhz: Int? = null,
 ) : UpgradedTransport {
     override val medium: Medium = Medium.WIFI_DIRECT
 

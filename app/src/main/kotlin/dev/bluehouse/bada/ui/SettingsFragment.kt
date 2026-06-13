@@ -27,6 +27,7 @@ import dev.bluehouse.bada.service.downloads.SaveLocationPreferences
 import dev.bluehouse.bada.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
 import dev.bluehouse.bada.transfer.KeepScreenOnPreferences
+import dev.bluehouse.bada.transfer.TransferExpertViewPreferences
 
 /**
  * Settings tab content for the bottom-navigation shell in
@@ -136,6 +137,13 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         keepScreenOnSwitch.setOnCheckedChangeListener { _, checked ->
             keepScreenOnPreferences.setKeepScreenOnDuringTransfersEnabled(checked)
         }
+
+        val expertViewSwitch = view.findViewById<SwitchCompat>(R.id.main_transfer_expert_switch)
+        val expertViewPreferences = TransferExpertViewPreferences.from(requireContext())
+        expertViewSwitch.isChecked = expertViewPreferences.isExpertViewEnabled()
+        expertViewSwitch.setOnCheckedChangeListener { _, checked ->
+            expertViewPreferences.setExpertViewEnabled(checked)
+        }
     }
 
     override fun onStart() {
@@ -150,7 +158,7 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         refreshBatteryStatus()
         refreshFullScreenIntentSection()
         refreshBugReportSwitch()
-        refreshKeepScreenOnSwitch()
+        refreshTransferSwitches()
     }
 
     override fun onResume() {
@@ -189,19 +197,27 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
     }
 
     /**
-     * Re-sync the transfer display switch in case another Settings
-     * surface or restored app state mutates the preference while this
+     * Re-sync transfer display switches in case another Settings
+     * surface or restored app state mutates preferences while this
      * fragment is alive.
      */
-    private fun refreshKeepScreenOnSwitch() {
+    private fun refreshTransferSwitches() {
         val v = view ?: return
-        val switch = v.findViewById<SwitchCompat>(R.id.main_keep_screen_on_switch) ?: return
-        val enabled =
-            KeepScreenOnPreferences
-                .from(requireContext())
-                .isKeepScreenOnDuringTransfersEnabled()
-        if (switch.isChecked != enabled) {
-            switch.isChecked = enabled
+        v
+            .findViewById<SwitchCompat>(R.id.main_keep_screen_on_switch)
+            ?.refreshChecked(
+                KeepScreenOnPreferences
+                    .from(requireContext())
+                    .isKeepScreenOnDuringTransfersEnabled(),
+            )
+        v
+            .findViewById<SwitchCompat>(R.id.main_transfer_expert_switch)
+            ?.refreshChecked(TransferExpertViewPreferences.from(requireContext()).isExpertViewEnabled())
+    }
+
+    private fun SwitchCompat.refreshChecked(enabled: Boolean) {
+        if (isChecked != enabled) {
+            isChecked = enabled
         }
     }
 

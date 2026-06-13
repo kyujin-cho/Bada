@@ -256,6 +256,19 @@
                 android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                 tools:text="12 MB / 100 MB" />
 
+            <TextView
+                android:id="@+id/consent_expert_details"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:lineSpacingExtra="2dp"
+                android:textAlignment="center"
+                android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                android:textColor="?android:attr/textColorSecondary"
+                android:visibility="gone"
+                tools:text="Speed: 12.4 MB/s&#10;ETA: 30 seconds&#10;Medium: Wi-Fi LAN" />
+
         </LinearLayout>
 
         <!-- Completed state. -->

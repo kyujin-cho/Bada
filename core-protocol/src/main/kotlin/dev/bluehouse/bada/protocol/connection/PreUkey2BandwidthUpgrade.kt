@@ -127,7 +127,11 @@ internal object PreUkey2BandwidthUpgrade {
         }
         finishPriorChannel(oldTransport, logger)
         logger("medium-upgrade: pre-UKEY2 client completed ${credentials.medium}")
-        return PreUkey2UpgradeResult.Ready(newFramedConnection, credentials.medium)
+        return PreUkey2UpgradeResult.Ready(
+            transport = newFramedConnection,
+            medium = credentials.medium,
+            wifiFrequencyMhz = credentials.wifiDirectFrequencyMhzOrNull(),
+        )
     }
 
     private suspend fun finishPriorChannel(
@@ -257,6 +261,7 @@ internal sealed interface PreUkey2UpgradeResult {
     data class Ready(
         val transport: FramedConnection,
         val medium: Medium,
+        val wifiFrequencyMhz: Int? = null,
     ) : PreUkey2UpgradeResult
 
     data class Failed(

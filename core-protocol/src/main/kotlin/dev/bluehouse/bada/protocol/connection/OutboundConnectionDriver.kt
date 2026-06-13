@@ -76,6 +76,8 @@ internal class OutboundConnectionDriver(
     private val secureRandom: SecureRandom,
     private val externalEvents: Channel<OutboundExternalEvent>,
     private val mutableState: MutableStateFlow<OutboundConnectionState>,
+    private val mutableActiveMedium: MutableStateFlow<Medium>,
+    private val mutableActiveWifiFrequencyMhz: MutableStateFlow<Int?>,
     private val endpointId: String,
     private val endpointInfo: ByteArray,
     private val qrSigningKey: PrivateKey?,
@@ -145,6 +147,7 @@ internal class OutboundConnectionDriver(
                 }
             }
         logger("step 1: pre-secure active medium=${preSecureTransport.medium}")
+        publishActiveTransport(preSecureTransport.medium, preSecureTransport.wifiFrequencyMhz)
 
         val (handshake, peerResponse) =
             runInitialHandshakeWithTimeout(preSecureTransport.connection)
@@ -217,6 +220,7 @@ internal class OutboundConnectionDriver(
                     return OutboundResult.Failed(negotiation.reason)
                 }
             }
+        publishActiveTransport(negotiated.medium, negotiated.wifiFrequencyMhz)
 
         // Step 8: build the OutboundSharingFsm with our IntroductionFrame.
         val introduction = buildIntroductionFrame(files)
@@ -251,6 +255,8 @@ internal class OutboundConnectionDriver(
                 channel = negotiated.channel,
                 fsm = negotiationFsm,
                 initialWireFrames = negotiated.initialWireFrames,
+                initialMedium = negotiated.medium,
+                initialWifiFrequencyMhz = negotiated.wifiFrequencyMhz,
             )
         } else {
             runReceiveLoop(negotiated.channel, negotiationFsm, negotiated.initialWireFrames)
@@ -320,7 +326,13 @@ internal class OutboundConnectionDriver(
                 ) {
                     is PreUkey2UpgradeResult.Ready -> {
                         framedConnection = upgraded.transport
-                        PreUkey2Negotiation.Ready(PreSecureTransport(upgraded.transport, upgraded.medium))
+                        PreUkey2Negotiation.Ready(
+                            PreSecureTransport(
+                                connection = upgraded.transport,
+                                medium = upgraded.medium,
+                                wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
+                            ),
+                        )
                     }
                     is PreUkey2UpgradeResult.Failed -> PreUkey2Negotiation.Failed(upgraded.reason)
                 }
@@ -393,6 +405,7 @@ internal class OutboundConnectionDriver(
             activeTransport.channel,
             activeTransport.medium,
             initialWireFrames,
+            activeTransport.wifiFrequencyMhz,
         )
     }
 
@@ -403,6 +416,18 @@ internal class OutboundConnectionDriver(
     private fun requiresWifiDirectUpgradeForBle(currentMedium: Medium): Boolean =
         currentMedium.isBleBased() &&
             Medium.WIFI_DIRECT in mediumRegistry.supportedMediumsForCurrentTransport(currentMedium)
+
+    private fun publishActiveTransport(activeTransport: ActiveTransportChannel) {
+        publishActiveTransport(activeTransport.medium, activeTransport.wifiFrequencyMhz)
+    }
+
+    private fun publishActiveTransport(
+        medium: Medium,
+        wifiFrequencyMhz: Int?,
+    ) {
+        mutableActiveMedium.value = medium
+        mutableActiveWifiFrequencyMhz.value = wifiFrequencyMhz.takeIf { medium == Medium.WIFI_DIRECT }
+    }
 
     /**
      * Tear down all owned resources. Safe to call multiple times; each
@@ -661,9 +686,12 @@ internal class OutboundConnectionDriver(
         channel: SecureChannel,
         fsm: OutboundSharingFsm,
         initialWireFrames: List<OfflineFrame> = emptyList(),
+        initialMedium: Medium,
+        initialWifiFrequencyMhz: Int?,
     ): OutboundResult {
         var activeChannel = channel
-        var activeMedium = initialTransport.medium
+        var activeMedium = initialMedium
+        var activeWifiFrequencyMhz = initialWifiFrequencyMhz
         val bufferedFrames =
             ArrayDeque<OfflineFrame>().apply {
                 addAll(initialWireFrames)
@@ -712,6 +740,8 @@ internal class OutboundConnectionDriver(
                     }
                     activeChannel = upgraded.channel
                     activeMedium = upgraded.medium
+                    activeWifiFrequencyMhz = upgraded.wifiFrequencyMhz
+                    publishActiveTransport(upgraded)
                     bufferedFrames.addAll(upgraded.bufferedFrames)
                     continue
                 }
@@ -729,6 +759,7 @@ internal class OutboundConnectionDriver(
                             ensureBleWifiDirectBeforePayloads(
                                 channel = activeChannel,
                                 currentMedium = activeMedium,
+                                currentWifiFrequencyMhz = activeWifiFrequencyMhz,
                             )
                         if (upgraded is PayloadChannelSelection.Failed) {
                             return failBleWifiDirect(upgraded.reason, activeChannel)
@@ -736,6 +767,8 @@ internal class OutboundConnectionDriver(
                         val ready = upgraded as PayloadChannelSelection.Ready
                         activeChannel = ready.channel
                         activeMedium = ready.medium
+                        activeWifiFrequencyMhz = ready.wifiFrequencyMhz
+                        publishActiveTransport(activeMedium, activeWifiFrequencyMhz)
                         val result =
                             coroutineScope {
                                 val keepAliveJob = launch { runKeepAliveTicker(activeChannel) }
@@ -858,9 +891,10 @@ internal class OutboundConnectionDriver(
     private suspend fun ensureBleWifiDirectBeforePayloads(
         channel: SecureChannel,
         currentMedium: Medium,
+        currentWifiFrequencyMhz: Int?,
     ): PayloadChannelSelection {
         if (currentMedium == Medium.WIFI_DIRECT) {
-            return PayloadChannelSelection.Ready(channel, currentMedium)
+            return PayloadChannelSelection.Ready(channel, currentMedium, currentWifiFrequencyMhz)
         }
         channel.sendOfflineFrame(
             BandwidthUpgradeFrames.upgradePathRequest(setOf(Medium.WIFI_DIRECT)),
@@ -888,7 +922,11 @@ internal class OutboundConnectionDriver(
                         offer = probe.frame,
                     )
                 if (upgraded.medium == Medium.WIFI_DIRECT) {
-                    PayloadChannelSelection.Ready(upgraded.channel, upgraded.medium)
+                    PayloadChannelSelection.Ready(
+                        channel = upgraded.channel,
+                        medium = upgraded.medium,
+                        wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
+                    )
                 } else {
                     PayloadChannelSelection.Failed(
                         "Wi-Fi Direct upgrade failed before payload streaming; stayed on ${upgraded.medium}",
@@ -1675,6 +1713,7 @@ internal class OutboundConnectionDriver(
             val channel: SecureChannel,
             val medium: Medium,
             val initialWireFrames: List<OfflineFrame>,
+            val wifiFrequencyMhz: Int? = null,
         ) : BandwidthNegotiation
 
         data class Failed(
@@ -1685,6 +1724,7 @@ internal class OutboundConnectionDriver(
     private data class PreSecureTransport(
         val connection: FramedConnection,
         val medium: Medium,
+        val wifiFrequencyMhz: Int? = null,
     )
 
     private sealed interface PreUkey2Negotiation {
@@ -1711,6 +1751,7 @@ internal class OutboundConnectionDriver(
         data class Ready(
             val channel: SecureChannel,
             val medium: Medium,
+            val wifiFrequencyMhz: Int? = null,
         ) : PayloadChannelSelection
 
         data class Failed(

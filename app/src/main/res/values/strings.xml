@@ -125,6 +125,26 @@
     <string name="main_bug_report_subtitle">When enabled, shaking the phone while Bada is open offers to package recent diagnostics, device state, and a screenshot into a zip that you save yourself. Nothing is uploaded automatically.</string>
     <string name="main_keep_screen_on_title">Keep screen on during transfers</string>
     <string name="main_keep_screen_on_subtitle">Keep the display awake while sending or receiving files so long transfers stay visible and reliable.</string>
+    <string name="main_transfer_expert_title">Expert transfer details</string>
+    <string name="main_transfer_expert_subtitle">Show live speed, ETA, active medium, and Wi-Fi Direct band on transfer screens.</string>
+
+    <string name="transfer_expert_speed">Speed: %1$s</string>
+    <string name="transfer_expert_speed_value">%1$s/s</string>
+    <string name="transfer_expert_eta">ETA: %1$s</string>
+    <string name="transfer_expert_medium">Medium: %1$s</string>
+    <string name="transfer_expert_wifi_band">Wi-Fi band: %1$s</string>
+    <string name="transfer_expert_calculating">calculating…</string>
+    <string name="transfer_expert_unknown">unknown</string>
+    <string name="transfer_expert_wifi_band_24">2.4 GHz</string>
+    <string name="transfer_expert_wifi_band_5">5 GHz</string>
+    <string name="transfer_expert_medium_bluetooth">Bluetooth</string>
+    <string name="transfer_expert_medium_wifi_hotspot">Wi-Fi hotspot</string>
+    <string name="transfer_expert_medium_ble">Bluetooth LE</string>
+    <string name="transfer_expert_medium_wifi_lan">Wi-Fi LAN</string>
+    <string name="transfer_expert_medium_wifi_aware">Wi-Fi Aware</string>
+    <string name="transfer_expert_medium_wifi_direct">Wi-Fi Direct</string>
+    <string name="transfer_expert_medium_web_rtc">WebRTC</string>
+    <string name="transfer_expert_medium_ble_l2cap">Bluetooth LE L2CAP</string>
 
     <!-- Save location settings (#42). The "current location" line shows
          either the picked folder's display name or "Downloads" as the

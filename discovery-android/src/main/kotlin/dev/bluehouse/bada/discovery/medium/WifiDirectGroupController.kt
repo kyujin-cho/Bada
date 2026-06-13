@@ -374,8 +374,13 @@ internal class WifiDirectGroupController(
                 teardown.close()
                 return null
             }
-        return WifiDirectTransport(socket = socket, teardown = teardown)
+        return WifiDirectTransport(socket, teardown, credentials.frequencyMhzOrNull())
     }
+
+    private fun UpgradePathCredentials.WifiDirect.frequencyMhzOrNull(): Int? =
+        frequency.takeIf {
+            it != UpgradePathCredentials.WifiDirect.FREQUENCY_NOT_SET && it > 0
+        }
 
     private suspend fun connectSocketToGroupOwner(
         address: InetAddress,

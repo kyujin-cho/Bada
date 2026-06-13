@@ -55,6 +55,26 @@
     <string name="main_bug_report_subtitle">启用后，在 Bada 打开时摇晃手机，即可将最近的诊断信息、设备状态和截图打包成 zip 文件并自行保存。不会自动上传任何内容。</string>
     <string name="main_keep_screen_on_title">传输时保持屏幕开启</string>
     <string name="main_keep_screen_on_subtitle">发送或接收文件时保持屏幕唤醒，便于查看长时间传输并提升连接可靠性。</string>
+    <string name="main_transfer_expert_title">传输详细信息</string>
+    <string name="main_transfer_expert_subtitle">在传输页面显示实时速度、预计剩余时间、当前传输方式和 Wi-Fi Direct 频段。</string>
+
+    <string name="transfer_expert_speed">速度：%1$s</string>
+    <string name="transfer_expert_speed_value">%1$s/秒</string>
+    <string name="transfer_expert_eta">剩余时间：%1$s</string>
+    <string name="transfer_expert_medium">传输方式：%1$s</string>
+    <string name="transfer_expert_wifi_band">Wi-Fi 频段：%1$s</string>
+    <string name="transfer_expert_calculating">计算中…</string>
+    <string name="transfer_expert_unknown">未知</string>
+    <string name="transfer_expert_wifi_band_24">2.4 GHz</string>
+    <string name="transfer_expert_wifi_band_5">5 GHz</string>
+    <string name="transfer_expert_medium_bluetooth">Bluetooth</string>
+    <string name="transfer_expert_medium_wifi_hotspot">Wi-Fi 热点</string>
+    <string name="transfer_expert_medium_ble">Bluetooth LE</string>
+    <string name="transfer_expert_medium_wifi_lan">Wi-Fi LAN</string>
+    <string name="transfer_expert_medium_wifi_aware">Wi-Fi Aware</string>
+    <string name="transfer_expert_medium_wifi_direct">Wi-Fi Direct</string>
+    <string name="transfer_expert_medium_web_rtc">WebRTC</string>
+    <string name="transfer_expert_medium_ble_l2cap">Bluetooth LE L2CAP</string>
 
     <!-- 保存位置设置（#42） -->
     <string name="main_save_location_title">接收文件保存位置</string>
