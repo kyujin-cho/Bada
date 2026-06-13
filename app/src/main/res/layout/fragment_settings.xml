@@ -31,7 +31,8 @@
     1. Save-location settings (#42).
     2. Advertised Quick Share name (#141).
     3. Background activity (#47 follow-up).
-    4. Shake-to-report bug toggle (#166).
+    4. Keep screen on during transfers (#219).
+    5. Shake-to-report bug toggle (#166).
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -331,7 +332,50 @@
 
         </LinearLayout>
 
-        <!-- ============ Card 4: Shake-to-report bug ============ -->
+        <!-- ============ Card 4: Keep screen on during transfers ============ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/settings_card_background"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/main_keep_screen_on_title"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textStyle="bold" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/main_keep_screen_on_switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/main_keep_screen_on_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/main_keep_screen_on_subtitle"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textColor="?android:attr/textColorSecondary" />
+
+        </LinearLayout>
+
+        <!-- ============ Card 5: Shake-to-report bug ============ -->
         <!--
           Switch row: title and Switch share a horizontal row so
           the toggle's affordance reads against its label. Subtitle

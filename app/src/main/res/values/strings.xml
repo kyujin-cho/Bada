@@ -123,6 +123,8 @@
     <string name="main_always_visible_caption_off">Active only while a nearby device is scanning over Bluetooth.</string>
     <string name="main_bug_report_title">Shake to report a bug</string>
     <string name="main_bug_report_subtitle">When enabled, shaking the phone while Bada is open offers to package recent diagnostics, device state, and a screenshot into a zip that you save yourself. Nothing is uploaded automatically.</string>
+    <string name="main_keep_screen_on_title">Keep screen on during transfers</string>
+    <string name="main_keep_screen_on_subtitle">Keep the display awake while sending or receiving files so long transfers stay visible and reliable.</string>
 
     <!-- Save location settings (#42). The "current location" line shows
          either the picked folder's display name or "Downloads" as the

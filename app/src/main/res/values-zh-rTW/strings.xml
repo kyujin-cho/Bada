@@ -73,6 +73,8 @@
     <!-- Shake-to-report bug toggle. -->
     <string name="main_bug_report_title">搖動手機回報錯誤</string>
     <string name="main_bug_report_subtitle">啟用後，在 Bada 開啟時搖動手機，即可將近期診斷紀錄、裝置狀態與螢幕截圖打包成 ZIP 檔，自行儲存。不會自動上傳任何內容。</string>
+    <string name="main_keep_screen_on_title">傳輸時保持螢幕開啟</string>
+    <string name="main_keep_screen_on_subtitle">傳送或接收檔案時保持螢幕喚醒，方便查看長時間傳輸並提升連線可靠性。</string>
 
     <!-- Save-location settings (#42). -->
     <string name="main_save_location_title">接收檔案儲存位置</string>

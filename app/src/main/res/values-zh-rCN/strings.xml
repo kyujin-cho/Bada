@@ -53,6 +53,8 @@
     <!-- 摇晃举报 Bug 开关 -->
     <string name="main_bug_report_title">摇晃手机以举报 Bug</string>
     <string name="main_bug_report_subtitle">启用后，在 Bada 打开时摇晃手机，即可将最近的诊断信息、设备状态和截图打包成 zip 文件并自行保存。不会自动上传任何内容。</string>
+    <string name="main_keep_screen_on_title">传输时保持屏幕开启</string>
+    <string name="main_keep_screen_on_subtitle">发送或接收文件时保持屏幕唤醒，便于查看长时间传输并提升连接可靠性。</string>
 
     <!-- 保存位置设置（#42） -->
     <string name="main_save_location_title">接收文件保存位置</string>

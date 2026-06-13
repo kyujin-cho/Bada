@@ -25,6 +25,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
@@ -50,6 +51,7 @@ import dev.bluehouse.bada.service.receiver.consent.ConsentIntents
 import dev.bluehouse.bada.service.receiver.consent.ConsentModalRegistry
 import dev.bluehouse.bada.service.receiver.consent.ConsentNotificationContent
 import dev.bluehouse.bada.service.receiver.consent.ConsentRegistry
+import dev.bluehouse.bada.transfer.KeepScreenOnPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -266,6 +268,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        setTransferKeepScreenOn(active = false)
         // If the user dismissed the activity without an explicit
         // decision (e.g. swipe-back, screen lock), DO NOT auto-reject —
         // the issue's acceptance criteria explicitly call out that
@@ -538,22 +541,46 @@ class ConsentTrampolineActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 connection.state.collect { state ->
                     when (state) {
-                        is InboundConnectionState.Receiving ->
+                        is InboundConnectionState.Receiving -> {
+                            setTransferKeepScreenOn(active = true)
                             renderProgress(
                                 bytesReceived = state.progress.bytesTransferred,
                                 totalBytes = state.progress.totalSize,
                             )
-                        is InboundConnectionState.Completed -> showCompletedPanel(state.items)
-                        is InboundConnectionState.Cancelled ->
+                        }
+                        is InboundConnectionState.Completed -> {
+                            setTransferKeepScreenOn(active = false)
+                            showCompletedPanel(state.items)
+                        }
+                        is InboundConnectionState.Cancelled -> {
+                            setTransferKeepScreenOn(active = false)
                             showFailedPanel(getString(R.string.consent_state_cancelled), reason = null)
-                        is InboundConnectionState.Failed ->
+                        }
+                        is InboundConnectionState.Failed -> {
+                            setTransferKeepScreenOn(active = false)
                             showFailedPanel(getString(R.string.consent_state_failed), reason = state.reason)
-                        is InboundConnectionState.Rejected ->
+                        }
+                        is InboundConnectionState.Rejected -> {
+                            setTransferKeepScreenOn(active = false)
                             showFailedPanel(getString(R.string.consent_state_failed), reason = null)
+                        }
                         else -> Unit
                     }
                 }
             }
+    }
+
+    private fun setTransferKeepScreenOn(active: Boolean) {
+        val keepScreenOn =
+            active &&
+                KeepScreenOnPreferences
+                    .from(this)
+                    .isKeepScreenOnDuringTransfersEnabled()
+        if (keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     private fun renderProgress(

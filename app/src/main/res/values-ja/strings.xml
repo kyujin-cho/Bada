@@ -90,6 +90,8 @@
     <!-- Shake-to-report bug toggle. -->
     <string name="main_bug_report_title">振ってバグを報告</string>
     <string name="main_bug_report_subtitle">有効にすると、Bada を開いた状態で端末を振ったときに、最近の診断情報・端末の状態・スクリーンショットを zip にまとめて自分で保存できます。自動的にアップロードされることはありません。</string>
+    <string name="main_keep_screen_on_title">転送中は画面をオンのままにする</string>
+    <string name="main_keep_screen_on_subtitle">ファイルの送受信中に画面が消えないようにして、長い転送の進行状況と安定性を保ちます。</string>
 
     <!-- Save-location settings (#42). -->
     <string name="main_save_location_title">受信ファイルの保存先</string>

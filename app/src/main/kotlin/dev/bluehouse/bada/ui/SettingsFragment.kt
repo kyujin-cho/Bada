@@ -26,6 +26,7 @@ import dev.bluehouse.bada.service.downloads.SaveLocationDisplayName
 import dev.bluehouse.bada.service.downloads.SaveLocationPreferences
 import dev.bluehouse.bada.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
+import dev.bluehouse.bada.transfer.KeepScreenOnPreferences
 
 /**
  * Settings tab content for the bottom-navigation shell in
@@ -128,6 +129,13 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         bugReportSwitch.setOnCheckedChangeListener { _, checked ->
             bugReportPreferences.setShakeToReportEnabled(checked)
         }
+
+        val keepScreenOnSwitch = view.findViewById<SwitchCompat>(R.id.main_keep_screen_on_switch)
+        val keepScreenOnPreferences = KeepScreenOnPreferences.from(requireContext())
+        keepScreenOnSwitch.isChecked = keepScreenOnPreferences.isKeepScreenOnDuringTransfersEnabled()
+        keepScreenOnSwitch.setOnCheckedChangeListener { _, checked ->
+            keepScreenOnPreferences.setKeepScreenOnDuringTransfersEnabled(checked)
+        }
     }
 
     override fun onStart() {
@@ -142,6 +150,7 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         refreshBatteryStatus()
         refreshFullScreenIntentSection()
         refreshBugReportSwitch()
+        refreshKeepScreenOnSwitch()
     }
 
     override fun onResume() {
@@ -174,6 +183,23 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         val v = view ?: return
         val switch = v.findViewById<SwitchCompat>(R.id.main_bug_report_switch) ?: return
         val enabled = BugReportPreferences.from(requireContext()).isShakeToReportEnabled()
+        if (switch.isChecked != enabled) {
+            switch.isChecked = enabled
+        }
+    }
+
+    /**
+     * Re-sync the transfer display switch in case another Settings
+     * surface or restored app state mutates the preference while this
+     * fragment is alive.
+     */
+    private fun refreshKeepScreenOnSwitch() {
+        val v = view ?: return
+        val switch = v.findViewById<SwitchCompat>(R.id.main_keep_screen_on_switch) ?: return
+        val enabled =
+            KeepScreenOnPreferences
+                .from(requireContext())
+                .isKeepScreenOnDuringTransfersEnabled()
         if (switch.isChecked != enabled) {
             switch.isChecked = enabled
         }

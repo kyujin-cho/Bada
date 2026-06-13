@@ -28,6 +28,7 @@ import android.transition.TransitionManager
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.Toast
@@ -64,6 +65,7 @@ import dev.bluehouse.bada.protocol.qr.QrTlvMatcher
 import dev.bluehouse.bada.protocol.qr.QrUrl
 import dev.bluehouse.bada.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.bada.service.receiver.OutboundSessionActiveHolder
+import dev.bluehouse.bada.transfer.KeepScreenOnPreferences
 import dev.bluehouse.bada.ui.BackdropBlurView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -283,6 +285,7 @@ public class SendActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        setTransferKeepScreenOn(active = false)
         super.onDestroy()
         // Cancel any pending fade-out for the rejection banner so its
         // Runnable does not fire against a recycled binding.
@@ -755,6 +758,7 @@ public class SendActivity : AppCompatActivity() {
         state: OutboundConnectionState,
         peer: NearbyPeer,
     ) {
+        setTransferKeepScreenOn(active = state is OutboundConnectionState.Sending)
         // Animate any bounds change in the status panel triggered by
         // this state — chiefly the PIN appearing on
         // AwaitingRemoteAcceptance / Sending and disappearing on
@@ -853,6 +857,19 @@ public class SendActivity : AppCompatActivity() {
         }
     }
 
+    private fun setTransferKeepScreenOn(active: Boolean) {
+        val keepScreenOn =
+            active &&
+                KeepScreenOnPreferences
+                    .from(this)
+                    .isKeepScreenOnDuringTransfersEnabled()
+        if (keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     // -----------------------------------------------------------------
     // Terminal / unsupported / QR
     // -----------------------------------------------------------------
@@ -875,6 +892,7 @@ public class SendActivity : AppCompatActivity() {
         message: String,
         isSuccess: Boolean = false,
     ) {
+        setTransferKeepScreenOn(active = false)
         peerPickerController.stopBleAdvertise()
         beginCardBoundsTransition(BOUNDS_DURATION_MS)
         binding.sendStatusPanel.visibility = View.VISIBLE
@@ -1340,6 +1358,7 @@ public class SendActivity : AppCompatActivity() {
         // flow back through the StateFlow collector and finish the UI.
         val connection = activeConnection
         if (connection != null && binding.sendStatusPanel.isVisible) {
+            setTransferKeepScreenOn(active = false)
             connection.cancel()
             return
         }
