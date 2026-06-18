@@ -86,7 +86,13 @@ import kotlinx.coroutines.launch
  * @param debounceIdleMillis time after the last "should publish" signal
  *   before the gate unpublishes the advertisement. 30 s by default per
  *   issue #34.
+ * @param publishRetryDelayMillis time after a failed mDNS publish before
+ *   retrying while any publish signal remains active. This covers radio
+ *   recovery cases where the first publish attempt happens while Wi-Fi
+ *   or Bluetooth is still unavailable, and Android does not emit a gate
+ *   input change after the radio becomes usable.
  */
+@Suppress("LongParameterList")
 public class MdnsAdvertisementGate(
     private val session: ReceiverSession,
     private val bleActivity: StateFlow<ScanActivity>,
@@ -94,6 +100,7 @@ public class MdnsAdvertisementGate(
     private val qrSessionActive: StateFlow<Boolean>,
     private val outboundSessionActive: StateFlow<Boolean> = MutableStateFlow(false),
     private val debounceIdleMillis: Long = DEFAULT_DEBOUNCE_IDLE_MILLIS,
+    private val publishRetryDelayMillis: Long = DEFAULT_PUBLISH_RETRY_DELAY_MILLIS,
     /**
      * Optional sink for the receiver-side BLE pulse advertiser (#121).
      *
@@ -117,6 +124,9 @@ public class MdnsAdvertisementGate(
 
     @Volatile
     private var debounceJob: Job? = null
+
+    @Volatile
+    private var publishRetryJob: Job? = null
 
     @Volatile
     private var bleAdvertising: Boolean = false
@@ -192,6 +202,8 @@ public class MdnsAdvertisementGate(
     public fun stop() {
         debounceJob?.cancel()
         debounceJob = null
+        publishRetryJob?.cancel()
+        publishRetryJob = null
         collectorJob?.cancel()
         collectorJob = null
     }
@@ -218,6 +230,8 @@ public class MdnsAdvertisementGate(
         if (decision.outboundActive) {
             debounceJob?.cancel()
             debounceJob = null
+            publishRetryJob?.cancel()
+            publishRetryJob = null
             if (session.isAdvertising) {
                 try {
                     session.unpublishAdvertisement()
@@ -252,18 +266,27 @@ public class MdnsAdvertisementGate(
             if (!session.isAdvertising) {
                 try {
                     session.publishAdvertisement()
+                    publishRetryJob?.cancel()
+                    publishRetryJob = null
                     DiagnosticLog.w(TAG, "publish: published mDNS (decision=$decision)")
                 } catch (t: Throwable) {
                     // The session may have been stopped between the
-                    // collector firing and the publish call. Treat as
-                    // benign — the decision will be re-evaluated if the
-                    // session is restarted.
+                    // collector firing and the publish call, or Android's
+                    // NSD stack may be temporarily unavailable while Wi-Fi
+                    // is still coming up. Keep retrying while the current
+                    // decision still wants us to be published.
                     DiagnosticLog.w(TAG, "publish: failed (decision=$decision)", t)
+                    schedulePublishRetry(scope)
                 }
+            } else {
+                publishRetryJob?.cancel()
+                publishRetryJob = null
             }
             return
         }
 
+        publishRetryJob?.cancel()
+        publishRetryJob = null
         // No "should publish" signal active: schedule an unpublish if
         // the advertisement is currently up. If the timer is already
         // running we leave it alone — re-arming it would extend the
@@ -294,6 +317,17 @@ public class MdnsAdvertisementGate(
                     // pulses, and so peers stop seeing us on both
                     // channels at the same wall-clock moment.
                     stopBleSafely(reason = "idle for ${debounceIdleMillis}ms")
+                }
+            }
+    }
+
+    private fun schedulePublishRetry(scope: CoroutineScope) {
+        if (publishRetryJob?.isActive == true) return
+        publishRetryJob =
+            scope.launch {
+                delay(publishRetryDelayMillis)
+                if (isActive) {
+                    apply(currentDecision(), scope)
                 }
             }
     }
@@ -360,6 +394,14 @@ public class MdnsAdvertisementGate(
          * avoid flapping if the BLE pulse is intermittent."
          */
         public const val DEFAULT_DEBOUNCE_IDLE_MILLIS: Long = 30_000L
+
+        /**
+         * Default delay before retrying a failed publish while a publish
+         * signal remains active. Short enough to recover after radio
+         * toggles without requiring user interaction, long enough to avoid
+         * hammering Android NSD when it is stuck.
+         */
+        public const val DEFAULT_PUBLISH_RETRY_DELAY_MILLIS: Long = 5_000L
     }
 }
 

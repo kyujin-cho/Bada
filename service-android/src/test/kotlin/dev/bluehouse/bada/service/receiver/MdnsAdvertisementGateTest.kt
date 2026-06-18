@@ -547,7 +547,7 @@ class MdnsAdvertisementGateTest {
                     bleBroadcaster = broadcaster,
                 )
             gate.start(this)
-            advanceUntilIdle()
+            runCurrent()
 
             assertThat(session.isAdvertising).isFalse()
             assertThat(broadcaster.startCount).isAtLeast(1)
@@ -555,6 +555,34 @@ class MdnsAdvertisementGateTest {
             override.value = false
             advanceUntilIdle()
             assertThat(broadcaster.stopCount).isEqualTo(1)
+
+            gate.stop()
+            session.stop()
+        }
+
+    @Test
+    fun `mDNS publish failure retries while publish signal remains active`() =
+        runTest {
+            val advertiser = FailOnceAdvertiser()
+            val session = startedGatedSession(advertiser = advertiser)
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
+            val override = MutableStateFlow(true)
+            val qr = MutableStateFlow(false)
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    publishRetryDelayMillis = 1_000L,
+                )
+            gate.start(this)
+            advanceUntilIdle()
+
+            assertThat(advertiser.attempts).isEqualTo(2)
+            assertThat(advertiser.calls).hasSize(1)
+            assertThat(session.isAdvertising).isTrue()
 
             gate.stop()
             session.stop()
@@ -712,6 +740,32 @@ class MdnsAdvertisementGateTest {
             endpointInfo: EndpointInfo,
             port: Int,
         ): AdvertiseHandle = error("synthetic mDNS publish failure")
+    }
+
+    private class FailOnceAdvertiser : DiscoveryAdvertiser {
+        data class Call(
+            val endpointInfo: EndpointInfo,
+            val port: Int,
+            val handle: FakeAdvertiseHandle,
+        )
+
+        var attempts: Int = 0
+            private set
+
+        val calls: MutableList<Call> = mutableListOf()
+
+        override fun advertise(
+            endpointInfo: EndpointInfo,
+            port: Int,
+        ): AdvertiseHandle {
+            attempts += 1
+            if (attempts == 1) {
+                error("synthetic first mDNS publish failure")
+            }
+            val handle = FakeAdvertiseHandle(port = port)
+            calls += Call(endpointInfo, port, handle)
+            return handle
+        }
     }
 
     /**
