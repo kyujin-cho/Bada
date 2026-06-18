@@ -561,9 +561,9 @@ class MdnsAdvertisementGateTest {
         }
 
     @Test
-    fun `mDNS publish failure retries while publish signal remains active`() =
+    fun `mDNS publish retries until success while publish signal remains active`() =
         runTest {
-            val advertiser = FailOnceAdvertiser()
+            val advertiser = FailThenSucceedAdvertiser(failuresBeforeSuccess = 2)
             val session = startedGatedSession(advertiser = advertiser)
             val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
             val override = MutableStateFlow(true)
@@ -580,7 +580,7 @@ class MdnsAdvertisementGateTest {
             gate.start(this)
             advanceUntilIdle()
 
-            assertThat(advertiser.attempts).isEqualTo(2)
+            assertThat(advertiser.attempts).isEqualTo(3)
             assertThat(advertiser.calls).hasSize(1)
             assertThat(session.isAdvertising).isTrue()
 
@@ -742,7 +742,9 @@ class MdnsAdvertisementGateTest {
         ): AdvertiseHandle = error("synthetic mDNS publish failure")
     }
 
-    private class FailOnceAdvertiser : DiscoveryAdvertiser {
+    private class FailThenSucceedAdvertiser(
+        private val failuresBeforeSuccess: Int,
+    ) : DiscoveryAdvertiser {
         data class Call(
             val endpointInfo: EndpointInfo,
             val port: Int,
@@ -759,8 +761,8 @@ class MdnsAdvertisementGateTest {
             port: Int,
         ): AdvertiseHandle {
             attempts += 1
-            if (attempts == 1) {
-                error("synthetic first mDNS publish failure")
+            if (attempts <= failuresBeforeSuccess) {
+                error("synthetic mDNS publish failure $attempts")
             }
             val handle = FakeAdvertiseHandle(port = port)
             calls += Call(endpointInfo, port, handle)

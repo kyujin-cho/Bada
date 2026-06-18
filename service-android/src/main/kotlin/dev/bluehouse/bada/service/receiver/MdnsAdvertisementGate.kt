@@ -323,13 +323,19 @@ public class MdnsAdvertisementGate(
 
     private fun schedulePublishRetry(scope: CoroutineScope) {
         if (publishRetryJob?.isActive == true) return
-        publishRetryJob =
+        var retryJob: Job? = null
+        retryJob =
             scope.launch {
                 delay(publishRetryDelayMillis)
                 if (isActive) {
+                    if (publishRetryJob === retryJob) {
+                        publishRetryJob = null
+                    }
                     apply(currentDecision(), scope)
                 }
             }
+        publishRetryJob =
+            retryJob
     }
 
     /**
