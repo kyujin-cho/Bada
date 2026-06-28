@@ -37,6 +37,11 @@
     <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">주소 %1$d개</string>
     <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">전화번호 %1$d개</string>
     <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">텍스트 %1$d개</string>
+    <string name="consent_notification_segment_photos" tools:ignore="PluralsCandidate">사진 %1$d장</string>
+    <string name="consent_notification_segment_videos" tools:ignore="PluralsCandidate">동영상 %1$d개</string>
+    <string name="consent_notification_pin_label">PIN</string>
+    <string name="consent_notification_filelist_item">%1$s · %2$s</string>
+    <string name="consent_notification_filelist_more" tools:ignore="PluralsCandidate">외 %1$d개</string>
 
     <!-- Folder-receive summary (#39). -->
     <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">폴더 \"%1$s\" (파일 %2$d개, %3$s)</string>

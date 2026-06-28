@@ -23,8 +23,8 @@
     android:gravity="center_vertical"
     android:minHeight="108dp"
     android:orientation="vertical"
-    android:paddingTop="8dp"
-    android:paddingBottom="10dp">
+    android:paddingTop="6dp"
+    android:paddingBottom="4dp">
 
     <!-- Top row: title+summary column (left, stretches) + thumbnail (right). -->
     <LinearLayout
@@ -48,57 +48,112 @@
                 android:textAppearance="@style/TextAppearance.Compat.Notification.Title"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/notif_consent_body"
+            <!-- Summary + PIN on ONE line, both LEFT-aligned: the
+                 "N photos (size)" summary sizes to its text and the PIN sits
+                 immediately to its right (not pushed to the far edge).
+                 Keeping the PIN on the summary line (not its own row) keeps
+                 the card short so the action buttons always fit the
+                 collapsed / heads-up height budget. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textAppearance="@style/TextAppearance.Compat.Notification.Line2" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/notif_consent_body"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.Compat.Notification.Line2" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/consent_notification_pin_label"
+                    android:textColor="#FF0A84FF"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/notif_consent_pin"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
+                    android:letterSpacing="0.1"
+                    android:textColor="#FF0A84FF"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    tools:text="1234" />
+            </LinearLayout>
         </LinearLayout>
 
-        <!-- notif_consent_thumb — small rounded placeholder thumbnail of the
-             incoming file(s) on the RIGHT (44dp square; bitmap set at runtime
-             via setImageViewBitmap with ConsentThumbnail.photo()). -->
+        <!-- notif_consent_thumb — line-art gallery glyph on the RIGHT. The
+             vector src + ?attr/textColorSecondary tint makes it follow the
+             notification card's light / dark theme so it stays visible. -->
         <ImageView
             android:id="@+id/notif_consent_thumb"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
             android:layout_marginStart="12dp"
             android:scaleType="fitCenter"
-            tools:ignore="ContentDescription" />
+            android:src="@drawable/ic_consent_gallery"
+            android:tint="?android:attr/textColorSecondary"
+            tools:ignore="ContentDescription,UseAppTint" />
     </LinearLayout>
+
+    <!-- Expanded-only per-file list ("name · size", one per line). GONE in the
+         collapsed / heads-up RemoteViews; the builder flips it VISIBLE and sets
+         its text on the big-content RemoteViews so pulling the notification down
+         reveals exactly what is being sent. -->
+    <TextView
+        android:id="@+id/notif_consent_filelist"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:ellipsize="end"
+        android:maxLines="9"
+        android:textAppearance="@style/TextAppearance.Compat.Notification.Line2"
+        android:visibility="gone"
+        tools:text="photo1.jpg · 2.1 MB&#10;photo2.jpg · 1.4 MB" />
 
     <!-- Buttons as a centered pair with a small gap (moved closer together,
          no longer pinned to the opposite edges). -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="center"
+        android:layout_marginTop="8dp"
+        android:gravity="start"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/notif_consent_decline"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
+            android:layout_marginEnd="10dp"
             android:background="@drawable/notif_btn_decline_bg"
-            android:minWidth="112dp"
+            android:gravity="center"
+            android:minHeight="40dp"
+            android:minWidth="108dp"
             android:textAllCaps="false"
             android:textColor="#FFD93025"
+            android:textSize="14sp"
             android:textStyle="bold" />
 
         <Button
             android:id="@+id/notif_consent_accept"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
             android:background="@drawable/notif_btn_accept_bg"
-            android:minWidth="112dp"
+            android:gravity="center"
+            android:minHeight="40dp"
+            android:minWidth="108dp"
             android:textAllCaps="false"
             android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
             android:textStyle="bold" />
     </LinearLayout>
 </LinearLayout>

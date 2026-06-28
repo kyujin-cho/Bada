@@ -5,6 +5,7 @@
  */
 package dev.bluehouse.bada.service.receiver.consent
 
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,6 +13,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.PowerManager
+import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import dev.bluehouse.bada.service.R
@@ -185,6 +188,13 @@ public object ConsentNotification {
                 null
             }
 
+        // Decide ONCE whether this post should interrupt with the
+        // full-screen consent sheet (device locked / screen off) or a
+        // heads-up banner (device in use). Both the ongoing flag and the
+        // full-screen intent hang off this so the in-use path is a clean,
+        // peekable heads-up.
+        val useFullScreen = shouldUseFullScreenConsent(context)
+
         val builder =
             NotificationCompat
                 .Builder(context, CHANNEL_ID)
@@ -196,58 +206,108 @@ public object ConsentNotification {
                 // Tints the DecoratedCustomViewStyle small-icon circle (the
                 // left-side icon) brand blue.
                 .setColor(ConsentThumbnail.LEFT_ICON_TINT)
-                // Dismissing the notification (swipe) does NOT auto-reject
-                // — the peer is left waiting for an explicit decision via
-                // the trampoline activity. This matches NearDrop behaviour
-                // (issue #22 acceptance criteria).
-                .setOngoing(true)
+                // Ongoing ONLY on the locked / full-screen path: there the
+                // sheet owns the screen and swipe-to-reject would be a
+                // mis-tap. While the device is in use we must NOT mark it
+                // ongoing — vivo (and several other OEMs) suppress the
+                // heads-up banner for ongoing notifications, so it would only
+                // buzz into the shade instead of peeking. Swiping the in-use
+                // banner away still does NOT auto-reject (the peer keeps
+                // waiting for an explicit decision via the trampoline), which
+                // preserves the issue #22 contract.
+                .setOngoing(useFullScreen)
                 .setAutoCancel(false)
                 .setShowWhen(true)
 
         // A custom RemoteViews body (notification_consent) wired with the same
         // broadcast PendingIntents the standard action buttons would use:
-        // recolored Decline/Accept as a centered pair plus a thumbnail of the
-        // incoming item. DecoratedCustomViewStyle keeps the native notification
-        // frame (small icon, app name, time) and renders our layout as the body
-        // across collapsed / expanded / heads-up. The two consent buttons live
-        // in the layout, so no addAction() row is added (it would duplicate them).
-        val customView =
-            RemoteViews(context.packageName, R.layout.notification_consent).apply {
-                setTextViewText(R.id.notif_consent_title, content.title)
-                setTextViewText(R.id.notif_consent_body, content.body)
-                setTextViewText(R.id.notif_consent_accept, content.acceptLabel)
-                setTextViewText(R.id.notif_consent_decline, content.rejectLabel)
-                setOnClickPendingIntent(R.id.notif_consent_accept, acceptIntent)
-                setOnClickPendingIntent(R.id.notif_consent_decline, rejectIntent)
-                setImageViewBitmap(
-                    R.id.notif_consent_thumb,
-                    ConsentThumbnail.photo(ConsentThumbnail.THUMB_PX, ConsentThumbnail.THUMB_PX),
-                )
-            }
+        // recolored Decline/Accept as a centered pair, the PIN as its own
+        // prominent chip, and a thumbnail of the incoming item.
+        // DecoratedCustomViewStyle keeps the native notification frame (small
+        // icon, app name, time) and renders our layout as the body. The
+        // collapsed / heads-up view hides the per-file list; the expanded
+        // (big) view reveals it so pulling the notification down shows exactly
+        // what is being sent. The two consent buttons live in the layout, so no
+        // addAction() row is added (it would duplicate them).
+        val collapsedView = buildConsentView(context, content, acceptIntent, rejectIntent, expanded = false)
+        val expandedView = buildConsentView(context, content, acceptIntent, rejectIntent, expanded = true)
         builder
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            .setCustomContentView(customView)
-            .setCustomBigContentView(customView)
-            .setCustomHeadsUpContentView(customView)
+            .setCustomContentView(collapsedView)
+            .setCustomBigContentView(expandedView)
+            .setCustomHeadsUpContentView(collapsedView)
 
         if (tapIntent != null) {
             // Tapping the notification body opens the consent sheet for
             // details in every style.
             builder.setContentIntent(tapIntent)
-            // Full-screen-intent on EVERY style so the LOCK-SCREEN / screen-off
-            // behavior is identical for all three: the consent bottom sheet
-            // pops full-screen (incoming-call style). When the device is
-            // UNLOCKED and in use, the platform automatically falls back to a
-            // heads-up — which is the per-style notification (the recolored or
-            // bridge custom RemoteViews, or the plain Accept/Reject for SHEET).
-            // So the style only changes the in-use heads-up; the lock screen is
-            // the same sheet for every option. (Showing the sheet over other
-            // apps WHILE the device is in use is NOT possible via a
-            // full-screen-intent — that requires a draw-over-apps overlay.)
-            builder.setFullScreenIntent(tapIntent, true)
+            // Full-screen intent ONLY while the device is locked or its
+            // screen is off — there the incoming-call-style full-screen sheet
+            // is the right interruption. When the device is unlocked and in
+            // use, stock Android auto-degrades a full-screen intent to a
+            // heads-up banner, but vivo (Funtouch / OriginOS) and some other
+            // OEMs honour the FSI regardless and pop the consent activity
+            // full-screen on top of whatever the user is doing, instead of a
+            // banner. Gating on the live keyguard / interactive state lets the
+            // IMPORTANCE_HIGH channel show its heads-up banner in-use (the
+            // desired UX) while keeping the full-screen sheet on the lock
+            // screen. (Showing the sheet over other apps while in use would
+            // require a draw-over-apps overlay, which we do not use.)
+            if (useFullScreen) {
+                builder.setFullScreenIntent(tapIntent, true)
+            }
         }
 
         return builder.build()
+    }
+
+    /**
+     * Inflate one [RemoteViews] copy of [R.layout.notification_consent],
+     * bound with the consent text, the PIN chip, the action PendingIntents
+     * and the thumbnail. [expanded] controls the per-file list: the
+     * collapsed / heads-up copy hides it, the big-content copy reveals it
+     * (when there is a list to show). Two copies are needed because the
+     * collapsed and expanded notification states are independent
+     * RemoteViews instances.
+     */
+    private fun buildConsentView(
+        context: Context,
+        content: ConsentNotificationContent,
+        acceptIntent: PendingIntent,
+        rejectIntent: PendingIntent,
+        expanded: Boolean,
+    ): RemoteViews =
+        RemoteViews(context.packageName, R.layout.notification_consent).apply {
+            setTextViewText(R.id.notif_consent_title, content.title)
+            setTextViewText(R.id.notif_consent_body, content.body)
+            setTextViewText(R.id.notif_consent_pin, content.pin)
+            setTextViewText(R.id.notif_consent_accept, content.acceptLabel)
+            setTextViewText(R.id.notif_consent_decline, content.rejectLabel)
+            setOnClickPendingIntent(R.id.notif_consent_accept, acceptIntent)
+            setOnClickPendingIntent(R.id.notif_consent_decline, rejectIntent)
+            // The gallery glyph is now a theme-tinted vector set in the
+            // layout (ic_consent_gallery + ?attr/textColorSecondary) so it
+            // adapts to the notification's light / dark background — no
+            // runtime bitmap needed.
+            val showList = expanded && content.fileList.isNotEmpty()
+            setViewVisibility(R.id.notif_consent_filelist, if (showList) View.VISIBLE else View.GONE)
+            if (showList) {
+                setTextViewText(R.id.notif_consent_filelist, content.fileList)
+            }
+        }
+
+    /**
+     * True when the consent prompt should interrupt with the full-screen
+     * sheet (device locked or screen off) rather than a heads-up banner
+     * (device unlocked and in use). Evaluated at post time so it reflects
+     * the device state at the moment the incoming request arrives.
+     */
+    private fun shouldUseFullScreenConsent(context: Context): Boolean {
+        val keyguardLocked =
+            context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+        val screenOff =
+            context.getSystemService(PowerManager::class.java)?.isInteractive == false
+        return keyguardLocked || screenOff
     }
 
     /**

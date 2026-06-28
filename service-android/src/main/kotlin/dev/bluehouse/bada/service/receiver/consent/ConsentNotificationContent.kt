@@ -25,21 +25,25 @@ import dev.bluehouse.bada.service.R
  *
  * @property title Short, single-line title shown in the collapsed
  *   notification ("Pixel 8 wants to share").
- * @property body One-line subtitle ("3 files (12.4 MB) — PIN 1234").
- *   Falls back gracefully when item count is zero or sender name is
- *   absent.
- * @property bigText Multi-line expanded text shown when the user
- *   pulls down the notification — includes the full file list, one
- *   per line. Truncated to [MAX_LISTED_ITEMS] entries with a "…and N
- *   more" line at the end so we never produce a many-screen-tall
- *   notification.
+ * @property body One-line subtitle describing WHAT is incoming, broken
+ *   down by media kind ("3 photos + 1 video (12.4 MB)"). The PIN is no
+ *   longer crammed in here — it is surfaced separately via [pin] so a
+ *   long summary can never ellipsize the security digits away.
+ * @property pin The 4-digit confirmation PIN, rendered as its own
+ *   prominent element in the notification body.
+ * @property fileList Newline-separated per-item list shown only in the
+ *   expanded state — one line per file ("name · size"). Truncated to
+ *   [MAX_LISTED_ITEMS] entries with a "…and N more" trailer so we never
+ *   produce a many-screen-tall notification. Empty when there are no
+ *   announced items.
  * @property acceptLabel Localized text for the Accept action button.
  * @property rejectLabel Localized text for the Reject action button.
  */
 public data class ConsentNotificationContent(
     val title: String,
     val body: String,
-    val bigText: String,
+    val pin: String,
+    val fileList: String,
     val acceptLabel: String,
     val rejectLabel: String,
 ) {
@@ -121,34 +125,52 @@ public data class ConsentNotificationContent(
                         )
                 }
 
-            val body =
-                resolver.formatted(
-                    R.string.consent_notification_body,
-                    itemSummary,
-                    entry.pin,
-                )
-
-            val bigText =
-                buildString {
-                    append(body)
-                    if (entry.itemCount > 0) {
-                        append('\n')
-                        append(
-                            resolver.formatted(
-                                R.string.consent_notification_bigtext_pin_line,
-                                entry.pin,
-                            ),
-                        )
-                    }
-                }
-
             return ConsentNotificationContent(
                 title = title,
-                body = body,
-                bigText = bigText,
+                body = itemSummary,
+                pin = entry.pin,
+                fileList = buildFileList(resolver, entry.items),
                 acceptLabel = resolver.formatted(R.string.consent_notification_action_accept),
                 rejectLabel = resolver.formatted(R.string.consent_notification_action_reject),
             )
+        }
+
+        /**
+         * Build the newline-separated per-item list for the expanded
+         * notification: one "name · size" line per file (or the text
+         * title for non-file items), capped at [MAX_LISTED_ITEMS] with a
+         * localized "…and N more" trailer. Returns an empty string when
+         * there are no announced items (e.g. a legacy entry without an
+         * items list), which the builder uses to keep the expanded view
+         * collapsed.
+         */
+        public fun buildFileList(
+            resolver: TextResolver,
+            items: List<TransferItem>,
+        ): String {
+            if (items.isEmpty()) return ""
+            val shown = items.take(MAX_LISTED_ITEMS)
+            return buildString {
+                shown.forEachIndexed { index, item ->
+                    if (index > 0) append('\n')
+                    val line =
+                        when (item) {
+                            is TransferItem.File ->
+                                resolver.formatted(
+                                    R.string.consent_notification_filelist_item,
+                                    item.name,
+                                    humanReadableSize(item.size),
+                                )
+                            is TransferItem.Text -> item.title
+                        }
+                    append(line)
+                }
+                val remaining = items.size - shown.size
+                if (remaining > 0) {
+                    append('\n')
+                    append(resolver.formatted(R.string.consent_notification_filelist_more, remaining))
+                }
+            }
         }
 
         /**
@@ -168,7 +190,22 @@ public data class ConsentNotificationContent(
             items: List<TransferItem>,
             totalSize: Long,
         ): String {
-            val files = items.count { it is TransferItem.File }
+            // Break the file count down by media kind so the user sees
+            // "3 photos + 1 video" instead of an opaque "4 files". The
+            // type comes from the announced mime_type, which is present
+            // at consent time even though the file bytes are not — so
+            // this is the reliable, sender-agnostic substitute for a real
+            // thumbnail preview (which Quick Share does not send us).
+            val photos =
+                items.count { it is TransferItem.File && it.mimeType.startsWith("image/") }
+            val videos =
+                items.count { it is TransferItem.File && it.mimeType.startsWith("video/") }
+            val files =
+                items.count {
+                    it is TransferItem.File &&
+                        !it.mimeType.startsWith("image/") &&
+                        !it.mimeType.startsWith("video/")
+                }
             val urls = items.count { it is TransferItem.Text && it.kind == TransferItem.Text.Kind.URL }
             val addresses =
                 items.count { it is TransferItem.Text && it.kind == TransferItem.Text.Kind.ADDRESS }
@@ -177,24 +214,20 @@ public data class ConsentNotificationContent(
             val texts =
                 items.count { it is TransferItem.Text && it.kind == TransferItem.Text.Kind.PLAIN }
 
-            val segments = mutableListOf<String>()
-            if (files > 0) {
-                segments += resolver.formatted(R.string.consent_notification_segment_files, files)
-            }
-            if (urls > 0) {
-                segments += resolver.formatted(R.string.consent_notification_segment_urls, urls)
-            }
-            if (addresses > 0) {
-                segments +=
-                    resolver.formatted(R.string.consent_notification_segment_addresses, addresses)
-            }
-            if (phones > 0) {
-                segments +=
-                    resolver.formatted(R.string.consent_notification_segment_phone_numbers, phones)
-            }
-            if (texts > 0) {
-                segments += resolver.formatted(R.string.consent_notification_segment_texts, texts)
-            }
+            // Fixed group ordering (photos → videos → files → URLs →
+            // addresses → phone numbers → text). Empty groups drop out;
+            // each surviving group renders through its own segment string.
+            val segments =
+                listOf(
+                    photos to R.string.consent_notification_segment_photos,
+                    videos to R.string.consent_notification_segment_videos,
+                    files to R.string.consent_notification_segment_files,
+                    urls to R.string.consent_notification_segment_urls,
+                    addresses to R.string.consent_notification_segment_addresses,
+                    phones to R.string.consent_notification_segment_phone_numbers,
+                    texts to R.string.consent_notification_segment_texts,
+                ).filter { (count, _) -> count > 0 }
+                    .map { (count, resId) -> resolver.formatted(resId, count) }
 
             // Defensive fallback: an items list whose entries do not
             // match any known kind (future proto additions) collapses

@@ -57,7 +57,7 @@ class ConsentNotificationContentTest {
     }
 
     @Test
-    fun `body summarises item count, size, and PIN`() {
+    fun `body summarises item count and size, and PIN is a separate field`() {
         val content =
             ConsentNotificationContent.from(
                 resolver = englishResolver(),
@@ -70,40 +70,82 @@ class ConsentNotificationContentTest {
             )
         assertThat(content.body).contains("3 item(s)")
         assertThat(content.body).contains("12.0 MB")
-        assertThat(content.body).contains("PIN 4242")
+        // The PIN moved out of the body into its own field so a long
+        // summary can never ellipsize the security digits away.
+        assertThat(content.body).doesNotContain("4242")
+        assertThat(content.pin).isEqualTo("4242")
     }
 
     @Test
-    fun `body handles zero items gracefully`() {
+    fun `body handles zero items gracefully and still carries the PIN`() {
         val content =
             ConsentNotificationContent.from(
                 resolver = englishResolver(),
                 entry = sampleEntry(itemCount = 0, totalSize = 0L, pin = "0000"),
             )
         assertThat(content.body).contains("no items")
-        assertThat(content.body).contains("PIN 0000")
+        assertThat(content.pin).isEqualTo("0000")
     }
 
     @Test
-    fun `bigText repeats the PIN line when there is at least one item`() {
+    fun `body breaks the file count down by photo and video kind`() {
+        val items: List<TransferItem> =
+            listOf(
+                TransferItem.File(1L, "a.jpg", 100L, "image/jpeg"),
+                TransferItem.File(2L, "b.png", 200L, "image/png"),
+                TransferItem.File(3L, "c.mp4", 300L, "video/mp4"),
+                TransferItem.File(4L, "d.bin", 400L, "application/octet-stream"),
+            )
         val content =
             ConsentNotificationContent.from(
                 resolver = englishResolver(),
-                entry = sampleEntry(itemCount = 1, totalSize = 100L, pin = "1234"),
+                entry = sampleEntry(itemCount = items.size, totalSize = 1000L, items = items),
             )
-        // bigText reuses the body and adds a verbatim PIN line for
-        // the expanded notification.
-        assertThat(content.bigText).contains("Confirm PIN: 1234")
+        assertThat(content.body).contains("2 photo(s)")
+        assertThat(content.body).contains("1 video(s)")
+        assertThat(content.body).contains("1 file(s)")
     }
 
     @Test
-    fun `bigText omits the PIN repeat when there are no items`() {
+    fun `fileList lists each file with its size, one per line`() {
+        val items: List<TransferItem> =
+            listOf(
+                TransferItem.File(1L, "vacation.jpg", 2L * 1024 * 1024, "image/jpeg"),
+                TransferItem.File(2L, "clip.mp4", 5L * 1024 * 1024, "video/mp4"),
+            )
         val content =
             ConsentNotificationContent.from(
                 resolver = englishResolver(),
-                entry = sampleEntry(itemCount = 0, totalSize = 0L, pin = "0000"),
+                entry = sampleEntry(itemCount = items.size, totalSize = 7L * 1024 * 1024, items = items),
             )
-        assertThat(content.bigText).doesNotContain("Confirm PIN")
+        assertThat(content.fileList).contains("vacation.jpg")
+        assertThat(content.fileList).contains("2.0 MB")
+        assertThat(content.fileList).contains("clip.mp4")
+        assertThat(content.fileList).contains("\n")
+    }
+
+    @Test
+    fun `fileList caps the list and appends an and-N-more trailer`() {
+        val items: List<TransferItem> =
+            (1..12).map { TransferItem.File(it.toLong(), "f$it.bin", 10L, "application/octet-stream") }
+        val content =
+            ConsentNotificationContent.from(
+                resolver = englishResolver(),
+                entry = sampleEntry(itemCount = items.size, totalSize = 120L, items = items),
+            )
+        // MAX_LISTED_ITEMS is 8, so 12 items leave 4 in the trailer.
+        assertThat(content.fileList).contains("…and 4 more")
+        assertThat(content.fileList).doesNotContain("f12.bin")
+    }
+
+    @Test
+    fun `fileList is empty when there is no items list`() {
+        val content =
+            ConsentNotificationContent.from(
+                resolver = englishResolver(),
+                entry = sampleEntry(itemCount = 0, totalSize = 0L, items = emptyList()),
+            )
+        assertThat(content.fileList).isEmpty()
     }
 
     @Test
@@ -355,6 +397,14 @@ class ConsentNotificationContentTest {
                     String.format(java.util.Locale.ROOT, "%d phone number(s)", args[0])
                 R.string.consent_notification_segment_texts ->
                     String.format(java.util.Locale.ROOT, "%d text(s)", args[0])
+                R.string.consent_notification_segment_photos ->
+                    String.format(java.util.Locale.ROOT, "%d photo(s)", args[0])
+                R.string.consent_notification_segment_videos ->
+                    String.format(java.util.Locale.ROOT, "%d video(s)", args[0])
+                R.string.consent_notification_filelist_item ->
+                    String.format(java.util.Locale.ROOT, "%s · %s", args[0], args[1])
+                R.string.consent_notification_filelist_more ->
+                    String.format(java.util.Locale.ROOT, "…and %d more", args[0])
                 R.string.consent_notification_summary_folder ->
                     String.format(java.util.Locale.ROOT, "Folder \"%s\" (%d file(s), %s)", args[0], args[1], args[2])
                 R.string.consent_notification_body ->

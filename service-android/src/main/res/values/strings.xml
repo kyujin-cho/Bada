@@ -91,6 +91,12 @@
     <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">%1$d address(es)</string>
     <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">%1$d phone number(s)</string>
     <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">%1$d text(s)</string>
+    <string name="consent_notification_segment_photos" tools:ignore="PluralsCandidate">%1$d photo(s)</string>
+    <string name="consent_notification_segment_videos" tools:ignore="PluralsCandidate">%1$d video(s)</string>
+    <!-- PIN chip caption + expanded file-list strings (heads-up redesign). -->
+    <string name="consent_notification_pin_label">PIN</string>
+    <string name="consent_notification_filelist_item">%1$s · %2$s</string>
+    <string name="consent_notification_filelist_more" tools:ignore="PluralsCandidate">…and %1$d more</string>
 
     <!--
       Folder-receive summary (#39). Surfaced when the introduction
