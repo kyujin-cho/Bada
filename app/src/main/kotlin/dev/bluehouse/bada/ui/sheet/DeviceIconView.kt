@@ -51,7 +51,7 @@ public class DeviceIconView(
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setPadding(0, (6 * d).toInt(), 0, 0)
-                maxLines = 1
+                maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
         addView(nameView, LayoutParams((96 * d).toInt(), LayoutParams.WRAP_CONTENT))
