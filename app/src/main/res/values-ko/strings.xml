@@ -49,6 +49,7 @@
     <string name="update_subtitle_latest_version">%1$s</string>
     <string name="update_button_check_again">다시 확인</string>
     <string name="update_button_update">업데이트</string>
+    <string name="update_open_release_failed">릴리스 페이지를 열 수 없습니다.</string>
 
     <!-- `credit_section_developer`, `credit_section_polisher`,
          `credit_section_qa`, `credit_section_thanks` are intentionally

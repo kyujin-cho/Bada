@@ -5,11 +5,13 @@
  */
 package dev.bluehouse.bada.update
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -17,6 +19,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import dev.bluehouse.bada.R
+import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import kotlinx.coroutines.launch
 
 /**
@@ -113,10 +116,22 @@ internal class CheckForUpdatesActivity : AppCompatActivity() {
             Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-        // resolveActivity guards the rare case where no browser is
-        // installed; without it the explicit intent throws ActivityNotFound.
-        if (intent.resolveActivity(packageManager) != null) {
+        // Launch the browser directly and fall back to a toast if nothing
+        // can handle the intent. The previous `resolveActivity` guard
+        // returned null on Android 11+ (package-visibility filtering hides
+        // browsers unless we declare a matching <queries> intent), so the
+        // release page never opened even though a browser was installed.
+        // try/catch is the visibility-independent pattern used elsewhere
+        // (see BugReportFlowSupport).
+        try {
             startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            DiagnosticLog.w(TAG, "Could not open release page: $url", e)
+            Toast.makeText(this, R.string.update_open_release_failed, Toast.LENGTH_LONG).show()
         }
+    }
+
+    private companion object {
+        private const val TAG = "BadaUpdate"
     }
 }
