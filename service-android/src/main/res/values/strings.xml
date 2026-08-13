@@ -107,19 +107,6 @@
     -->
     <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">Folder \"%1$s\" (%2$d file(s), %3$s)</string>
 
-    <!--
-      Body line shown collapsed: "%summary% — PIN %pin%". The PIN is
-      always the 4-digit confirmation code from TransferMetadata.
-    -->
-    <string name="consent_notification_body">%1$s · PIN %2$s</string>
-
-    <!--
-      Expanded-notification PIN re-iteration. Repeating the PIN on the
-      big-text view makes it readable without dismissing other
-      notifications above ours.
-    -->
-    <string name="consent_notification_bigtext_pin_line">Confirm PIN: %1$s</string>
-
     <!-- Action button labels. -->
     <string name="consent_notification_action_accept">Accept</string>
     <string name="consent_notification_action_reject">Reject</string>

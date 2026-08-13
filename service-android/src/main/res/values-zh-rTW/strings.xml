@@ -47,9 +47,6 @@
     <!-- Folder-receive summary (#39). -->
     <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">資料夾「%1$s」（%2$d 個檔案，%3$s）</string>
 
-    <string name="consent_notification_body">%1$s · PIN %2$s</string>
-    <string name="consent_notification_bigtext_pin_line">確認 PIN 碼：%1$s</string>
-
     <string name="consent_notification_action_accept">接受</string>
     <string name="consent_notification_action_reject">拒絕</string>
 

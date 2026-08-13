@@ -53,8 +53,14 @@ public data class ConsentNotificationContent(
          * expanded notification. A typical Quick Share consent prompt
          * shows at most a handful of files; capping protects against a
          * malicious or buggy peer announcing thousands of items.
+         *
+         * Line budget: the expanded list TextView allows `maxLines="9"`
+         * (see `notification_consent.xml`), which must hold these 7
+         * item lines plus the "…and N more" trailer with one spare
+         * line, so a single wrapped long filename cannot silently push
+         * the trailer off the end. Keep the two values in sync.
          */
-        public const val MAX_LISTED_ITEMS: Int = 8
+        public const val MAX_LISTED_ITEMS: Int = 7
 
         /**
          * Build content from a [ConsentRegistry.Entry] and a
@@ -153,15 +159,21 @@ public data class ConsentNotificationContent(
             return buildString {
                 shown.forEachIndexed { index, item ->
                     if (index > 0) append('\n')
+                    // Names and titles are raw peer-supplied strings:
+                    // sanitize them so an embedded newline / control char
+                    // cannot forge extra list lines, and fall back to the
+                    // kind name for a blank text title (same fallback the
+                    // consent trampoline uses) so no line renders empty.
                     val line =
                         when (item) {
                             is TransferItem.File ->
                                 resolver.formatted(
                                     R.string.consent_notification_filelist_item,
-                                    item.name,
+                                    sanitizeDisplayLine(item.name),
                                     humanReadableSize(item.size),
                                 )
-                            is TransferItem.Text -> item.title
+                            is TransferItem.Text ->
+                                sanitizeDisplayLine(item.title).ifBlank { item.kind.name }
                         }
                     append(line)
                 }
@@ -248,6 +260,19 @@ public data class ConsentNotificationContent(
                 humanReadableSize(totalSize),
             )
         }
+
+        /**
+         * Collapse a raw peer-supplied display string onto a single
+         * line: every run of Unicode control characters (newlines,
+         * tabs, NUL, …) becomes one space, then the result is trimmed.
+         * Used for the expanded file list, where an embedded `\n` in a
+         * filename or text title would otherwise forge extra list
+         * lines (e.g. a fake "…and N more" trailer) and eat the
+         * `maxLines` budget.
+         */
+        public fun sanitizeDisplayLine(raw: String): String = raw.replace(CONTROL_CHARS, " ").trim()
+
+        private val CONTROL_CHARS = Regex("\\p{Cc}+")
 
         /**
          * Inspect the announced [items] and return the common root

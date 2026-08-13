@@ -47,9 +47,6 @@
     <!-- Folder-receive summary (#39). -->
     <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">フォルダ \"%1$s\"（ファイル %2$d 件、%3$s）</string>
 
-    <string name="consent_notification_body">%1$s · PIN %2$s</string>
-    <string name="consent_notification_bigtext_pin_line">PIN を確認: %1$s</string>
-
     <string name="consent_notification_action_accept">承諾</string>
     <string name="consent_notification_action_reject">拒否</string>
 

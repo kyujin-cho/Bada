@@ -17,6 +17,7 @@ import android.os.PowerManager
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import dev.bluehouse.bada.service.R
 
 /**
@@ -190,9 +191,9 @@ public object ConsentNotification {
 
         // Decide ONCE whether this post should interrupt with the
         // full-screen consent sheet (device locked / screen off) or a
-        // heads-up banner (device in use). Both the ongoing flag and the
-        // full-screen intent hang off this so the in-use path is a clean,
-        // peekable heads-up.
+        // heads-up banner (device in use). Only the full-screen intent
+        // hangs off this — see setOngoing below for why the ongoing flag
+        // does not.
         val useFullScreen = shouldUseFullScreenConsent(context)
 
         val builder =
@@ -204,24 +205,25 @@ public object ConsentNotification {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 // Tints the DecoratedCustomViewStyle small-icon circle (the
-                // left-side icon) brand blue.
-                .setColor(ConsentThumbnail.LEFT_ICON_TINT)
-                // Ongoing ONLY on the locked / full-screen path: there the
-                // sheet owns the screen and swipe-to-reject would be a
-                // mis-tap. While the device is in use we must NOT mark it
-                // ongoing — vivo (and several other OEMs) suppress the
-                // heads-up banner for ongoing notifications, so it would only
-                // buzz into the shade instead of peeking. Swiping the in-use
-                // banner away still does NOT auto-reject (the peer keeps
-                // waiting for an explicit decision via the trampoline), which
-                // preserves the issue #22 contract.
-                .setOngoing(useFullScreen)
+                // left-side icon) brand blue — same accent the layout uses
+                // for the PIN chip and Accept button.
+                .setColor(ContextCompat.getColor(context, R.color.consent_accent))
+                // ALWAYS ongoing: the consent prompt is the only surface that
+                // resolves the peer's pending request, and there is no
+                // deleteIntent / re-post path — a swipe-dismiss would silently
+                // strand the sender until timeout. Keeping it non-dismissible
+                // on every path (not just the locked / full-screen one)
+                // guarantees the prompt survives a stray swipe on an unlocked
+                // device. The vivo fix for full-screen-intent misuse lives
+                // solely in the keyguard / interactive gating of
+                // setFullScreenIntent below, not in this flag.
+                .setOngoing(true)
                 .setAutoCancel(false)
                 .setShowWhen(true)
 
         // A custom RemoteViews body (notification_consent) wired with the same
         // broadcast PendingIntents the standard action buttons would use:
-        // recolored Decline/Accept as a centered pair, the PIN as its own
+        // recolored Decline/Accept in a start-aligned row, the PIN as its own
         // prominent chip, and a thumbnail of the incoming item.
         // DecoratedCustomViewStyle keeps the native notification frame (small
         // icon, app name, time) and renders our layout as the body. The
@@ -285,10 +287,11 @@ public object ConsentNotification {
             setTextViewText(R.id.notif_consent_decline, content.rejectLabel)
             setOnClickPendingIntent(R.id.notif_consent_accept, acceptIntent)
             setOnClickPendingIntent(R.id.notif_consent_decline, rejectIntent)
-            // The gallery glyph is now a theme-tinted vector set in the
-            // layout (ic_consent_gallery + ?attr/textColorSecondary) so it
-            // adapts to the notification's light / dark background — no
-            // runtime bitmap needed.
+            // The gallery glyph is a vector set in the layout
+            // (ic_consent_gallery) with a fixed mid-grey tint that stays
+            // legible on both light and dark notification cards — no
+            // runtime bitmap needed. (Theme-attr tints are deliberately
+            // avoided in RemoteViews; see the layout comment.)
             val showList = expanded && content.fileList.isNotEmpty()
             setViewVisibility(R.id.notif_consent_filelist, if (showList) View.VISIBLE else View.GONE)
             if (showList) {

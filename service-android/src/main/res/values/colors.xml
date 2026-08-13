@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand-blue accent used across the consent notification: the PIN
+         caption + digits, the Accept button background, and the
+         DecoratedCustomViewStyle small-icon circle (read at runtime in
+         ConsentNotification.build). Single source of truth for #FF0A84FF
+         inside :service-android. -->
+    <color name="consent_accent">#FF0A84FF</color>
+</resources>

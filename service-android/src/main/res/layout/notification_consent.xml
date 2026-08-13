@@ -7,7 +7,7 @@
 
   Layout: a top row (title + one-line summary on the LEFT, a small rounded
   placeholder thumbnail on the RIGHT — notif_consent_thumb), then the two consent
-  buttons as a centered pair with a small gap (Decline left / Accept right,
+  buttons in a start-aligned row with a small gap (Decline left / Accept right,
   recolored). The LEFT-side icon is the DecoratedCustomViewStyle small-icon
   circle (tinted via setColor in ConsentNotification.build). Only
   RemoteViews-supported views are used (LinearLayout/TextView/Button/ImageView).
@@ -48,12 +48,12 @@
                 android:textAppearance="@style/TextAppearance.Compat.Notification.Title"
                 android:textStyle="bold" />
 
-            <!-- Summary + PIN on ONE line, both LEFT-aligned: the
-                 "N photos (size)" summary sizes to its text and the PIN sits
-                 immediately to its right (not pushed to the far edge).
-                 Keeping the PIN on the summary line (not its own row) keeps
-                 the card short so the action buttons always fit the
-                 collapsed / heads-up height budget. -->
+            <!-- Summary + PIN on ONE line: the "N photos (size)" summary
+                 takes the leftover width (weight=1) and ellipsizes, while the
+                 PIN caption + digits keep their full natural width at the end
+                 of the row. Keeping the PIN on the summary line (not its own
+                 row) keeps the card short so the action buttons always fit
+                 the collapsed / heads-up height budget. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -61,10 +61,17 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
+                <!-- 0dp + weight=1 (not wrap_content): the summary must yield
+                     space to the PIN views, which are measured at their full
+                     natural width first. A wrap_content summary with no weight
+                     (e.g. a long folder-share path) would measure the PIN
+                     caption + digits down to 0 width and squeeze the security
+                     digits off-screen. -->
                 <TextView
                     android:id="@+id/notif_consent_body"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:ellipsize="end"
                     android:maxLines="1"
                     android:textAppearance="@style/TextAppearance.Compat.Notification.Line2" />
@@ -74,7 +81,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:text="@string/consent_notification_pin_label"
-                    android:textColor="#FF0A84FF"
+                    android:textColor="@color/consent_accent"
                     android:textSize="11sp"
                     android:textStyle="bold" />
 
@@ -84,7 +91,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="5dp"
                     android:letterSpacing="0.1"
-                    android:textColor="#FF0A84FF"
+                    android:textColor="@color/consent_accent"
                     android:textSize="14sp"
                     android:textStyle="bold"
                     tools:text="1234" />
@@ -92,8 +99,11 @@
         </LinearLayout>
 
         <!-- notif_consent_thumb — line-art gallery glyph on the RIGHT. The
-             vector src + ?attr/textColorSecondary tint makes it follow the
-             notification card's light / dark theme so it stays visible. -->
+             tint is a fixed mid-grey literal, NOT a theme attribute:
+             theme-attr resolution inside RemoteViews is unreliable across
+             OEM notification shades (the merged #233 deliberately avoided
+             it), and #FF8A8A8E stays legible on both the light and dark
+             notification card backgrounds. -->
         <ImageView
             android:id="@+id/notif_consent_thumb"
             android:layout_width="42dp"
@@ -101,14 +111,19 @@
             android:layout_marginStart="12dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_consent_gallery"
-            android:tint="?android:attr/textColorSecondary"
+            android:tint="#FF8A8A8E"
             tools:ignore="ContentDescription,UseAppTint" />
     </LinearLayout>
 
     <!-- Expanded-only per-file list ("name · size", one per line). GONE in the
          collapsed / heads-up RemoteViews; the builder flips it VISIBLE and sets
          its text on the big-content RemoteViews so pulling the notification down
-         reveals exactly what is being sent. -->
+         reveals exactly what is being sent.
+
+         Line budget: maxLines="9" holds MAX_LISTED_ITEMS (7) item lines plus
+         the "…and N more" trailer, with one spare line so a single wrapped
+         long filename cannot push the trailer off the end. Keep in sync with
+         ConsentNotificationContent.MAX_LISTED_ITEMS. -->
     <TextView
         android:id="@+id/notif_consent_filelist"
         android:layout_width="match_parent"
@@ -120,8 +135,8 @@
         android:visibility="gone"
         tools:text="photo1.jpg · 2.1 MB&#10;photo2.jpg · 1.4 MB" />
 
-    <!-- Buttons as a centered pair with a small gap (moved closer together,
-         no longer pinned to the opposite edges). -->
+    <!-- Buttons in a start-aligned row with a small gap (moved closer
+         together, no longer pinned to the opposite edges). -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

@@ -2,7 +2,7 @@
 <!-- Accept button: filled brand-blue pill. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#FF0A84FF" />
+    <solid android:color="@color/consent_accent" />
     <corners android:radius="22dp" />
     <padding
         android:left="18dp"

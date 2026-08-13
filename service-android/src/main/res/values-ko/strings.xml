@@ -46,9 +46,6 @@
     <!-- Folder-receive summary (#39). -->
     <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">폴더 \"%1$s\" (파일 %2$d개, %3$s)</string>
 
-    <string name="consent_notification_body">%1$s · PIN %2$s</string>
-    <string name="consent_notification_bigtext_pin_line">PIN 확인: %1$s</string>
-
     <string name="consent_notification_action_accept">수락</string>
     <string name="consent_notification_action_reject">거부</string>
 
