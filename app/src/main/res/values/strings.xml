@@ -29,6 +29,7 @@
     <string name="update_subtitle_latest_version">%1$s</string>
     <string name="update_button_check_again">Check again</string>
     <string name="update_button_update">Update</string>
+    <string name="update_open_release_failed">Couldn\'t open the release page.</string>
     <string name="credit_placeholder_text">credit</string>
 
     <!--
