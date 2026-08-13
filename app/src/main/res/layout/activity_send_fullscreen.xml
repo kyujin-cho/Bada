@@ -313,22 +313,31 @@
                       vertically centered inside this slot rather than
                       hugging the slot's top edge.
                     -->
-                    <!-- Negative side margins cancel the picker's 16dp side
-                         padding so the peer list (and its press ripple) spans
-                         the full card width to the rounded edges. Each row's
-                         own 16dp padding then aligns the row text with the
-                         16dp-inset header above. -->
                     <FrameLayout
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
-                        android:layout_marginStart="-16dp"
-                        android:layout_marginEnd="-16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
-                        android:clipChildren="false"
-                        android:clipToPadding="false">
+                        android:clipChildren="true"
+                        android:clipToPadding="true">
 
-                        <ScrollView
+                        <!--
+                          Device picker grid. A vertical NestedScrollView
+                          (not a plain ScrollView: this slot lives inside
+                          the activity's outer NestedScrollView, and a
+                          plain ScrollView would be starved of every
+                          vertical drag by the parent) wraps a centered,
+                          wrapping FlowLayout grid of circular
+                          DeviceIconView chips. The grid shows as many
+                          icons per row as the card width allows and grows
+                          downward, so the list scrolls vertically once the
+                          device count overflows the ~480dp card. The
+                          empty-state line + same-Wi-Fi hint sit below the
+                          grid in the same scrolling column. This mirrors
+                          the share-sheet picker (activity_send.xml) so the
+                          two pickers render identically.
+                        -->
+                        <androidx.core.widget.NestedScrollView
                             android:id="@+id/send_peer_scroll"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
@@ -341,11 +350,10 @@
                                 android:layout_height="wrap_content"
                                 android:orientation="vertical">
 
-                                <LinearLayout
+                                <dev.bluehouse.bada.ui.sheet.FlowLayout
                                     android:id="@+id/send_peer_list"
                                     android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:orientation="vertical" />
+                                    android:layout_height="wrap_content" />
 
                                 <!--
                                   Initial visibility = gone. The send-side
@@ -413,7 +421,7 @@
 
                             </LinearLayout>
 
-                        </ScrollView>
+                        </androidx.core.widget.NestedScrollView>
 
                         <LinearLayout
                             android:id="@+id/send_status_panel"

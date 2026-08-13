@@ -242,33 +242,28 @@
                         android:layout_width="0dp"
                         android:layout_height="match_parent"
                         android:layout_weight="1"
-                        android:clipChildren="false"
-                        android:clipToPadding="false">
+                        android:clipChildren="true"
+                        android:clipToPadding="true">
+
+                        <androidx.core.widget.NestedScrollView
+                            android:id="@+id/send_peer_scroll"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:fadingEdgeLength="32dp"
+                            android:fillViewport="true"
+                            android:overScrollMode="never"
+                            android:requiresFadingEdge="vertical">
 
                         <LinearLayout
                             android:layout_width="match_parent"
-                            android:layout_height="match_parent"
+                            android:layout_height="wrap_content"
                             android:gravity="center_horizontal"
                             android:orientation="vertical">
 
-                            <HorizontalScrollView
-                                android:id="@+id/send_peer_scroll"
+                            <dev.bluehouse.bada.ui.sheet.FlowLayout
+                                android:id="@+id/send_peer_list"
                                 android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:fadingEdgeLength="32dp"
-                                android:overScrollMode="never"
-                                android:requiresFadingEdge="horizontal"
-                                android:scrollbars="none">
-
-                                <LinearLayout
-                                    android:id="@+id/send_peer_list"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:gravity="center_vertical"
-                                    android:minWidth="0dp"
-                                    android:orientation="horizontal" />
-
-                            </HorizontalScrollView>
+                                android:layout_height="wrap_content" />
 
                             <TextView
                                 android:id="@+id/send_empty_state"
@@ -317,6 +312,8 @@
                             </LinearLayout>
 
                         </LinearLayout>
+
+                        </androidx.core.widget.NestedScrollView>
 
                         <!-- Status panel (sending / awaiting PIN / terminal),
                              centered in the right half. -->

@@ -209,94 +209,94 @@
                     android:layout_height="0dp"
                     android:layout_marginTop="16dp"
                     android:layout_weight="1"
-                    android:clipChildren="false"
-                    android:clipToPadding="false">
+                    android:clipChildren="true"
+                    android:clipToPadding="true">
 
                     <!--
-                      Picker container. Vertical stack: a HORIZONTAL row
-                      of circular DeviceIconView icons (added at runtime
-                      to send_peer_list, wrapped in a HorizontalScrollView)
-                      over the empty-state line + same-Wi-Fi hint card.
-                      send_peer_scroll keeps its id (View-level toggles
-                      only in code) but is now the horizontal device
-                      scroller; the empty-state / hint live in a separate
-                      column below so the chips scroll independently.
+                      Device picker grid. A vertical NestedScrollView wraps
+                      a centered, wrapping FlowLayout grid of circular
+                      DeviceIconView chips (added at runtime to
+                      send_peer_list) over the empty-state line + same-Wi-Fi
+                      hint card. The grid shows as many icons per row as the
+                      sheet width allows and grows downward, so the list
+                      scrolls vertically once the device count overflows the
+                      fixed 480dp card. DraggableSheetLayout yields its
+                      pull-to-dismiss drag to this list until it is scrolled
+                      to the top. Identical to the in-app picker
+                      (activity_send_fullscreen.xml); only the surrounding
+                      container differs.
                     -->
-                    <LinearLayout
+                    <androidx.core.widget.NestedScrollView
+                        android:id="@+id/send_peer_scroll"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical">
-
-                        <HorizontalScrollView
-                            android:id="@+id/send_peer_scroll"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:fadingEdgeLength="32dp"
-                            android:overScrollMode="never"
-                            android:requiresFadingEdge="horizontal"
-                            android:scrollbars="none">
-
-                            <LinearLayout
-                                android:id="@+id/send_peer_list"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:gravity="center_vertical"
-                                android:minWidth="0dp"
-                                android:orientation="horizontal" />
-
-                        </HorizontalScrollView>
-
-                        <TextView
-                            android:id="@+id/send_empty_state"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="24dp"
-                            android:paddingHorizontal="16dp"
-                            android:gravity="center"
-                            android:text="@string/send_empty_state"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-                            android:visibility="gone" />
+                        android:fadingEdgeLength="48dp"
+                        android:fillViewport="true"
+                        android:overScrollMode="never"
+                        android:requiresFadingEdge="vertical">
 
                         <LinearLayout
-                            android:id="@+id/send_network_hint"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="16dp"
-                            android:layout_marginEnd="16dp"
-                            android:layout_marginTop="16dp"
-                            android:background="?android:attr/colorBackgroundFloating"
-                            android:orientation="vertical"
-                            android:padding="16dp"
-                            android:visibility="gone">
+                            android:orientation="vertical">
+
+                            <dev.bluehouse.bada.ui.sheet.FlowLayout
+                                android:id="@+id/send_peer_list"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content" />
 
                             <TextView
-                                android:id="@+id/send_network_hint_title"
+                                android:id="@+id/send_empty_state"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:text="@string/send_network_hint_title"
-                                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
-                                android:textStyle="bold" />
+                                android:layout_marginTop="24dp"
+                                android:paddingHorizontal="16dp"
+                                android:gravity="center"
+                                android:text="@string/send_empty_state"
+                                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                android:visibility="gone" />
 
-                            <TextView
-                                android:id="@+id/send_network_hint_body"
+                            <LinearLayout
+                                android:id="@+id/send_network_hint"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp"
-                                android:text="@string/send_network_hint_body"
-                                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                                android:layout_marginStart="16dp"
+                                android:layout_marginEnd="16dp"
+                                android:layout_marginTop="16dp"
+                                android:background="?android:attr/colorBackgroundFloating"
+                                android:orientation="vertical"
+                                android:padding="16dp"
+                                android:visibility="gone">
 
-                            <Button
-                                android:id="@+id/send_network_hint_dismiss"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_gravity="end"
-                                android:layout_marginTop="8dp"
-                                android:text="@string/send_network_hint_dismiss" />
+                                <TextView
+                                    android:id="@+id/send_network_hint_title"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/send_network_hint_title"
+                                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/send_network_hint_body"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="8dp"
+                                    android:text="@string/send_network_hint_body"
+                                    android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+                                <Button
+                                    android:id="@+id/send_network_hint_dismiss"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="end"
+                                    android:layout_marginTop="8dp"
+                                    android:text="@string/send_network_hint_dismiss" />
+
+                            </LinearLayout>
 
                         </LinearLayout>
 
-                    </LinearLayout>
+                    </androidx.core.widget.NestedScrollView>
 
                     <LinearLayout
                         android:id="@+id/send_status_panel"

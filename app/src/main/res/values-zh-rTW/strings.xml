@@ -335,5 +335,6 @@
     <string name="update_subtitle_latest_version">%1$s</string>
     <string name="update_button_check_again">再次檢查</string>
     <string name="update_button_update">更新</string>
+    <string name="update_open_release_failed">無法開啟發行頁面。</string>
 
 </resources>

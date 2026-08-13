@@ -7,7 +7,7 @@ package dev.bluehouse.bada.send
 
 import android.content.Context
 import android.view.View
-import android.widget.LinearLayout
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -32,7 +32,7 @@ import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog as Log
 @Suppress("LongParameterList") // Every collaborator (UI, lifecycle, callbacks, sender id) is needed.
 internal class SendPeerPickerController(
     private val context: Context,
-    private val peerList: LinearLayout,
+    private val peerList: ViewGroup,
     private val emptyState: TextView,
     private val networkHint: View,
     private val subtitle: TextView,

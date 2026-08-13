@@ -376,13 +376,61 @@ public class DraggableSheetLayout
                     dragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (e.rawY - downRawY > touchSlop) {
+                    // Only claim the downward drag for pull-to-dismiss when no
+                    // scrollable descendant under the pointer can still scroll
+                    // up. The device-picker grid is a vertical NestedScrollView;
+                    // without this guard the sheet would hijack every downward
+                    // swipe and dismiss instead of letting the list scroll back
+                    // toward its top. Once the list is at the top (can no longer
+                    // scroll up), the downward drag resumes its dismiss role.
+                    if (e.rawY - downRawY > touchSlop && !canScrollableChildScrollUp(e.rawX, e.rawY)) {
                         dragging = true
                         return true
                     }
                 }
             }
             return false
+        }
+
+        /**
+         * True when a visible scrollable descendant whose on-screen bounds
+         * contain the pointer can still scroll up (its content is not at the
+         * top). Used by [onInterceptTouchEvent] to yield the downward drag to
+         * an inner vertical scroll list before the sheet's pull-to-dismiss.
+         */
+        private fun canScrollableChildScrollUp(
+            rawX: Float,
+            rawY: Float,
+        ): Boolean = scrollableChildUnder(this, rawX, rawY)?.canScrollVertically(-1) == true
+
+        private fun scrollableChildUnder(
+            parent: ViewGroup,
+            rawX: Float,
+            rawY: Float,
+        ): View? =
+            (parent.childCount - 1 downTo 0)
+                .asSequence()
+                .map { parent.getChildAt(it) }
+                .filter { it.visibility == View.VISIBLE && containsPoint(it, rawX, rawY) }
+                .firstNotNullOfOrNull { child ->
+                    when {
+                        child.canScrollVertically(-1) -> child
+                        child is ViewGroup -> scrollableChildUnder(child, rawX, rawY)
+                        else -> null
+                    }
+                }
+
+        private fun containsPoint(
+            view: View,
+            rawX: Float,
+            rawY: Float,
+        ): Boolean {
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            return rawX >= location[0] &&
+                rawX <= location[0] + view.width &&
+                rawY >= location[1] &&
+                rawY <= location[1] + view.height
         }
 
         @Suppress("ClickableViewAccessibility")
