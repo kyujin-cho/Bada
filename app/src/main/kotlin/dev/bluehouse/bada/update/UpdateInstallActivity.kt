@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import dev.bluehouse.bada.R
 
@@ -25,19 +26,19 @@ import dev.bluehouse.bada.R
  * WHAT IT DOES (no visible screen of its own)
  * -------------------------------------------
  * 1. Clears the "update available" notification.
- * 2. If this app may not yet install packages (`!canInstallPackages`) → opens
+ * 2. On DEBUG builds (`.debug` applicationIdSuffix) → opens the GitHub
+ *    release page instead: the release APK's package never matches a debug
+ *    install, so the direct-install path can only fail.
+ * 3. If this app may not yet install packages (`!canInstallPackages`) → opens
  *    the system "allow this source to install apps" settings page (ONE-TIME
  *    grant, not per-boot), shows a short toast, and finishes.
- * 3. Otherwise → kicks off [UpdateDownloadInstaller.installFromUrl] (download
- *    on a worker thread → system installer) and finishes immediately.
+ * 4. Otherwise → enqueues [UpdateDownloadInstaller.enqueue] (an expedited
+ *    WorkManager download → system installer) and finishes immediately.
  *
  * INVOKED BY: PendingIntent in [UpdateNotifier.downloadAndInstallIntent].
  * Manifest: registered transparent, `exported=false`, `excludeFromRecents`,
  * `noHistory` so it never lingers in the task list. Needs the
  * `REQUEST_INSTALL_PACKAGES` manifest permission.
- *
- * STATUS: compile-only / DEVICE-UNVERIFIED — the grant gate + install launch
- * need an on-device run.
  */
 internal class UpdateInstallActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,29 +46,65 @@ internal class UpdateInstallActivity : Activity() {
 
         val apkUrl = intent?.getStringExtra(EXTRA_APK_URL)
         val version = intent?.getStringExtra(EXTRA_VERSION).orEmpty()
+        val releaseUrl = intent?.getStringExtra(EXTRA_RELEASE_URL)
 
         // Dismiss the alert that launched us so it does not linger after action.
         UpdateNotifier.cancel(this)
 
-        if (apkUrl.isNullOrBlank()) {
-            finish()
-            return
-        }
-
-        if (!canInstallPackages()) {
-            // One-time grant: send the user to enable "install unknown apps",
-            // then have them tap Download again.
-            runCatching { startActivity(unknownSourcesSettingsIntent()) }
-            Toast
-                .makeText(this, R.string.update_install_need_unknown_sources, Toast.LENGTH_LONG)
-                .show()
-            finish()
-            return
-        }
-
-        UpdateDownloadInstaller.installFromUrl(applicationContext, apkUrl, version)
-        Toast.makeText(this, R.string.update_install_started, Toast.LENGTH_SHORT).show()
+        handleDownloadRequest(apkUrl, version, releaseUrl)
         finish()
+    }
+
+    private fun handleDownloadRequest(
+        apkUrl: String?,
+        version: String,
+        releaseUrl: String?,
+    ) {
+        when {
+            apkUrl.isNullOrBlank() -> Unit
+
+            isDebugBuild() -> {
+                // applicationIdSuffix ".debug": the downloaded release APK's
+                // package (dev.bluehouse.bada) can never update this install
+                // (dev.bluehouse.bada.debug), so route to the release page.
+                Log.i(
+                    TAG,
+                    "Debug build ($packageName) cannot self-install the release APK; opening the release page",
+                )
+                openReleasePage(releaseUrl)
+            }
+
+            !canInstallPackages() -> {
+                // One-time grant: send the user to enable "install unknown
+                // apps", then have them tap Download again.
+                runCatching { startActivity(unknownSourcesSettingsIntent()) }
+                Toast
+                    .makeText(this, R.string.update_install_need_unknown_sources, Toast.LENGTH_LONG)
+                    .show()
+            }
+
+            else -> {
+                UpdateDownloadInstaller.enqueue(applicationContext, apkUrl, version)
+                Toast.makeText(this, R.string.update_install_started, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** `true` on debug installs, which carry the `.debug` applicationIdSuffix. */
+    private fun isDebugBuild(): Boolean = packageName.endsWith(".debug")
+
+    private fun openReleasePage(releaseUrl: String?) {
+        val opened =
+            !releaseUrl.isNullOrBlank() &&
+                runCatching {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }.isSuccess
+        if (!opened) {
+            Toast.makeText(this, R.string.update_open_release_failed, Toast.LENGTH_LONG).show()
+        }
     }
 
     /**
@@ -89,7 +126,9 @@ internal class UpdateInstallActivity : Activity() {
         )
 
     internal companion object {
+        private const val TAG = "UpdateInstallActivity"
         const val EXTRA_APK_URL = "dev.bluehouse.bada.update.extra.APK_URL"
         const val EXTRA_VERSION = "dev.bluehouse.bada.update.extra.VERSION"
+        const val EXTRA_RELEASE_URL = "dev.bluehouse.bada.update.extra.RELEASE_URL"
     }
 }

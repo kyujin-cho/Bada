@@ -42,9 +42,6 @@ import dev.bluehouse.bada.BuildConfig
  * ---------------
  * PeriodicWork survives reboots with zero user action (the schedule is persisted
  * and re-enqueued by the OS) — no BootReceiver needed.
- *
- * STATUS: compile-only / DEVICE-UNVERIFIED. The version-comparison + dedup logic
- * is plain and unit-testable.
  */
 internal class UpdateCheckWorker(
     appContext: Context,
@@ -59,7 +56,7 @@ internal class UpdateCheckWorker(
                 // Keep the red-dot badge source-of-truth current regardless of notify.
                 prefs.saveLatestRelease(release.version, release.releaseUrl)
 
-                if (isNewer(release.version, BuildConfig.VERSION_NAME) &&
+                if (UpdateVersions.isNewer(release.version, BuildConfig.VERSION_NAME) &&
                     release.version != prefs.lastNotifiedVersion()
                 ) {
                     UpdateNotifier.notifyUpdateAvailable(
@@ -74,17 +71,6 @@ internal class UpdateCheckWorker(
         }
         return Result.success()
     }
-
-    /**
-     * Strict-greater comparison. Works for the project's fixed `YYYYMMDD.NN`
-     * versionName because every field is zero-padded to a fixed width, so a
-     * plain lexicographic compare is monotonic with release order. Matches
-     * [UpdateRepository]'s identical helper.
-     */
-    private fun isNewer(
-        candidate: String,
-        installed: String,
-    ): Boolean = candidate > installed
 
     internal companion object {
         /** Unique name for the periodic work (see BadaApplication). */

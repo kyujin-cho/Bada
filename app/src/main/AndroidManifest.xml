@@ -127,6 +127,13 @@
          downloaded APK via PackageInstaller (a true drop-in self-update). The
          "install unknown apps" grant it gates on is one-time (not per-boot). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- The update-download worker (UpdateInstallWorker) runs as expedited
+         WorkManager work, which is executed inside WorkManager's foreground
+         service on pre-API-31 devices. API 34+ requires the service's FGS
+         type (dataSync, declared on SystemForegroundService below) to be
+         backed by this typed permission. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Bind the radio-helper companion APK's RadioService (signature-protected
@@ -506,10 +513,20 @@
         <!-- Receives PackageInstaller status for the auto-update "Download &
              install" flow (UpdateDownloadInstaller). Not exported — only the
              app's own session PendingIntent targets it; it launches the system
-             install confirm dialog and toasts the result. -->
+             install confirm dialog (or a shade notification when backgrounded)
+             and toasts the result. -->
         <receiver
             android:name=".update.UpdateInstallReceiver"
             android:exported="false" />
+
+        <!-- WorkManager's foreground-service host. The merge override pins the
+             dataSync FGS type so the expedited update-download worker
+             (UpdateInstallWorker) can foreground itself on API 34+, where an
+             FGS without a declared type crashes at startForeground(). -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
     </application>
 

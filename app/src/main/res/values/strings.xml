@@ -44,7 +44,11 @@
     <string name="update_install_started">Downloading update…</string>
     <string name="update_install_success">Bada updated</string>
     <string name="update_install_failed">Couldn\'t install the update</string>
+    <string name="update_confirm_notification_title">Confirm Bada update</string>
+    <string name="update_confirm_notification_text">Tap to review and finish installing the update.</string>
     <string name="update_open_release_failed">Couldn\'t open the release page.</string>
+    <string name="settings_auto_update_title">Automatic update check</string>
+    <string name="settings_auto_update_subtitle">Every 6 hours, check GitHub for a newer Bada release and show a notification when one is available.</string>
     <string name="credit_placeholder_text">credit</string>
 
     <!--

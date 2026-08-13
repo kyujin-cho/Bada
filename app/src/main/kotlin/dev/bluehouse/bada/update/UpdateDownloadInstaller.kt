@@ -5,16 +5,21 @@
  */
 package dev.bluehouse.bada.update
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.app.Notification
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.pm.ServiceInfo
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import dev.bluehouse.bada.R
 import java.net.HttpURLConnection
 import java.net.URL
@@ -30,30 +35,30 @@ import java.net.URL
  * WHO CALLS IT
  * ------------
  * [UpdateInstallActivity] (the trampoline launched by the notification's
- * "Download & install" action), AFTER it has confirmed
+ * "Download & install" action) calls [enqueue] AFTER it has confirmed
  * `canRequestPackageInstalls()`.
  *
  * THREADING
  * ---------
- * Runs the network read + session write on a dedicated worker thread — the APK
- * is multiple MB, so it must never touch the main thread (ANR). The system
- * install-confirm dialog is launched later by [UpdateInstallReceiver] from the
- * session's status callback.
+ * [enqueue] hands the work to [UpdateInstallWorker] — an expedited unique
+ * WorkManager job — so the multi-MB network read + session write survives the
+ * trampoline activity finishing immediately and never touches the main
+ * thread. The system install-confirm dialog is launched later by
+ * [UpdateInstallReceiver] from the session's status callback.
  *
  * OBSERVABILITY
  * -------------
- * Posts a quiet, indeterminate **"Downloading update…"** notification while the
- * stream is in flight, swaps it for a **"Download failed"** notification on any
- * IO error (and logs), and cancels it once the session is committed (the system
- * installer UI takes over). No silent failure path.
- *
- * STATUS: compile-only / DEVICE-UNVERIFIED — the HTTP stream → PackageInstaller
- * commit → confirm-dialog path needs an on-device run.
+ * Posts an indeterminate **"Downloading update…"** notification while the
+ * stream is in flight (as the worker's foreground notification where the
+ * platform allows), posts a **"Download failed"** notification on a DISTINCT
+ * id on any IO error (so cancelling the progress id never hides the
+ * failure), and abandons the staged [PackageInstaller] session on every
+ * failure path so repeated failures cannot leak sessions until
+ * `createSession` starts throwing.
  */
 internal object UpdateDownloadInstaller {
-    private const val TAG = "UpdateDownloadInstaller"
-    private const val CHANNEL_ID = "app_update"
-    private const val PROGRESS_NOTIFICATION_ID = 0x5544_4C44 // "UDLD"
+    const val PROGRESS_NOTIFICATION_ID = 0x5544_4C44 // "UDLD"
+    const val FAILURE_NOTIFICATION_ID = 0x5544_4C46 // "UDLF"
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 30_000
 
@@ -61,28 +66,38 @@ internal object UpdateDownloadInstaller {
     const val ACTION_INSTALL_STATUS = "dev.bluehouse.bada.update.INSTALL_STATUS"
 
     /**
-     * Download [apkUrl] and hand it to the system installer. [version] is used
-     * only for the progress notification text. Safe to call only after the
-     * caller has verified `canRequestPackageInstalls()`.
+     * Enqueue the download+install of [apkUrl] as an expedited unique
+     * [UpdateInstallWorker]. [version] is used only for the progress
+     * notification text. Safe to call only after the caller has verified
+     * `canRequestPackageInstalls()`. `ExistingWorkPolicy.KEEP` means a
+     * re-tap while a download is already running is a no-op.
      */
-    fun installFromUrl(
+    fun enqueue(
         context: Context,
         apkUrl: String,
         version: String,
     ) {
-        val appContext = context.applicationContext
-        showDownloadingNotification(appContext, version)
-        Thread({
-            runCatching { streamInstall(appContext, apkUrl) }
-                .onFailure { error ->
-                    Log.e(TAG, "Update download/install failed", error)
-                    showFailedNotification(appContext)
-                }
-            NotificationManagerCompat.from(appContext).cancel(PROGRESS_NOTIFICATION_ID)
-        }, "update-install").start()
+        val request =
+            OneTimeWorkRequestBuilder<UpdateInstallWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setInputData(
+                    workDataOf(
+                        UpdateInstallWorker.KEY_APK_URL to apkUrl,
+                        UpdateInstallWorker.KEY_VERSION to version,
+                    ),
+                ).build()
+        WorkManager
+            .getInstance(context.applicationContext)
+            .enqueueUniqueWork(UpdateInstallWorker.UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
     }
 
-    private fun streamInstall(
+    /**
+     * Blocking download → [PackageInstaller] commit. Runs inside
+     * [UpdateInstallWorker] on [kotlinx.coroutines.Dispatchers.IO]. Throws on
+     * any failure; the staged session (if one was created) is abandoned
+     * before the rethrow so failures never leak installer sessions.
+     */
+    fun streamInstall(
         appContext: Context,
         apkUrl: String,
     ) {
@@ -114,33 +129,49 @@ internal object UpdateDownloadInstaller {
                         setAppPackageName(appContext.packageName)
                     }
             val sessionId = installer.createSession(params)
-            installer.openSession(sessionId).use { session ->
-                writeApkToSession(session, connection, declaredLength)
-                val statusIntent =
-                    Intent(appContext, UpdateInstallReceiver::class.java)
-                        .setAction(ACTION_INSTALL_STATUS)
-                        .setPackage(appContext.packageName)
-                // MUTABLE so the platform can fill in EXTRA_INTENT (the confirm
-                // dialog) on API 31+.
-                val flags =
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                    } else {
-                        PendingIntent.FLAG_UPDATE_CURRENT
-                    }
-                val pending =
-                    PendingIntent.getBroadcast(appContext, sessionId, statusIntent, flags)
-                session.commit(pending.intentSender)
-            }
+            // Any failure between createSession and commit leaves a staged
+            // session behind; abandon it or repeated failures accumulate
+            // until createSession itself starts throwing.
+            runCatching { commitSession(appContext, installer, sessionId, connection, declaredLength) }
+                .onFailure { runCatching { installer.abandonSession(sessionId) } }
+                .getOrThrow()
         } finally {
             connection.disconnect()
         }
     }
 
+    private fun commitSession(
+        appContext: Context,
+        installer: PackageInstaller,
+        sessionId: Int,
+        connection: HttpURLConnection,
+        declaredLength: Long,
+    ) {
+        installer.openSession(sessionId).use { session ->
+            writeApkToSession(session, connection, declaredLength)
+            val statusIntent =
+                Intent(appContext, UpdateInstallReceiver::class.java)
+                    .setAction(ACTION_INSTALL_STATUS)
+                    .setPackage(appContext.packageName)
+            // MUTABLE so the platform can fill in EXTRA_INTENT (the confirm
+            // dialog) on API 31+.
+            val flags =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+            val pending =
+                PendingIntent.getBroadcast(appContext, sessionId, statusIntent, flags)
+            session.commit(pending.intentSender)
+        }
+    }
+
     /**
      * Stream the connection's body into the installer session and fsync it.
-     * Extracted from [streamInstall] to keep that method's block nesting shallow
-     * (detekt NestedBlockDepth) — the three nested `use {}` scopes live here.
+     * Extracted from [commitSession] to keep that method's block nesting
+     * shallow (detekt NestedBlockDepth) — the three nested `use {}` scopes
+     * live here.
      */
     private fun writeApkToSession(
         session: PackageInstaller.Session,
@@ -155,48 +186,69 @@ internal object UpdateDownloadInstaller {
         }
     }
 
-    private fun showDownloadingNotification(
+    /**
+     * The progress notification wrapped as [ForegroundInfo] for the
+     * expedited worker. `dataSync` is the closest FGS type for "stream a
+     * file from the network" and is what the manifest declares for
+     * WorkManager's SystemForegroundService.
+     */
+    fun progressForegroundInfo(
+        appContext: Context,
+        version: String,
+    ): ForegroundInfo {
+        UpdateNotificationChannel.ensure(appContext)
+        val notification = progressNotification(appContext, version)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                PROGRESS_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        } else {
+            ForegroundInfo(PROGRESS_NOTIFICATION_ID, notification)
+        }
+    }
+
+    /** Plain-notification fallback when foregrounding the worker is refused. */
+    fun showDownloadingNotification(
         appContext: Context,
         version: String,
     ) {
-        ensureChannel(appContext)
-        val notification =
-            NotificationCompat
-                .Builder(appContext, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle(appContext.getString(R.string.update_downloading_title))
-                .setContentText(
-                    appContext.getString(R.string.update_downloading_text, version),
-                ).setOngoing(true)
-                .setProgress(0, 0, true) // indeterminate horizontal bar
-                .build()
-        NotificationManagerCompat.from(appContext).notify(PROGRESS_NOTIFICATION_ID, notification)
+        UpdateNotificationChannel.ensure(appContext)
+        NotificationManagerCompat
+            .from(appContext)
+            .notify(PROGRESS_NOTIFICATION_ID, progressNotification(appContext, version))
     }
 
-    private fun showFailedNotification(appContext: Context) {
-        ensureChannel(appContext)
+    private fun progressNotification(
+        appContext: Context,
+        version: String,
+    ): Notification =
+        NotificationCompat
+            .Builder(appContext, UpdateNotificationChannel.ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle(appContext.getString(R.string.update_downloading_title))
+            .setContentText(
+                appContext.getString(R.string.update_downloading_text, version),
+            ).setOngoing(true)
+            .setProgress(0, 0, true) // indeterminate horizontal bar
+            .build()
+
+    /**
+     * Posted on [FAILURE_NOTIFICATION_ID] — deliberately DISTINCT from
+     * [PROGRESS_NOTIFICATION_ID], which the worker cancels on completion.
+     * Posting both on the same id made every failure invisible.
+     */
+    fun showFailedNotification(appContext: Context) {
+        UpdateNotificationChannel.ensure(appContext)
         val notification =
             NotificationCompat
-                .Builder(appContext, CHANNEL_ID)
+                .Builder(appContext, UpdateNotificationChannel.ID)
                 .setSmallIcon(android.R.drawable.stat_notify_error)
                 .setContentTitle(appContext.getString(R.string.update_download_failed_title))
                 .setContentText(appContext.getString(R.string.update_download_failed_text))
                 .setAutoCancel(true)
                 .build()
-        NotificationManagerCompat.from(appContext).notify(PROGRESS_NOTIFICATION_ID, notification)
-    }
-
-    private fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    context.getString(R.string.update_notification_channel_name),
-                    NotificationManager.IMPORTANCE_DEFAULT,
-                ).apply { description = context.getString(R.string.update_notification_channel_desc) },
-            )
-        }
+        NotificationManagerCompat.from(appContext).notify(FAILURE_NOTIFICATION_ID, notification)
     }
 }

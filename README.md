@@ -106,8 +106,8 @@ Networking notes:
 
 ## Permissions
 
-Bada asks only for permissions tied to receiving, discovery, and transfer
-visibility:
+Bada asks for permissions tied to receiving, discovery, and transfer
+visibility, plus one for its own update flow:
 
 - **Nearby Wi-Fi devices**: discovers and advertises Quick Share peers on the
   local network.
@@ -122,6 +122,13 @@ visibility:
   use physical location.
 - **Battery optimization exemption**: optional, but useful on OEM builds that
   aggressively stop background foreground services.
+- **Install unknown apps** (`REQUEST_INSTALL_PACKAGES`): lets the in-app
+  self-update install a newer Bada APK downloaded from GitHub releases; the
+  system still shows its own confirm dialog, and the grant is opt-in.
+
+Bada also polls GitHub releases every 6 hours in the background to notify you
+of new versions; this can be turned off with the **Automatic update check**
+toggle in Settings.
 
 ## Troubleshooting
 

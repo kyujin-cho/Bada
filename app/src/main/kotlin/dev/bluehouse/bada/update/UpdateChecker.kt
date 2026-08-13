@@ -65,7 +65,7 @@ internal object UpdateChecker {
                     LatestRelease(
                         version = stripVPrefix(tag),
                         releaseUrl = htmlUrl,
-                        apkAssetUrl = firstApkAssetUrl(json.optJSONArray("assets")),
+                        apkAssetUrl = UpdateApkAssets.selectAppApkUrl(parseAssets(json.optJSONArray("assets"))),
                     )
                 } finally {
                     connection.disconnect()
@@ -74,25 +74,29 @@ internal object UpdateChecker {
         }
 
     /**
-     * Scan the release's `assets` array for the first uploaded `.apk` and
-     * return its `browser_download_url` (a direct, redirecting download
-     * link), or `null` when the release has no APK attached.
+     * Project the release's `assets` array into plain [ReleaseAsset]s for
+     * [UpdateApkAssets.selectAppApkUrl], which picks the app's own APK by
+     * its `dev.bluehouse.bada-` filename prefix (releases can also ship
+     * companion APKs, so "first `.apk`" is not safe) or `null` when the
+     * release carries no installable app APK.
      *
      * This is what makes the update NOTIFICATION adaptive: when a release
      * has the installable APK attached, the notification can offer a direct
      * "Download & install" drop-in update; when no APK is present, the
      * caller falls back to only sending the user to the GitHub release page.
      */
-    private fun firstApkAssetUrl(assets: JSONArray?): String? =
-        assets?.let { array ->
-            (0 until array.length())
-                .asSequence()
-                .mapNotNull { array.optJSONObject(it) }
-                .map { it.optString("browser_download_url") to it.optString("name") }
-                .firstOrNull { (url, name) ->
-                    name.endsWith(".apk", ignoreCase = true) && url.isNotBlank()
-                }?.first
-        }
+    private fun parseAssets(assets: JSONArray?): List<ReleaseAsset> =
+        assets
+            ?.let { array ->
+                (0 until array.length())
+                    .mapNotNull { array.optJSONObject(it) }
+                    .map {
+                        ReleaseAsset(
+                            name = it.optString("name"),
+                            url = it.optString("browser_download_url"),
+                        )
+                    }
+            }.orEmpty()
 
     private fun openConnection(): HttpURLConnection {
         val connection = URL(RELEASES_LATEST_URL).openConnection() as HttpURLConnection
@@ -116,9 +120,10 @@ internal object UpdateChecker {
  *                   stripped), compared against `BuildConfig.VERSION_NAME`.
  * @param releaseUrl the human GitHub release page (`html_url`) — the
  *                   "View on GitHub" destination; always present.
- * @param apkAssetUrl direct `browser_download_url` of the release's first
- *                   `.apk` asset, or `null` when no APK is attached. When
- *                   non-null the update notification can offer a direct
+ * @param apkAssetUrl direct `browser_download_url` of the release's app APK
+ *                   asset (matched by the `dev.bluehouse.bada-` filename
+ *                   prefix), or `null` when none is attached. When non-null
+ *                   the update notification can offer a direct
  *                   "Download & install"; when null it offers GitHub only.
  */
 internal data class LatestRelease(

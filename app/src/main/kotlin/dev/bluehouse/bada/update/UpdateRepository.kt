@@ -53,7 +53,7 @@ internal object UpdateRepository {
         val cachedUrl = prefs.latestKnownReleaseUrl()
         if (cachedVersion != null && cachedUrl != null) {
             _state.value =
-                if (isNewer(cachedVersion, BuildConfig.VERSION_NAME)) {
+                if (UpdateVersions.isNewer(cachedVersion, BuildConfig.VERSION_NAME)) {
                     UpdateState.UpdateAvailable(cachedVersion, cachedUrl)
                 } else {
                     UpdateState.UpToDate(BuildConfig.VERSION_NAME)
@@ -76,7 +76,7 @@ internal object UpdateRepository {
                         UpdatePreferences
                             .from(context)
                             .saveLatestRelease(release.version, release.releaseUrl)
-                        if (isNewer(release.version, BuildConfig.VERSION_NAME)) {
+                        if (UpdateVersions.isNewer(release.version, BuildConfig.VERSION_NAME)) {
                             UpdateState.UpdateAvailable(release.version, release.releaseUrl)
                         } else {
                             UpdateState.UpToDate(BuildConfig.VERSION_NAME)
@@ -95,14 +95,4 @@ internal object UpdateRepository {
      * indicator to decide whether to paint a red dot.
      */
     fun hasPendingUpdate(): Boolean = _state.value is UpdateState.UpdateAvailable
-
-    /**
-     * Strict-greater string comparison. Works for the project's fixed
-     * `YYYYMMDD.NN` versionName scheme because every field is
-     * zero-padded to a fixed width.
-     */
-    private fun isNewer(
-        candidate: String,
-        installed: String,
-    ): Boolean = candidate > installed
 }

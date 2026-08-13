@@ -17,6 +17,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.SwitchCompat
 import androidx.fragment.app.Fragment
+import dev.bluehouse.bada.BadaApplication
 import dev.bluehouse.bada.MainActivity
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.battery.BatteryOptimizationOemHelper
@@ -28,6 +29,7 @@ import dev.bluehouse.bada.service.receiver.AdvertisedDeviceNames
 import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
 import dev.bluehouse.bada.transfer.KeepScreenOnPreferences
 import dev.bluehouse.bada.transfer.TransferExpertViewPreferences
+import dev.bluehouse.bada.update.UpdatePreferences
 
 /**
  * Settings tab content for the bottom-navigation shell in
@@ -144,6 +146,17 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         expertViewSwitch.setOnCheckedChangeListener { _, checked ->
             expertViewPreferences.setExpertViewEnabled(checked)
         }
+
+        val autoUpdateSwitch = view.findViewById<SwitchCompat>(R.id.settings_auto_update_switch)
+        val updatePreferences = UpdatePreferences.from(requireContext())
+        autoUpdateSwitch.isChecked = updatePreferences.autoCheckEnabled()
+        autoUpdateSwitch.setOnCheckedChangeListener { _, checked ->
+            updatePreferences.setAutoCheckEnabled(checked)
+            // Re-apply immediately: enabling enqueues the periodic worker,
+            // disabling cancels the persisted schedule (not just a soft
+            // short-circuit inside the worker).
+            BadaApplication.applyAutoUpdateCheckPolicy(requireContext())
+        }
     }
 
     override fun onStart() {
@@ -213,6 +226,9 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         v
             .findViewById<SwitchCompat>(R.id.main_transfer_expert_switch)
             ?.refreshChecked(TransferExpertViewPreferences.from(requireContext()).isExpertViewEnabled())
+        v
+            .findViewById<SwitchCompat>(R.id.settings_auto_update_switch)
+            ?.refreshChecked(UpdatePreferences.from(requireContext()).autoCheckEnabled())
     }
 
     private fun SwitchCompat.refreshChecked(enabled: Boolean) {

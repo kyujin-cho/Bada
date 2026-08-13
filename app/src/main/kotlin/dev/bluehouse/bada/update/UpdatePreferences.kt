@@ -53,8 +53,10 @@ internal class UpdatePreferences(
 
     /**
      * Whether the automatic background GitHub update check runs. Defaults to
-     * `true`; a future Settings toggle can flip [setAutoCheckEnabled] off so
-     * the worker short-circuits without polling or notifying.
+     * `true`; the Settings tab's "Automatic update check" toggle flips
+     * [setAutoCheckEnabled], which cancels/re-enqueues the periodic worker
+     * (via `BadaApplication.applyAutoUpdateCheckPolicy`) — the worker's own
+     * check of this flag is only a fallback.
      */
     fun autoCheckEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_CHECK_ENABLED, true)
 

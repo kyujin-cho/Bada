@@ -5,13 +5,10 @@
  */
 package dev.bluehouse.bada.update
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import dev.bluehouse.bada.R
@@ -41,12 +38,10 @@ import dev.bluehouse.bada.R
  * Extends the pre-existing MANUAL update flow (overflow-menu → screen, #211)
  * with a proactive "a new version is out" alert.
  *
- * STATUS: compile-only / DEVICE-UNVERIFIED. POST_NOTIFICATIONS (API 33+) is
- * already requested by onboarding; if denied the notification is silently
- * dropped (degraded, by design).
+ * POST_NOTIFICATIONS (API 33+) is already requested by onboarding; if denied
+ * the notification is silently dropped (degraded, by design).
  */
 internal object UpdateNotifier {
-    private const val CHANNEL_ID = "app_update"
     private const val NOTIFICATION_ID = 0x5544_4154 // "UDAT"
 
     /**
@@ -64,11 +59,11 @@ internal object UpdateNotifier {
         apkAssetUrl: String?,
     ) {
         val appContext = context.applicationContext
-        ensureChannel(appContext)
+        UpdateNotificationChannel.ensure(appContext)
 
         val builder =
             NotificationCompat
-                .Builder(appContext, CHANNEL_ID)
+                .Builder(appContext, UpdateNotificationChannel.ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(appContext.getString(R.string.update_notification_title))
                 .setContentText(
@@ -86,7 +81,7 @@ internal object UpdateNotifier {
             builder.addAction(
                 0,
                 appContext.getString(R.string.update_notification_action_download),
-                downloadAndInstallIntent(appContext, apkAssetUrl, version),
+                downloadAndInstallIntent(appContext, apkAssetUrl, version, releaseUrl),
             )
         }
 
@@ -97,20 +92,6 @@ internal object UpdateNotifier {
     /** Clear the alert once the user has acted on it from the trampoline. */
     fun cancel(context: Context) {
         NotificationManagerCompat.from(context.applicationContext).cancel(NOTIFICATION_ID)
-    }
-
-    private fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    context.getString(R.string.update_notification_channel_name),
-                    NotificationManager.IMPORTANCE_DEFAULT,
-                ).apply { description = context.getString(R.string.update_notification_channel_desc) },
-            )
-        }
     }
 
     /** Body tap → the in-app "Check for updates" screen. */
@@ -132,17 +113,23 @@ internal object UpdateNotifier {
         return PendingIntent.getActivity(context, REQ_VIEW_GITHUB, intent, immutableFlags())
     }
 
-    /** "Download & install" → the trampoline that gates + starts the install. */
+    /**
+     * "Download & install" → the trampoline that gates + starts the install.
+     * The release URL rides along so debug builds (which cannot self-install
+     * the release APK) can fall back to opening the release page.
+     */
     private fun downloadAndInstallIntent(
         context: Context,
         apkAssetUrl: String,
         version: String,
+        releaseUrl: String,
     ): PendingIntent {
         val intent =
             Intent(context, UpdateInstallActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra(UpdateInstallActivity.EXTRA_APK_URL, apkAssetUrl)
                 .putExtra(UpdateInstallActivity.EXTRA_VERSION, version)
+                .putExtra(UpdateInstallActivity.EXTRA_RELEASE_URL, releaseUrl)
         return PendingIntent.getActivity(context, REQ_DOWNLOAD, intent, immutableFlags())
     }
 

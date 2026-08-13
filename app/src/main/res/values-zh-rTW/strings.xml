@@ -335,6 +335,25 @@
     <string name="update_subtitle_latest_version">%1$s</string>
     <string name="update_button_check_again">再次檢查</string>
     <string name="update_button_update">更新</string>
+    <!-- 自動檢查更新：通知 + 下載/安裝流程。 -->
+    <string name="update_notification_channel_name">應用程式更新</string>
+    <string name="update_notification_channel_desc">當 GitHub 上有較新版本的 Bada 時通知您。</string>
+    <string name="update_notification_title">Bada 有可用更新</string>
+    <string name="update_notification_text">版本 %1$s 已可安裝</string>
+    <string name="update_notification_action_github">在 GitHub 上檢視</string>
+    <string name="update_notification_action_download">下載並安裝</string>
+    <string name="update_downloading_title">正在下載更新…</string>
+    <string name="update_downloading_text">Bada %1$s</string>
+    <string name="update_download_failed_title">更新下載失敗</string>
+    <string name="update_download_failed_text">無法下載更新。請點選通知重試，或開啟 GitHub。</string>
+    <string name="update_install_need_unknown_sources">請允許 Bada 安裝應用程式，然後再次點選下載。</string>
+    <string name="update_install_started">正在下載更新…</string>
+    <string name="update_install_success">Bada 已更新</string>
+    <string name="update_install_failed">無法安裝更新</string>
+    <string name="update_confirm_notification_title">確認安裝 Bada 更新</string>
+    <string name="update_confirm_notification_text">點選以完成更新安裝。</string>
     <string name="update_open_release_failed">無法開啟發行頁面。</string>
+    <string name="settings_auto_update_title">自動檢查更新</string>
+    <string name="settings_auto_update_subtitle">每 6 小時在 GitHub 檢查是否有新的 Bada 版本，並在有新版本時顯示通知。</string>
 
 </resources>
