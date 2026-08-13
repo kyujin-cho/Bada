@@ -765,13 +765,30 @@ internal class OutboundConnectionDriver(
         // bootstraps keep their historical quiet negotiation phase (#216
         // timing is sensitive there).
         var nextKeepAliveDueMillis = nowMillisSource() + KeepAliveTicker.DEFAULT_INTERVAL_MILLIS
-        val negotiationKeepAliveTick: suspend () -> Unit = {
-            if (!upgradeRequired && nowMillisSource() >= nextKeepAliveDueMillis) {
-                nextKeepAliveDueMillis = nowMillisSource() + KeepAliveTicker.DEFAULT_INTERVAL_MILLIS
-                runCatching { activeChannel.sendOfflineFrame(OfflineFrames.keepAlive(ack = false)) }
-                    .onFailure { e ->
-                        logger("keep-alive: negotiation tick failed (${e::class.simpleName}: ${e.message})")
-                    }
+        val negotiationKeepAliveTick: suspend () -> OutboundDriverEvent? = tick@{
+            if (upgradeRequired || nowMillisSource() < nextKeepAliveDueMillis) {
+                return@tick null
+            }
+            nextKeepAliveDueMillis = nowMillisSource() + KeepAliveTicker.DEFAULT_INTERVAL_MILLIS
+            try {
+                activeChannel.sendOfflineFrame(OfflineFrames.keepAlive(ack = false))
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (
+                @Suppress("TooGenericExceptionCaught") e: Exception,
+            ) {
+                // The polling read side cannot see a dead link (available()
+                // returns 0 at EOF, never an error), so a failed KEEP_ALIVE
+                // write is the RFCOMM path's peer-gone detector — surface it
+                // as PeerClosed, matching what runReceiveLoop's blocking pump
+                // reported for a vanished Bluetooth peer before this loop
+                // took over the RFCOMM path.
+                logger(
+                    "keep-alive: negotiation tick failed " +
+                        "(${e::class.simpleName}: ${e.message}); treating peer as gone",
+                )
+                OutboundDriverEvent.PeerClosed
             }
         }
         try {
@@ -826,12 +843,30 @@ internal class OutboundConnectionDriver(
                                 activeChannel,
                             )
                         }
-                        // adoptWifiDirectOffer hands back the prior channel on
-                        // failure — Bluetooth keeps carrying the transfer.
-                        logger(
-                            "medium-upgrade: Wi-Fi Direct upgrade failed; " +
-                                "continuing on ${upgraded.medium}",
-                        )
+                        if (!upgraded.fallbackChannelUsable) {
+                            // The failed upgrade already began the prior-channel
+                            // teardown; the Bluetooth socket is no longer safe
+                            // to stream on, so this cannot fall back.
+                            return failWifiDirectUpgrade(
+                                "upgrade failed after prior-channel teardown began; " +
+                                    "cannot continue on ${upgraded.medium}",
+                                activeChannel,
+                            )
+                        }
+                        if (upgraded.channel === activeChannel) {
+                            // Pre-teardown failure: adoptWifiDirectOffer handed the
+                            // prior channel back intact — Bluetooth keeps carrying
+                            // the transfer.
+                            logger(
+                                "medium-upgrade: Wi-Fi Direct upgrade failed; " +
+                                    "continuing on ${upgraded.medium}",
+                            )
+                        } else {
+                            logger(
+                                "medium-upgrade: upgrade landed on ${upgraded.medium} " +
+                                    "instead of WIFI_DIRECT; continuing",
+                            )
+                        }
                     }
                     activeChannel = upgraded.channel
                     activeMedium = upgraded.medium
@@ -885,6 +920,13 @@ internal class OutboundConnectionDriver(
                                 -> Unit
                             }
                         }
+                        // A CANCEL SharingFrame among the pending frames drives
+                        // the FSM to Disconnected without producing a Terminal
+                        // outcome — honour it here instead of streaming the
+                        // whole payload to a peer that already cancelled.
+                        if (fsm.state == OutboundSharingState.Disconnected) {
+                            return terminalResultFromState()
+                        }
                         val result =
                             coroutineScope {
                                 val keepAliveJob = launch { runKeepAliveTicker(activeChannel) }
@@ -913,14 +955,14 @@ internal class OutboundConnectionDriver(
         channel: SecureChannel,
         bufferedFrames: ArrayDeque<OfflineFrame>,
         remoteAcceptanceRemainingMillis: Long?,
-        onPollTick: suspend () -> Unit = {},
+        onPollTick: suspend () -> OutboundDriverEvent? = { null },
     ): OutboundDriverEvent {
         if (bufferedFrames.isNotEmpty()) {
             return OutboundDriverEvent.Wire(bufferedFrames.removeFirst())
         }
         val deadlineMillis = remoteAcceptanceRemainingMillis?.let { nowMillisSource() + it }
         while (true) {
-            onPollTick()
+            onPollTick()?.let { return it }
             externalEvents.tryReceive().getOrNull()?.let { return OutboundDriverEvent.External(it) }
             if (channel.hasBufferedInput()) {
                 return try {
@@ -1063,37 +1105,63 @@ internal class OutboundConnectionDriver(
                         pendingFrames = listOf(probe.frame),
                     )
                 }
-            is UpgradeOfferProbe.Offer -> {
-                val upgraded =
-                    adoptWifiDirectOffer(
-                        channel = channel,
-                        currentMedium = currentMedium,
-                        offer = probe.frame,
-                    )
-                if (upgraded.medium == Medium.WIFI_DIRECT) {
-                    PayloadChannelSelection.Ready(
-                        channel = upgraded.channel,
-                        medium = upgraded.medium,
-                        wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
-                        pendingFrames = upgraded.bufferedFrames,
-                    )
-                } else if (upgradeRequired) {
-                    PayloadChannelSelection.Failed(
-                        "Wi-Fi Direct upgrade failed before payload streaming; stayed on ${upgraded.medium}",
-                    )
+            is UpgradeOfferProbe.Offer ->
+                adoptOfferBeforePayloads(
+                    channel = channel,
+                    currentMedium = currentMedium,
+                    offer = probe.frame,
+                    upgradeRequired = upgradeRequired,
+                )
+        }
+    }
+
+    private suspend fun adoptOfferBeforePayloads(
+        channel: SecureChannel,
+        currentMedium: Medium,
+        offer: OfflineFrame,
+        upgradeRequired: Boolean,
+    ): PayloadChannelSelection {
+        val upgraded =
+            adoptWifiDirectOffer(
+                channel = channel,
+                currentMedium = currentMedium,
+                offer = offer,
+            )
+        return if (upgraded.medium == Medium.WIFI_DIRECT) {
+            PayloadChannelSelection.Ready(
+                channel = upgraded.channel,
+                medium = upgraded.medium,
+                wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
+                pendingFrames = upgraded.bufferedFrames,
+            )
+        } else if (upgradeRequired) {
+            PayloadChannelSelection.Failed(
+                "Wi-Fi Direct upgrade failed before payload streaming; stayed on ${upgraded.medium}",
+            )
+        } else if (!upgraded.fallbackChannelUsable) {
+            // The failed upgrade already began the prior-channel
+            // teardown; streaming on the handed-back channel would
+            // write into a socket the peer stopped reading.
+            PayloadChannelSelection.Failed(
+                "upgrade failed after prior-channel teardown began; " +
+                    "cannot continue on ${upgraded.medium}",
+            )
+        } else {
+            logger(
+                if (upgraded.channel === channel) {
+                    "medium-upgrade: Wi-Fi Direct upgrade failed before payload streaming; " +
+                        "continuing on ${upgraded.medium}"
                 } else {
-                    logger(
-                        "medium-upgrade: Wi-Fi Direct upgrade failed before payload streaming; " +
-                            "continuing on ${upgraded.medium}",
-                    )
-                    PayloadChannelSelection.Ready(
-                        channel = upgraded.channel,
-                        medium = upgraded.medium,
-                        wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
-                        pendingFrames = upgraded.bufferedFrames,
-                    )
-                }
-            }
+                    "medium-upgrade: upgrade landed on ${upgraded.medium} " +
+                        "instead of WIFI_DIRECT before payload streaming; continuing"
+                },
+            )
+            PayloadChannelSelection.Ready(
+                channel = upgraded.channel,
+                medium = upgraded.medium,
+                wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
+                pendingFrames = upgraded.bufferedFrames,
+            )
         }
     }
 
