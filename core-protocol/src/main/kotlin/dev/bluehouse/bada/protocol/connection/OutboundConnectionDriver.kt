@@ -836,20 +836,23 @@ internal class OutboundConnectionDriver(
                             currentMedium = activeMedium,
                             offer = event.frame,
                         )
+                    if (!upgraded.fallbackChannelUsable) {
+                        // The failed upgrade already began the prior-channel
+                        // teardown; the handed-back channel is no longer safe
+                        // to stream on, so this cannot fall back. Checked
+                        // before the medium comparison: a failed SECOND
+                        // upgrade reports the current medium, which may
+                        // already be WIFI_DIRECT.
+                        return failWifiDirectUpgrade(
+                            "upgrade failed after prior-channel teardown began; " +
+                                "cannot continue on ${upgraded.medium}",
+                            activeChannel,
+                        )
+                    }
                     if (upgraded.medium != Medium.WIFI_DIRECT) {
                         if (upgradeRequired) {
                             return failWifiDirectUpgrade(
                                 "Wi-Fi Direct upgrade failed after BLE pairing; stayed on ${upgraded.medium}",
-                                activeChannel,
-                            )
-                        }
-                        if (!upgraded.fallbackChannelUsable) {
-                            // The failed upgrade already began the prior-channel
-                            // teardown; the Bluetooth socket is no longer safe
-                            // to stream on, so this cannot fall back.
-                            return failWifiDirectUpgrade(
-                                "upgrade failed after prior-channel teardown began; " +
-                                    "cannot continue on ${upgraded.medium}",
                                 activeChannel,
                             )
                         }

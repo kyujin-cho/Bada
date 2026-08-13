@@ -672,6 +672,13 @@ internal data class ActiveTransportChannel(
      * continuing to stream on it would write into a socket the peer stopped
      * reading. True for every other result, including the pre-teardown
      * failure paths that hand the prior channel back intact.
+     *
+     * Caveats: the flag tracks OUR writes only — a GMS peer starts its own
+     * prior-channel teardown as soon as our CLIENT_INTRODUCTION is delivered,
+     * so "usable" is best-effort for failures in that sub-second window. And
+     * only the client path ([BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer])
+     * maintains it today; the server path's failure fallback still returns
+     * the default without tracking teardown.
      */
     val fallbackChannelUsable: Boolean = true,
 )
