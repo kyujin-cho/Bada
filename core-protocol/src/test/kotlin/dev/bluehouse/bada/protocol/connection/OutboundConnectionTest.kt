@@ -764,6 +764,143 @@ class OutboundConnectionTest {
         }
 
     @Test
+    fun `preconnected bluetooth bootstrap solicits and adopts Wi-Fi Direct upgrade`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val factory = InMemoryFactory()
+                val directUpgradePair = LoopbackUpgradePair(Medium.WIFI_DIRECT)
+                val logs = java.util.Collections.synchronizedList(mutableListOf<String>())
+                val inboundLogs = java.util.Collections.synchronizedList(mutableListOf<String>())
+                val ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLUETOOTH))
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLUETOOTH),
+                        secureRandom = SecureRandom("outbound-bt-bootstrap-direct".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        directUpgradePair.clientProvider,
+                                    ),
+                                ladder = ladder,
+                            ),
+                        logger = { logs.add(it) },
+                    )
+
+                val fileBytes = ByteArray(2048) { (it and 0x3F).toByte() }
+                val payloadId = 0x5157L
+                val files = listOf(bytesSource("bt-bootstrap-direct.bin", fileBytes, payloadId))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(files) }
+                        val inbound =
+                            InboundConnection(
+                                transport = server.asConnectedTransport(Medium.BLUETOOTH),
+                                secureRandom = SecureRandom("inbound-bt-bootstrap-direct".toByteArray()),
+                                mediumRegistry =
+                                    MediumRegistry(
+                                        providers = listOf(directUpgradePair.serverProvider),
+                                        ladder = ladder,
+                                    ),
+                                logger = { inboundLogs.add(it) },
+                            )
+
+                        launch {
+                            inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                            inbound.submitUserConsent(accepted = true)
+                        }
+
+                        val inboundResult = inbound.run(factory)
+                        val outboundResult = outboundJob.await()
+
+                        assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
+                        assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                        assertWifiDirectMetadata(outbound, inbound, directUpgradePair.wifiFrequencyMhz)
+                    }
+
+                    assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
+                    assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+                } finally {
+                    directUpgradePair.close()
+                }
+            }
+        }
+
+    @Test
+    fun `preconnected bluetooth bootstrap stays on Bluetooth when Wi-Fi Direct offer never arrives`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val factory = InMemoryFactory()
+                val logs = java.util.Collections.synchronizedList(mutableListOf<String>())
+                val ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLUETOOTH))
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLUETOOTH),
+                        secureRandom = SecureRandom("outbound-bt-bootstrap-no-offer".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        SupportedProvider(Medium.WIFI_DIRECT),
+                                    ),
+                                ladder = ladder,
+                            ),
+                        logger = { logs.add(it) },
+                    )
+                // Emulate a receiver that never offers a bandwidth upgrade
+                // (stock GMS advertises autoUpgradeBandwidth=false): its
+                // registry has no Wi-Fi Direct provider, so the solicited
+                // UPGRADE_PATH_REQUEST goes unanswered.
+                val inbound =
+                    InboundConnection(
+                        transport = server.asConnectedTransport(Medium.BLUETOOTH),
+                        secureRandom = SecureRandom("inbound-bt-bootstrap-no-offer".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers = listOf(SupportedProvider(Medium.BLUETOOTH)),
+                                ladder = ladder,
+                            ),
+                    )
+
+                val fileBytes = ByteArray(1536) { (it xor 0x2A).toByte() }
+                val payloadId = 0x5158L
+                val files = listOf(bytesSource("bt-no-offer.bin", fileBytes, payloadId))
+
+                coroutineScope {
+                    val outboundJob = async { outbound.run(files) }
+
+                    launch {
+                        inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                        inbound.submitUserConsent(accepted = true)
+                    }
+
+                    val inboundResult = inbound.run(factory)
+                    val outboundResult = outboundJob.await()
+
+                    assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
+                    assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                }
+
+                assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
+                assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+                assertThat(outbound.activeMedium.value).isEqualTo(Medium.BLUETOOTH)
+                val log = logs.toList()
+                assertThat(log)
+                    .contains("medium-upgrade: requested receiver Wi-Fi Direct upgrade (bootstrap=BLUETOOTH)")
+                assertThat(log)
+                    .contains(
+                        "medium-upgrade: Wi-Fi Direct upgrade was not offered before payload streaming; " +
+                            "continuing on BLUETOOTH",
+                    )
+            }
+        }
+
+    @Test
     fun `preconnected BLE bootstrap consumes pre-UKEY2 Wi-Fi Direct offer before UKEY2`() =
         runBlocking {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {
