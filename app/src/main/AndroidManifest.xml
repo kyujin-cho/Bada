@@ -136,9 +136,6 @@
          required=false so the app still installs on phones without NFC
          hardware (the HCE service is simply never bound there). -->
     <uses-permission android:name="android.permission.NFC" />
-    <!-- Android 17+ (API 37): required for an Activity to receive NFC dispatch intents (Name Card v2
-         reader-side AAR launch). Harmless on lower API levels. -->
-    <uses-permission android:name="android.permission.DISPATCH_NFC_MESSAGE" />
     <uses-feature
         android:name="android.hardware.nfc.hce"
         android:required="false" />
@@ -510,19 +507,21 @@
             android:parentActivityName=".MainActivity" />
 
         <!--
-          Name Card transfer screen (tap-to-share contacts). Full-screen page that
-          a tap drags you into; shows the received card + Receive Only / Share (or
-          Save). Plain Activity — NO overlay permission, NO lock-screen bypass (it
-          only ever appears while unlocked). Launched in-app by the reader (client
-          role) and by NameCardExchangeService (server role). Not exported.
-          singleTop so a second tap reuses the open screen.
-        -->
-        <!--
-          exported=true + the NDEF_DISCOVERED intent-filter: for Name Card v2, the OS launches this
+          Name Card transfer screen (tap-to-share contacts). Full-screen consent page a tap drags
+          you into; both phones show their OWN card + Share / Receive Only. Plain Activity — NO
+          overlay permission, NO lock-screen bypass (it only ever appears while unlocked). singleTop
+          so a second tap routes through onNewIntent (ignored) instead of stacking.
+
+          exported=true is required ONLY for the NDEF_DISCOVERED intent-filter: the OS launches this
           Activity FROM CLOSED on the reading phone via our AAR after a both-background tap. Android
           maps a TNF_EXTERNAL_TYPE record urn:nfc:ext:bada.dev:namecard to the URI
           vnd.android.nfc://ext/bada.dev:namecard, which this filter matches (scheme/host/pathPrefix
           form is the documented one). Lowercase throughout to avoid case-normalization misses.
+
+          SECURITY: because it is exported, this activity trusts NOTHING from its Intent beyond the
+          OS-delivered NDEF token. Peer cards and roles flow exclusively through the in-process
+          NameCardLinkHolder session; any launch that is neither an NDEF dispatch nor a live-session
+          attach finishes immediately. See NameCardTransferActivity's class KDoc.
         -->
         <activity
             android:name=".namecard.NameCardTransferActivity"

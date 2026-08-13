@@ -603,10 +603,10 @@
     <string name="name_card_transfer_save">Save</string>
     <string name="name_card_transfer_done">Done</string>
     <string name="name_card_transfer_no_name">(No name)</string>
-    <string name="name_card_v2_title">Symmetric consent (beta)</string>
     <string name="name_card_transfer_waiting">Waiting…</string>
     <string name="name_card_transfer_declined">They declined to share their contact info</string>
     <string name="name_card_transfer_no_response">No response</string>
+    <string name="name_card_share_error">Couldn’t prepare your card to share. Nothing was sent.</string>
     <string name="name_card_consent_headsup_waiting">Waiting for the other person to respond</string>
     <string name="name_card_consent_headsup_declined">They declined to share their info</string>
     <string name="name_card_consent_channel">Name Card consent</string>

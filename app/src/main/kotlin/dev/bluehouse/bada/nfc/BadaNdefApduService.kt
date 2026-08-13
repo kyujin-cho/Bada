@@ -168,12 +168,12 @@ public class BadaNdefApduService : HostApduService() {
     }
 
     /**
-     * Name Card v2: is this at-rest tap a Name Card tap? True only when the master switch is ON, the
-     * v2 symmetric gate is ON, AND the device is UNLOCKED (privacy — a locked/lost phone shares nothing).
+     * Name Card: is this at-rest tap a Name Card tap? True only when the user opted in (the master
+     * switch, default OFF) AND the device is UNLOCKED (privacy — a locked/lost phone shares nothing).
      */
     private fun nameCardActive(): Boolean {
         val prefs = NameCardPreferences.from(this)
-        if (!prefs.isEnabled() || !prefs.isV2Enabled()) return false
+        if (!prefs.isEnabled()) return false
         val keyguard = getSystemService(KeyguardManager::class.java)
         return keyguard?.isDeviceLocked != true
     }

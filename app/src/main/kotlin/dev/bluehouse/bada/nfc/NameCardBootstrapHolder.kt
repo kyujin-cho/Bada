@@ -9,8 +9,8 @@ import dev.bluehouse.bada.protocol.namecard.NameCardBootstrap
 import java.security.SecureRandom
 
 /**
- * **Name Card rendezvous-token minter.** The Name Card NFC tap is only a TRIGGER
- * (see the Name Card design notes): on a tap the card-side
+ * **Name Card rendezvous-token minter.** The Name Card NFC tap is only a TRIGGER:
+ * on a tap the card-side
  * [NameCardHceService] calls [newSession] to mint a fresh random rendezvous token,
  * returns it to the tapping phone over NFC, and passes the same token to the
  * Bluetooth layer ([dev.bluehouse.bada.namecard.NameCardExchangeService]) to advertise.

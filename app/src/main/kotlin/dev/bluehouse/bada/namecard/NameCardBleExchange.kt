@@ -44,25 +44,35 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * **Name Card Bluetooth exchange** — carries the actual contact card between two
- * Bada phones AFTER an NFC tap has triggered them and shared a rendezvous
- * token ([NameCardBootstrap]). NFC is only the trigger; Bluetooth carries the card.
+ * **Name Card Bluetooth exchange** — carries the contact card between two Bada
+ * phones AFTER an NFC tap has triggered them and shared a rendezvous token
+ * ([dev.bluehouse.bada.protocol.namecard.NameCardBootstrap]). NFC is only the
+ * trigger; Bluetooth carries the card.
  *
- * The two phones meet by the 16-byte token from the tap, not a Bluetooth MAC
- * (Android hides the local MAC): the **server** advertises the token in BLE
- * service data; the **client** scans for exactly that token.
+ * ## Security model (token-authenticated symmetric consent — the ONLY protocol)
+ * The 16-byte rendezvous token travels exclusively over the NFC tap (proximity
+ * bound). On BLE, the server advertises only an 8-byte SHA-256 *derivation* of
+ * the token ([NameCardTokens.advertisedId]) so the token itself is never
+ * broadcast. A connecting client must present the full token inside its HELLO
+ * write; the server verifies it in constant time and DISCONNECTS any peer whose
+ * first consent message is not a valid token-bearing HELLO. The card
+ * characteristic answers `GATT_READ_NOT_PERMITTED` unless BOTH
+ *  (a) the reading peer presented the correct token, and
+ *  (b) the local user has tapped **Share** ([transmitCard] opened the gate).
+ * Inbound card writes are accepted only from the authenticated peer. There is
+ * no unauthenticated/legacy fallback of any kind.
  *
  * Roles follow the NFC roles:
- *  - [startServer] — the CARD phone (the tapped, HCE side). Advertises the token
- *    and runs a GATT server with one READ|WRITE characteristic that serves our
- *    [NameCard] (read) and receives the peer's (write).
- *  - [startClient] — the READER phone (the initiator). Scans for the token,
- *    connects, READs the peer's card, then holds for the user's choice:
- *    [shareBack] WRITEs ours (Share) or [declineShare] closes (Receive Only).
+ *  - [startServerV2] — the CARD phone (the tapped, HCE side). Advertises the
+ *    derived token id and runs a GATT server with the gated CARD characteristic
+ *    plus the CONSENT characteristic (WRITE + NOTIFY).
+ *  - [startClientV2] — the READER phone. Scans for the derived token id,
+ *    connects, subscribes to CONSENT, and authenticates with a HELLO carrying
+ *    the full token.
  *
- * Both deliver the peer's card via [onPeerCard]. The reader then chooses Share
- * ([shareBack]) or Receive-Only ([declineShare]) on the held connection, driven by
- * [NameCardTransferActivity].
+ * Effects from [NameCardConsentMachine] map here: `SendChoice`→[sendLocalChoice],
+ * `TransmitCard`→[transmitCard], `CloseLink`→[sendByeAndClose]. Peer events go
+ * out via [ConsentBleListener] (main thread).
  *
  * Permissions (already declared): BLUETOOTH_ADVERTISE (server), BLUETOOTH_SCAN
  * (client), BLUETOOTH_CONNECT (both GATT). Runtime-checked; a missing one logs
@@ -70,11 +80,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * ## STATUS — COMPILE-ONLY / UNVERIFIED
  * There is no Bluetooth radio or second phone in the build env, so NONE of the
- * BLE path is exercised here. Standard Android BLE APIs; connect /
- * advertise / scan / MTU / long-read behaviour is device-verified only (on-device
- * test script). Driven by [NameCardExchangeService] (server) and
- * [NameCardTransferActivity] (client); a [ShareRadioController] in each forces
- * Bluetooth on (+ heartbeat) before this runs.
+ * BLE path is exercised here. Standard Android BLE APIs; connect / advertise /
+ * scan / MTU / long-read behaviour is device-verified only. Driven by
+ * [NameCardExchangeService] (server) and [NameCardTransferActivity] (client); a
+ * ShareRadioController in each forces Bluetooth on before this runs.
  */
 @Suppress("TooManyFunctions", "ReturnCount", "MagicNumber")
 internal class NameCardBleExchange(
@@ -94,28 +103,27 @@ internal class NameCardBleExchange(
     // Client-side handles.
     private var scanner: BluetoothLeScanner? = null
     private var scanCallback: ScanCallback? = null
-    private var clientGatt: BluetoothGatt? = null
 
-    // Held between READ (peer card surfaced) and the user's Share/Receive-Only choice.
-    private var pendingGatt: BluetoothGatt? = null
-    private var pendingCharacteristic: BluetoothGattCharacteristic? = null
-
-    // ---- Name Card v2 (symmetric consent) state ----
-
-    /** Non-null only in a v2 session; the coordinator we raise peer events to (main-thread). */
+    /** Non-null only in a live session; the coordinator we raise peer events to (main-thread). */
     private var consentListener: ConsentBleListener? = null
 
     /** This session's own card, kept so a machine `TransmitCard` effect can send/serve it. */
     private var v2LocalCard: NameCard? = null
 
+    /** This session's rendezvous token (from the NFC tap); the HELLO auth reference. */
+    private var sessionToken: ByteArray? = null
+
     // @Volatile on the fields written on one thread (main / a binder callback) and read on another,
     // so the CARD-read gate and notify target are never read stale.
 
-    /** Server: whether OUR user tapped Share — the gate the CARD read handler consults (plan D2). */
+    /** Server: whether OUR user tapped Share — one half of the CARD-read gate. */
     @Volatile private var v2LocalSharing = false
 
-    /** Server: has the connected peer sent HELLO? Read-before-HELLO ⇒ legacy v1 client (plan D3). */
-    @Volatile private var v2PeerHelloSeen = false
+    /** Server: the bytes served on a CARD read — the (field-filtered) card set by [transmitCard]. */
+    @Volatile private var v2ServeBytes: ByteArray? = null
+
+    /** Server: the peer that presented a valid token in HELLO — the other half of the gate. */
+    @Volatile private var v2AuthedDevice: BluetoothDevice? = null
 
     /** Server handles for the CONSENT characteristic + the device that subscribed to its notifies. */
     private var v2ServerConsentChar: BluetoothGattCharacteristic? = null
@@ -129,8 +137,11 @@ internal class NameCardBleExchange(
 
     @Volatile private var v2ClientGatt: BluetoothGatt? = null
 
+    /** Client: once-only guard so a second scan result never overwrites a live GATT connection. */
+    private val connectAttempted = AtomicBoolean(false)
+
     /**
-     * Client single-GATT-op serializer (plan B3 trap): Android allows one outstanding GATT operation
+     * Client single-GATT-op serializer: Android allows one outstanding GATT operation
      * per connection; a second before the prior callback SILENTLY fails. Every client GATT op goes
      * through [enqueueClientOp]; each completion callback calls [clientOpDone] to flush the next.
      */
@@ -143,341 +154,14 @@ internal class NameCardBleExchange(
     /** Fire [ConsentBleListener.onLinkReady] exactly once per session. */
     @Volatile private var v2ReadyFired = false
 
-    /**
-     * Card side: advertise [token] and serve [localCard] over GATT. Calls
-     * [onPeerCard] when the connecting peer writes its card. Returns false if BLE
-     * is unavailable / permissions missing.
-     */
-    fun startServer(
-        localCard: NameCard,
-        token: ByteArray,
-        onPeerCard: (NameCard) -> Unit,
-    ): Boolean {
-        if (!running.compareAndSet(false, true)) return false
-        if (!hasPermission(advertisePermission()) || !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
-            DiagnosticLog.w(TAG, "server: missing BLE permission → skip")
-            running.set(false)
-            return false
-        }
-        val manager = appContext.getSystemService(BluetoothManager::class.java)
-        val adapter = manager?.adapter
-        if (adapter == null || !adapter.isEnabled) {
-            DiagnosticLog.w(TAG, "server: Bluetooth off/unavailable → skip")
-            running.set(false)
-            return false
-        }
-
-        val cardBytes = localCard.serialize()
-        val server =
-            manager.openGattServer(
-                appContext,
-                serverCallback(cardBytes, onPeerCard),
-            ) ?: run {
-                DiagnosticLog.w(TAG, "server: openGattServer null → skip")
-                running.set(false)
-                return false
-            }
-        gattServer = server
-        val characteristic =
-            BluetoothGattCharacteristic(
-                CARD_CHARACTERISTIC_UUID,
-                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_WRITE,
-                BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE,
-            ).also { it.value = cardBytes }
-        val service =
-            BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
-                .also { it.addCharacteristic(characteristic) }
-        server.addService(service)
-
-        val advertiser =
-            adapter.bluetoothLeAdvertiser ?: run {
-                DiagnosticLog.w(TAG, "server: no advertiser → skip")
-                stop()
-                return false
-            }
-        this.advertiser = advertiser
-        val cb = advertiseCallbackImpl()
-        advertiseCallback = cb
-        return try {
-            advertiser.startAdvertising(advertiseSettings(), advertiseData(token), cb)
-            mainHandler.postDelayed({ stop() }, MAX_SESSION_MS)
-            DiagnosticLog.w(TAG, "server: advertising token + GATT serving card(${cardBytes.size}B)")
-            true
-        } catch (
-            @Suppress("TooGenericExceptionCaught") t: Throwable,
-        ) {
-            DiagnosticLog.w(TAG, "server: startAdvertising threw: ${t.message}")
-            stop()
-            false
-        }
-    }
-
-    /**
-     * Reader side: scan for [token], connect, and READ the peer card, delivering
-     * it via [onPeerCard]. The connection is then HELD open for the user's choice:
-     * [shareBack] writes our card back (Share) or [declineShare] closes it
-     * (Receive Only). A [MAX_SESSION_MS] backstop auto-closes if neither is called.
-     */
-    fun startClient(
-        token: ByteArray,
-        onPeerCard: (NameCard) -> Unit,
-    ): Boolean {
-        if (!running.compareAndSet(false, true)) return false
-        if (!hasPermission(scanPermission()) || !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
-            DiagnosticLog.w(TAG, "client: missing BLE permission → skip")
-            running.set(false)
-            return false
-        }
-        val adapter = appContext.getSystemService(BluetoothManager::class.java)?.adapter
-        if (adapter == null || !adapter.isEnabled) {
-            DiagnosticLog.w(TAG, "client: Bluetooth off/unavailable → skip")
-            running.set(false)
-            return false
-        }
-        val scanner =
-            adapter.bluetoothLeScanner ?: run {
-                DiagnosticLog.w(TAG, "client: no scanner → skip")
-                running.set(false)
-                return false
-            }
-        this.scanner = scanner
-        val filter =
-            ScanFilter
-                .Builder()
-                .setServiceData(ParcelUuid(SERVICE_DATA_UUID), token)
-                .build()
-        val settings =
-            ScanSettings
-                .Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-                .build()
-        val cb = scanCallbackImpl(onPeerCard)
-        scanCallback = cb
-        return try {
-            scanner.startScan(listOf(filter), settings, cb)
-            mainHandler.postDelayed({ stop() }, MAX_SESSION_MS)
-            DiagnosticLog.w(TAG, "client: scanning for token")
-            true
-        } catch (
-            @Suppress("TooGenericExceptionCaught") t: Throwable,
-        ) {
-            DiagnosticLog.w(TAG, "client: startScan threw: ${t.message}")
-            stop()
-            false
-        }
-    }
-
-    /**
-     * Reader side, after the user taps **Share**: write our [localCard] to the
-     * held connection so the peer (server) receives it too. The connection is
-     * torn down once the write completes ([onCharacteristicWrite] → [stop]).
-     */
-    fun shareBack(localCard: NameCard) {
-        val gatt = pendingGatt
-        val characteristic = pendingCharacteristic
-        if (gatt == null || characteristic == null) {
-            DiagnosticLog.w(TAG, "shareBack: no held connection → stop")
-            stop()
-            return
-        }
-        characteristic.value = localCard.serialize()
-        if (!gatt.writeCharacteristic(characteristic)) {
-            DiagnosticLog.w(TAG, "shareBack: writeCharacteristic returned false → stop")
-            stop()
-        } else {
-            DiagnosticLog.w(TAG, "client: Share → writing our card")
-        }
-    }
-
-    /** Reader side, **Receive Only**: don't send our card; close the connection. */
-    fun declineShare() {
-        DiagnosticLog.w(TAG, "client: Receive Only → not sharing our card")
-        stop()
-    }
-
-    /** Tear down all BLE handles. Idempotent. */
-    fun stop() {
-        running.set(false)
-        mainHandler.removeCallbacksAndMessages(null)
-        pendingGatt = null
-        pendingCharacteristic = null
-        // v2 session state.
-        consentListener = null
-        v2LocalCard = null
-        v2LocalSharing = false
-        v2PeerHelloSeen = false
-        v2LegacyReported = false
-        v2ServerConsentChar = null
-        v2SubscribedDevice = null
-        v2ClientConsentChar = null
-        v2ClientCardChar = null
-        v2OpInFlight = false
-        v2OpQueue.clear()
-        v2AwaitingHelloAck = false
-        v2ReadyFired = false
-        runCatching { v2ClientGatt?.disconnect() }
-        runCatching { v2ClientGatt?.close() }
-        v2ClientGatt = null
-        runCatching { scanCallback?.let { scanner?.stopScan(it) } }
-        scanner = null
-        scanCallback = null
-        runCatching { clientGatt?.disconnect() }
-        runCatching { clientGatt?.close() }
-        clientGatt = null
-        runCatching { advertiseCallback?.let { advertiser?.stopAdvertising(it) } }
-        advertiser = null
-        advertiseCallback = null
-        runCatching { gattServer?.clearServices() }
-        runCatching { gattServer?.close() }
-        gattServer = null
-    }
-
-    // ---- server callbacks ----
-
-    private fun serverCallback(
-        cardBytes: ByteArray,
-        onPeerCard: (NameCard) -> Unit,
-    ): BluetoothGattServerCallback =
-        object : BluetoothGattServerCallback() {
-            override fun onCharacteristicReadRequest(
-                device: BluetoothDevice,
-                requestId: Int,
-                offset: Int,
-                characteristic: BluetoothGattCharacteristic,
-            ) {
-                // Offset-aware so a card larger than one MTU is read in chunks.
-                val slice =
-                    if (offset in 0..cardBytes.size) cardBytes.copyOfRange(offset, cardBytes.size) else ByteArray(0)
-                val status =
-                    if (offset in 0..cardBytes.size) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_INVALID_OFFSET
-                gattServer?.sendResponse(device, requestId, status, offset, slice)
-            }
-
-            override fun onCharacteristicWriteRequest(
-                device: BluetoothDevice,
-                requestId: Int,
-                characteristic: BluetoothGattCharacteristic,
-                preparedWrite: Boolean,
-                responseNeeded: Boolean,
-                offset: Int,
-                value: ByteArray,
-            ) {
-                if (responseNeeded) {
-                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
-                }
-                val peer = NameCard.parse(value)
-                if (peer != null) {
-                    DiagnosticLog.w(TAG, "server: received peer card (${value.size}B)")
-                    onPeerCard(peer)
-                } else {
-                    DiagnosticLog.w(TAG, "server: peer wrote unparseable card (${value.size}B)")
-                }
-            }
-        }
-
-    // ---- client callbacks ----
-
-    private fun scanCallbackImpl(onPeerCard: (NameCard) -> Unit): ScanCallback =
-        object : ScanCallback() {
-            override fun onScanResult(
-                callbackType: Int,
-                result: ScanResult,
-            ) {
-                if (!running.get()) return
-                // First match wins; stop scanning and connect.
-                runCatching { scanCallback?.let { scanner?.stopScan(it) } }
-                DiagnosticLog.w(TAG, "client: token match ${result.device.address?.takeLast(5)} → connecting")
-                clientGatt = result.device.connectGatt(appContext, false, gattClientCallback(onPeerCard))
-            }
-
-            override fun onScanFailed(errorCode: Int) {
-                DiagnosticLog.w(TAG, "client: scan failed code=$errorCode")
-            }
-        }
-
-    private fun gattClientCallback(onPeerCard: (NameCard) -> Unit): BluetoothGattCallback =
-        object : BluetoothGattCallback() {
-            override fun onConnectionStateChange(
-                gatt: BluetoothGatt,
-                status: Int,
-                newState: Int,
-            ) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    DiagnosticLog.w(TAG, "client: connected → requestMtu")
-                    if (!gatt.requestMtu(REQUESTED_MTU)) gatt.discoverServices()
-                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    DiagnosticLog.w(TAG, "client: disconnected status=$status")
-                }
-            }
-
-            override fun onMtuChanged(
-                gatt: BluetoothGatt,
-                mtu: Int,
-                status: Int,
-            ) {
-                DiagnosticLog.w(TAG, "client: mtu=$mtu → discoverServices")
-                gatt.discoverServices()
-            }
-
-            override fun onServicesDiscovered(
-                gatt: BluetoothGatt,
-                status: Int,
-            ) {
-                val ch = gatt.getService(SERVICE_UUID)?.getCharacteristic(CARD_CHARACTERISTIC_UUID)
-                if (ch == null) {
-                    DiagnosticLog.w(TAG, "client: Name Card characteristic not found")
-                    stop()
-                    return
-                }
-                gatt.readCharacteristic(ch)
-            }
-
-            @Suppress("DEPRECATION")
-            override fun onCharacteristicRead(
-                gatt: BluetoothGatt,
-                characteristic: BluetoothGattCharacteristic,
-                status: Int,
-            ) {
-                // Hold the connection open for the user's Share / Receive-Only choice.
-                pendingGatt = gatt
-                pendingCharacteristic = characteristic
-                val peer = characteristic.value?.let { NameCard.parse(it) }
-                if (peer != null) {
-                    DiagnosticLog.w(TAG, "client: read peer card → awaiting Share/Receive-Only")
-                    onPeerCard(peer)
-                } else {
-                    DiagnosticLog.w(TAG, "client: peer card unreadable")
-                    stop()
-                }
-            }
-
-            override fun onCharacteristicWrite(
-                gatt: BluetoothGatt,
-                characteristic: BluetoothGattCharacteristic,
-                status: Int,
-            ) {
-                DiagnosticLog.w(TAG, "client: wrote our card status=$status → exchange done")
-                stop()
-            }
-        }
-
-    // ================= Name Card v2 (symmetric consent) =================
-    // These run alongside the v1 methods above; a caller uses EITHER the v1 startServer/startClient
-    // OR the v2 startServerV2/startClientV2 for a session (never both). v1 stays byte-identical.
-    // Effects from NameCardConsentMachine map here: SendChoice→sendLocalChoice, TransmitCard→
-    // transmitCard, CloseLink→sendByeAndClose. Peer events go out via [ConsentBleListener] (main).
-
-    /** True in a v2 session once we know our role — server advertises+serves, client scans+connects. */
+    /** True in a session once we know our role — server advertises+serves, client scans+connects. */
     private var v2IsServer = false
 
-    /** Whether a legacy-peer fallback has already been reported for this session (fire once). */
-    private var v2LegacyReported = false
-
     /**
-     * Card side (v2): advertise [token] + serve a GATT service holding BOTH the CARD characteristic
-     * (gated read — served only once OUR user taps Share, plan D2) and the CONSENT characteristic
-     * (WRITE+NOTIFY). Peer events reach [listener] on the main thread. Returns false if BLE is
-     * unavailable. Mirrors [startServer] but adds the consent plumbing; v1 [startServer] is untouched.
+     * Card side: advertise the token derivation + serve a GATT service holding the CARD
+     * characteristic (read gated on peer token auth AND our user's Share) and the CONSENT
+     * characteristic (WRITE+NOTIFY). Peer events reach [listener] on the main thread. Returns false
+     * if BLE is unavailable.
      */
     fun startServerV2(
         localCard: NameCard,
@@ -500,16 +184,16 @@ internal class NameCardBleExchange(
         v2IsServer = true
         consentListener = listener
         v2LocalCard = localCard
-        val cardBytes = localCard.serialize()
+        sessionToken = token.copyOf()
         val server =
-            manager.openGattServer(appContext, serverCallbackV2(cardBytes)) ?: run {
+            manager.openGattServer(appContext, serverCallbackV2()) ?: run {
                 DiagnosticLog.w(TAG, "serverV2: openGattServer null → skip")
                 running.set(false)
                 return false
             }
         gattServer = server
-        // CARD: READ (gated in the handler) + WRITE (peer's card back). NO value bake — the handler
-        // is the single source, and it gates on v2LocalSharing (plan D2).
+        // CARD: READ (gated in the handler on token auth + local Share) + WRITE (peer's card back).
+        // NO value bake — the handler is the single source.
         val cardChar =
             BluetoothGattCharacteristic(
                 CARD_CHARACTERISTIC_UUID,
@@ -550,7 +234,7 @@ internal class NameCardBleExchange(
         return try {
             advertiser.startAdvertising(advertiseSettings(), advertiseData(token), cb)
             mainHandler.postDelayed({ stop() }, MAX_SESSION_MS_V2)
-            DiagnosticLog.w(TAG, "serverV2: advertising token + serving CARD(gated)+CONSENT")
+            DiagnosticLog.w(TAG, "serverV2: advertising token id + serving CARD(gated)+CONSENT")
             true
         } catch (
             @Suppress("TooGenericExceptionCaught") t: Throwable,
@@ -562,10 +246,10 @@ internal class NameCardBleExchange(
     }
 
     /**
-     * Reader side (v2): scan for [token], connect, discover services, and — if the peer exposes the
-     * CONSENT characteristic — subscribe + send HELLO and drive the consent flow. If CONSENT is
-     * ABSENT the peer is a legacy v1 server: [ConsentBleListener.onLegacyPeer] fires and we read the
-     * card the v1 way. Peer events reach [listener] on the main thread.
+     * Reader side: scan for the derived token id, connect, discover services, subscribe to CONSENT,
+     * and authenticate with a HELLO carrying the full [token]. A server without the CONSENT
+     * characteristic is not a valid peer — the session stops. Peer events reach [listener] on the
+     * main thread.
      */
     fun startClientV2(
         token: ByteArray,
@@ -591,8 +275,13 @@ internal class NameCardBleExchange(
             }
         v2IsServer = false
         consentListener = listener
+        sessionToken = token.copyOf()
         this.scanner = scanner
-        val filter = ScanFilter.Builder().setServiceData(ParcelUuid(SERVICE_DATA_UUID), token).build()
+        val filter =
+            ScanFilter
+                .Builder()
+                .setServiceData(ParcelUuid(SERVICE_DATA_UUID), NameCardTokens.advertisedId(token))
+                .build()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         val cb =
             object : ScanCallback() {
@@ -601,8 +290,10 @@ internal class NameCardBleExchange(
                     result: ScanResult,
                 ) {
                     if (!running.get()) return
+                    // Once-only: a burst of scan results must not spawn parallel GATT clients.
+                    if (!connectAttempted.compareAndSet(false, true)) return
                     runCatching { scanCallback?.let { scanner.stopScan(it) } }
-                    DiagnosticLog.w(TAG, "clientV2: token match → connecting")
+                    DiagnosticLog.w(TAG, "clientV2: token id match → connecting")
                     v2ClientGatt = result.device.connectGatt(appContext, false, gattClientCallbackV2())
                 }
 
@@ -614,7 +305,7 @@ internal class NameCardBleExchange(
         return try {
             scanner.startScan(listOf(filter), settings, cb)
             mainHandler.postDelayed({ stop() }, MAX_SESSION_MS_V2)
-            DiagnosticLog.w(TAG, "clientV2: scanning for token")
+            DiagnosticLog.w(TAG, "clientV2: scanning for token id")
             true
         } catch (
             @Suppress("TooGenericExceptionCaught") t: Throwable,
@@ -636,12 +327,13 @@ internal class NameCardBleExchange(
 
     /**
      * Machine `TransmitCard` effect: send my card. Server opens its gated CARD read (sets
-     * [v2LocalSharing]; the client reads it after our CHOICE_SHARE notify). Client WRITES its card to
-     * the peer's CARD characteristic (the v1 `shareBack` path, reused).
+     * [v2LocalSharing] and snapshots the — possibly field-filtered — [localCard] as the served
+     * bytes). Client WRITES its card to the peer's CARD characteristic.
      */
     fun transmitCard(localCard: NameCard) {
         v2LocalCard = localCard
         if (v2IsServer) {
+            v2ServeBytes = localCard.serialize()
             v2LocalSharing = true
             DiagnosticLog.w(TAG, "serverV2: TransmitCard → CARD read gate open")
         } else {
@@ -651,7 +343,7 @@ internal class NameCardBleExchange(
 
     /**
      * Machine `CloseLink` effect: send BYE (so the peer knows it's a clean finish, not a drop), then
-     * tear down after a short grace so any final in-flight card read/write drains (plan D5/B3).
+     * tear down after a short grace so any final in-flight card read/write drains.
      */
     fun sendByeAndClose() {
         val bye = NameCardConsentCodec.encode(ConsentMessage.Bye)
@@ -659,9 +351,42 @@ internal class NameCardBleExchange(
         mainHandler.postDelayed({ stop() }, SESSION_CLOSE_GRACE_MS)
     }
 
-    // ---- v2 server GATT callback ----
+    /** Tear down all BLE handles. Idempotent. */
+    fun stop() {
+        running.set(false)
+        mainHandler.removeCallbacksAndMessages(null)
+        consentListener = null
+        v2LocalCard = null
+        sessionToken = null
+        v2LocalSharing = false
+        v2ServeBytes = null
+        v2AuthedDevice = null
+        v2ServerConsentChar = null
+        v2SubscribedDevice = null
+        v2ClientConsentChar = null
+        v2ClientCardChar = null
+        v2OpInFlight = false
+        v2OpQueue.clear()
+        v2AwaitingHelloAck = false
+        v2ReadyFired = false
+        connectAttempted.set(false)
+        runCatching { v2ClientGatt?.disconnect() }
+        runCatching { v2ClientGatt?.close() }
+        v2ClientGatt = null
+        runCatching { scanCallback?.let { scanner?.stopScan(it) } }
+        scanner = null
+        scanCallback = null
+        runCatching { advertiseCallback?.let { advertiser?.stopAdvertising(it) } }
+        advertiser = null
+        advertiseCallback = null
+        runCatching { gattServer?.clearServices() }
+        runCatching { gattServer?.close() }
+        gattServer = null
+    }
 
-    private fun serverCallbackV2(cardBytes: ByteArray): BluetoothGattServerCallback =
+    // ---- server GATT callback ----
+
+    private fun serverCallbackV2(): BluetoothGattServerCallback =
         object : BluetoothGattServerCallback() {
             override fun onConnectionStateChange(
                 device: BluetoothDevice,
@@ -684,22 +409,13 @@ internal class NameCardBleExchange(
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                     return
                 }
-                // Read-before-HELLO ⇒ legacy v1 client: serve unconditionally (plan D3).
-                if (!v2PeerHelloSeen) {
-                    if (!v2LegacyReported) {
-                        v2LegacyReported = true
-                        DiagnosticLog.w(TAG, "serverV2: CARD read before HELLO → legacy v1 peer")
-                        notifyLegacyPeer()
-                    }
-                    serveCard(device, requestId, offset, cardBytes)
-                    return
-                }
-                // v2 peer: serve only once OUR user tapped Share (plan D2).
-                if (!v2LocalSharing) {
+                // Serve ONLY to the token-authenticated peer, and ONLY once our user tapped Share.
+                val serveBytes = v2ServeBytes
+                if (device != v2AuthedDevice || !v2LocalSharing || serveBytes == null) {
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_READ_NOT_PERMITTED, offset, null)
                     return
                 }
-                serveCard(device, requestId, offset, cardBytes)
+                serveCard(device, requestId, offset, serveBytes)
             }
 
             override fun onCharacteristicWriteRequest(
@@ -711,20 +427,44 @@ internal class NameCardBleExchange(
                 offset: Int,
                 value: ByteArray,
             ) {
-                if (responseNeeded) {
-                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
-                }
                 when (characteristic.uuid) {
                     CARD_CHARACTERISTIC_UUID -> {
-                        val peer = NameCard.parse(value)
+                        // Inbound cards are accepted only from the token-authenticated peer.
+                        if (device != v2AuthedDevice) {
+                            DiagnosticLog.w(TAG, "serverV2: CARD write from unauthenticated peer → rejected")
+                            if (responseNeeded) {
+                                gattServer?.sendResponse(
+                                    device,
+                                    requestId,
+                                    BluetoothGatt.GATT_WRITE_NOT_PERMITTED,
+                                    offset,
+                                    null,
+                                )
+                            }
+                            return
+                        }
+                        if (responseNeeded) {
+                            gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+                        }
+                        val peer = NameCard.parse(value)?.let { NameCardSanitizer.sanitize(it) }
                         if (peer != null) {
                             DiagnosticLog.w(TAG, "serverV2: peer card written (${value.size}B)")
                             notifyPeerCard(peer)
                         } else {
-                            DiagnosticLog.w(TAG, "serverV2: peer wrote unparseable card (${value.size}B)")
+                            DiagnosticLog.w(TAG, "serverV2: peer wrote unparseable/oversized card (${value.size}B)")
                         }
                     }
-                    CONSENT_CHARACTERISTIC_UUID -> handlePeerConsent(value)
+                    CONSENT_CHARACTERISTIC_UUID -> {
+                        if (responseNeeded) {
+                            gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+                        }
+                        handleServerConsent(device, value)
+                    }
+                    else -> {
+                        if (responseNeeded) {
+                            gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                        }
+                    }
                 }
             }
 
@@ -737,15 +477,50 @@ internal class NameCardBleExchange(
                 offset: Int,
                 value: ByteArray,
             ) {
-                // TRAP (plan B3): ALWAYS respond or the client's subscribe stalls forever.
+                // TRAP: ALWAYS respond or the client's subscribe stalls forever. Subscription alone
+                // grants nothing — link-ready (and every gate) waits for the token-bearing HELLO.
                 v2SubscribedDevice = device
                 if (responseNeeded) {
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
                 }
-                // A subscriber exists → the server can now notify choices.
-                notifyLinkReady()
             }
         }
+
+    /**
+     * Server: decode a peer CONSENT write. The FIRST message from any peer must be a HELLO carrying
+     * this session's token; anything else — or a wrong/missing token — rejects the peer and drops
+     * the connection. Post-auth messages from a different device are ignored.
+     */
+    private fun handleServerConsent(
+        device: BluetoothDevice,
+        value: ByteArray?,
+    ) {
+        val msg = value?.let { NameCardConsentCodec.decode(it) }
+        val authed = v2AuthedDevice
+        if (authed == null) {
+            if (msg is ConsentMessage.Hello && NameCardTokens.verify(sessionToken, msg.token)) {
+                v2AuthedDevice = device
+                DiagnosticLog.w(TAG, "serverV2: peer HELLO token verified")
+                notifyPeerHello()
+                notifyLinkReady()
+            } else {
+                DiagnosticLog.w(TAG, "serverV2: unauthenticated consent message → disconnecting peer")
+                runCatching { gattServer?.cancelConnection(device) }
+            }
+            return
+        }
+        if (device != authed) {
+            DiagnosticLog.w(TAG, "serverV2: consent message from a different device → ignored")
+            return
+        }
+        when (msg) {
+            is ConsentMessage.Hello -> Unit // duplicate HELLO from the authed peer: no-op
+            ConsentMessage.ChoiceShare -> notifyPeerChoice(true)
+            ConsentMessage.ChoiceReceiveOnly -> notifyPeerChoice(false)
+            ConsentMessage.Bye -> notifyDisconnected()
+            null -> DiagnosticLog.w(TAG, "serverV2: undecodable consent message (${value?.size ?: 0}B)")
+        }
+    }
 
     /** Server: answer a CARD read with the offset-aware slice (long-read across MTU). */
     private fun serveCard(
@@ -760,7 +535,7 @@ internal class NameCardBleExchange(
         gattServer?.sendResponse(device, requestId, status, offset, slice)
     }
 
-    // ---- v2 client GATT callback ----
+    // ---- client GATT callback ----
 
     private fun gattClientCallbackV2(): BluetoothGattCallback =
         object : BluetoothGattCallback() {
@@ -792,11 +567,10 @@ internal class NameCardBleExchange(
                 val service = gatt.getService(SERVICE_UUID)
                 val consent = service?.getCharacteristic(CONSENT_CHARACTERISTIC_UUID)
                 val cardChar = service?.getCharacteristic(CARD_CHARACTERISTIC_UUID)
-                if (consent == null) {
-                    // Legacy v1 server: no consent channel → read the card the old way (plan D3).
-                    DiagnosticLog.w(TAG, "clientV2: no CONSENT char → legacy v1 server")
-                    notifyLegacyPeer()
-                    if (cardChar != null) enqueueClientOp { gatt.readCharacteristic(cardChar) } else stop()
+                if (consent == null || cardChar == null) {
+                    // Not a token-authenticated Name Card peer — there is no fallback protocol.
+                    DiagnosticLog.w(TAG, "clientV2: peer lacks the consent service → stop")
+                    stop()
                     return
                 }
                 v2ClientConsentChar = consent
@@ -818,9 +592,10 @@ internal class NameCardBleExchange(
                 status: Int,
             ) {
                 clientOpDone()
-                // Subscribed → announce ourselves with HELLO; its write-ack becomes link-ready.
+                // Subscribed → authenticate with the token-bearing HELLO; its write-ack = link-ready.
+                val token = sessionToken ?: return
                 v2AwaitingHelloAck = true
-                enqueueClientOp { writeConsent(NameCardConsentCodec.helloBytes()) }
+                enqueueClientOp { writeConsent(NameCardConsentCodec.helloBytes(token)) }
             }
 
             override fun onCharacteristicWrite(
@@ -831,7 +606,12 @@ internal class NameCardBleExchange(
                 clientOpDone()
                 if (v2AwaitingHelloAck) {
                     v2AwaitingHelloAck = false
-                    notifyLinkReady()
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        notifyLinkReady()
+                    } else {
+                        DiagnosticLog.w(TAG, "clientV2: HELLO write failed status=$status → stop")
+                        stop()
+                    }
                 }
             }
 
@@ -840,7 +620,7 @@ internal class NameCardBleExchange(
                 gatt: BluetoothGatt,
                 characteristic: BluetoothGattCharacteristic,
             ) {
-                if (characteristic.uuid == CONSENT_CHARACTERISTIC_UUID) handlePeerConsent(characteristic.value)
+                if (characteristic.uuid == CONSENT_CHARACTERISTIC_UUID) handleClientConsent(characteristic.value)
             }
 
             override fun onCharacteristicChanged(
@@ -848,7 +628,7 @@ internal class NameCardBleExchange(
                 characteristic: BluetoothGattCharacteristic,
                 value: ByteArray,
             ) {
-                if (characteristic.uuid == CONSENT_CHARACTERISTIC_UUID) handlePeerConsent(value)
+                if (characteristic.uuid == CONSENT_CHARACTERISTIC_UUID) handleClientConsent(value)
             }
 
             @Suppress("DEPRECATION")
@@ -857,7 +637,7 @@ internal class NameCardBleExchange(
                 characteristic: BluetoothGattCharacteristic,
                 status: Int,
             ) {
-                onClientCardRead(characteristic.value)
+                onClientCardRead(characteristic.value, status)
             }
 
             override fun onCharacteristicRead(
@@ -866,46 +646,48 @@ internal class NameCardBleExchange(
                 value: ByteArray,
                 status: Int,
             ) {
-                onClientCardRead(value)
+                onClientCardRead(value, status)
             }
         }
 
     /** Client: a CARD read completed — parse + surface the peer's card, then free the op slot. */
-    private fun onClientCardRead(value: ByteArray?) {
+    private fun onClientCardRead(
+        value: ByteArray?,
+        status: Int,
+    ) {
         clientOpDone()
-        val peer = value?.let { NameCard.parse(it) }
+        if (status != BluetoothGatt.GATT_SUCCESS) {
+            DiagnosticLog.w(TAG, "clientV2: CARD read failed status=$status")
+            return
+        }
+        val peer = value?.let { NameCard.parse(it) }?.let { NameCardSanitizer.sanitize(it) }
         if (peer != null) {
             DiagnosticLog.w(TAG, "clientV2: read peer card (${value.size}B)")
             notifyPeerCard(peer)
         } else {
-            DiagnosticLog.w(TAG, "clientV2: peer card unreadable")
+            DiagnosticLog.w(TAG, "clientV2: peer card unreadable/oversized")
         }
     }
 
-    /** Decode a peer CONSENT message (server-received write / client-received notify) → listener. */
-    private fun handlePeerConsent(value: ByteArray?) {
-        val msg = value?.let { NameCardConsentCodec.decode(it) }
-        when (msg) {
-            is ConsentMessage.Hello -> {
-                v2PeerHelloSeen = true
-                notifyPeerHello()
-            }
+    /** Client: decode a peer CONSENT notify → listener. */
+    private fun handleClientConsent(value: ByteArray?) {
+        when (val msg = value?.let { NameCardConsentCodec.decode(it) }) {
+            is ConsentMessage.Hello -> DiagnosticLog.w(TAG, "clientV2: unexpected HELLO notify → ignored")
             ConsentMessage.ChoiceShare -> {
                 notifyPeerChoice(true)
-                // Client: peer shared ⇒ its card is now readable — go read it.
-                if (!v2IsServer) {
-                    val gatt = v2ClientGatt
-                    val card = v2ClientCardChar
-                    if (gatt != null && card != null) enqueueClientOp { gatt.readCharacteristic(card) }
-                }
+                // Peer shared ⇒ its card is now readable — go read it.
+                val gatt = v2ClientGatt
+                val card = v2ClientCardChar
+                if (gatt != null && card != null) enqueueClientOp { gatt.readCharacteristic(card) }
             }
             ConsentMessage.ChoiceReceiveOnly -> notifyPeerChoice(false)
             ConsentMessage.Bye -> notifyDisconnected()
-            null -> DiagnosticLog.w(TAG, "v2: undecodable consent message (${value?.size ?: 0}B)")
+            null -> DiagnosticLog.w(TAG, "clientV2: undecodable consent message (${value?.size ?: 0}B)")
+            else -> DiagnosticLog.w(TAG, "clientV2: unhandled consent message ${msg.javaClass.simpleName}")
         }
     }
 
-    // ---- v2 client single-op serializer (main-thread) ----
+    // ---- client single-op serializer (main-thread) ----
 
     private fun enqueueClientOp(op: () -> Unit) =
         runOnMain {
@@ -985,11 +767,12 @@ internal class NameCardBleExchange(
     }
 
     private fun notifyConsent(bytes: ByteArray) {
-        val dev = v2SubscribedDevice
+        // Choices/BYE go only to the token-authenticated peer, never a bare subscriber.
+        val dev = v2AuthedDevice?.takeIf { it == v2SubscribedDevice }
         val ch = v2ServerConsentChar
         val server = gattServer
         if (dev == null || ch == null || server == null) {
-            DiagnosticLog.w(TAG, "serverV2: notify skipped (no subscriber yet)")
+            DiagnosticLog.w(TAG, "serverV2: notify skipped (no authenticated subscriber)")
             return
         }
         runCatching {
@@ -1002,7 +785,7 @@ internal class NameCardBleExchange(
         }.onFailure { DiagnosticLog.w(TAG, "serverV2: notify threw ${it.message}") }
     }
 
-    // ---- v2 listener marshaling (binder thread → main) ----
+    // ---- listener marshaling (binder thread → main) ----
 
     private fun runOnMain(block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) block() else mainHandler.post(block)
@@ -1022,8 +805,6 @@ internal class NameCardBleExchange(
 
     private fun notifyPeerCard(card: NameCard) = runOnMain { consentListener?.onPeerCardArrived(card) }
 
-    private fun notifyLegacyPeer() = runOnMain { consentListener?.onLegacyPeer() }
-
     private fun notifyDisconnected() = runOnMain { consentListener?.onDisconnected() }
 
     // ---- advertising helpers (idiom from BleAdvertiser) ----
@@ -1036,10 +817,15 @@ internal class NameCardBleExchange(
             .setConnectable(true)
             .build()
 
+    /**
+     * Advertise only the 8-byte SHA-256 derivation of the token — never the token itself (a BLE
+     * sniffer must not learn the HELLO credential). The short id also keeps the 128-bit service-data
+     * UUID + payload inside the 31-byte legacy advertisement.
+     */
     private fun advertiseData(token: ByteArray): AdvertiseData =
         AdvertiseData
             .Builder()
-            .addServiceData(ParcelUuid(SERVICE_DATA_UUID), token)
+            .addServiceData(ParcelUuid(SERVICE_DATA_UUID), NameCardTokens.advertisedId(token))
             .setIncludeDeviceName(false)
             .setIncludeTxPowerLevel(false)
             .build()
@@ -1076,36 +862,34 @@ internal class NameCardBleExchange(
         /** Default ATT MTU to request so a ~200-byte card writes in one go. */
         private const val REQUESTED_MTU = 247
 
-        /** Battery backstop: auto-stop a session (advertise/scan/GATT) that never completes. */
-        private const val MAX_SESSION_MS = 30_000L
-
-        /** GATT service holding the single Name Card read/write characteristic. */
+        /** GATT service holding the CARD + CONSENT characteristics. */
         val SERVICE_UUID: UUID = UUID.fromString("f0534443-0001-4000-8000-534443415244")
 
-        /** The one characteristic: READ serves our card, WRITE receives the peer's. */
+        /** CARD characteristic: READ serves our card (gated), WRITE receives the peer's. */
         val CARD_CHARACTERISTIC_UUID: UUID = UUID.fromString("f0534443-0002-4000-8000-534443415244")
 
-        /** 16-bit-style UUID under which the rendezvous token rides in adv service data. */
-        val SERVICE_DATA_UUID: UUID = UUID.fromString("0000fe2d-0000-1000-8000-00805f9b34fb")
-
-        // ---- Name Card v2 (symmetric consent) ----
+        /**
+         * Project-random 128-bit UUID under which the derived rendezvous id rides in advertisement
+         * service data. Deliberately NOT a 16-bit SIG-style alias — those are Bluetooth SIG member
+         * allocations this project holds no claim to (the repo's 0xFE2C/0xFEF3 use elsewhere is
+         * deliberate Quick Share interop; this exchange is Bada-only).
+         */
+        val SERVICE_DATA_UUID: UUID = UUID.fromString("918f0bd7-3b58-46e5-ae4f-ad2206205c51")
 
         /**
-         * v2 CONSENT characteristic (WRITE + NOTIFY): the client WRITES its
-         * [NameCardConsentCodec] messages here; the server NOTIFIES its own back. Added to the SAME
-         * [SERVICE_UUID] service as [CARD_CHARACTERISTIC_UUID]. Its absence on the server is how a v2
-         * client detects a legacy v1 peer (plan D3).
+         * CONSENT characteristic (WRITE + NOTIFY): the client WRITES its [NameCardConsentCodec]
+         * messages here (starting with the token-bearing HELLO); the server NOTIFIES its own back.
          */
         val CONSENT_CHARACTERISTIC_UUID: UUID = UUID.fromString("7b2fdd3e-9a41-4e2c-b7a4-5c1e6f3d0a11")
 
         /** Standard Client Characteristic Configuration Descriptor (enables NOTIFY on CONSENT). */
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
-        /** v2 session backstop (plan D5): longer than v1's 30s so the 30s UX timer resolves first. */
+        /** Session backstop: longer than the 30s UX timer so that resolves first. */
         private const val MAX_SESSION_MS_V2 = 60_000L
 
         /**
-         * Grace after a v2 `CloseLink`/BYE before the actual radio teardown, so any in-flight final
+         * Grace after a `CloseLink`/BYE before the actual radio teardown, so any in-flight final
          * card read (server side, which has no read-completion callback) or write drains first. A
          * heuristic — TODO-DEVICE: tune against real two-phone timing.
          */
@@ -1114,29 +898,26 @@ internal class NameCardBleExchange(
 }
 
 /**
- * Callback surface the BLE layer raises to the v2 consent coordinator (the transfer activity via
- * [NameCardLinkHolder]). All methods are delivered on the MAIN thread (the exchange marshals from the
- * binder-thread GATT callbacks). See [NameCardBleExchange] + plan B3.
+ * Callback surface the BLE layer raises to the consent coordinator (the transfer activity via
+ * [NameCardLinkHolder]). All methods are delivered on the MAIN thread (the exchange marshals from
+ * the binder-thread GATT callbacks).
  */
 internal interface ConsentBleListener {
     /**
-     * The link can now carry a choice: server has a subscriber / client finished its HELLO write.
-     * The UI keeps the Share/Receive-Only buttons disabled ("Connecting…") until this fires so a
-     * fast tap is never lost before the transport is ready.
+     * The link can now carry a choice: the server verified the peer's token-bearing HELLO / the
+     * client's HELLO write was acked. The UI keeps the Share/Receive-Only buttons disabled
+     * ("Connecting…") until this fires so a fast tap is never lost before the transport is ready.
      */
     fun onLinkReady()
 
-    /** The peer sent HELLO — it speaks v2. */
+    /** The peer sent a HELLO whose token verified against this session. */
     fun onPeerHello()
 
     /** The peer reported its choice ([share] = Share, else Receive Only). */
     fun onPeerChoice(share: Boolean)
 
-    /** The peer's card BYTES arrived and parsed. */
+    /** The peer's card BYTES arrived, parsed, and passed sanitization. */
     fun onPeerCardArrived(card: NameCard)
-
-    /** The peer only speaks v1 (no CONSENT characteristic / read-before-HELLO) — fall back. */
-    fun onLegacyPeer()
 
     /** The link dropped or the peer sent BYE. */
     fun onDisconnected()

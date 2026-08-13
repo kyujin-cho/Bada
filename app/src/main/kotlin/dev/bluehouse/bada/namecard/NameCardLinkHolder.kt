@@ -12,7 +12,7 @@ import dev.bluehouse.bada.protocol.namecard.NameCard
 
 /**
  * **Name Card v2 live-session coordinator** — the single process-wide brain of a symmetric NameDrop
- * exchange (see the Name Card design notes, plan B4). It exists because the two
+ * exchange. It exists because the two
  * halves of a v2 session are created in different places:
  *  - the **server** side is started by [NameCardExchangeService] on the NFC tap (before any UI),
  *  - the **client** side is started by [NameCardTransferActivity] after the AAR wake,
@@ -49,9 +49,6 @@ internal object NameCardLinkHolder {
 
         /** The peer's card arrived — bind it into the view (the ripple/save comes via [Effect.SaveCardAndRipple]). */
         fun onPeerCard(card: NameCard)
-
-        /** The peer only speaks v1 — fall back to the legacy receive UX. */
-        fun onLegacyPeer()
     }
 
     /**
@@ -68,6 +65,11 @@ internal object NameCardLinkHolder {
         /** The peer's card once it has arrived (for a UI that attaches after the fact). */
         @Volatile
         var peerCard: NameCard? = null
+            private set
+
+        /** True once the link reported ready (for a UI that re-attaches after a config change). */
+        @Volatile
+        var linkReady: Boolean = false
             private set
 
         /** The transfer screen, once it attaches. */
@@ -99,6 +101,7 @@ internal object NameCardLinkHolder {
 
         override fun onLinkReady() {
             DiagnosticLog.w(TAG, "session($role): link ready")
+            linkReady = true
             uiObserver?.onReady()
         }
 
@@ -113,11 +116,6 @@ internal object NameCardLinkHolder {
             peerCard = card
             uiObserver?.onPeerCard(card)
             apply(machine.onEvent(Event.PeerCardArrived))
-        }
-
-        override fun onLegacyPeer() {
-            DiagnosticLog.w(TAG, "session($role): peer is legacy v1")
-            uiObserver?.onLegacyPeer()
         }
 
         override fun onDisconnected() = apply(machine.onEvent(Event.Disconnected))

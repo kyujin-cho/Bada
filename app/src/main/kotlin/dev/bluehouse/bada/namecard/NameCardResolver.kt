@@ -10,53 +10,43 @@ import dev.bluehouse.bada.protocol.namecard.NameCardEntry
 
 /**
  * **Name Card source resolver** — decides WHICH card this phone shares when two
- * phones tap (NameDrop-style; see the Name Card design notes).
+ * phones tap (NameDrop-style).
  *
- * Per-field precedence (user's decision): each field prefers the in-app **My Name
- * Card** ([NameCardProfileStore]) value and falls back to the device Contacts
- * profile for any field the user left blank in the app:
- *  - name  = in-app name  ?: Contacts "Me"/profile display name
- *  - phone = in-app phone ?: Contacts profile phone ?: SIM line number
- *  - email = in-app email ?: Contacts profile email
+ * Only the card the user explicitly set up in **My Name Card**
+ * ([NameCardProfileStore]) is ever shared. There is deliberately NO automatic
+ * fallback to the device "Me" contact or the SIM line number: a tap must never
+ * disclose the owner's real identity unless the user configured a card. (The
+ * setup screen's "Use my phone info" button still PRE-FILLS the form from those
+ * sources, but only as an explicit user action — see
+ * [NameCardSetupActivity.fillFromDevice] / [AndroidDeviceContactSources].)
  *
- * All device reads go through [DeviceContactSources] (permission-gated; any read
- * may return `null`). When every field is blank across both sources, [resolve]
- * returns `null` and the UI prompts the user to set up a card.
- *
- * The device-side reads (SIM number, "Me" name) sit behind [DeviceContactSources]
- * so this precedence logic is pure and unit-testable without Android (see
- * `NameCardResolverTest`). [AndroidDeviceContactSources] is the real implementation.
+ * The stored card is then filtered by the user's "Choose what to share"
+ * selection; when nothing is configured (or everything is unchecked), [resolve]
+ * returns `null` and no exchange happens. Pure and unit-testable without
+ * Android (see `NameCardResolverTest`).
  */
 internal class NameCardResolver(
     /** Loads the in-app My Name Card, or `null` if not set up. Normally `store::load`. */
     private val storedCard: () -> NameCard?,
-    private val deviceSources: DeviceContactSources,
     /**
      * The fields the user chose to share (keys [FIELD_NAME]/[FIELD_PHONE]/[FIELD_EMAIL]),
-     * or `null` to share every present field. Normally `store::shareSelection`. Applied
-     * after the per-field merge so an unselected field is dropped from the shared card.
+     * or `null` to share every present field. Normally `store::shareSelection`. An
+     * unselected field is dropped from the shared card.
      */
     private val shareSelection: () -> Set<String>? = { null },
 ) {
     /**
-     * Resolve the card to share, or `null` when this phone has nothing to offer
-     * (no in-app card AND no device name/number) — callers then nudge the user
-     * to fill in their Name Card.
+     * Resolve the card to share, or `null` when the user has not set up a card
+     * (or unchecked every field) — callers then skip the exchange entirely.
      */
-    @Suppress("ReturnCount", "CyclomaticComplexMethod", "ComplexCondition")
+    @Suppress("ReturnCount", "ComplexCondition")
     fun resolve(): NameCard? {
-        val stored = storedCard()
+        val stored = storedCard() ?: return null
 
-        // Per-field: in-app value wins; Contacts profile (then SIM for phone) fills any blank.
-        val name = stored?.displayName ?: clean(deviceSources.profileDisplayName())
-        val phone =
-            stored?.phoneNumber
-                ?: clean(deviceSources.profilePhoneNumber())
-                ?: clean(deviceSources.simPhoneNumber())
-        val email = stored?.email ?: clean(deviceSources.profileEmail())
-
-        // Richer typed fields: the in-app card's entries win; else the device profile's entries.
-        val entries = stored?.entries?.takeIf { it.isNotEmpty() } ?: deviceSources.profileEntries()
+        val name = clean(stored.displayName)
+        val phone = clean(stored.phoneNumber)
+        val email = clean(stored.email)
+        val entries = stored.entries
 
         // Drop any field the user unchecked in "Choose what to share" (null = share all).
         val selection = shareSelection()
@@ -77,9 +67,6 @@ internal class NameCardResolver(
 
     private fun clean(value: String?): String? = value?.trim()?.ifEmpty { null }
 
-    /** True when [resolve] would return a card (in-app or device fallback). */
-    fun canResolve(): Boolean = resolve() != null
-
     companion object {
         /** Share-selection field keys (persisted in [NameCardProfileStore.shareSelection]). */
         const val FIELD_NAME = "name"
@@ -92,10 +79,11 @@ internal class NameCardResolver(
 }
 
 /**
- * Device-side fallback sources for [NameCardResolver]. Abstracted behind an
- * interface so the resolver's precedence is testable on a plain JVM. The real
- * reads require runtime permissions and may legitimately return `null` (denied,
- * unavailable, eSIM with no readable number, no "Me" contact).
+ * Device-side sources used by the setup screen's explicit "Use my phone info"
+ * pre-fill (never consulted automatically at tap time). Abstracted behind an
+ * interface so callers are testable on a plain JVM. The real reads require
+ * runtime permissions and may legitimately return `null` (denied, unavailable,
+ * eSIM with no readable number, no "Me" contact).
  */
 internal interface DeviceContactSources {
     /** The device owner's display name from the "Me"/profile contact, or `null`. */

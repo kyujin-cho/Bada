@@ -73,31 +73,6 @@
 
             </LinearLayout>
 
-            <!-- nameCardV2Row — "Symmetric consent (beta)" toggle: both phones show the card at tap
-                 and each independently picks Share / Receive Only. Off = the shipped one-sided flow. -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/name_card_v2_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Body2"
-                    android:textColor="?android:attr/textColorPrimary" />
-
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/nameCardV2Switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp" />
-
-            </LinearLayout>
-
             <!-- nameCardNameInput — "Name" text field -->
             <EditText
                 android:id="@+id/nameCardNameInput"

@@ -12,19 +12,27 @@ import org.junit.Test
 
 /**
  * Pure-JVM tests for [NameCardConsentCodec]: round-trip every opcode, every malformed case decodes
- * to null, and trailing bytes beyond a message are tolerated (forward-compat, plan B1).
+ * to null — including the token-less legacy HELLO, which MUST stay malformed (no unauthenticated
+ * fallback) — and trailing bytes beyond a message are tolerated (forward-compat).
  */
 class NameCardConsentCodecTest {
+    private val token = ByteArray(16) { (it + 1).toByte() }
+
     @Test
-    fun `hello round-trips with version`() {
-        val bytes = NameCardConsentCodec.encode(ConsentMessage.Hello(0x01.toByte()))
-        assertArrayEquals(byteArrayOf(0x01, 0x01), bytes)
-        assertEquals(ConsentMessage.Hello(0x01.toByte()), NameCardConsentCodec.decode(bytes))
+    fun `hello round-trips with version and token`() {
+        val bytes = NameCardConsentCodec.encode(ConsentMessage.Hello(0x02.toByte(), token))
+        assertArrayEquals(byteArrayOf(0x01, 0x02) + token, bytes)
+        assertEquals(ConsentMessage.Hello(0x02.toByte(), token), NameCardConsentCodec.decode(bytes))
     }
 
     @Test
-    fun `helloBytes uses this build's protocol version`() {
-        assertArrayEquals(byteArrayOf(0x01, 0x01), NameCardConsentCodec.helloBytes())
+    fun `helloBytes uses this build's protocol version and carries the token`() {
+        assertArrayEquals(byteArrayOf(0x01, 0x02) + token, NameCardConsentCodec.helloBytes(token))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `encoding a hello with a wrong-length token throws`() {
+        NameCardConsentCodec.encode(ConsentMessage.Hello(0x02.toByte(), ByteArray(8)))
     }
 
     @Test
@@ -60,8 +68,12 @@ class NameCardConsentCodecTest {
     }
 
     @Test
-    fun `hello shorter than two bytes decodes to null`() {
+    fun `hello without a full token decodes to null - no unauthenticated fallback`() {
+        // Bare opcode, opcode+version (the legacy pre-token HELLO), and a truncated token: all
+        // malformed. A server treats any of these as an unauthenticated peer and disconnects.
         assertNull(NameCardConsentCodec.decode(byteArrayOf(0x01)))
+        assertNull(NameCardConsentCodec.decode(byteArrayOf(0x01, 0x01)))
+        assertNull(NameCardConsentCodec.decode(byteArrayOf(0x01, 0x02) + ByteArray(15)))
     }
 
     @Test
@@ -72,10 +84,8 @@ class NameCardConsentCodecTest {
     }
 
     @Test
-    fun `trailing bytes beyond a hello keep the version byte`() {
-        assertEquals(
-            ConsentMessage.Hello(0x01.toByte()),
-            NameCardConsentCodec.decode(byteArrayOf(0x01, 0x01, 0x99.toByte())),
-        )
+    fun `trailing bytes beyond a hello keep the version and token`() {
+        val wire = byteArrayOf(0x01, 0x02) + token + byteArrayOf(0x99.toByte())
+        assertEquals(ConsentMessage.Hello(0x02.toByte(), token), NameCardConsentCodec.decode(wire))
     }
 }

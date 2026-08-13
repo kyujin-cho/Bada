@@ -23,8 +23,7 @@ import dev.bluehouse.bada.protocol.namecard.NameCardEntryKind
 /**
  * **My Name Card setup screen** — the page reached by tapping the **"Name Card"**
  * row in Settings ([dev.bluehouse.bada.ui.SettingsFragment]). Here the user enters
- * the contact card they share when two phones tap (NameDrop-style; see
- * the Name Card design notes).
+ * the contact card they share when two phones tap (NameDrop-style).
  *
  * UI (R.layout.activity_name_card_setup):
  *  - `nameCardNameInput` — text field, "Name".
@@ -72,19 +71,13 @@ internal class NameCardSetupActivity : AppCompatActivity() {
         phoneInput.setText(store.phoneNumber().orEmpty())
         emailInput.setText(store.email().orEmpty())
 
-        // "Share my card when phones tap" master switch.
+        // "Share my card when phones tap" master switch (default OFF — sharing is opt-in). When
+        // enabled, ask for notification permission so the "waiting / declined" heads-up can show.
         val enablePrefs = NameCardPreferences.from(this)
         findViewById<SwitchCompat>(R.id.nameCardEnableSwitch).apply {
             isChecked = enablePrefs.isEnabled()
-            setOnCheckedChangeListener { _, checked -> enablePrefs.setEnabled(checked) }
-        }
-
-        // "Symmetric consent (beta)" toggle — turns on the both-phones-choose Name Card v2 flow.
-        // When enabled, ask for notification permission so the "waiting / declined" heads-up can show.
-        findViewById<SwitchCompat>(R.id.nameCardV2Switch).apply {
-            isChecked = enablePrefs.isV2Enabled()
             setOnCheckedChangeListener { _, checked ->
-                enablePrefs.setV2Enabled(checked)
+                enablePrefs.setEnabled(checked)
                 if (checked) requestNotificationPermissionIfNeeded()
             }
         }

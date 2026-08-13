@@ -16,7 +16,7 @@ import org.json.JSONObject
 /**
  * **My Name Card profile store** — persists the contact card the user sets up
  * in the "Name Card" settings screen ([NameCardSetupActivity]) and shares by
- * tapping phones (NameDrop-style; see the Name Card design notes).
+ * tapping phones (NameDrop-style).
  *
  * Backed by a private [SharedPreferences] file. Each field (name / phone /
  * email) is stored independently and may be blank; [load] assembles them into a

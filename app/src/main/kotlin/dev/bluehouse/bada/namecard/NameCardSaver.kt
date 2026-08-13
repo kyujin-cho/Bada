@@ -23,8 +23,7 @@ import android.provider.ContactsContract.Intents.Insert as ins
 
 /**
  * **Name Card → Android contact saver.** Saves a received [NameCard] as a REAL
- * Android contact for the tap-to-share feature (see
- * the Name Card design notes).
+ * Android contact for the tap-to-share feature.
  *
  * Deliberately does NOT go through a vCard `.vcf` file (vCard file import is
  * unreliable across OEM Contacts apps, and the card already has structured

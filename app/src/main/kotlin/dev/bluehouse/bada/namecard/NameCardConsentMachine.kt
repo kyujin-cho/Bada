@@ -7,8 +7,7 @@ package dev.bluehouse.bada.namecard
 
 /**
  * **Name Card v2 symmetric-consent state machine** — the pure, role-agnostic brain of the NameDrop
- * exchange (see the Name Card design notes and the Name Card design notes
- * §7/§7b/B2). It encodes the §3 "my choice × peer's choice" matrix: each side independently taps
+ * exchange. It encodes the "my choice × peer's choice" matrix: each side independently taps
  * **Share** or **Receive Only**, the two apps tell each other over the CONSENT channel
  * ([NameCardConsentCodec]), and this machine turns the resulting events into UI/BLE [Effect]s.
  *
@@ -22,8 +21,8 @@ package dev.bluehouse.bada.namecard
  * ## Role-agnostic (both client and server run one instance)
  * The BLE layer ([NameCardBleExchange]) maps effects to its role:
  *  - [Effect.SendChoice] — client WRITES the choice to CONSENT; server NOTIFIES it.
- *  - [Effect.TransmitCard] — client does the existing `shareBack()` card WRITE; server opens the
- *    gated CARD read (its `localChoice == SHARE`) so the client may read it.
+ *  - [Effect.TransmitCard] — client WRITEs its card to the peer's CARD characteristic; server
+ *    opens the gated CARD read (its `localChoice == SHARE`) so the client may read it.
  *  - [Effect.SaveCardAndRipple] — fires only on [Event.PeerCardArrived] (the peer's card BYTES
  *    arrived + parsed), never on a bare choice message (plan D2).
  *
@@ -39,9 +38,9 @@ package dev.bluehouse.bada.namecard
  * then sends `BYE` and stops (plan B3). So: machine guarantees incoming obligations are met before
  * CloseLink; BLE guarantees outgoing ones are.
  *
- * ## Legacy peers are NOT modeled here
- * A pre-v2 peer never sends `HELLO`, so the BLE layer runs the old v1 flow and never constructs this
- * machine (plan D3). Everything below assumes a v2 peer.
+ * ## Unauthenticated peers are NOT modeled here
+ * A peer whose HELLO does not carry the session's rendezvous token is disconnected by the BLE layer
+ * before any of its events reach this machine. Everything below assumes an authenticated peer.
  *
  * ## Status
  * Pure-JVM (zero `android.*` imports), exhaustively unit-tested in `NameCardConsentMachineTest`
@@ -108,7 +107,7 @@ internal class NameCardConsentMachine {
             val share: Boolean,
         ) : Effect
 
-        /** Send my card now (client `shareBack` write / server opens its gated CARD read). */
+        /** Send my card now (client card WRITE / server opens its gated CARD read). */
         data object TransmitCard : Effect
 
         /** The peer's card arrived: play the receive ripple + save the contact. */

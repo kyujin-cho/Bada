@@ -9,13 +9,13 @@ import android.nfc.NdefMessage
 import android.nfc.NdefRecord
 
 /**
- * **Name Card v2 NDEF codec** — builds and parses the NDEF message that carries the Name Card
- * rendezvous token over the both-background NFC tap (symmetric NameDrop-style trigger;
- * the Name Card design notes §5–§6, Appendix A2).
+ * **Name Card NDEF codec** — builds and parses the NDEF message that carries the Name Card
+ * rendezvous token over the both-background NFC tap (symmetric NameDrop-style trigger).
  *
  * Uses the REAL platform `android.nfc.NdefMessage`/`NdefRecord` APIs (not hand-rolled bytes) so the
- * emitted records — in particular the AAR — are exactly what the framework produces and Android's tag
- * dispatch expects; unit-tested under Robolectric (the repo's `libs.robolectric`, wired into `:app`).
+ * emitted records — in particular the AAR — are exactly what the framework produces and Android's
+ * tag dispatch expects. NOTE: this codec has no JVM/Robolectric unit tests (the platform NDEF
+ * classes are Android-only in this build setup); it is exercised on-device only.
  *
  * MESSAGE = two records:
  *  - Record 1 ([NdefRecord.createExternal]): external type `bada.dev:namecard`,
@@ -30,8 +30,8 @@ import android.nfc.NdefRecord
  *    `NdefMessage` straight to [parseToken].
  *
  * Domain+type are ALL-LOWERCASE, matching the manifest `pathPrefix="/bada.dev:namecard"` so the
- * `vnd.android.nfc://ext/<domain>:<type>` mapping never misses on case. Status: compile + Robolectric
- * unit-test verified on the box; on-device tap UNVERIFIED.
+ * `vnd.android.nfc://ext/<domain>:<type>` mapping never misses on case. Status: compile-verified on
+ * the box; on-device tap UNVERIFIED.
  */
 internal object NameCardNdef {
     /** External-type record domain — MUST stay lowercase + in sync with the manifest filter. */

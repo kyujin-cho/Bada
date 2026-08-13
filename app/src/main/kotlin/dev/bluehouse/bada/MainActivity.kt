@@ -33,9 +33,6 @@ import dev.bluehouse.bada.battery.BatteryOptimizationPreferences
 import dev.bluehouse.bada.bugreport.BugReportFlowSupport
 import dev.bluehouse.bada.consent.FullScreenIntentPermission
 import dev.bluehouse.bada.consent.FullScreenIntentPreferences
-import dev.bluehouse.bada.namecard.NameCardPreferences
-import dev.bluehouse.bada.namecard.NameCardTransferActivity
-import dev.bluehouse.bada.nfc.NameCardTapReader
 import dev.bluehouse.bada.onboarding.PermissionRequirements
 import dev.bluehouse.bada.onboarding.PermissionsOnboardingActivity
 import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
@@ -125,16 +122,11 @@ class MainActivity : AppCompatActivity() {
      */
     private var mainToolbar: MaterialToolbar? = null
 
-    /**
-     * NFC reader for the Name Card tap-to-share-contacts feature, armed while
-     * MainActivity is foreground so "app open = ready to tap and read another
-     * phone's card" (no button). On a tap it reads the peer's rendezvous token
-     * and opens [NameCardTransferActivity] (client role) to run the Bluetooth
-     * swap. Reader-mode suppresses this phone's own HCE while the main screen is
-     * foreground, which is fine because the iPhone-NDEF / Quick Share HCE services
-     * are used from other screens, not here.
-     */
-    private var nameCardReader: NameCardTapReader? = null
+    // NOTE (Name Card): MainActivity deliberately does NOT arm NFC reader-mode. Doing so on plain
+    // home-screen resume suppressed this phone's own card emulation (BadaTapHceService's
+    // APP_FOREGROUND tap-to-open and any wallet HCE) whenever the home screen was open. The Name
+    // Card tap works through the OS's own NFC dispatch (NDEF + AAR served by BadaNdefApduService)
+    // and needs no foreground reader here.
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -285,47 +277,6 @@ class MainActivity : AppCompatActivity() {
                     .setDuration(ICON_PRESS_DURATION_MS)
                     .start()
             }.start()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        armNameCardReader()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        nameCardReader?.disable()
-    }
-
-    /**
-     * Arm the Name Card NFC reader while foreground (tap-to-share-contacts). On a
-     * tap it reads the other phone's token and opens the transfer screen. Created
-     * lazily; safe to re-arm on every resume. Respects the master on/off switch in
-     * the My Name Card screen — when off, the reader stays disabled so tapping does nothing.
-     */
-    private fun armNameCardReader() {
-        if (!NameCardPreferences.from(this).isEnabled()) {
-            nameCardReader?.disable()
-            return
-        }
-        // Name Card v2 (symmetric, both-background): the reader role is the OS's own NFC poll, and our
-        // NDEF+AAR is served by BadaNdefApduService. Arming enableReaderMode here would suppress this
-        // phone's own card emulation and break the both-background model — so in v2 do NOT arm the
-        // legacy foreground reader.
-        if (NameCardPreferences.from(this).isV2Enabled()) {
-            nameCardReader?.disable()
-            return
-        }
-        val reader =
-            nameCardReader ?: NameCardTapReader(
-                activity = this,
-                onPeerBootstrap = { bootstrap ->
-                    runOnUiThread {
-                        startActivity(NameCardTransferActivity.clientIntent(this, bootstrap.token))
-                    }
-                },
-            ).also { nameCardReader = it }
-        reader.enable()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
