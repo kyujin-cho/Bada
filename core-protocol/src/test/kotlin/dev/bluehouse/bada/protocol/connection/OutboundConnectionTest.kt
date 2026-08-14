@@ -614,6 +614,82 @@ class OutboundConnectionTest {
         }
 
     @Test
+    fun `bluetooth bootstrap already upgraded to WebRTC does not solicit Wi-Fi Direct`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val factory = InMemoryFactory()
+                val upgradePair = LoopbackUpgradePair(Medium.WEB_RTC)
+                val logs = java.util.Collections.synchronizedList(mutableListOf<String>())
+                // Sender supports Wi-Fi Direct too, so the upgrade-aware loop
+                // runs — but the receiver's step-7 offer upgrades the session
+                // to WEB_RTC inside the post-UKEY2 probe, and the loop must
+                // NOT then solicit Wi-Fi Direct on the upgraded channel.
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLUETOOTH),
+                        secureRandom = SecureRandom("outbound-bt-webrtc-no-solicit".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        upgradePair.clientProvider,
+                                        SupportedProvider(Medium.WIFI_DIRECT),
+                                    ),
+                                ladder = MediumLadder(listOf(Medium.WIFI_LAN, Medium.WEB_RTC)),
+                            ),
+                        logger = { logs.add(it) },
+                    )
+
+                val fileBytes = ByteArray(1024) { (it xor 0x11).toByte() }
+                val payloadId = 0x5159L
+                val files = listOf(bytesSource("bt-webrtc-no-solicit.bin", fileBytes, payloadId))
+
+                try {
+                    coroutineScope {
+                        val outboundJob = async { outbound.run(files) }
+                        val inbound =
+                            InboundConnection(
+                                transport = server.asConnectedTransport(Medium.BLUETOOTH),
+                                secureRandom = SecureRandom("inbound-bt-webrtc-no-solicit".toByteArray()),
+                                mediumRegistry =
+                                    MediumRegistry(
+                                        providers =
+                                            listOf(
+                                                MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                                upgradePair.serverProvider,
+                                            ),
+                                        ladder = MediumLadder(listOf(Medium.WIFI_LAN, Medium.WEB_RTC)),
+                                    ),
+                            )
+
+                        launch {
+                            inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                            inbound.submitUserConsent(accepted = true)
+                        }
+
+                        val inboundResult = inbound.run(factory)
+                        val outboundResult = outboundJob.await()
+
+                        assertThat(outboundResult).isEqualTo(OutboundResult.Completed)
+                        assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                        assertThat(inbound.activeMedium.value).isEqualTo(Medium.WEB_RTC)
+                        assertThat(outbound.activeMedium.value).isEqualTo(Medium.WEB_RTC)
+                    }
+
+                    assertThat(factory.output[payloadId]?.toByteArray()).isEqualTo(fileBytes)
+                    assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+                    assertThat(
+                        logs.toList().none { it.contains("requested receiver Wi-Fi Direct upgrade") },
+                    ).isTrue()
+                } finally {
+                    upgradePair.close()
+                }
+            }
+        }
+
+    @Test
     fun `preconnected BLE bootstrap upgrades to Wi-Fi Direct from initial medium advertisement`() =
         runBlocking {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {

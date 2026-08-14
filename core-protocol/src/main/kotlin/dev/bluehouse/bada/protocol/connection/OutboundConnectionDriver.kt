@@ -792,10 +792,15 @@ internal class OutboundConnectionDriver(
             }
         }
         try {
-            if (!upgradeRequired) {
+            if (!upgradeRequired && activeMedium == Medium.BLUETOOTH) {
                 // Solicit the Wi-Fi Direct path NOW so the receiver's P2P
                 // group bring-up overlaps PKE/introduction/consent instead of
-                // delaying the first payload byte.
+                // delaying the first payload byte. Gated on the CURRENT medium,
+                // not the bootstrap: the post-UKEY2 offer probe may already
+                // have upgraded this session to another high-bandwidth medium
+                // (WIFI_HOTSPOT / WEB_RTC), and soliciting Wi-Fi Direct on
+                // that freshly upgraded channel would invite the receiver to
+                // tear down a working group mid-consent (#258).
                 activeChannel.sendOfflineFrame(
                     BandwidthUpgradeFrames.upgradePathRequest(setOf(Medium.WIFI_DIRECT)),
                 )
