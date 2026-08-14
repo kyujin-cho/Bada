@@ -1,0 +1,106 @@
+// Copyright 2026 Bada contributors.
+//
+// Wire-compatible subset of the Google Play services Gesture Exchange
+// messages used by SuperDrop's public-app Tap to Share path.
+syntax = "proto2";
+
+package gestureexchange;
+
+option optimize_for = LITE_RUNTIME;
+option java_package = "dev.bluehouse.bada.protocol.gestureexchange.proto";
+option java_multiple_files = true;
+
+enum GestureExchangeFeature {
+  GESTURE_EXCHANGE_FEATURE_UNSPECIFIED = 0;
+  CONTACT_EXCHANGE = 1;
+  SYSTEM_SHARE_SHEET = 2;
+  APP_EXPERIENCE = 3;
+}
+
+enum HandoverResultStatus {
+  HANDOVER_RESULT_STATUS_UNSPECIFIED = 0;
+  MESSAGE = 1;
+  COMPLETED = 2;
+  FAILURE = 3;
+  INITIAL = 4;
+}
+
+message ManufacturerInfo {
+  optional string manufacturer = 1;
+}
+
+message ApplicationLabelRequest {
+  optional GestureExchangeFeature current_feature = 1;
+  optional ManufacturerInfo manufacturer_info = 2;
+}
+
+message ApplicationLabelResponse {
+  optional GestureExchangeFeature selected_feature = 1;
+  optional ManufacturerInfo manufacturer_info = 2;
+}
+
+message HandoverResult {
+  optional HandoverResultStatus status = 1;
+  optional bytes payload = 2;
+  optional int32 error_code = 3;
+}
+
+message ConnectionHandoverRequest {
+  optional HandoverResult handover_result = 1;
+}
+
+message ConnectionHandoverResponse {
+  optional HandoverResult handover_result = 1;
+}
+
+// The current file-share port does not interpret this message. Keeping it as
+// a real nested message preserves unknown metadata emitted by newer peers.
+message ConnectivityCapabilityMetadata {}
+
+message ServiceData {
+  optional string service_id = 1;
+  optional string endpoint_id = 2;
+  optional string zero_party_identifier = 3;
+}
+
+message ConnectivityCapability {
+  optional ConnectivityCapabilityMetadata metadata = 1;
+  repeated ServiceData service_data = 2;
+  optional bytes channel_binding_token = 3;
+}
+
+message WifiDirectCredentials {
+  optional string ssid = 1;
+  optional string password = 2;
+  optional int32 port = 3;
+  optional int32 frequency_mhz = 4;
+  optional string group_owner_ipv4 = 5 [default = "0.0.0.0"];
+  optional bytes group_owner_ipv6 = 6;
+  optional string device_address = 7;
+  optional string extra = 8;
+  optional string interface_address = 9;
+}
+
+message EndpointConnectivityEntry {
+  optional WifiDirectCredentials wifi_direct = 1;
+  optional string service_id = 2;
+  optional string endpoint_id = 3;
+  optional bytes endpoint_info = 4;
+  optional string zero_party_identifier = 5;
+  optional ConnectivityCapabilityMetadata metadata = 6;
+}
+
+message ConnectivityInfo {
+  repeated EndpointConnectivityEntry entries = 1;
+  optional bytes channel_binding_token = 2;
+  optional bytes bluetooth_mac = 3;
+}
+
+message GestureConfirmedInfo {
+  optional string endpoint_id = 1;
+  optional bool is_initiator = 2;
+  optional bytes bluetooth_mac = 3;
+  optional GestureExchangeFeature selected_feature = 4;
+  optional bool both_devices_samsung = 5;
+  optional int32 aid_type = 6;
+}

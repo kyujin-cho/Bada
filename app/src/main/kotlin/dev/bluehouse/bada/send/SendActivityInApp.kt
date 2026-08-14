@@ -50,6 +50,9 @@ import dev.bluehouse.bada.discovery.bootstrap.BleL2capInitialControlClient
 import dev.bluehouse.bada.discovery.bootstrap.BluetoothClassicBootstrapClient
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.discovery.medium.MediumRegistries
+import dev.bluehouse.bada.gestureexchange.GestureEdgeGlowController
+import dev.bluehouse.bada.gestureexchange.GestureExchangeReader
+import dev.bluehouse.bada.gestureexchange.GestureTapToSharePreferences
 import dev.bluehouse.bada.nfc.BadaTapReader
 import dev.bluehouse.bada.nfc.NfcLinkHolder
 import dev.bluehouse.bada.nfc.NfcTapDiagnosticsPreferences
@@ -61,7 +64,10 @@ import dev.bluehouse.bada.protocol.connection.OutboundResult
 import dev.bluehouse.bada.protocol.connection.TransferProgress
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
+import dev.bluehouse.bada.protocol.endpoint.NearbyServiceId
+import dev.bluehouse.bada.protocol.gestureexchange.GestureLocalIdentity
 import dev.bluehouse.bada.protocol.medium.Medium
+import dev.bluehouse.bada.protocol.medium.MediumRegistry
 import dev.bluehouse.bada.protocol.qr.DerivedQrKeys
 import dev.bluehouse.bada.protocol.qr.GeneratedQrKeyData
 import dev.bluehouse.bada.protocol.qr.QrKeyData
@@ -158,6 +164,8 @@ public class SendActivityInApp : AppCompatActivity() {
      * tag and auto-connect to it as if its peer-icon had been tapped.
      */
     private var tapReader: BadaTapReader? = null
+    private var gestureReader: GestureExchangeReader? = null
+    private lateinit var gestureGlow: GestureEdgeGlowController
 
     /**
      * Set to `true` while a connection attempt is being made AND there
@@ -236,6 +244,7 @@ public class SendActivityInApp : AppCompatActivity() {
         requestRadiosForSend()
         binding = ActivitySendFullscreenBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        gestureGlow = GestureEdgeGlowController(this)
         bugReportFlowSupport = BugReportFlowSupport.install(this)
 
         fileSourceFactory = UriFileSourceFactory(contentResolver)
@@ -268,7 +277,19 @@ public class SendActivityInApp : AppCompatActivity() {
         // onResume/onPause + the QR open/close handlers so it is active
         // only while the send sheet is up and the iPhone-link QR panel
         // (which uses the NDEF HCE) is closed.
-        tapReader = BadaTapReader(this, ::onNfcPeerTapped, ::onNfcTapWake, ::onNfcTapDiagnostic)
+        if (GestureTapToSharePreferences.from(this).isEnabled()) {
+            gestureReader =
+                GestureExchangeReader(
+                    activity = this,
+                    identity = {
+                        GestureLocalIdentity(senderEndpointId, NearbyServiceId.VALUE, senderEndpointInfoBytes)
+                    },
+                    onConnected = ::onGesturePeerConnected,
+                    onDiagnostic = ::onNfcTapDiagnostic,
+                )
+        } else {
+            tapReader = BadaTapReader(this, ::onNfcPeerTapped, ::onNfcTapWake, ::onNfcTapDiagnostic)
+        }
 
         binding.sendCancelButton.setOnClickListener { onCancelClicked() }
         binding.sendDoneButton.setOnClickListener { finish() }
@@ -357,8 +378,11 @@ public class SendActivityInApp : AppCompatActivity() {
         senderGattServer = null
         connectionJob?.cancel()
         // Release NFC reader-mode when the Send screen is gone.
-        tapReader?.disable()
+        disableTapReaders()
         tapReader = null
+        gestureReader?.close()
+        gestureReader = null
+        gestureGlow.close()
         // Stop NFC link broadcast when the Send screen is gone.
         NfcLinkHolder.currentUrl = null
         // Lift the gate veto so the receiver-side mDNS record can come
@@ -399,10 +423,11 @@ public class SendActivityInApp : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        gestureGlow.attach()
         // Enable NFC reader-mode unless the QR panel (which hands NFC to
         // the iPhone-link NDEF HCE) is currently showing.
         if (!binding.sendQrScroll.isVisible) {
-            tapReader?.enable()
+            enableTapReader()
         }
         // Re-evaluate the contextual empty-state hint when the user returns
         // from system settings after toggling Bluetooth or Wi-Fi (#209).
@@ -411,8 +436,9 @@ public class SendActivityInApp : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        gestureGlow.detach()
         // Release the NFC controller while we are not the foreground sheet.
-        tapReader?.disable()
+        disableTapReaders()
     }
 
     /**
@@ -427,7 +453,7 @@ public class SendActivityInApp : AppCompatActivity() {
             if (isFinishing || isDestroyed) return@runOnUiThread
             // A tap commits us to a peer; stop reader-mode so a second tag
             // cannot race a connection that is already starting.
-            tapReader?.disable()
+            disableTapReaders()
             logOutboundDiagnostic(
                 "nfc tap: peer endpointId=${tapped.endpointId} " +
                     "${tapped.address.hostAddress}:${tapped.port} name=${tapped.endpointInfo.deviceName}",
@@ -446,6 +472,35 @@ public class SendActivityInApp : AppCompatActivity() {
                 )
             onPeerSelected(peer)
         }
+    }
+
+    /** Google Tap to Share callback; routes the preconnected P2P stream through the ordinary send flow. */
+    private fun onGesturePeerConnected(tapped: GestureExchangeReader.Peer) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) {
+                tapped.transport.close()
+                return@runOnUiThread
+            }
+            disableTapReaders()
+            val peer =
+                NearbyPeer(
+                    stableId = "gesture:${tapped.endpointId}",
+                    endpointId = tapped.endpointId,
+                    endpointInfo = tapped.endpointInfo,
+                    preconnectedTransport = tapped.transport,
+                )
+            logOutboundDiagnostic("tap-to-share: connectivity handoff ready endpointId=${tapped.endpointId}")
+            onPeerSelected(peer)
+        }
+    }
+
+    private fun enableTapReader() {
+        gestureReader?.enable() ?: tapReader?.enable()
+    }
+
+    private fun disableTapReaders() {
+        gestureReader?.disable()
+        tapReader?.disable()
     }
 
     /**
@@ -548,7 +603,7 @@ public class SendActivityInApp : AppCompatActivity() {
         tapWakeConnectStarted = true
         // A tap commits us to a peer; stop reader-mode so a second tag cannot race the
         // connection that is now starting (mirrors onNfcPeerTapped).
-        tapReader?.disable()
+        disableTapReaders()
         val route = if (candidate.lanEndpoint != null) "wifi-lan" else "ble"
         logOutboundDiagnostic("nfc tap-wake: auto-connecting to ${candidate.stableId} route=$route")
         nfcTapToast("NFC tap-wake: connecting to ${candidate.displayName()} over $route")
@@ -573,6 +628,7 @@ public class SendActivityInApp : AppCompatActivity() {
     ): OutboundConnection? {
         val mediumRegistry = MediumRegistries.defaultForContext(applicationContext)
         return when (route) {
+            is NearbyPeerRoute.Preconnected -> buildPreconnectedOutbound(route, endpointInfo, mediumRegistry)
             is NearbyPeerRoute.Lan ->
                 OutboundConnection(
                     targetAddress = route.address,
@@ -646,6 +702,20 @@ public class SendActivityInApp : AppCompatActivity() {
             }
         }
     }
+
+    private fun buildPreconnectedOutbound(
+        route: NearbyPeerRoute.Preconnected,
+        endpointInfo: ByteArray,
+        mediumRegistry: MediumRegistry,
+    ): OutboundConnection =
+        OutboundConnection(
+            transport = route.transport,
+            endpointId = senderEndpointId,
+            endpointInfo = endpointInfo,
+            qrSigningKey = qrSigningKey,
+            mediumRegistry = mediumRegistry,
+            logger = ::logOutboundWireMessage,
+        )
 
     private suspend fun buildOutboundConnection(
         plan: SendBootstrapPlan,
@@ -1843,7 +1913,7 @@ public class SendActivityInApp : AppCompatActivity() {
         // The QR panel hands the NFC controller to the iPhone-link NDEF
         // HCE (NfcLinkHolder.currentUrl below), so leave reader-mode now —
         // reader-mode and HCE are mutually exclusive on one radio.
-        tapReader?.disable()
+        disableTapReaders()
 
         val generated = QrKeyData.generate()
         // Persist the keypair for this QR session: the discovery callback
@@ -1941,7 +2011,7 @@ public class SendActivityInApp : AppCompatActivity() {
         NfcLinkHolder.currentUrl = null
         // The NDEF HCE is no longer needed; resume tap-to-share reader-mode
         // so the picker can be NFC-tapped again.
-        tapReader?.enable()
+        enableTapReader()
         val panel = binding.sendQrPanel
         panel
             .animate()

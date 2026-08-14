@@ -40,6 +40,7 @@ import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.lifecycle.lifecycleScope
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.bugreport.BugReportFlowSupport
+import dev.bluehouse.bada.gestureexchange.GestureEdgeGlowController
 import dev.bluehouse.bada.nfc.NfcPreferredService
 import dev.bluehouse.bada.protocol.connection.InboundConnection
 import dev.bluehouse.bada.protocol.connection.InboundConnectionState
@@ -131,6 +132,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private var decisionSubmitted: Boolean = false
     private var modalRegistered: Boolean = false
     private lateinit var bugReportFlowSupport: BugReportFlowSupport
+    private lateinit var gestureGlow: GestureEdgeGlowController
 
     /**
      * The [InboundConnection] the activity observes after the user
@@ -161,6 +163,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         applyIncomingCallFlags()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_consent_trampoline)
+        gestureGlow = GestureEdgeGlowController(this)
         bugReportFlowSupport = BugReportFlowSupport.install(this)
 
         ConsentDiagnostic.log(this, "trampoline.onCreate intent.id=${incomingId(intent)}")
@@ -213,6 +216,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        gestureGlow.attach()
         ConsentDiagnostic.log(this, "trampoline.onResume id=$connectionId")
         // While the receive sheet is foreground, claim the Quick Share NFC AID so
         // a tap reaches US instead of stock Google Quick Share (the only way to win
@@ -223,6 +227,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        gestureGlow.detach()
         ConsentDiagnostic.log(this, "trampoline.onPause id=$connectionId finishing=$isFinishing")
         NfcPreferredService.release(this)
     }
@@ -332,6 +337,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        gestureGlow.close()
         // Backstop for the tile's temporary visibility bump: restore on
         // any teardown that didn't run through finish() (recents swipe,
         // system kill while finishing). Idempotent with finish()'s call

@@ -575,6 +575,9 @@
     <!-- Settings row that opens the Name Card setup screen. -->
     <string name="settings_name_card_row_title">Name Card</string>
     <string name="settings_name_card_row_subtitle">Set up the contact card you share by tapping phones</string>
+    <string name="settings_gesture_tap_title">Google Tap to Share</string>
+    <string name="settings_gesture_tap_subtitle">Tap phones to start a SuperDrop file transfer. Name Card remains SuperDrop-to-SuperDrop only.</string>
+    <string name="gesture_tap_hce_service_description">SuperDrop Google Tap to Share</string>
     <!-- NameCardSetupActivity (the setup page) -->
     <string name="name_card_activity_label">Name Card</string>
     <string name="name_card_setup_title">My Name Card</string>

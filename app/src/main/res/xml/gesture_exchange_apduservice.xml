@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Google Gesture Exchange file-share AID. The service code requires an
+  unlocked device and accepts only SYSTEM_SHARE; contact exchange remains on
+  SuperDrop's proprietary Name Card path.
+-->
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/gesture_tap_hce_service_description"
+    android:requireDeviceUnlock="false">
+    <aid-group android:description="@string/gesture_tap_hce_service_description"
+        android:category="other">
+        <aid-filter android:name="A00000047609" />
+    </aid-group>
+</host-apdu-service>

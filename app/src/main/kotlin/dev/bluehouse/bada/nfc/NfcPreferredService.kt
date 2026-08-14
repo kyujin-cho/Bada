@@ -10,11 +10,14 @@ import android.content.ComponentName
 import android.nfc.NfcAdapter
 import android.nfc.cardemulation.CardEmulation
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
+import dev.bluehouse.bada.gestureexchange.GestureExchangeHceService
+import dev.bluehouse.bada.gestureexchange.GestureTapToSharePreferences
 
 /**
- * NfcPreferredService — claims the Quick Share NFC AID (`F00000FE2C`) for our
- * [BadaTapHceService] while a receive surface is in the foreground, so an
- * NFC tap reaches US instead of stock Google Quick Share.
+ * Claims SuperDrop's enabled file-share HCE while a receive surface is in the
+ * foreground. Google Gesture Exchange (`A00000047609`) is preferred when its
+ * independent setting is enabled; otherwise the legacy Quick Share AID
+ * (`F00000FE2C`) remains available. Name Card is never selected here.
  *
  * ### Why this exists
  *
@@ -37,9 +40,6 @@ import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
  * is the make-or-break to verify on an Android 15 phone with stock Quick Share.
  */
 internal object NfcPreferredService {
-    private val component
-        get() = BadaTapHceService::class.java
-
     /** Prefer our tap HCE while [activity] is foreground. Returns true if claimed. */
     fun prefer(activity: Activity): Boolean = apply(activity, prefer = true)
 
@@ -57,6 +57,12 @@ internal object NfcPreferredService {
             }
         return runCatching {
             val cardEmulation = CardEmulation.getInstance(adapter)
+            val component =
+                if (GestureTapToSharePreferences.from(activity).isEnabled()) {
+                    GestureExchangeHceService::class.java
+                } else {
+                    BadaTapHceService::class.java
+                }
             val name = ComponentName(activity, component)
             val ok =
                 if (prefer) {

@@ -67,6 +67,10 @@
       direct media permissions.
     -->
 
+    <!-- Heavy-click feedback when the Google-compatible edge light starts
+         and completes. Normal permission; no runtime prompt. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Wi-Fi peer discovery on API 33+. neverForLocation tells Android we
          do not infer physical location from these scans, so the platform
          skips the location permission requirement. -->
@@ -434,6 +438,23 @@
             <meta-data
                 android:name="android.nfc.cardemulation.host_apdu_service"
                 android:resource="@xml/bada_tap_apduservice" />
+        </service>
+
+        <!--
+          Google Gesture Exchange file-share responder (AID A00000047609).
+          This service accepts only feature=SYSTEM_SHARE; the proprietary
+          Name Card service and AID remain independent and unchanged.
+        -->
+        <service
+            android:name=".gestureexchange.GestureExchangeHceService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NFC_SERVICE">
+            <intent-filter>
+                <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.nfc.cardemulation.host_apdu_service"
+                android:resource="@xml/gesture_exchange_apduservice" />
         </service>
 
         <!--

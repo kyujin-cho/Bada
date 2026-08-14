@@ -9,13 +9,42 @@ import dev.bluehouse.bada.discovery.NearbyPeer
 import dev.bluehouse.bada.discovery.NearbyPeerRoute
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
+import dev.bluehouse.bada.protocol.medium.Medium
+import dev.bluehouse.bada.protocol.medium.UpgradedTransport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.InetAddress
 
 class SendBootstrapPlanTest {
+    @Test
+    fun `preconnected Tap to Share transport wins without replacing Name Card or LAN routes`() {
+        val transport = UpgradedTransport.Generic(Medium.WIFI_DIRECT)
+        val peer =
+            peer(lanAddress = "192.168.1.20")
+                .copy(preconnectedTransport = transport)
+
+        val plan = SendBootstrapPlan.resolve(peer)
+        val routes = SendBootstrapPlan.viableRoutes(peer)
+
+        assertTrue(plan.isConnectable)
+        assertSame(
+            transport,
+            (plan.action as SendBootstrapPlan.Action.Direct).route.let {
+                (it as NearbyPeerRoute.Preconnected).transport
+            },
+        )
+        assertEquals(
+            listOf(
+                NearbyPeerRoute.Preconnected(transport),
+                NearbyPeerRoute.Lan(InetAddress.getByName("192.168.1.20"), 7654),
+            ),
+            routes,
+        )
+    }
+
     @Test
     fun `same Wi-Fi LAN route wins before BLE route when both are available`() {
         val peer =

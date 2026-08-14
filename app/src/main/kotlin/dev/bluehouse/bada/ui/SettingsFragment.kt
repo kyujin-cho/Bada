@@ -23,6 +23,7 @@ import dev.bluehouse.bada.R
 import dev.bluehouse.bada.battery.BatteryOptimizationOemHelper
 import dev.bluehouse.bada.bugreport.BugReportPreferences
 import dev.bluehouse.bada.consent.FullScreenIntentPermission
+import dev.bluehouse.bada.gestureexchange.GestureTapToSharePreferences
 import dev.bluehouse.bada.namecard.NameCardProfileStore
 import dev.bluehouse.bada.namecard.NameCardSetupActivity
 import dev.bluehouse.bada.service.downloads.SaveLocationDisplayName
@@ -101,6 +102,13 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         // "Name Card" row → My Name Card setup page (tap-to-share contacts).
         view.findViewById<View>(R.id.settings_name_card_row).setOnClickListener {
             startActivity(Intent(requireContext(), NameCardSetupActivity::class.java))
+        }
+
+        val gestureTapSwitch = view.findViewById<SwitchCompat>(R.id.settings_gesture_tap_switch)
+        val gestureTapPreferences = GestureTapToSharePreferences.from(requireContext())
+        gestureTapSwitch.isChecked = gestureTapPreferences.isEnabled()
+        gestureTapSwitch.setOnCheckedChangeListener { _, checked ->
+            gestureTapPreferences.setEnabled(checked)
         }
 
         view.findViewById<Button>(R.id.main_save_location_pick).setOnClickListener {

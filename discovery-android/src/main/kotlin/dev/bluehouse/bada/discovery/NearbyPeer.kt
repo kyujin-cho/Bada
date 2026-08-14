@@ -9,6 +9,7 @@ package dev.bluehouse.bada.discovery
 
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.medium.Medium
+import dev.bluehouse.bada.protocol.transport.ConnectedTransport
 import java.net.InetAddress
 
 /**
@@ -40,6 +41,8 @@ public data class NearbyPeer(
      * bootstrap route (#214).
      */
     val publishedBluetoothMac: String? = null,
+    /** Preconnected initial transport produced by Google Tap to Share. */
+    val preconnectedTransport: ConnectedTransport? = null,
 ) {
     /**
      * Discovery / candidate mediums currently known for this peer.
@@ -50,6 +53,7 @@ public data class NearbyPeer(
     public val candidateMediums: Set<Medium>
         get() =
             buildSet {
+                preconnectedTransport?.let { add(it.medium) }
                 if (lanEndpoint != null) add(Medium.WIFI_LAN)
                 if (
                     bluetoothEndpoint != null &&
@@ -91,6 +95,7 @@ public data class NearbyPeer(
         if (endpointInfo == null) {
             return null
         }
+        preconnectedTransport?.let { return NearbyPeerRoute.Preconnected(it) }
         val lan = lanEndpoint
         val primaryAddress = lan?.primaryAddress()
         if (lan != null && primaryAddress != null) {
@@ -219,6 +224,11 @@ public sealed class NearbyPeerEvent {
 
 /** Initial-control route chosen from a [NearbyPeer]. */
 public sealed interface NearbyPeerRoute {
+    /** Already-connected transport returned by an out-of-band bootstrap. */
+    public data class Preconnected(
+        val transport: ConnectedTransport,
+    ) : NearbyPeerRoute
+
     public data class Lan(
         val address: InetAddress,
         val port: Int,
