@@ -320,16 +320,40 @@ public object ConsentNotification {
      *
      * Returns the notification id used so callers (foreground service,
      * tests) can correlate.
+     *
+     * [diagnostic] records the post attempt with the two states that make
+     * `NotificationManager.notify` a SILENT no-op — app-level
+     * notifications disabled, and the effective channel importance —
+     * plus the notify outcome. Field evidence for #263: on a vivo
+     * (OriginOS) receiver the consent notification never appeared in
+     * `dumpsys notification` while this channel was registered at
+     * IMPORTANCE_HIGH, and without this line there is no way to tell an
+     * app-side skipped post from an OEM-suppressed one.
      */
     public fun post(
         context: Context,
         connectionId: Long,
         entry: ConsentRegistry.Entry,
         trampolineTarget: Class<*>?,
+        diagnostic: (String) -> Unit = {},
     ): Int {
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return -1
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (manager == null) {
+            diagnostic("notification post id=- result=no-notification-manager")
+            return -1
+        }
         val id = stableNotificationIdFor(connectionId)
-        manager.notify(id, build(context, connectionId, entry, trampolineTarget))
+        val outcome =
+            runCatching { manager.notify(id, build(context, connectionId, entry, trampolineTarget)) }
+        diagnostic(
+            "notification post id=$id " +
+                "appEnabled=${manager.areNotificationsEnabled()} " +
+                "channelImportance=${manager.getNotificationChannel(CHANNEL_ID)?.importance} " +
+                "result=${outcome.fold({ "ok" }, { e -> "${e::class.simpleName}: ${e.message}" })}",
+        )
+        // Keep the pre-instrumentation contract: a throwing notify still
+        // propagates to the caller after the evidence is written.
+        outcome.getOrThrow()
         return id
     }
 

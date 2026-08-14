@@ -833,6 +833,7 @@ public class ReceiverForegroundService : Service() {
                                 connectionId = connectionId,
                                 entry = entry,
                                 trampolineTarget = consentTrampolineTarget,
+                                diagnostic = { line -> ConsentDiagnostic.log(ctx, line) },
                             )
                         }
 
