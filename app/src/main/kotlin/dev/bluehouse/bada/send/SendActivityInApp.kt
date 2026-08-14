@@ -50,6 +50,7 @@ import dev.bluehouse.bada.discovery.bootstrap.BleL2capInitialControlClient
 import dev.bluehouse.bada.discovery.bootstrap.BluetoothClassicBootstrapClient
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.discovery.medium.MediumRegistries
+import dev.bluehouse.bada.gestureexchange.GestureCapabilityMetadataFactory
 import dev.bluehouse.bada.gestureexchange.GestureEdgeGlowController
 import dev.bluehouse.bada.gestureexchange.GestureExchangeReader
 import dev.bluehouse.bada.gestureexchange.GestureTapToSharePreferences
@@ -61,6 +62,7 @@ import dev.bluehouse.bada.protocol.connection.FileSource
 import dev.bluehouse.bada.protocol.connection.OutboundConnection
 import dev.bluehouse.bada.protocol.connection.OutboundConnectionState
 import dev.bluehouse.bada.protocol.connection.OutboundResult
+import dev.bluehouse.bada.protocol.connection.TextSource
 import dev.bluehouse.bada.protocol.connection.TransferProgress
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
@@ -88,6 +90,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.security.PrivateKey
 import java.security.SecureRandom
 import kotlin.math.min
@@ -135,6 +138,10 @@ public class SendActivityInApp : AppCompatActivity() {
     private lateinit var peerPickerController: SendPeerPickerController
 
     private var files: List<FileSource> = emptyList()
+    private var texts: List<TextSource> = emptyList()
+    private var preparedPayload: SendPayloadResolution.Payloads? = null
+    private var resumedForTap: Boolean = false
+    private var preparationJob: Job? = null
     private var connectionJob: Job? = null
     private var activeConnection: OutboundConnection? = null
     private var bluetoothBootstrapClient: BluetoothClassicBootstrapClient? = null
@@ -249,7 +256,7 @@ public class SendActivityInApp : AppCompatActivity() {
 
         fileSourceFactory = UriFileSourceFactory(contentResolver)
         documentTreeFactory = DocumentTreeFileSourceFactory(contentResolver)
-        payloadResolver = SendPayloadResolver(fileSourceFactory, documentTreeFactory)
+        payloadResolver = SendPayloadResolver(fileSourceFactory, documentTreeFactory, File(cacheDir, "gesture-share"))
         // Generate the sender identity up front so the picker controller
         // can thread the endpointId into the BLE FastInitiation pulse's
         // `secret_id_hash`. Stock GMS receivers classify an all-zero hash
@@ -282,7 +289,12 @@ public class SendActivityInApp : AppCompatActivity() {
                 GestureExchangeReader(
                     activity = this,
                     identity = {
-                        GestureLocalIdentity(senderEndpointId, NearbyServiceId.VALUE, senderEndpointInfoBytes)
+                        GestureLocalIdentity(
+                            senderEndpointId,
+                            NearbyServiceId.VALUE,
+                            senderEndpointInfoBytes,
+                            GestureCapabilityMetadataFactory.create(this),
+                        )
                     },
                     onConnected = ::onGesturePeerConnected,
                     onDiagnostic = ::onNfcTapDiagnostic,
@@ -316,29 +328,38 @@ public class SendActivityInApp : AppCompatActivity() {
         // return null; in that case we leave `files` as the default
         // empty list and bail without starting discovery. The terminal
         // states already display "Done" / explanatory text.
-        val resolvedFiles =
-            when (val resolved = payloadResolver.resolve(intent)) {
-                is SendPayloadResolution.Files -> resolved.files
-                SendPayloadResolution.Unsupported -> {
-                    renderUnsupportedPayload()
-                    null
-                }
-                SendPayloadResolution.FolderEmpty -> {
-                    renderFolderEmpty()
-                    null
-                }
-                SendPayloadResolution.FolderWalkFailed -> {
-                    renderFolderWalkFailed()
-                    null
-                }
-            } ?: return
-        files = resolvedFiles
-        logResolvedFiles(files)
+        preparePayloadAndStart()
+    }
 
-        binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
-        applyPayloadSize()
-        binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
-        peerPickerController.start()
+    /** Resolve provider metadata and stage unknown-length sources off the UI thread. */
+    private fun preparePayloadAndStart() {
+        binding.sendSubtitle.setText(R.string.send_subtitle_preparing)
+        preparationJob =
+            lifecycleScope.launch {
+                val resolved = withContext(Dispatchers.IO) { payloadResolver.resolve(intent) }
+                if (isFinishing || isDestroyed) {
+                    (resolved as? SendPayloadResolution.Payloads)?.close()
+                    return@launch
+                }
+                when (resolved) {
+                    is SendPayloadResolution.Payloads -> {
+                        preparedPayload = resolved
+                        files = resolved.files
+                        texts = resolved.texts
+                        logResolvedFiles(files)
+                        binding.sendPayloadSummary.text =
+                            PayloadSummary.forPayloads(this@SendActivityInApp, files, texts)
+                        applyPayloadSize()
+                        binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
+                        peerPickerController.start()
+                        maybeEnableTapReader()
+                    }
+                    is SendPayloadResolution.PreparationFailed -> renderPreparationFailed(resolved.reason)
+                    SendPayloadResolution.Unsupported -> renderUnsupportedPayload()
+                    SendPayloadResolution.FolderEmpty -> renderFolderEmpty()
+                    SendPayloadResolution.FolderWalkFailed -> renderFolderWalkFailed()
+                }
+            }
     }
 
     /**
@@ -350,7 +371,7 @@ public class SendActivityInApp : AppCompatActivity() {
      * hidden (it defaults to `gone` in the layout).
      */
     private fun applyPayloadSize() {
-        val sizeText = PayloadSummary.sizeFor(files)
+        val sizeText = PayloadSummary.sizeFor(files, texts)
         if (sizeText != null) {
             binding.sendPayloadSize.text = sizeText
             binding.sendPayloadSize.visibility = View.VISIBLE
@@ -377,6 +398,9 @@ public class SendActivityInApp : AppCompatActivity() {
         senderGattServer?.stop()
         senderGattServer = null
         connectionJob?.cancel()
+        preparationJob?.cancel()
+        preparedPayload?.close()
+        preparedPayload = null
         // Release NFC reader-mode when the Send screen is gone.
         disableTapReaders()
         tapReader = null
@@ -404,7 +428,9 @@ public class SendActivityInApp : AppCompatActivity() {
      * wrong signing key / force-stopped, radios are left as-is (user's own fallback).
      */
     private fun requestRadiosForSend() {
-        shareRadios.requestRadiosOn(RadioHelperClient.RADIO_BOTH)
+        shareRadios.requestRadiosOn(RadioHelperClient.RADIO_BOTH) { prepared ->
+            if (prepared) runOnUiThread(::maybeEnableTapReader)
+        }
     }
 
     /**
@@ -423,11 +449,12 @@ public class SendActivityInApp : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumedForTap = true
         gestureGlow.attach()
         // Enable NFC reader-mode unless the QR panel (which hands NFC to
         // the iPhone-link NDEF HCE) is currently showing.
         if (!binding.sendQrScroll.isVisible) {
-            enableTapReader()
+            maybeEnableTapReader()
         }
         // Re-evaluate the contextual empty-state hint when the user returns
         // from system settings after toggling Bluetooth or Wi-Fi (#209).
@@ -435,6 +462,7 @@ public class SendActivityInApp : AppCompatActivity() {
     }
 
     override fun onPause() {
+        resumedForTap = false
         super.onPause()
         gestureGlow.detach()
         // Release the NFC controller while we are not the foreground sheet.
@@ -496,6 +524,13 @@ public class SendActivityInApp : AppCompatActivity() {
 
     private fun enableTapReader() {
         gestureReader?.enable() ?: tapReader?.enable()
+    }
+
+    /** Arm NFC only after content, radios, and foreground ownership are ready. */
+    private fun maybeEnableTapReader() {
+        val ready = resumedForTap && preparedPayload != null && shareRadios.isPrepared
+        if (!ready || binding.sendQrScroll.isVisible) return
+        enableTapReader()
     }
 
     private fun disableTapReaders() {
@@ -1194,7 +1229,7 @@ public class SendActivityInApp : AppCompatActivity() {
                             }
                     }
                 try {
-                    connection.run(files)
+                    connection.run(files, texts)
                 } finally {
                     collector.cancel()
                     activeConnection = null
@@ -1365,6 +1400,7 @@ public class SendActivityInApp : AppCompatActivity() {
         message: String,
         isSuccess: Boolean = false,
     ) {
+        releaseTerminalResources()
         setTransferKeepScreenOn(active = false)
         peerPickerController.stopBleAdvertise()
         beginCardBoundsTransition(BOUNDS_DURATION_MS)
@@ -1417,6 +1453,19 @@ public class SendActivityInApp : AppCompatActivity() {
             binding.sendTerminalPreviewCard.visibility = View.GONE
             applyBlurredCardBackground(null)
         }
+    }
+
+    /**
+     * Releases resources whose lifetime ends at the first final transfer state.
+     * Rejection intentionally skips this because it returns to the peer picker
+     * and may send the same prepared payload to another peer.
+     */
+    private fun releaseTerminalResources() {
+        preparedPayload?.close()
+        preparedPayload = null
+        files = emptyList()
+        texts = emptyList()
+        shareRadios.restoreRadios(finishSession = true)
     }
 
     /**
@@ -1803,6 +1852,19 @@ public class SendActivityInApp : AppCompatActivity() {
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
 
+    private fun renderPreparationFailed(reason: SourcePreparationFailure) {
+        renderUnsupportedPayload()
+        binding.sendSubtitle.text =
+            getString(
+                when (reason) {
+                    SourcePreparationFailure.SOURCE_UNREADABLE -> R.string.send_source_unreadable
+                    SourcePreparationFailure.SOURCE_STALLED -> R.string.send_source_stalled
+                    SourcePreparationFailure.SOURCE_TOO_LARGE_TO_STAGE -> R.string.send_source_too_large
+                    SourcePreparationFailure.INSUFFICIENT_STAGING_SPACE -> R.string.send_source_no_space
+                },
+            )
+    }
+
     /**
      * Folder send (#38) terminal: the picked folder contains zero files
      * (only empty subdirectories or nothing at all). Quick Share has no
@@ -2009,9 +2071,6 @@ public class SendActivityInApp : AppCompatActivity() {
         qrSession = null
         // Stop broadcasting the link over NFC now that the QR panel is gone.
         NfcLinkHolder.currentUrl = null
-        // The NDEF HCE is no longer needed; resume tap-to-share reader-mode
-        // so the picker can be NFC-tapped again.
-        enableTapReader()
         val panel = binding.sendQrPanel
         panel
             .animate()
@@ -2062,6 +2121,9 @@ public class SendActivityInApp : AppCompatActivity() {
                 TransitionManager.beginDelayedTransition(binding.root, transition)
 
                 binding.sendQrScroll.visibility = View.GONE
+                // The NDEF HCE is now fully hidden; re-arm only if content,
+                // radios, and foreground ownership are still ready.
+                maybeEnableTapReader()
                 panel.scaleX = 1f
                 panel.scaleY = 1f
                 panel.alpha = 1f

@@ -16,9 +16,8 @@ import android.content.Intent
  *  - [Intent.ACTION_SEND] with `EXTRA_STREAM` carrying a single
  *    `android.net.Uri` — single attachment.
  *  - [Intent.ACTION_SEND] with `EXTRA_TEXT` carrying a `CharSequence`
- *    — plain-text share. Maps to a Quick Share text payload (Phase 1
- *    minimum: PLAIN; URL/ADDRESS/PHONE_NUMBER detection is left to a
- *    follow-up).
+ *    — text or whole-value HTTP(S) URL share. The materializer maps it
+ *    to the matching Quick Share BYTES metadata type.
  *  - [Intent.ACTION_SEND_MULTIPLE] with `EXTRA_STREAM` carrying an
  *    `ArrayList<Uri>` — multiple attachments at once.
  *
@@ -44,10 +43,9 @@ public object ShareIntentRouter {
      *  - `ACTION_SEND_MULTIPLE` + `EXTRA_STREAM` (ArrayList<Uri>) →
      *    [ShareIntentInput.MultipleUris]
      *
-     * If `ACTION_SEND` carries both a stream and a text, the stream
-     * wins — that matches Android's share-sheet semantics where the
-     * primary attachment is the file and the text is auxiliary
-     * (e.g. an email subject). A text-only share has no stream.
+     * If `ACTION_SEND` carries both a stream and text, the stream wins; text
+     * remains auxiliary. `EXTRA_TITLE`, then `EXTRA_SUBJECT`, supplies the
+     * title for a text-only payload at the Android adapter boundary.
      *
      * `ACTION_SEND_MULTIPLE` with no streams returns `null`; an empty
      * list is not a sensible share. Likewise an empty/blank `EXTRA_TEXT`
@@ -60,14 +58,22 @@ public object ShareIntentRouter {
             else -> null
         }
 
+    @Suppress("ReturnCount") // Ordered stream precedence is clearest as guarded returns.
     private fun routeSingle(intent: ShareIntent): ShareIntentInput? {
         // Order matters: stream wins over text when both are present
         // (matches Android share-sheet semantics — the text is the
         // subject hint, the stream is the primary attachment).
+        val streams = intent.streamUris.orEmpty()
+        if (streams.size == 1) return ShareIntentInput.SingleUri(streams.single())
+        if (streams.size > 1) return ShareIntentInput.MultipleUris(streams)
         val stream = intent.streamUri
         if (stream != null) return ShareIntentInput.SingleUri(stream)
         val text = intent.textExtra
-        return if (!text.isNullOrBlank()) ShareIntentInput.Text(text.toString()) else null
+        return if (!text.isNullOrBlank()) {
+            ShareIntentInput.Text(text.toString(), intent.textTitle.orEmpty())
+        } else {
+            null
+        }
     }
 
     private fun routeMultiple(intent: ShareIntent): ShareIntentInput? {
@@ -98,6 +104,7 @@ public data class ShareIntent(
     val streamUri: Any? = null,
     val streamUris: List<Any>? = null,
     val textExtra: CharSequence? = null,
+    val textTitle: String? = null,
 )
 
 /**
@@ -122,5 +129,6 @@ public sealed interface ShareIntentInput {
     /** A plain-text share. The text is non-blank by construction. */
     public data class Text(
         val text: String,
+        val title: String = "",
     ) : ShareIntentInput
 }

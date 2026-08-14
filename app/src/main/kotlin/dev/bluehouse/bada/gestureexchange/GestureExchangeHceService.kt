@@ -22,11 +22,14 @@ import dev.bluehouse.bada.service.receiver.GestureReceiverSessionBridge
 import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /**
  * Unlocked HCE responder for Google-compatible “Tap to Share” file sessions on
@@ -48,6 +51,9 @@ public class GestureExchangeHceService : HostApduService() {
     ): ByteArray? {
         if (apdu == null) return GestureAid.WRONG_LENGTH.clone()
         if (!GestureTapToSharePreferences.from(this).isEnabled()) return GestureAid.FILE_NOT_FOUND.clone()
+        if (!GestureRoleCoordinator.hasRole(GestureRoleCoordinator.Role.RECEIVE)) {
+            return GestureAid.FILE_NOT_FOUND.clone()
+        }
         if ((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isDeviceLocked) {
             diagnostic("hce_rejected_locked")
             return LOCKED.clone()
@@ -59,6 +65,7 @@ public class GestureExchangeHceService : HostApduService() {
                     machine = GestureTagProtocolMachine(Build.MANUFACTURER),
                     provider = WifiDirectMediumProvider(applicationContext),
                 )
+            activeSession?.let(::prewarmConnectivity)
             diagnostic("hce_selected")
         }
         val session = activeSession ?: return GestureAid.FAILURE.clone()
@@ -104,17 +111,15 @@ public class GestureExchangeHceService : HostApduService() {
             scope.launch {
                 val response =
                     try {
-                        ReceiverForegroundService.start(this@GestureExchangeHceService)
-                        GestureReceiverSessionBridge.awaitSession(RECEIVER_START_TIMEOUT_MS)
-                            ?: error("receiver session start timed out")
-                        check(activeSession === session) { "NFC session was superseded" }
-                        val identity = GestureReceiverSessionBridge.identity() ?: error("receiver identity unavailable")
-                        val credentials =
-                            session.provider.prepareUpgrade() as? UpgradePathCredentials.WifiDirect
-                                ?: error("Wi-Fi Direct group unavailable")
+                        val prepared =
+                            withTimeout(LOCAL_BRIDGE_TIMEOUT_MS) {
+                                checkNotNull(session.preparedConnectivity).await()
+                            }
                         synchronized(session.machine) {
                             check(activeSession === session) { "NFC session was superseded" }
-                            session.machine.provideConnectivity(buildConnectivity(identity, credentials))
+                            session.machine.provideConnectivity(
+                                buildConnectivity(prepared.identity, prepared.credentials),
+                            )
                         }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -130,6 +135,22 @@ public class GestureExchangeHceService : HostApduService() {
                         else -> sendResponseApdu(GestureAid.FAILURE.clone())
                     }
                 }
+            }
+    }
+
+    /** Begin receiver/listener and Wi-Fi Direct preparation immediately after SELECT. */
+    private fun prewarmConnectivity(session: HceSession) {
+        session.preparedConnectivity =
+            scope.async {
+                ReceiverForegroundService.start(this@GestureExchangeHceService)
+                GestureReceiverSessionBridge.awaitSession(LOCAL_BRIDGE_TIMEOUT_MS)
+                    ?: error("receiver session start timed out")
+                check(activeSession === session) { "NFC session was superseded" }
+                val identity = GestureReceiverSessionBridge.identity() ?: error("receiver identity unavailable")
+                val credentials =
+                    session.provider.prepareUpgrade() as? UpgradePathCredentials.WifiDirect
+                        ?: error("Wi-Fi Direct group unavailable")
+                PreparedConnectivity(identity, credentials)
             }
     }
 
@@ -154,6 +175,7 @@ public class GestureExchangeHceService : HostApduService() {
                     com.google.protobuf.ByteString
                         .copyFrom(identity.endpointInfo),
                 ).setZeroPartyIdentifier(ZERO_PARTY)
+                .setMetadata(GestureCapabilityMetadataFactory.create(this))
         return ConnectivityInfo.newBuilder().addEntries(entry).build()
     }
 
@@ -188,6 +210,7 @@ public class GestureExchangeHceService : HostApduService() {
         acceptJob?.cancel()
         acceptJob = null
         session?.provider?.cancelPendingUpgrade()
+        session?.preparedConnectivity?.cancel()
         session?.machine?.let { synchronized(it) { it.clear() } }
     }
 
@@ -200,13 +223,19 @@ public class GestureExchangeHceService : HostApduService() {
         private val LOCKED = byteArrayOf(0x69, 0x82.toByte())
         private const val SERVICE_ID = "NearbySharing"
         private const val ZERO_PARTY = "nearby.sharing"
-        private const val RECEIVER_START_TIMEOUT_MS = 8_000L
+        private const val LOCAL_BRIDGE_TIMEOUT_MS = 2_000L
         private const val MAX_REASON_LENGTH = 80
     }
 
     private class HceSession(
         val machine: GestureTagProtocolMachine,
         val provider: WifiDirectMediumProvider,
+        var preparedConnectivity: Deferred<PreparedConnectivity>? = null,
         @Volatile var handoverCompleted: Boolean = false,
+    )
+
+    private data class PreparedConnectivity(
+        val identity: GestureReceiverSessionBridge.Identity,
+        val credentials: UpgradePathCredentials.WifiDirect,
     )
 }

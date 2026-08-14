@@ -9,8 +9,10 @@ import android.app.Activity
 import android.content.ComponentName
 import android.nfc.NfcAdapter
 import android.nfc.cardemulation.CardEmulation
+import android.os.Build
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.gestureexchange.GestureExchangeHceService
+import dev.bluehouse.bada.gestureexchange.GestureRoleCoordinator
 import dev.bluehouse.bada.gestureexchange.GestureTapToSharePreferences
 
 /**
@@ -40,12 +42,19 @@ import dev.bluehouse.bada.gestureexchange.GestureTapToSharePreferences
  * is the make-or-break to verify on an Android 15 phone with stock Quick Share.
  */
 internal object NfcPreferredService {
+    private val gestureLeases = java.util.WeakHashMap<Activity, GestureRoleCoordinator.Lease>()
+
     /** Prefer our tap HCE while [activity] is foreground. Returns true if claimed. */
     fun prefer(activity: Activity): Boolean = apply(activity, prefer = true)
 
     /** Release the preference (call when leaving the foreground). */
     fun release(activity: Activity): Boolean = apply(activity, prefer = false)
 
+    @Suppress(
+        "CyclomaticComplexMethod",
+        "ReturnCount",
+        "TooGenericExceptionCaught",
+    ) // One guarded transaction owns preference and API rollback across platform runtime failures.
     private fun apply(
         activity: Activity,
         prefer: Boolean,
@@ -64,19 +73,53 @@ internal object NfcPreferredService {
                     BadaTapHceService::class.java
                 }
             val name = ComponentName(activity, component)
+            val gestureEnabled = component == GestureExchangeHceService::class.java
+            val lease =
+                if (prefer && gestureEnabled) {
+                    synchronized(gestureLeases) {
+                        gestureLeases[activity]
+                            ?: GestureRoleCoordinator
+                                .claim(GestureRoleCoordinator.Role.RECEIVE)
+                                ?.also { gestureLeases[activity] = it }
+                    } ?: return false
+                } else {
+                    synchronized(gestureLeases) { gestureLeases[activity] }
+                }
             val ok =
                 if (prefer) {
-                    cardEmulation.setPreferredService(activity, name)
+                    val preferred = cardEmulation.setPreferredService(activity, name)
+                    if (preferred && Build.VERSION.SDK_INT >= API_37) {
+                        try {
+                            Api37NfcSessionAdapter.beginReceive(adapter, cardEmulation, name)
+                        } catch (failure: RuntimeException) {
+                            runCatching { Api37NfcSessionAdapter.endReceive(adapter, cardEmulation, name) }
+                            cardEmulation.unsetPreferredService(activity)
+                            throw failure
+                        }
+                    }
+                    if (!preferred && gestureEnabled) {
+                        GestureRoleCoordinator.release(lease)
+                        synchronized(gestureLeases) { gestureLeases.remove(activity) }
+                    }
+                    preferred
                 } else {
-                    cardEmulation.unsetPreferredService(activity)
+                    if (Build.VERSION.SDK_INT >= API_37) {
+                        Api37NfcSessionAdapter.endReceive(adapter, cardEmulation, name)
+                    }
+                    cardEmulation.unsetPreferredService(activity).also {
+                        GestureRoleCoordinator.release(lease)
+                        synchronized(gestureLeases) { gestureLeases.remove(activity) }
+                    }
                 }
             DiagnosticLog.w(TAG, "${if (prefer) "setPreferredService" else "unsetPreferredService"} -> $ok")
             ok
         }.getOrElse {
+            synchronized(gestureLeases) { gestureLeases.remove(activity) }?.let(GestureRoleCoordinator::release)
             DiagnosticLog.w(TAG, "preferred-service ${if (prefer) "set" else "unset"} failed: ${it.message}")
             false
         }
     }
 
     private const val TAG = "BadaNfcPreferred"
+    private const val API_37 = 37
 }

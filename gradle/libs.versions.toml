@@ -5,9 +5,9 @@ agp = "8.7.3"
 ksp = "2.1.0-1.0.29"
 
 # Android SDK levels
-compileSdk = "36"
+compileSdk = "37"
 minSdk = "24"
-targetSdk = "36"
+targetSdk = "37"
 
 # AndroidX
 androidxCore = "1.13.1"

@@ -375,11 +375,21 @@ public class OutboundConnection private constructor(
      *   shutdown semantics.
      */
     @Suppress("TooGenericExceptionCaught")
-    public suspend fun run(files: List<FileSource>): OutboundResult {
+    public suspend fun run(files: List<FileSource>): OutboundResult = run(files, emptyList())
+
+    /**
+     * Drive one outbound transfer containing files and/or Quick Share text.
+     * Payload ids must be positive and unique across both collections.
+     */
+    @Suppress("TooGenericExceptionCaught") // The connection boundary maps every transport/protocol failure once.
+    public suspend fun run(
+        files: List<FileSource>,
+        texts: List<TextSource>,
+    ): OutboundResult {
         check(!started) { "OutboundConnection.run() may only be invoked once" }
         started = true
 
-        validateFiles(files)
+        validatePayloads(files, texts)
 
         mutableState.value = OutboundConnectionState.Connecting
         val initialTransport: ConnectedTransport =
@@ -414,6 +424,7 @@ public class OutboundConnection private constructor(
                 endpointInfo = endpointInfo,
                 qrSigningKey = qrSigningKey,
                 files = files,
+                texts = texts,
                 mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,
                 logger = logger,
@@ -519,7 +530,8 @@ public class OutboundConnection private constructor(
     }
 
     /**
-     * Sanity-check the [files] list before starting any I/O.
+     * Sanity-check payload identity before starting any I/O. Empty lists remain
+     * valid for transport-only handshake probes; product intake rejects them.
      *
      * Two invariants:
      *  - Every payload id is unique. Duplicates would cause the
@@ -527,14 +539,25 @@ public class OutboundConnection private constructor(
      *  - Every payload id is positive (the proto is `int64` but Quick
      *    Share semantics require positive values).
      */
-    private fun validateFiles(files: List<FileSource>) {
-        val seen = HashSet<Long>(files.size)
+    private fun validatePayloads(
+        files: List<FileSource>,
+        texts: List<TextSource>,
+    ) {
+        val seen = HashSet<Long>(files.size + texts.size)
         for (f in files) {
             require(f.payloadId > 0) {
                 "FileSource.payloadId must be positive, got ${f.payloadId} for '${f.name}'"
             }
             require(seen.add(f.payloadId)) {
                 "Duplicate FileSource.payloadId ${f.payloadId} ('${f.name}')"
+            }
+        }
+        for (text in texts) {
+            require(text.payloadId > 0) {
+                "TextSource.payloadId must be positive, got ${text.payloadId}"
+            }
+            require(seen.add(text.payloadId)) {
+                "Duplicate outbound payloadId ${text.payloadId}"
             }
         }
     }

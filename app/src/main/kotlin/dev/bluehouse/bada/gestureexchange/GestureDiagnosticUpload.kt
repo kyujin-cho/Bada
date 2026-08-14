@@ -9,7 +9,10 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import java.io.File
 import java.net.URL
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -25,15 +28,21 @@ internal object GestureDiagnosticUpload {
     private val queue = ArrayDeque<String>()
     private val executor = Executors.newSingleThreadScheduledExecutor()
     private var draining = false
+    private val sessionHash =
+        MessageDigest
+            .getInstance("SHA-256")
+            .digest(ByteArray(32).also(SecureRandom()::nextBytes))
+            .take(8)
+            .joinToString("") { "%02x".format(it) }
 
     fun record(
         context: Context,
         event: String,
     ) {
-        val safe = event.take(MAX_LINE)
+        val safe = event.replace('\n', '_').replace('\r', '_').take(MAX_LINE)
         synchronized(queue) {
             if (queue.size == MAX_QUEUE) queue.removeFirst()
-            queue.addLast("${System.currentTimeMillis()} $safe")
+            queue.addLast("${System.currentTimeMillis()} session=$sessionHash $safe")
             if (draining) return
             draining = true
         }
@@ -44,26 +53,49 @@ internal object GestureDiagnosticUpload {
         while (true) {
             val batch =
                 synchronized(queue) {
-                    if (queue.isEmpty()) {
+                    val persisted = readFallback(context)
+                    if (queue.isEmpty() && persisted.isEmpty()) {
                         draining = false
                         return
                     }
                     buildList {
+                        addAll(persisted)
                         repeat(minOf(BATCH_SIZE, queue.size)) { add(queue.removeFirst()) }
                     }
                 }
             if (!runCatching { post(context, batch.joinToString("\n")) }.getOrDefault(false)) {
-                synchronized(queue) {
-                    batch.asReversed().forEach { line ->
-                        if (queue.size == MAX_QUEUE) queue.removeLast()
-                        queue.addFirst(line)
-                    }
-                }
+                persistFallback(context, batch)
                 executor.schedule({ drain(context) }, RETRY_DELAY_SECONDS, TimeUnit.SECONDS)
                 return
             }
+            clearFallback(context)
         }
     }
+
+    private fun persistFallback(
+        context: Context,
+        lines: List<String>,
+    ) {
+        runCatching {
+            val file = fallbackFile(context)
+            file.parentFile?.mkdirs()
+            file.writeText(lines.joinToString("\n").takeLast(MAX_FALLBACK_BYTES))
+        }
+    }
+
+    private fun readFallback(context: Context): List<String> =
+        runCatching {
+            fallbackFile(context)
+                .takeIf(File::isFile)
+                ?.readLines()
+                .orEmpty()
+        }.getOrDefault(emptyList())
+
+    private fun clearFallback(context: Context) {
+        runCatching { fallbackFile(context).delete() }
+    }
+
+    private fun fallbackFile(context: Context): File = File(context.filesDir, "diagnostics/gesture-tap.log")
 
     private fun post(
         context: Context,
@@ -100,4 +132,5 @@ internal object GestureDiagnosticUpload {
     private const val CONNECT_TIMEOUT_MS = 3000
     private const val READ_TIMEOUT_MS = 3000
     private const val RETRY_DELAY_SECONDS = 30L
+    private const val MAX_FALLBACK_BYTES = 256 * 1024
 }

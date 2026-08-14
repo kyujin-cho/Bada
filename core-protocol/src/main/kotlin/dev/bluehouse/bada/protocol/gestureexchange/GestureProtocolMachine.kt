@@ -11,12 +11,17 @@ import dev.bluehouse.bada.protocol.gestureexchange.proto.ApplicationLabelRespons
 import dev.bluehouse.bada.protocol.gestureexchange.proto.ConnectionHandoverRequest
 import dev.bluehouse.bada.protocol.gestureexchange.proto.ConnectionHandoverResponse
 import dev.bluehouse.bada.protocol.gestureexchange.proto.ConnectivityCapability
+import dev.bluehouse.bada.protocol.gestureexchange.proto.ConnectivityCapabilityMetadata
 import dev.bluehouse.bada.protocol.gestureexchange.proto.ConnectivityInfo
 import dev.bluehouse.bada.protocol.gestureexchange.proto.GestureExchangeFeature
 import dev.bluehouse.bada.protocol.gestureexchange.proto.HandoverResult
 import dev.bluehouse.bada.protocol.gestureexchange.proto.HandoverResultStatus
 import dev.bluehouse.bada.protocol.gestureexchange.proto.ManufacturerInfo
 import dev.bluehouse.bada.protocol.gestureexchange.proto.ServiceData
+import java.security.MessageDigest
+
+private const val CHANNEL_BINDING_BYTES = 32
+private const val BLUETOOTH_MAC_BYTES = 6
 
 /** Exact primary-AID constants for the user-facing “Tap to Share” feature. */
 public object GestureAid {
@@ -38,6 +43,7 @@ public data class GestureLocalIdentity(
     val endpointId: String,
     val serviceId: String,
     val endpointInfo: ByteArray,
+    val capabilityMetadata: ConnectivityCapabilityMetadata = ConnectivityCapabilityMetadata.getDefaultInstance(),
 )
 
 /**
@@ -125,6 +131,7 @@ public class GestureReaderProtocolMachine(
         val capability =
             ConnectivityCapability
                 .newBuilder()
+                .setMetadata(identity.capabilityMetadata)
                 .addServiceData(
                     ServiceData
                         .newBuilder()
@@ -151,8 +158,13 @@ public class GestureReaderProtocolMachine(
         val result = envelope.handoverResult
         require(result.status == HandoverResultStatus.MESSAGE) { "peer handover status=${result.status}" }
         val info = ConnectivityInfo.parseFrom(result.payload)
-        require(info.channelBindingToken.toByteArray().contentEquals(noise.channelBindingToken())) {
+        require(MessageDigest.isEqual(info.channelBindingToken.toByteArray(), noise.channelBindingToken())) {
             "channel binding mismatch"
+        }
+        require(info.entriesCount == 1) { "expected exactly one endpoint credential" }
+        require(info.channelBindingToken.size() == CHANNEL_BINDING_BYTES) { "invalid channel binding length" }
+        require(info.bluetoothMac.isEmpty || info.bluetoothMac.size() == BLUETOOTH_MAC_BYTES) {
+            "invalid Bluetooth MAC length"
         }
         val completion =
             ConnectionHandoverRequest
@@ -284,11 +296,14 @@ public class GestureTagProtocolMachine(
         val result = request.handoverResult
         require(result.status == HandoverResultStatus.MESSAGE) { "expected handover message" }
         val capability = ConnectivityCapability.parseFrom(result.payload)
-        require(capability.channelBindingToken.toByteArray().contentEquals(noise.channelBindingToken())) {
+        require(MessageDigest.isEqual(capability.channelBindingToken.toByteArray(), noise.channelBindingToken())) {
             "channel binding mismatch"
         }
-        require(capability.serviceDataList.any { it.zeroPartyIdentifier == GestureAid.ZERO_PARTY_FILE_SHARE }) {
-            "peer does not offer nearby.sharing"
+        require(capability.channelBindingToken.size() == CHANNEL_BINDING_BYTES) { "invalid channel binding length" }
+        val matching = capability.serviceDataList.filter { it.zeroPartyIdentifier == GestureAid.ZERO_PARTY_FILE_SHARE }
+        require(matching.size == 1) { "expected exactly one nearby.sharing service" }
+        require(matching.single().serviceId.isNotBlank() && matching.single().endpointId.isNotBlank()) {
+            "invalid nearby.sharing service identity"
         }
         step = Step.WAITING_CONNECTIVITY
         return Result.NeedsConnectivity(capability)

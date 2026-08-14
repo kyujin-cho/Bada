@@ -82,6 +82,7 @@ internal class OutboundConnectionDriver(
     private val endpointInfo: ByteArray,
     private val qrSigningKey: PrivateKey?,
     private val files: List<FileSource>,
+    private val texts: List<TextSource>,
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
     private val logger: (String) -> Unit = {},
@@ -119,11 +120,11 @@ internal class OutboundConnectionDriver(
     /** 4-digit confirmation PIN derived from UKEY2 `authString`. */
     private var pin: String = ""
 
-    /** Cumulative bytes pushed onto the wire across all FILE payloads. */
+    /** Cumulative content bytes pushed onto the wire across FILE and text payloads. */
     private var bytesSent: Long = 0L
 
-    /** Sum of [FileSource.size] over [files]. */
-    private val totalSize: Long = files.sumOf { it.size }
+    /** Sum of announced FILE and text bytes. */
+    private val totalSize: Long = files.sumOf { it.size } + texts.sumOf { it.bytes.size.toLong() }
 
     /** The most recent active payload, for progress UI. */
     private var currentItemPayloadId: Long? = null
@@ -233,7 +234,7 @@ internal class OutboundConnectionDriver(
         publishActiveTransport(negotiated.medium, negotiated.wifiFrequencyMhz)
 
         // Step 8: build the OutboundSharingFsm with our IntroductionFrame.
-        val introduction = buildIntroductionFrame(files)
+        val introduction = buildIntroductionFrame(files, texts)
         val negotiationFsm =
             OutboundSharingFsm(introduction = introduction, secureRandom = secureRandom)
                 .also { fsm = it }
@@ -805,7 +806,7 @@ internal class OutboundConnectionDriver(
                             coroutineScope {
                                 val keepAliveJob = launch { runKeepAliveTicker(activeChannel) }
                                 try {
-                                    val result = streamFilesAndComplete(activeChannel)
+                                    val result = streamPayloadsAndComplete(activeChannel)
                                     if (shouldDrainForSafeDisconnect(result)) {
                                         drainSafeDisconnectAckDirect(activeChannel)
                                     }
@@ -1351,7 +1352,7 @@ internal class OutboundConnectionDriver(
         val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(sharingFrame))
         applyEffects(channel, effects)
         if (effects.any { it is SharingFsmEffect.ReadyToSendPayloads }) {
-            return streamFilesAndComplete(channel)
+            return streamPayloadsAndComplete(channel)
         }
         return null
     }
@@ -1366,8 +1367,9 @@ internal class OutboundConnectionDriver(
      * each chunk so a `cancel()` call still emits a CANCEL frame
      * before we close.
      */
-    private suspend fun streamFilesAndComplete(channel: SecureChannel): OutboundResult {
-        logger("fsm: streamFilesAndComplete START files=${files.size} totalSize=$totalSize")
+    @Suppress("ReturnCount") // File and text loops each return immediately on serialized cancellation.
+    private suspend fun streamPayloadsAndComplete(channel: SecureChannel): OutboundResult {
+        logger("fsm: streamPayloadsAndComplete START files=${files.size} texts=${texts.size} totalSize=$totalSize")
         // Seed the rate estimator with a zero-bytes sample so the
         // first chunk write produces a non-degenerate Δt for the EMA.
         rateEstimator.sample(bytesTransferred = 0L, nowMillis = nowMillisSource())
@@ -1380,7 +1382,7 @@ internal class OutboundConnectionDriver(
                         totalSize = totalSize,
                         bytesPerSecond = 0L,
                     ),
-                currentItemPayloadId = files.firstOrNull()?.payloadId,
+                currentItemPayloadId = files.firstOrNull()?.payloadId ?: texts.firstOrNull()?.payloadId,
             )
 
         for (file in files) {
@@ -1392,6 +1394,12 @@ internal class OutboundConnectionDriver(
                 return cancelled
             }
             logger("fsm: streamOneFile DONE name=${file.name}")
+        }
+
+        for (text in texts) {
+            currentItemPayloadId = text.payloadId
+            val cancelled = streamOneText(channel, text)
+            if (cancelled != null) return cancelled
         }
 
         // All files streamed (every byte delivered). TEARDOWN — issue #200:
@@ -1418,6 +1426,22 @@ internal class OutboundConnectionDriver(
             )
         }
         return OutboundResult.Completed
+    }
+
+    /** Stream one announced text item using the protocol's BYTES framing. */
+    private suspend fun streamOneText(
+        channel: SecureChannel,
+        text: TextSource,
+    ): OutboundResult? {
+        for (frame in PayloadTransferEncoder.encodeBytesPayload(text.payloadId, text.bytes)) {
+            if (externalEvents.tryReceive().getOrNull() == OutboundExternalEvent.UserCancel) {
+                return userCancelDuringTransfer(channel)
+            }
+            channel.sendOfflineFrame(frame)
+            bytesSent += chunkBodySize(frame)
+            publishSendingProgress()
+        }
+        return null
     }
 
     private fun publishCompletedIfNeeded(result: OutboundResult): OutboundResult {

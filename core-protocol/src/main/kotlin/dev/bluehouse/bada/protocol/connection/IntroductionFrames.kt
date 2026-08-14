@@ -37,7 +37,10 @@ import dev.bluehouse.bada.protocol.sharing.IntroductionFrame
  *    may treat the Introduction as malformed and fall through to a
  *    default path that does not register the attachment.
  */
-internal fun buildIntroductionFrame(files: List<FileSource>): IntroductionFrame {
+internal fun buildIntroductionFrame(
+    files: List<FileSource>,
+    texts: List<TextSource> = emptyList(),
+): IntroductionFrame {
     val builder = IntroductionFrame.newBuilder()
     for (f in files) {
         val md =
@@ -59,6 +62,23 @@ internal fun buildIntroductionFrame(files: List<FileSource>): IntroductionFrame 
             md.setParentFolder(f.parentFolder)
         }
         builder.addFileMetadata(md.build())
+    }
+    for (text in texts) {
+        builder.addTextMetadata(
+            Protocol.TextMetadata
+                .newBuilder()
+                .setTextTitle(text.title)
+                .setType(
+                    when (text.kind) {
+                        TextSource.Kind.PLAIN -> Protocol.TextMetadata.Type.TEXT
+                        TextSource.Kind.URL -> Protocol.TextMetadata.Type.URL
+                    },
+                ).setPayloadId(text.payloadId)
+                .setSize(text.bytes.size.toLong())
+                .setId(text.payloadId)
+                .setIsSensitiveText(false)
+                .build(),
+        )
     }
     builder.setUseCase(Protocol.IntroductionFrame.SharingUseCase.NEARBY_SHARE)
     return builder.build()

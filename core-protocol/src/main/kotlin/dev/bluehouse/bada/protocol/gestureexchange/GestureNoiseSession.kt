@@ -158,6 +158,13 @@ public class GestureNoiseSession(
             mode: Int,
             input: ByteArray,
         ): ByteArray {
+            val maximumInput =
+                if (mode == Cipher.DECRYPT_MODE) {
+                    MAX_MESSAGE_BYTES + GCM_TAG_BYTES
+                } else {
+                    MAX_MESSAGE_BYTES
+                }
+            require(input.size <= maximumInput) { "Gesture message exceeds $MAX_MESSAGE_BYTES plaintext bytes" }
             val material = checkNotNull(key) { "Cipher has been cleared" }
             check(counter != Long.MAX_VALUE) { "AES-GCM nonce counter exhausted" }
             val nonce =
@@ -169,8 +176,9 @@ public class GestureNoiseSession(
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(mode, SecretKeySpec(material, "AES"), GCMParameterSpec(GCM_TAG_BITS, nonce))
             cipher.updateAAD(ByteArray(0))
+            val output = cipher.doFinal(input)
             counter++
-            return cipher.doFinal(input)
+            return output
         }
     }
 
@@ -181,6 +189,8 @@ public class GestureNoiseSession(
         private const val COORDINATE_BYTES: Int = 32
         private const val NONCE_BYTES: Int = 12
         private const val GCM_TAG_BITS: Int = 128
+        private const val GCM_TAG_BYTES: Int = GCM_TAG_BITS / 8
+        private const val MAX_MESSAGE_BYTES: Int = 64 * 1024
 
         private fun hkdf2(
             chainKey: ByteArray,

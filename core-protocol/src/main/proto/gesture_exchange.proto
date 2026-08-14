@@ -53,9 +53,47 @@ message ConnectionHandoverResponse {
   optional HandoverResult handover_result = 1;
 }
 
-// The current file-share port does not interpret this message. Keeping it as
-// a real nested message preserves unknown metadata emitted by newer peers.
-message ConnectivityCapabilityMetadata {}
+message AvailableChannels { repeated int32 channels = 1 [packed = true]; }
+message WifiDirectClientUsableChannels { repeated int32 channels = 1 [packed = true]; }
+message WifiLanUsableChannels { repeated int32 channels = 1 [packed = true]; }
+message WifiAwareUsableChannels { repeated int32 channels = 1 [packed = true]; }
+message WifiHotspotStaUsableChannels { repeated int32 channels = 1 [packed = true]; }
+
+// The selected GMS artifact exposes eight role flags but no stable public
+// names. Preserve their exact field numbers without inventing semantics.
+message MediumRole {
+  optional bool role_flag_1 = 1;
+  optional bool role_flag_2 = 2;
+  optional bool role_flag_3 = 3;
+  optional bool role_flag_4 = 4;
+  optional bool role_flag_5 = 5;
+  optional bool role_flag_6 = 6;
+  optional bool role_flag_7 = 7;
+  optional bool role_flag_8 = 8;
+}
+
+enum WifiDirectAuthType {
+  WIFI_DIRECT_TYPE_UNKNOWN = 0;
+  WIFI_DIRECT_WITH_PASSWORD = 1;
+  WIFI_DIRECT_WITH_PIN = 2 [deprecated = true];
+  WIFI_DIRECT_WITH_DEVICE_NAME = 3;
+}
+
+message ConnectivityCapabilityMetadata {
+  optional bool supports_5_ghz = 1;
+  optional string bssid = 2;
+  optional bytes ip_address = 3;
+  optional bool supports_6_ghz = 4;
+  optional bool has_mobile_radio = 5;
+  optional int32 ap_frequency = 6 [default = -1];
+  optional AvailableChannels available_channels = 7;
+  optional WifiDirectClientUsableChannels wifi_direct_client_usable_channels = 8;
+  optional WifiLanUsableChannels wifi_lan_usable_channels = 9;
+  optional WifiAwareUsableChannels wifi_aware_usable_channels = 10;
+  optional WifiHotspotStaUsableChannels wifi_hotspot_sta_usable_channels = 11;
+  optional MediumRole medium_role = 12;
+  repeated WifiDirectAuthType wifi_direct_auth_types = 13 [packed = true];
+}
 
 message ServiceData {
   optional string service_id = 1;

@@ -24,6 +24,7 @@ import dev.bluehouse.bada.protocol.payload.FileDestinationFactory
 import dev.bluehouse.bada.protocol.transport.ConnectedTransport
 import dev.bluehouse.bada.protocol.transport.FramedConnection
 import dev.bluehouse.bada.protocol.transport.asConnectedTransport
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -367,6 +368,45 @@ class OutboundConnectionTest {
                 assertThat(received).isEqualTo(fileBytes)
 
                 assertThat(outbound.state.value).isEqualTo(OutboundConnectionState.Completed)
+            }
+        }
+
+    @Test
+    fun `accept path - text payload metadata and bytes complete through full lifecycle`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (port, accept) = listenAndAcceptInBackground()
+                val payloadId = 0x4343L
+                val textBytes = "https://example.com/superdrop".toByteArray()
+                val outbound =
+                    OutboundConnection(
+                        targetAddress = InetAddress.getLoopbackAddress(),
+                        port = port,
+                        secureRandom = SecureRandom("outbound-text".toByteArray()),
+                    )
+                val text = TextSource(textBytes, "Shared link", TextSource.Kind.URL, payloadId)
+
+                coroutineScope {
+                    val outboundJob = async { outbound.run(emptyList(), listOf(text)) }
+                    val inbound =
+                        InboundConnection(
+                            socket = accept(),
+                            secureRandom = SecureRandom("inbound-text".toByteArray()),
+                        )
+                    launch {
+                        val consent =
+                            inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                                as InboundConnectionState.WaitingForUserConsent
+                        val announced = consent.metadata.items.single() as TransferItem.Text
+                        assertThat(announced.title).isEqualTo("Shared link")
+                        assertThat(announced.kind).isEqualTo(TransferItem.Text.Kind.URL)
+                        inbound.submitUserConsent(accepted = true)
+                    }
+
+                    val inboundResult = inbound.run(InMemoryFactory()) as InboundResult.Completed
+                    assertThat(outboundJob.await()).isEqualTo(OutboundResult.Completed)
+                    assertThat(inboundResult.items).containsExactly(ReceivedItem.Text(payloadId, textBytes))
+                }
             }
         }
 
@@ -1176,7 +1216,7 @@ class OutboundConnectionTest {
 
                 coroutineScope {
                     val collector =
-                        launch {
+                        launch(start = CoroutineStart.UNDISPATCHED) {
                             outbound.state.collect { s ->
                                 seenStates += s
                                 if (s.isStateTerminal()) return@collect

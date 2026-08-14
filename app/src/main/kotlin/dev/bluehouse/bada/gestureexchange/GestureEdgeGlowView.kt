@@ -260,6 +260,12 @@ private class GestureEdgeGlowView(
         loopHead = 0f
         loopTail = 0f
         dimVisible = false
+        if (!animationsEnabled()) {
+            openProgress = 1f
+            heavyClick()
+            invalidate()
+            return
+        }
         var started = false
         animator =
             ValueAnimator.ofFloat(0f, 1f).apply {
@@ -284,6 +290,14 @@ private class GestureEdgeGlowView(
         cancelAnimators()
         dimVisible = false
         heavyClick()
+        if (!animationsEnabled()) {
+            openProgress = 0f
+            loopHead = 1f
+            loopTail = 0f
+            invalidate()
+            postDelayed({ GestureVisualSignal.clear() }, REDUCED_MOTION_HOLD_MS)
+            return
+        }
         animator =
             ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = HEAD_DURATION_MS
@@ -332,6 +346,18 @@ private class GestureEdgeGlowView(
         tailAnimator = null
     }
 
+    /** Keeps tap state visible while honoring the system's reduced-motion preference. */
+    private fun animationsEnabled(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ValueAnimator.areAnimatorsEnabled()
+        } else {
+            android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f,
+            ) != 0f
+        }
+
     private fun cornerRadius(position: Int): Float =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             rootWindowInsets?.getRoundedCorner(position)?.radius?.toFloat() ?: 0f
@@ -370,5 +396,6 @@ private class GestureEdgeGlowView(
         private const val OPEN_DURATION_MS = 1_992L
         private const val HEAD_DURATION_MS = 433L
         private const val TAIL_DURATION_MS = 1_510L
+        private const val REDUCED_MOTION_HOLD_MS = 250L
     }
 }

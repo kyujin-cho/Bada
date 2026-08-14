@@ -363,6 +363,11 @@
     <string name="send_cancel">Cancel</string>
     <string name="send_done">Done</string>
     <string name="send_unsupported">This share could not be sent. The intent did not contain a file or text payload.</string>
+    <string name="send_subtitle_preparing">Preparing content…</string>
+    <string name="send_source_unreadable">The shared item is no longer readable. Return to the source app and share it again.</string>
+    <string name="send_source_stalled">The source stopped responding while it was being prepared.</string>
+    <string name="send_source_too_large">This unknown-size source is too large to prepare. Save it as a file first.</string>
+    <string name="send_source_no_space">There is not enough free storage to prepare this source.</string>
 
     <!-- Payload summary templates. The %d arguments are item counts.
          The transfer size renders on its own line below the count (see
@@ -521,6 +526,13 @@
     <string name="consent_state_completed">Transfer complete</string>
     <string name="consent_state_completed_one">1 file received</string>
     <string name="consent_state_completed_many">%1$d files received</string>
+    <string name="consent_state_completed_one_text">1 text item received</string>
+    <string name="consent_state_completed_many_items">%1$d items received</string>
+    <string name="consent_state_copy_text">Copy text</string>
+    <string name="consent_state_open_link">Open link</string>
+    <string name="consent_state_open_link_unavailable">No app can open this link.</string>
+    <string name="consent_state_received_text">Received text</string>
+    <string name="consent_state_text_copied">Text copied</string>
     <string name="consent_state_failed">Transfer failed</string>
     <string name="consent_state_cancelled">Transfer cancelled</string>
     <string name="consent_state_view_image">View image</string>
