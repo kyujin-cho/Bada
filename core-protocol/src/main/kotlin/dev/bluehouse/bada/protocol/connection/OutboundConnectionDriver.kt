@@ -1975,6 +1975,18 @@ internal class OutboundConnectionDriver(
             v1.bandwidthUpgradeNegotiation.eventType == expected
 
     private companion object {
+        init {
+            // bluetoothOfferWaitMillis clamps with coerceIn(MIN, TOTAL),
+            // which throws at runtime on the RFCOMM payload path if a
+            // tuning pass ever inverts the pair — fail at class load
+            // instead.
+            require(
+                BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS <= BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS,
+            ) {
+                "BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS must not exceed the total offer window"
+            }
+        }
+
         // How long to wait for a pre-UKEY2 BLE bandwidth-upgrade offer
         // before giving up and sending ClientInit on the current medium.
         // This bounds ONLY the no-offer path: the probe returns the instant

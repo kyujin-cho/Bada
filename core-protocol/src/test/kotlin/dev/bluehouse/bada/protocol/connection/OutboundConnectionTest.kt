@@ -1690,13 +1690,13 @@ class OutboundConnectionTest {
         private const val SHORT_INITIAL_HANDSHAKE_TIMEOUT_MS: Long = 50L
 
         // Consent delay for the no-offer Bluetooth-bootstrap scenario: long
-        // enough (>4s, with delay()'s at-least semantics) that the 5s
+        // enough (>2.5s, with delay()'s at-least semantics) that the 5s
         // Wi-Fi Direct answer window counted from the entry
-        // UPGRADE_PATH_REQUEST has under 1s left at payload time, so the
-        // pre-payload wait deterministically lands on its 2.5s floor
-        // (issue #261) — shaving the scenario's wall time versus the old
-        // fixed 5s pre-payload wait.
-        private const val SLOW_CONSENT_DELAY_MS: Long = 4_100L
+        // UPGRADE_PATH_REQUEST has less than the 2.5s floor left at
+        // payload time, so the pre-payload wait deterministically lands
+        // on the floor (issue #261). 3s keeps a 500ms determinism margin
+        // while minimising the scenario's wall time.
+        private const val SLOW_CONSENT_DELAY_MS: Long = 3_000L
 
         private val MediumLadderForBluetoothFirst: MediumLadder =
             MediumLadder(listOf(Medium.BLUETOOTH, Medium.WIFI_LAN))
