@@ -1146,7 +1146,10 @@ internal class OutboundConnectionDriver(
      * full window at payload time) keeps a never-offering receiver from
      * adding dead air between the user's Accept and the first payload byte;
      * the [BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS] floor still catches
-     * an offer already in flight.
+     * an offer already in flight — or one from a receiver that only begins
+     * its group bring-up around consent time. The result is clamped to the
+     * full window so a backward wall-clock step can never make the wait
+     * LONGER than the declared total.
      */
     private fun bluetoothOfferWaitMillis(upgradeRequestSentAtMillis: Long?): Long {
         if (upgradeRequestSentAtMillis == null) {
@@ -1154,7 +1157,10 @@ internal class OutboundConnectionDriver(
         }
         val elapsedSinceRequest = nowMillisSource() - upgradeRequestSentAtMillis
         return (BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS - elapsedSinceRequest)
-            .coerceAtLeast(BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS)
+            .coerceIn(
+                BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS,
+                BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS,
+            )
     }
 
     private suspend fun adoptOfferBeforePayloads(
@@ -2002,14 +2008,19 @@ internal class OutboundConnectionDriver(
         /**
          * Floor on the residual pre-payload offer wait when the entry
          * `UPGRADE_PATH_REQUEST`'s window has already (nearly) elapsed
-         * during the PKE/introduction/consent phase. A receiver that was
-         * ever going to offer has had the whole negotiation phase to do
-         * so; this short grace only covers an offer already in flight —
-         * e.g. a group that finished bring-up moments before the user's
-         * Accept — without re-spending the full window against a receiver
-         * that will never answer (issue #261).
+         * during the PKE/introduction/consent phase.
+         *
+         * Sized against asymmetric costs: expiring too early strands the
+         * WHOLE payload on Bluetooth (~140 KB/s — minutes for a large
+         * file), while waiting too long adds at most this many ms of dead
+         * air after the user's Accept. Stock GMS receivers observed on
+         * real devices (#256 debug loop) answer the entry request in
+         * ~0.65 s, long before consent — but a receiver implementation
+         * that defers group bring-up until around its local consent needs
+         * more than a token grace here, so keep half the full window
+         * rather than a bare in-flight allowance (#261 review).
          */
-        private const val BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS: Long = 1_000L
+        private const val BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS: Long = 2_500L
         private const val WIFI_DIRECT_UPGRADE_POLL_DELAY_MILLIS: Long = 25L
 
         /**

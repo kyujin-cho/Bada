@@ -879,7 +879,7 @@ class OutboundConnectionTest {
                         inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
                         // Consent that arrives >4s after the entry
                         // UPGRADE_PATH_REQUEST: the pre-payload offer wait must
-                        // shrink to the 1s residual floor instead of re-spending
+                        // shrink to the 2.5s residual floor instead of re-spending
                         // the full 5s window against a receiver that will never
                         // offer (issue #261). delay() has at-least semantics, so
                         // elapsed-since-request deterministically exceeds 4s and
@@ -903,7 +903,7 @@ class OutboundConnectionTest {
                     .contains("medium-upgrade: requested receiver Wi-Fi Direct upgrade (bootstrap=BLUETOOTH)")
                 assertThat(log)
                     .contains(
-                        "medium-upgrade: waiting up to 1000ms for receiver " +
+                        "medium-upgrade: waiting up to 2500ms for receiver " +
                             "Wi-Fi Direct offer before streaming payloads",
                     )
                 assertThat(log)
@@ -1693,7 +1693,7 @@ class OutboundConnectionTest {
         // enough (>4s, with delay()'s at-least semantics) that the 5s
         // Wi-Fi Direct answer window counted from the entry
         // UPGRADE_PATH_REQUEST has under 1s left at payload time, so the
-        // pre-payload wait deterministically lands on its 1s floor
+        // pre-payload wait deterministically lands on its 2.5s floor
         // (issue #261) — shaving the scenario's wall time versus the old
         // fixed 5s pre-payload wait.
         private const val SLOW_CONSENT_DELAY_MS: Long = 4_100L
