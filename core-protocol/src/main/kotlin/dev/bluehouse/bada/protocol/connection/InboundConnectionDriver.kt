@@ -273,6 +273,7 @@ internal class InboundConnectionDriver(
                     peerEndpointId = initialFrame.v1.connectionRequest.endpointId,
                     logger = logger,
                 )
+        if (!activeTransport.fallbackChannelUsable) return failDirtyUpgradeFallback(activeTransport)
         val activeChannel = activeTransport.channel.also { secureChannel = it }
         publishActiveTransport(activeTransport.medium, activeTransport.wifiFrequencyMhz)
         val initialWireFrames =
@@ -303,6 +304,22 @@ internal class InboundConnectionDriver(
         onHandshakeComplete()
 
         return runReceiveLoop(activeChannel, negotiationFsm, initialWireFrames)
+    }
+
+    /**
+     * Terminal for a server upgrade that failed after the peer's
+     * teardown-commitment point (our CLIENT_INTRODUCTION_ACK went out, so
+     * the sender has stopped reading the prior channel): running the whole
+     * sharing session on the handed-back channel would stall against a dead
+     * socket (#260).
+     */
+    private fun failDirtyUpgradeFallback(activeTransport: ActiveTransportChannel): InboundResult {
+        val reason =
+            "bandwidth upgrade failed after prior-channel teardown began; " +
+                "cannot continue on ${activeTransport.medium}"
+        logger("medium-upgrade: $reason")
+        mutableState.value = InboundConnectionState.Failed(reason)
+        return InboundResult.Failed(reason)
     }
 
     private fun publishActiveTransport(

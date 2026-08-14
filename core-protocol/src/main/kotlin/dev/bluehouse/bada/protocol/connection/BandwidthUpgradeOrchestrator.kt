@@ -73,12 +73,14 @@ internal object BandwidthUpgradeOrchestrator {
             return ActiveTransportChannel(oldChannel, currentMedium)
         }
 
+        var priorChannelTeardownBegan = false
         return runCatching {
             completeServerUpgrade(
                 oldChannel = oldChannel,
                 transport = transport,
                 credentials = credentials,
                 peerEndpointId = peerEndpointId,
+                onPriorChannelTeardown = { priorChannelTeardownBegan = true },
                 logger = logger,
             )
         }.getOrElse { failure ->
@@ -88,7 +90,15 @@ internal object BandwidthUpgradeOrchestrator {
             )
             transport.close()
             provider.cancelPendingUpgrade()
-            ActiveTransportChannel(oldChannel, currentMedium)
+            // See the client-side twin above: once the CLIENT_INTRODUCTION_ACK
+            // went out, the peer proceeds with its own prior-channel teardown
+            // (its LAST_WRITE follows the ack immediately), so the prior
+            // channel is no longer a safe place to keep the session.
+            ActiveTransportChannel(
+                channel = oldChannel,
+                medium = currentMedium,
+                fallbackChannelUsable = !priorChannelTeardownBegan,
+            )
         }
     }
 
@@ -97,6 +107,7 @@ internal object BandwidthUpgradeOrchestrator {
         transport: UpgradedTransport,
         credentials: UpgradePathCredentials,
         peerEndpointId: String,
+        onPriorChannelTeardown: () -> Unit,
         logger: (String) -> Unit,
     ): ActiveTransportChannel {
         val bufferedFrames = mutableListOf<OfflineFrame>()
@@ -111,6 +122,11 @@ internal object BandwidthUpgradeOrchestrator {
             intro = clientIntro,
             peerEndpointId = peerEndpointId,
         )
+        // The ack is the peer's cue to begin tearing down the prior channel
+        // (stock GMS clients send their LAST_WRITE right after receiving it),
+        // so fallback safety ends here even though our own LAST_WRITE goes
+        // out a few lines later.
+        onPriorChannelTeardown()
         newFramedConnection.sendFrame(BandwidthUpgradeFrames.clientIntroductionAck().toByteArray())
         logger("medium-upgrade: server sent raw CLIENT_INTRODUCTION_ACK")
         val newChannel = oldChannel.withTransport(newFramedConnection)
@@ -218,6 +234,12 @@ internal object BandwidthUpgradeOrchestrator {
         val bufferedFrames = mutableListOf<OfflineFrame>()
         val newFramedConnection = transport.asFramedConnection()
         newFramedConnection.sendFrame(BandwidthUpgradeFrames.clientIntroduction(endpointId).toByteArray())
+        // Fallback safety ends once the CLIENT_INTRODUCTION is on the wire:
+        // a stock GMS server starts sending its own LAST_WRITE on the prior
+        // channel as soon as the introduction is delivered, without waiting
+        // for ours (#260). Failures before this write (dead adopted
+        // transport) still hand the prior channel back intact.
+        onPriorChannelTeardown()
         if (expectsClientIntroductionAck) {
             receiveRawUpgradeFrame(
                 framedConnection = newFramedConnection,
@@ -228,7 +250,6 @@ internal object BandwidthUpgradeOrchestrator {
         }
         val newChannel = oldChannel.withTransport(newFramedConnection)
         val reader = DualChannelFrameReader(oldChannel, newChannel, logger)
-        onPriorChannelTeardown()
         exchangeClientPriorChannelClose(
             oldChannel = oldChannel,
             reader = reader,
@@ -667,18 +688,20 @@ internal data class ActiveTransportChannel(
     val wifiFrequencyMhz: Int? = null,
     /**
      * False only when this is a failure result whose [channel] is the prior
-     * channel AND the failed upgrade already began the prior-channel teardown
-     * (LAST_WRITE/SAFE_TO_CLOSE possibly sent, channel possibly closed) —
-     * continuing to stream on it would write into a socket the peer stopped
-     * reading. True for every other result, including the pre-teardown
-     * failure paths that hand the prior channel back intact.
+     * channel AND the failed upgrade had already passed the point where the
+     * peer commits to tearing the prior channel down — continuing the session
+     * on it would write into a socket the peer stopped reading. True for
+     * every other result, including the pre-commitment failure paths that
+     * hand the prior channel back intact.
      *
-     * Caveats: the flag tracks OUR writes only — a GMS peer starts its own
-     * prior-channel teardown as soon as our CLIENT_INTRODUCTION is delivered,
-     * so "usable" is best-effort for failures in that sub-second window. And
-     * only the client path ([BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer])
-     * maintains it today; the server path's failure fallback still returns
-     * the default without tracking teardown.
+     * The commitment boundary is peer-behavior-driven, not our-writes-driven
+     * (#260): the client path marks it once its CLIENT_INTRODUCTION is on the
+     * wire (a stock GMS server LAST_WRITEs the prior channel as soon as the
+     * introduction is delivered), and the server path marks it once its
+     * CLIENT_INTRODUCTION_ACK goes out (a stock GMS client LAST_WRITEs right
+     * after receiving the ack). Both
+     * [BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer] and
+     * [BandwidthUpgradeOrchestrator.runServerUpgradeIfAvailable] maintain it.
      */
     val fallbackChannelUsable: Boolean = true,
 )

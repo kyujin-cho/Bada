@@ -308,6 +308,136 @@ class BandwidthUpgradeOrchestratorTest {
             }
         }
 
+    @Test
+    fun `server failure before intro ack keeps fallback channel usable`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MILLIS) {
+                val (oldClientSocket, oldServerSocket) = connectedSocketPair()
+                val (newClientSocket, newServerSocket) = connectedSocketPair()
+                val oldClientChannel =
+                    SecureChannel(
+                        FramedConnection(oldClientSocket),
+                        freshSessionKeys(D2DRole.CLIENT),
+                        SecureRandom(),
+                    )
+                val oldServerChannel =
+                    SecureChannel(
+                        FramedConnection(oldServerSocket),
+                        freshSessionKeys(D2DRole.SERVER),
+                        SecureRandom(),
+                    )
+                val newClientFramed = FramedConnection(newClientSocket)
+                val registry =
+                    MediumRegistry(
+                        providers = listOf(serverProvider(newServerSocket)),
+                        ladder = MediumLadder(listOf(Medium.WIFI_DIRECT)),
+                    )
+                val logs = Collections.synchronizedList(mutableListOf<String>())
+
+                coroutineScope {
+                    val server =
+                        async {
+                            BandwidthUpgradeOrchestrator.runServerUpgradeIfAvailable(
+                                oldChannel = oldServerChannel,
+                                currentMedium = Medium.BLE,
+                                mediumRegistry = registry,
+                                peerSupportedMediums = setOf(Medium.WIFI_DIRECT),
+                                peerEndpointId = ENDPOINT_ID,
+                                logger = logs::add,
+                            )
+                        }
+                    val client =
+                        async {
+                            oldClientChannel.receiveOfflineFrame().assertUpgradeEvent(
+                                BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_AVAILABLE,
+                            )
+                            // A KEEP_ALIVE where the raw CLIENT_INTRODUCTION
+                            // belongs fails the server BEFORE its intro-ack —
+                            // the prior channel must come back usable.
+                            newClientFramed.sendFrame(keepAliveFrame().toByteArray())
+                        }
+
+                    val result = server.await()
+                    client.await()
+
+                    assertThat(result.channel).isSameInstanceAs(oldServerChannel)
+                    assertThat(result.medium).isEqualTo(Medium.BLE)
+                    assertThat(result.fallbackChannelUsable).isTrue()
+                    assertThat(logs.joinToString("\n")).contains("server failed WIFI_DIRECT")
+                }
+            }
+        }
+
+    @Test
+    fun `server failure after intro ack marks fallback channel unusable`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MILLIS) {
+                val (oldClientSocket, oldServerSocket) = connectedSocketPair()
+                val (newClientSocket, newServerSocket) = connectedSocketPair()
+                val oldClientChannel =
+                    SecureChannel(
+                        FramedConnection(oldClientSocket),
+                        freshSessionKeys(D2DRole.CLIENT),
+                        SecureRandom(),
+                    )
+                val oldServerChannel =
+                    SecureChannel(
+                        FramedConnection(oldServerSocket),
+                        freshSessionKeys(D2DRole.SERVER),
+                        SecureRandom(),
+                    )
+                val newClientFramed = FramedConnection(newClientSocket)
+                val registry =
+                    MediumRegistry(
+                        providers = listOf(serverProvider(newServerSocket)),
+                        ladder = MediumLadder(listOf(Medium.WIFI_DIRECT)),
+                    )
+                val logs = Collections.synchronizedList(mutableListOf<String>())
+
+                coroutineScope {
+                    val server =
+                        async {
+                            BandwidthUpgradeOrchestrator.runServerUpgradeIfAvailable(
+                                oldChannel = oldServerChannel,
+                                currentMedium = Medium.BLE,
+                                mediumRegistry = registry,
+                                peerSupportedMediums = setOf(Medium.WIFI_DIRECT),
+                                peerEndpointId = ENDPOINT_ID,
+                                logger = logs::add,
+                            )
+                        }
+                    val client =
+                        async {
+                            oldClientChannel.receiveOfflineFrame().assertUpgradeEvent(
+                                BandwidthUpgradeNegotiationFrame.EventType.UPGRADE_PATH_AVAILABLE,
+                            )
+                            newClientFramed.sendFrame(
+                                BandwidthUpgradeFrames.clientIntroduction(ENDPOINT_ID).toByteArray(),
+                            )
+                            newClientFramed.receiveRawOfflineFrame().assertUpgradeEvent(
+                                BandwidthUpgradeNegotiationFrame.EventType.CLIENT_INTRODUCTION_ACK,
+                            )
+                            oldClientChannel.receiveOfflineFrame().assertUpgradeEvent(
+                                BandwidthUpgradeNegotiationFrame.EventType.LAST_WRITE_TO_PRIOR_CHANNEL,
+                            )
+                            // Answer the server's LAST_WRITE with UPGRADE_FAILURE:
+                            // the intro-ack already went out, so the sender side
+                            // has begun its own teardown — no fallback allowed.
+                            oldClientChannel.sendOfflineFrame(
+                                BandwidthUpgradeFrames.upgradeFailure(Medium.WIFI_DIRECT),
+                            )
+                        }
+
+                    val result = server.await()
+                    client.await()
+
+                    assertThat(result.channel).isSameInstanceAs(oldServerChannel)
+                    assertThat(result.medium).isEqualTo(Medium.BLE)
+                    assertThat(result.fallbackChannelUsable).isFalse()
+                }
+            }
+        }
+
     private fun clientProvider(socket: Socket): MediumProvider =
         object : MediumProvider {
             override val medium: Medium = Medium.WIFI_DIRECT
