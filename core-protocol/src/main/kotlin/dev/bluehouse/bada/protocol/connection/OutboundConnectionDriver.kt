@@ -257,16 +257,17 @@ internal class OutboundConnectionDriver(
         // cancel() in that race would crash the peer with Broken pipe.
         onHandshakeComplete()
 
-        val shouldRunBleWifiDirectLoop =
-            requiresWifiDirectUpgradeForBle(preSecureTransport.medium) &&
+        val shouldRunWifiDirectUpgradeLoop =
+            wifiDirectUpgradeEligible(preSecureTransport.medium) &&
                 negotiated.medium != Medium.WIFI_DIRECT
-        return if (shouldRunBleWifiDirectLoop) {
-            runBleWifiDirectReceiveLoop(
+        return if (shouldRunWifiDirectUpgradeLoop) {
+            runWifiDirectUpgradeReceiveLoop(
                 channel = negotiated.channel,
                 fsm = negotiationFsm,
                 initialWireFrames = negotiated.initialWireFrames,
                 initialMedium = negotiated.medium,
                 initialWifiFrequencyMhz = negotiated.wifiFrequencyMhz,
+                upgradeRequired = requiresWifiDirectUpgradeForBle(preSecureTransport.medium),
             )
         } else {
             runReceiveLoop(negotiated.channel, negotiationFsm, negotiated.initialWireFrames)
@@ -445,6 +446,24 @@ internal class OutboundConnectionDriver(
         initialTransport.medium.isBleBased() &&
             Medium.WIFI_DIRECT in mediumRegistry.supportedMediumsForCurrentTransport(initialTransport.medium)
 
+    /**
+     * The bootstrap medium is a low-bandwidth radio link that should hand
+     * payloads to Wi-Fi Direct when the receiver offers it. Covers the
+     * BLE-based initial-control mediums AND Bluetooth-Classic RFCOMM: stock
+     * GMS receivers advertise `autoUpgradeBandwidth=false` and never offer a
+     * path unprompted, so an RFCOMM bootstrap must run the same
+     * solicit-and-adopt loop as BLE or the whole payload crawls over
+     * Bluetooth (#256).
+     */
+    private fun wifiDirectUpgradeEligible(currentMedium: Medium): Boolean =
+        (currentMedium.isBleBased() || currentMedium == Medium.BLUETOOTH) &&
+            Medium.WIFI_DIRECT in mediumRegistry.supportedMediumsForCurrentTransport(currentMedium)
+
+    /**
+     * BLE-based bootstraps cannot carry FILE payloads, so for them a failed
+     * Wi-Fi Direct upgrade is fatal. RFCOMM keeps working payloads and
+     * treats every upgrade failure as "continue on Bluetooth" instead.
+     */
     private fun requiresWifiDirectUpgradeForBle(currentMedium: Medium): Boolean =
         currentMedium.isBleBased() &&
             Medium.WIFI_DIRECT in mediumRegistry.supportedMediumsForCurrentTransport(currentMedium)
@@ -706,20 +725,29 @@ internal class OutboundConnectionDriver(
     }
 
     /**
-     * BLE/GATT sender path for stock Android receivers that advertise
+     * Sender path for low-bandwidth bootstraps (BLE/GATT and
+     * Bluetooth-Classic RFCOMM) to stock Android receivers that advertise
      * Wi-Fi Direct but do not auto-upgrade before the Nearby Share
      * consent exchange. Keep the read side single-threaded here: the
-     * bandwidth-upgrade handshake needs to keep using the prior BLE
+     * bandwidth-upgrade handshake needs to keep using the prior
      * channel, so the normal inbound pump must not be parked in a
      * blocking read on that same channel when an offer arrives.
+     *
+     * [upgradeRequired] selects the failure policy: BLE bootstraps cannot
+     * carry payloads, so any upgrade failure is fatal; an RFCOMM bootstrap
+     * (upgradeRequired=false) solicits the upgrade with an eager
+     * `UPGRADE_PATH_REQUEST` — stock GMS receivers never offer unprompted
+     * (#256) — and falls back to staying on Bluetooth when the offer never
+     * arrives or the adopt fails.
      */
     @Suppress("LongMethod", "CyclomaticComplexMethod", "NestedBlockDepth", "ReturnCount")
-    private suspend fun runBleWifiDirectReceiveLoop(
+    private suspend fun runWifiDirectUpgradeReceiveLoop(
         channel: SecureChannel,
         fsm: OutboundSharingFsm,
         initialWireFrames: List<OfflineFrame> = emptyList(),
         initialMedium: Medium,
         initialWifiFrequencyMhz: Int?,
+        upgradeRequired: Boolean,
     ): OutboundResult {
         var activeChannel = channel
         var activeMedium = initialMedium
@@ -729,7 +757,50 @@ internal class OutboundConnectionDriver(
                 addAll(initialWireFrames)
             }
         var remoteAcceptanceDeadlineMillis: Long? = null
+        // RFCOMM sessions migrate here from runReceiveLoop, which keeps an
+        // outbound KEEP_ALIVE ticker alive from SecureChannel-up; preserve
+        // that cadence inline during the (up to 30 s) consent wait. Inline —
+        // not a launched ticker — so a tick can never race the LAST_WRITE
+        // teardown contract on a channel being upgraded away from. BLE
+        // bootstraps keep their historical quiet negotiation phase (#216
+        // timing is sensitive there).
+        var nextKeepAliveDueMillis = nowMillisSource() + KeepAliveTicker.DEFAULT_INTERVAL_MILLIS
+        val negotiationKeepAliveTick: suspend () -> OutboundDriverEvent? = tick@{
+            if (upgradeRequired || nowMillisSource() < nextKeepAliveDueMillis) {
+                return@tick null
+            }
+            nextKeepAliveDueMillis = nowMillisSource() + KeepAliveTicker.DEFAULT_INTERVAL_MILLIS
+            try {
+                activeChannel.sendOfflineFrame(OfflineFrames.keepAlive(ack = false))
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (
+                @Suppress("TooGenericExceptionCaught") e: Exception,
+            ) {
+                // The polling read side cannot see a dead link (available()
+                // returns 0 at EOF, never an error), so a failed KEEP_ALIVE
+                // write is the RFCOMM path's peer-gone detector — surface it
+                // as PeerClosed, matching what runReceiveLoop's blocking pump
+                // reported for a vanished Bluetooth peer before this loop
+                // took over the RFCOMM path.
+                logger(
+                    "keep-alive: negotiation tick failed " +
+                        "(${e::class.simpleName}: ${e.message}); treating peer as gone",
+                )
+                OutboundDriverEvent.PeerClosed
+            }
+        }
         try {
+            if (!upgradeRequired) {
+                // Solicit the Wi-Fi Direct path NOW so the receiver's P2P
+                // group bring-up overlaps PKE/introduction/consent instead of
+                // delaying the first payload byte.
+                activeChannel.sendOfflineFrame(
+                    BandwidthUpgradeFrames.upgradePathRequest(setOf(Medium.WIFI_DIRECT)),
+                )
+                logger("medium-upgrade: requested receiver Wi-Fi Direct upgrade (bootstrap=$activeMedium)")
+            }
             while (true) {
                 if (fsm.state == OutboundSharingState.Disconnected) {
                     return terminalResultFromState()
@@ -746,10 +817,11 @@ internal class OutboundConnectionDriver(
                 }
 
                 val event =
-                    nextBleWifiDirectEvent(
+                    nextWifiDirectUpgradeEvent(
                         channel = activeChannel,
                         bufferedFrames = bufferedFrames,
                         remoteAcceptanceRemainingMillis = remoteAcceptanceRemainingMillis,
+                        onPollTick = negotiationKeepAliveTick,
                     )
                 logger("fsm: dispatch event=${describeDriverEvent(event)} fsmState=${fsm.state::class.simpleName}")
 
@@ -759,16 +831,45 @@ internal class OutboundConnectionDriver(
                     )
                 ) {
                     val upgraded =
-                        adoptBleWifiDirectOffer(
+                        adoptWifiDirectOffer(
                             channel = activeChannel,
                             currentMedium = activeMedium,
                             offer = event.frame,
                         )
-                    if (upgraded.medium != Medium.WIFI_DIRECT) {
-                        return failBleWifiDirect(
-                            "Wi-Fi Direct upgrade failed after BLE pairing; stayed on ${upgraded.medium}",
+                    if (!upgraded.fallbackChannelUsable) {
+                        // The failed upgrade already began the prior-channel
+                        // teardown; the handed-back channel is no longer safe
+                        // to stream on, so this cannot fall back. Checked
+                        // before the medium comparison: a failed SECOND
+                        // upgrade reports the current medium, which may
+                        // already be WIFI_DIRECT.
+                        return failWifiDirectUpgrade(
+                            "upgrade failed after prior-channel teardown began; " +
+                                "cannot continue on ${upgraded.medium}",
                             activeChannel,
                         )
+                    }
+                    if (upgraded.medium != Medium.WIFI_DIRECT) {
+                        if (upgradeRequired) {
+                            return failWifiDirectUpgrade(
+                                "Wi-Fi Direct upgrade failed after BLE pairing; stayed on ${upgraded.medium}",
+                                activeChannel,
+                            )
+                        }
+                        if (upgraded.channel === activeChannel) {
+                            // Pre-teardown failure: adoptWifiDirectOffer handed the
+                            // prior channel back intact — Bluetooth keeps carrying
+                            // the transfer.
+                            logger(
+                                "medium-upgrade: Wi-Fi Direct upgrade failed; " +
+                                    "continuing on ${upgraded.medium}",
+                            )
+                        } else {
+                            logger(
+                                "medium-upgrade: upgrade landed on ${upgraded.medium} " +
+                                    "instead of WIFI_DIRECT; continuing",
+                            )
+                        }
                     }
                     activeChannel = upgraded.channel
                     activeMedium = upgraded.medium
@@ -778,29 +879,57 @@ internal class OutboundConnectionDriver(
                     continue
                 }
 
-                when (val outcome = handleBleWifiDirectEvent(activeChannel, fsm, event)) {
-                    BleWifiDirectOutcome.Continue -> Unit
-                    is BleWifiDirectOutcome.Terminal -> {
+                when (val outcome = handleWifiDirectUpgradeEvent(activeChannel, fsm, event)) {
+                    WifiDirectUpgradeOutcome.Continue -> Unit
+                    is WifiDirectUpgradeOutcome.Terminal -> {
                         if (shouldDrainForSafeDisconnect(outcome.result)) {
                             drainSafeDisconnectAckDirect(activeChannel)
                         }
                         return publishCompletedIfNeeded(outcome.result)
                     }
-                    BleWifiDirectOutcome.ReadyToSendPayloads -> {
+                    WifiDirectUpgradeOutcome.ReadyToSendPayloads -> {
                         val upgraded =
-                            ensureBleWifiDirectBeforePayloads(
+                            ensureWifiDirectBeforePayloads(
                                 channel = activeChannel,
                                 currentMedium = activeMedium,
                                 currentWifiFrequencyMhz = activeWifiFrequencyMhz,
+                                upgradeRequired = upgradeRequired,
                             )
                         if (upgraded is PayloadChannelSelection.Failed) {
-                            return failBleWifiDirect(upgraded.reason, activeChannel)
+                            return failWifiDirectUpgrade(upgraded.reason, activeChannel)
                         }
                         val ready = upgraded as PayloadChannelSelection.Ready
                         activeChannel = ready.channel
                         activeMedium = ready.medium
                         activeWifiFrequencyMhz = ready.wifiFrequencyMhz
                         publishActiveTransport(activeMedium, activeWifiFrequencyMhz)
+                        // Frames the offer-wait consumed (or the upgrade
+                        // teardown buffered) must reach the FSM before
+                        // payload streaming makes the loop deaf — a receiver
+                        // CANCEL or Disconnection in that gap wins here.
+                        for (pending in ready.pendingFrames) {
+                            when (
+                                val pendingOutcome =
+                                    handleWifiDirectUpgradeInboundFrame(activeChannel, fsm, pending)
+                            ) {
+                                is WifiDirectUpgradeOutcome.Terminal -> {
+                                    if (shouldDrainForSafeDisconnect(pendingOutcome.result)) {
+                                        drainSafeDisconnectAckDirect(activeChannel)
+                                    }
+                                    return publishCompletedIfNeeded(pendingOutcome.result)
+                                }
+                                WifiDirectUpgradeOutcome.Continue,
+                                WifiDirectUpgradeOutcome.ReadyToSendPayloads,
+                                -> Unit
+                            }
+                        }
+                        // A CANCEL SharingFrame among the pending frames drives
+                        // the FSM to Disconnected without producing a Terminal
+                        // outcome — honour it here instead of streaming the
+                        // whole payload to a peer that already cancelled.
+                        if (fsm.state == OutboundSharingState.Disconnected) {
+                            return terminalResultFromState()
+                        }
                         val result =
                             coroutineScope {
                                 val keepAliveJob = launch { runKeepAliveTicker(activeChannel) }
@@ -825,16 +954,18 @@ internal class OutboundConnectionDriver(
     }
 
     @Suppress("ReturnCount", "SwallowedException", "TooGenericExceptionCaught")
-    private suspend fun nextBleWifiDirectEvent(
+    private suspend fun nextWifiDirectUpgradeEvent(
         channel: SecureChannel,
         bufferedFrames: ArrayDeque<OfflineFrame>,
         remoteAcceptanceRemainingMillis: Long?,
+        onPollTick: suspend () -> OutboundDriverEvent? = { null },
     ): OutboundDriverEvent {
         if (bufferedFrames.isNotEmpty()) {
             return OutboundDriverEvent.Wire(bufferedFrames.removeFirst())
         }
         val deadlineMillis = remoteAcceptanceRemainingMillis?.let { nowMillisSource() + it }
         while (true) {
+            onPollTick()?.let { return it }
             externalEvents.tryReceive().getOrNull()?.let { return OutboundDriverEvent.External(it) }
             if (channel.hasBufferedInput()) {
                 return try {
@@ -850,38 +981,39 @@ internal class OutboundConnectionDriver(
             if (deadlineMillis != null && nowMillisSource() >= deadlineMillis) {
                 return OutboundDriverEvent.RemoteAcceptanceTimedOut
             }
-            delay(BLE_WIFI_DIRECT_POLL_DELAY_MILLIS)
+            delay(WIFI_DIRECT_UPGRADE_POLL_DELAY_MILLIS)
         }
     }
 
-    private suspend fun handleBleWifiDirectEvent(
+    private suspend fun handleWifiDirectUpgradeEvent(
         channel: SecureChannel,
         fsm: OutboundSharingFsm,
         event: OutboundDriverEvent,
-    ): BleWifiDirectOutcome =
+    ): WifiDirectUpgradeOutcome =
         when (event) {
             is OutboundDriverEvent.External -> {
                 handleExternalEvent(channel, fsm, event.event)
-                BleWifiDirectOutcome.Continue
+                WifiDirectUpgradeOutcome.Continue
             }
-            is OutboundDriverEvent.Wire -> handleBleWifiDirectInboundFrame(channel, fsm, event.frame)
-            OutboundDriverEvent.PeerClosed -> BleWifiDirectOutcome.Terminal(handlePeerClosed())
-            OutboundDriverEvent.RemoteAcceptanceTimedOut -> BleWifiDirectOutcome.Terminal(remoteAcceptanceTimedOut())
+            is OutboundDriverEvent.Wire -> handleWifiDirectUpgradeInboundFrame(channel, fsm, event.frame)
+            OutboundDriverEvent.PeerClosed -> WifiDirectUpgradeOutcome.Terminal(handlePeerClosed())
+            OutboundDriverEvent.RemoteAcceptanceTimedOut ->
+                WifiDirectUpgradeOutcome.Terminal(remoteAcceptanceTimedOut())
             is OutboundDriverEvent.PumpError -> {
                 val reason = "Inbound pump error: ${event.cause::class.simpleName}: ${event.cause.message}"
                 mutableState.value = OutboundConnectionState.Failed(reason)
-                BleWifiDirectOutcome.Terminal(OutboundResult.Failed(reason))
+                WifiDirectUpgradeOutcome.Terminal(OutboundResult.Failed(reason))
             }
         }
 
     @Suppress("ReturnCount")
-    private suspend fun handleBleWifiDirectInboundFrame(
+    private suspend fun handleWifiDirectUpgradeInboundFrame(
         channel: SecureChannel,
         fsm: OutboundSharingFsm,
         frame: OfflineFrame,
-    ): BleWifiDirectOutcome {
+    ): WifiDirectUpgradeOutcome {
         if (frame.isDisconnection()) {
-            return BleWifiDirectOutcome.Terminal(cancelFromPeer())
+            return WifiDirectUpgradeOutcome.Terminal(cancelFromPeer())
         }
         if (frame.hasV1() &&
             frame.v1.type == V1Frame.FrameType.BANDWIDTH_UPGRADE_NEGOTIATION
@@ -890,86 +1022,154 @@ internal class OutboundConnectionDriver(
                 "fsm: inbound BANDWIDTH_UPGRADE_NEGOTIATION event_type=" +
                     frame.v1.bandwidthUpgradeNegotiation.eventType,
             )
-            return BleWifiDirectOutcome.Continue
+            return WifiDirectUpgradeOutcome.Continue
         }
         if (!frame.hasV1() || frame.v1.type != V1Frame.FrameType.PAYLOAD_TRANSFER) {
-            return BleWifiDirectOutcome.Continue
+            return WifiDirectUpgradeOutcome.Continue
         }
         return when (val payloadEvent = inboundAssembler.onPayloadTransfer(frame.v1.payloadTransfer)) {
-            is PayloadEvent.BytesComplete -> handleBleWifiDirectBytesComplete(channel, fsm, payloadEvent)
+            is PayloadEvent.BytesComplete -> handleWifiDirectUpgradeBytesComplete(channel, fsm, payloadEvent)
             is PayloadEvent.FileComplete,
             is PayloadEvent.Progress,
             is PayloadEvent.Ignored,
-            -> BleWifiDirectOutcome.Continue
+            -> WifiDirectUpgradeOutcome.Continue
         }
     }
 
-    private suspend fun handleBleWifiDirectBytesComplete(
+    private suspend fun handleWifiDirectUpgradeBytesComplete(
         channel: SecureChannel,
         fsm: OutboundSharingFsm,
         event: PayloadEvent.BytesComplete,
-    ): BleWifiDirectOutcome {
+    ): WifiDirectUpgradeOutcome {
         val sharingFrame = SharingFrames.parse(event.data)
         logger("fsm: rx SharingFrame type=${sharingFrame.v1.type}")
         val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(sharingFrame))
         applyEffects(channel, effects)
         return if (effects.any { it is SharingFsmEffect.ReadyToSendPayloads }) {
-            BleWifiDirectOutcome.ReadyToSendPayloads
+            WifiDirectUpgradeOutcome.ReadyToSendPayloads
         } else {
-            BleWifiDirectOutcome.Continue
+            WifiDirectUpgradeOutcome.Continue
         }
     }
 
-    private suspend fun ensureBleWifiDirectBeforePayloads(
+    private suspend fun ensureWifiDirectBeforePayloads(
         channel: SecureChannel,
         currentMedium: Medium,
         currentWifiFrequencyMhz: Int?,
+        upgradeRequired: Boolean,
     ): PayloadChannelSelection {
-        if (currentMedium == Medium.WIFI_DIRECT) {
+        // Also covers a mid-loop upgrade that landed on another Wi-Fi
+        // medium (e.g. WIFI_HOTSPOT): payloads are already off the
+        // low-bandwidth bootstrap, so don't stall soliciting Wi-Fi Direct.
+        if (currentMedium == Medium.WIFI_DIRECT ||
+            !(currentMedium.isBleBased() || currentMedium == Medium.BLUETOOTH)
+        ) {
             return PayloadChannelSelection.Ready(channel, currentMedium, currentWifiFrequencyMhz)
         }
-        channel.sendOfflineFrame(
-            BandwidthUpgradeFrames.upgradePathRequest(setOf(Medium.WIFI_DIRECT)),
-        )
-        logger("medium-upgrade: requested receiver Wi-Fi Direct upgrade before streaming payloads")
+        if (upgradeRequired) {
+            channel.sendOfflineFrame(
+                BandwidthUpgradeFrames.upgradePathRequest(setOf(Medium.WIFI_DIRECT)),
+            )
+            logger("medium-upgrade: requested receiver Wi-Fi Direct upgrade before streaming payloads")
+        }
+        // Bluetooth bootstraps sent their UPGRADE_PATH_REQUEST when the
+        // upgrade loop started; re-requesting here could make the receiver
+        // tear down and recreate a group that is already being offered.
         logger("medium-upgrade: waiting for receiver Wi-Fi Direct offer before streaming payloads")
-        return when (val probe = pollBleWifiDirectOffer(channel, BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS)) {
+        val offerTimeoutMillis =
+            if (upgradeRequired) {
+                BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS
+            } else {
+                BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS
+            }
+        return when (val probe = pollWifiDirectOffer(channel, offerTimeoutMillis)) {
             UpgradeOfferProbe.None -> {
                 logger(
                     "medium-upgrade: Wi-Fi Direct upgrade was not offered before payload streaming; " +
                         "continuing on $currentMedium",
                 )
-                PayloadChannelSelection.Ready(channel, currentMedium)
+                PayloadChannelSelection.Ready(channel, currentMedium, currentWifiFrequencyMhz)
             }
             is UpgradeOfferProbe.Other ->
-                PayloadChannelSelection.Failed(
-                    "Wi-Fi Direct upgrade was required before payload streaming, " +
-                        "but peer sent ${probe.frame.describeFrameType()} first",
-                )
-            is UpgradeOfferProbe.Offer -> {
-                val upgraded =
-                    adoptBleWifiDirectOffer(
-                        channel = channel,
-                        currentMedium = currentMedium,
-                        offer = probe.frame,
-                    )
-                if (upgraded.medium == Medium.WIFI_DIRECT) {
-                    PayloadChannelSelection.Ready(
-                        channel = upgraded.channel,
-                        medium = upgraded.medium,
-                        wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
+                if (upgradeRequired) {
+                    PayloadChannelSelection.Failed(
+                        "Wi-Fi Direct upgrade was required before payload streaming, " +
+                            "but peer sent ${probe.frame.describeFrameType()} first",
                     )
                 } else {
-                    PayloadChannelSelection.Failed(
-                        "Wi-Fi Direct upgrade failed before payload streaming; stayed on ${upgraded.medium}",
+                    logger(
+                        "medium-upgrade: peer sent ${probe.frame.describeFrameType()} instead of " +
+                            "a Wi-Fi Direct offer; continuing on $currentMedium",
+                    )
+                    PayloadChannelSelection.Ready(
+                        channel = channel,
+                        medium = currentMedium,
+                        wifiFrequencyMhz = currentWifiFrequencyMhz,
+                        pendingFrames = listOf(probe.frame),
                     )
                 }
-            }
+            is UpgradeOfferProbe.Offer ->
+                adoptOfferBeforePayloads(
+                    channel = channel,
+                    currentMedium = currentMedium,
+                    offer = probe.frame,
+                    upgradeRequired = upgradeRequired,
+                )
+        }
+    }
+
+    private suspend fun adoptOfferBeforePayloads(
+        channel: SecureChannel,
+        currentMedium: Medium,
+        offer: OfflineFrame,
+        upgradeRequired: Boolean,
+    ): PayloadChannelSelection {
+        val upgraded =
+            adoptWifiDirectOffer(
+                channel = channel,
+                currentMedium = currentMedium,
+                offer = offer,
+            )
+        return if (upgraded.medium == Medium.WIFI_DIRECT) {
+            PayloadChannelSelection.Ready(
+                channel = upgraded.channel,
+                medium = upgraded.medium,
+                wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
+                pendingFrames = upgraded.bufferedFrames,
+            )
+        } else if (upgradeRequired) {
+            PayloadChannelSelection.Failed(
+                "Wi-Fi Direct upgrade failed before payload streaming; stayed on ${upgraded.medium}",
+            )
+        } else if (!upgraded.fallbackChannelUsable) {
+            // The failed upgrade already began the prior-channel
+            // teardown; streaming on the handed-back channel would
+            // write into a socket the peer stopped reading.
+            PayloadChannelSelection.Failed(
+                "upgrade failed after prior-channel teardown began; " +
+                    "cannot continue on ${upgraded.medium}",
+            )
+        } else {
+            logger(
+                if (upgraded.channel === channel) {
+                    "medium-upgrade: Wi-Fi Direct upgrade failed before payload streaming; " +
+                        "continuing on ${upgraded.medium}"
+                } else {
+                    "medium-upgrade: upgrade landed on ${upgraded.medium} " +
+                        "instead of WIFI_DIRECT before payload streaming; continuing"
+                },
+            )
+            PayloadChannelSelection.Ready(
+                channel = upgraded.channel,
+                medium = upgraded.medium,
+                wifiFrequencyMhz = upgraded.wifiFrequencyMhz,
+                pendingFrames = upgraded.bufferedFrames,
+            )
         }
     }
 
     @Suppress("ReturnCount")
-    private suspend fun pollBleWifiDirectOffer(
+    private suspend fun pollWifiDirectOffer(
         channel: SecureChannel,
         timeoutMillis: Long,
     ): UpgradeOfferProbe {
@@ -987,12 +1187,12 @@ internal class OutboundConnectionDriver(
                     else -> return UpgradeOfferProbe.Other(frame)
                 }
             }
-            delay(BLE_WIFI_DIRECT_POLL_DELAY_MILLIS)
+            delay(WIFI_DIRECT_UPGRADE_POLL_DELAY_MILLIS)
         }
         return UpgradeOfferProbe.None
     }
 
-    private suspend fun adoptBleWifiDirectOffer(
+    private suspend fun adoptWifiDirectOffer(
         channel: SecureChannel,
         currentMedium: Medium,
         offer: OfflineFrame,
@@ -1010,7 +1210,7 @@ internal class OutboundConnectionDriver(
         return upgraded
     }
 
-    private suspend fun failBleWifiDirect(
+    private suspend fun failWifiDirectUpgrade(
         reason: String,
         channel: SecureChannel,
     ): OutboundResult.Failed {
@@ -1035,7 +1235,7 @@ internal class OutboundConnectionDriver(
                             return@withTimeoutOrNull true
                         }
                     }
-                    delay(BLE_WIFI_DIRECT_POLL_DELAY_MILLIS)
+                    delay(WIFI_DIRECT_UPGRADE_POLL_DELAY_MILLIS)
                 }
                 false
             } == true
@@ -1743,7 +1943,18 @@ internal class OutboundConnectionDriver(
         // still leaving ample headroom to catch a real proactive offer.
         private const val PRE_UKEY2_UPGRADE_OFFER_WAIT_TIMEOUT_MILLIS: Long = 400L
         private const val BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS: Long = 3_000L
-        private const val BLE_WIFI_DIRECT_POLL_DELAY_MILLIS: Long = 25L
+
+        /**
+         * How long a Bluetooth-RFCOMM bootstrap waits before payload
+         * streaming for the Wi-Fi Direct offer it solicited when the
+         * upgrade loop started. Group bring-up on stock GMS receivers
+         * takes ~1–3 s and usually overlaps the consent wait, so this
+         * bound only bites when consent was near-instant; the cost of
+         * expiring is staying on Bluetooth for the whole payload, so
+         * spend a bit more than the BLE bound.
+         */
+        private const val BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS: Long = 5_000L
+        private const val WIFI_DIRECT_UPGRADE_POLL_DELAY_MILLIS: Long = 25L
 
         /**
          * Minimum time the orchestrator waits for the peer's
@@ -1789,14 +2000,14 @@ internal class OutboundConnectionDriver(
         ) : PreUkey2Negotiation
     }
 
-    private sealed interface BleWifiDirectOutcome {
-        data object Continue : BleWifiDirectOutcome
+    private sealed interface WifiDirectUpgradeOutcome {
+        data object Continue : WifiDirectUpgradeOutcome
 
-        data object ReadyToSendPayloads : BleWifiDirectOutcome
+        data object ReadyToSendPayloads : WifiDirectUpgradeOutcome
 
         data class Terminal(
             val result: OutboundResult,
-        ) : BleWifiDirectOutcome
+        ) : WifiDirectUpgradeOutcome
     }
 
     private sealed interface PayloadChannelSelection {
@@ -1804,6 +2015,7 @@ internal class OutboundConnectionDriver(
             val channel: SecureChannel,
             val medium: Medium,
             val wifiFrequencyMhz: Int? = null,
+            val pendingFrames: List<OfflineFrame> = emptyList(),
         ) : PayloadChannelSelection
 
         data class Failed(

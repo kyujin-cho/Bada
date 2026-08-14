@@ -48,7 +48,26 @@
     <string name="update_subtitle_latest_version">%1$s</string>
     <string name="update_button_check_again">再確認</string>
     <string name="update_button_update">アップデート</string>
+    <!-- 自動アップデート確認: 通知 + ダウンロード/インストールのフロー。 -->
+    <string name="update_notification_channel_name">アプリのアップデート</string>
+    <string name="update_notification_channel_desc">GitHub に新しいバージョンの Bada があるときに通知します。</string>
+    <string name="update_notification_title">Bada のアップデートがあります</string>
+    <string name="update_notification_text">バージョン %1$s をインストールできます</string>
+    <string name="update_notification_action_github">GitHub で表示</string>
+    <string name="update_notification_action_download">ダウンロードしてインストール</string>
+    <string name="update_downloading_title">アップデートをダウンロードしています…</string>
+    <string name="update_downloading_text">Bada %1$s</string>
+    <string name="update_download_failed_title">アップデートのダウンロードに失敗しました</string>
+    <string name="update_download_failed_text">アップデートをダウンロードできませんでした。通知をタップして再試行するか、GitHub を開いてください。</string>
+    <string name="update_install_need_unknown_sources">Bada にアプリのインストールを許可してから、もう一度ダウンロードをタップしてください。</string>
+    <string name="update_install_started">アップデートをダウンロードしています…</string>
+    <string name="update_install_success">Bada をアップデートしました</string>
+    <string name="update_install_failed">アップデートをインストールできませんでした</string>
+    <string name="update_confirm_notification_title">Bada アップデートの確認</string>
+    <string name="update_confirm_notification_text">タップしてアップデートのインストールを完了してください。</string>
     <string name="update_open_release_failed">リリースページを開けませんでした。</string>
+    <string name="settings_auto_update_title">自動アップデート確認</string>
+    <string name="settings_auto_update_subtitle">6 時間ごとに GitHub で新しい Bada リリースを確認し、新しいバージョンがあれば通知します。</string>
 
     <!-- `credit_section_developer`, `credit_section_polisher`,
          `credit_section_qa`, `credit_section_thanks` are intentionally

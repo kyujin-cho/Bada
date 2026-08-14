@@ -128,6 +128,15 @@ class MainActivity : AppCompatActivity() {
     // Card tap works through the OS's own NFC dispatch (NDEF + AAR served by BadaNdefApduService)
     // and needs no foreground reader here.
 
+    /**
+     * Bottom-nav reference kept on the instance so the [UpdateRepository]
+     * state observer can also paint a small red dot on the **Settings** tab
+     * ([R.id.nav_settings]) when a new GitHub release is detected — so the
+     * "update available" hint is visible without opening the overflow menu —
+     * and remove it once up to date.
+     */
+    private var mainBottomNav: BottomNavigationView? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -170,6 +179,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         val bottomNav = findViewById<BottomNavigationView>(R.id.main_bottom_nav)
+        // Keep a reference so applyUpdateBadge() can toggle the Settings-tab
+        // red dot from the UpdateRepository state flow.
+        mainBottomNav = bottomNav
         bottomNav.setOnItemSelectedListener { item ->
             val fragment =
                 when (item.itemId) {
@@ -345,14 +357,37 @@ class MainActivity : AppCompatActivity() {
      * transition without the user having to close and re-open the popup.
      */
     private fun applyUpdateBadge(state: UpdateState) {
+        val updateAvailable = state is UpdateState.UpdateAvailable
         val drawableRes =
-            if (state is UpdateState.UpdateAvailable) {
+            if (updateAvailable) {
                 R.drawable.ic_overflow_kebab_with_dot_24
             } else {
                 R.drawable.ic_overflow_kebab_24
             }
         mainToolbar?.overflowIcon = ContextCompat.getDrawable(this, drawableRes)
+        applySettingsTabDot(updateAvailable)
         invalidateOptionsMenu()
+    }
+
+    /**
+     * Show or hide a small red dot on the bottom-nav **Settings** tab
+     * ([R.id.nav_settings]) — a Material [com.google.android.material.badge.BadgeDrawable]
+     * with no number, anchored to the tab icon's top-right. Mirrors the
+     * overflow-menu kebab dot so a pending update is visible even when the
+     * overflow menu is closed. Cleared (badge removed) once up to date.
+     *
+     * No-op until [mainBottomNav] is assigned (set in onCreate before the
+     * lifecycle-STARTED state collector first emits), so the safe call never
+     * misses the badge.
+     */
+    private fun applySettingsTabDot(show: Boolean) {
+        val nav = mainBottomNav ?: return
+        if (show) {
+            // getOrCreateBadge with no .number renders as a plain red dot.
+            nav.getOrCreateBadge(R.id.nav_settings).isVisible = true
+        } else {
+            nav.removeBadge(R.id.nav_settings)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

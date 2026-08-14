@@ -49,7 +49,26 @@
     <string name="update_subtitle_latest_version">%1$s</string>
     <string name="update_button_check_again">다시 확인</string>
     <string name="update_button_update">업데이트</string>
+    <!-- 자동 업데이트 확인: 알림 + 다운로드/설치 흐름. -->
+    <string name="update_notification_channel_name">앱 업데이트</string>
+    <string name="update_notification_channel_desc">GitHub에 새 버전의 Bada가 있으면 알려 줍니다.</string>
+    <string name="update_notification_title">Bada 업데이트가 있습니다</string>
+    <string name="update_notification_text">버전 %1$s을(를) 설치할 수 있습니다</string>
+    <string name="update_notification_action_github">GitHub에서 보기</string>
+    <string name="update_notification_action_download">다운로드 및 설치</string>
+    <string name="update_downloading_title">업데이트를 다운로드하는 중…</string>
+    <string name="update_downloading_text">Bada %1$s</string>
+    <string name="update_download_failed_title">업데이트 다운로드 실패</string>
+    <string name="update_download_failed_text">업데이트를 다운로드할 수 없습니다. 알림을 눌러 다시 시도하거나 GitHub를 열어 주세요.</string>
+    <string name="update_install_need_unknown_sources">Bada의 앱 설치를 허용한 뒤 다운로드를 다시 눌러 주세요.</string>
+    <string name="update_install_started">업데이트를 다운로드하는 중…</string>
+    <string name="update_install_success">Bada가 업데이트되었습니다</string>
+    <string name="update_install_failed">업데이트를 설치할 수 없습니다</string>
+    <string name="update_confirm_notification_title">Bada 업데이트 설치 확인</string>
+    <string name="update_confirm_notification_text">눌러서 업데이트 설치를 마무리하세요.</string>
     <string name="update_open_release_failed">릴리스 페이지를 열 수 없습니다.</string>
+    <string name="settings_auto_update_title">자동 업데이트 확인</string>
+    <string name="settings_auto_update_subtitle">6시간마다 GitHub에서 새 Bada 릴리스를 확인하고, 새 버전이 있으면 알림을 표시합니다.</string>
 
     <!-- `credit_section_developer`, `credit_section_polisher`,
          `credit_section_qa`, `credit_section_thanks` are intentionally

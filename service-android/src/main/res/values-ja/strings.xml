@@ -38,12 +38,14 @@
     <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">住所 %1$d 件</string>
     <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">電話番号 %1$d 件</string>
     <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">テキスト %1$d 件</string>
+    <string name="consent_notification_segment_photos" tools:ignore="PluralsCandidate">写真 %1$d 枚</string>
+    <string name="consent_notification_segment_videos" tools:ignore="PluralsCandidate">動画 %1$d 本</string>
+    <string name="consent_notification_pin_label">PIN</string>
+    <string name="consent_notification_filelist_item">%1$s · %2$s</string>
+    <string name="consent_notification_filelist_more" tools:ignore="PluralsCandidate">ほか %1$d 件</string>
 
     <!-- Folder-receive summary (#39). -->
     <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">フォルダ \"%1$s\"（ファイル %2$d 件、%3$s）</string>
-
-    <string name="consent_notification_body">%1$s · PIN %2$s</string>
-    <string name="consent_notification_bigtext_pin_line">PIN を確認: %1$s</string>
 
     <string name="consent_notification_action_accept">承諾</string>
     <string name="consent_notification_action_reject">拒否</string>

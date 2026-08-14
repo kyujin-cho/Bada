@@ -229,6 +229,31 @@ class AndroidManifestPermissionsTest {
     }
 
     @Test
+    fun `request install packages is declared for the auto-update self-install flow`() {
+        // The update notification's "Download & install" action streams the
+        // GitHub release APK into a PackageInstaller session and commits it
+        // as an update of this app. Without REQUEST_INSTALL_PACKAGES the
+        // platform rejects the session commit outright, silently breaking
+        // the entire self-update path.
+        assertTrue(
+            "REQUEST_INSTALL_PACKAGES must be declared for the self-update install path",
+            manifest.contains("android.permission.REQUEST_INSTALL_PACKAGES"),
+        )
+    }
+
+    @Test
+    fun `foreground service data sync is declared for the expedited update download worker`() {
+        // UpdateInstallWorker runs as expedited WorkManager work, which
+        // pre-API-31 executes inside WorkManager's SystemForegroundService.
+        // API 34+ requires the service's declared dataSync FGS type to be
+        // backed by the matching typed permission or startForeground crashes.
+        assertTrue(
+            "FOREGROUND_SERVICE_DATA_SYNC must be declared for the update-download worker",
+            manifest.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"),
+        )
+    }
+
+    @Test
     fun `permissions onboarding activity is registered and not exported`() {
         assertTrue(
             "PermissionsOnboardingActivity must be registered",

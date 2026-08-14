@@ -38,12 +38,14 @@
     <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">%1$d 個地址</string>
     <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">%1$d 組電話號碼</string>
     <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">%1$d 段文字</string>
+    <string name="consent_notification_segment_photos" tools:ignore="PluralsCandidate">%1$d 張相片</string>
+    <string name="consent_notification_segment_videos" tools:ignore="PluralsCandidate">%1$d 部影片</string>
+    <string name="consent_notification_pin_label">PIN</string>
+    <string name="consent_notification_filelist_item">%1$s · %2$s</string>
+    <string name="consent_notification_filelist_more" tools:ignore="PluralsCandidate">及其他 %1$d 個</string>
 
     <!-- Folder-receive summary (#39). -->
     <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">資料夾「%1$s」（%2$d 個檔案，%3$s）</string>
-
-    <string name="consent_notification_body">%1$s · PIN %2$s</string>
-    <string name="consent_notification_bigtext_pin_line">確認 PIN 碼：%1$s</string>
 
     <string name="consent_notification_action_accept">接受</string>
     <string name="consent_notification_action_reject">拒絕</string>

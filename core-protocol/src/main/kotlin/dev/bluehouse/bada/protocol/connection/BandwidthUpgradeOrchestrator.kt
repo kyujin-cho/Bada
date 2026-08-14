@@ -173,6 +173,7 @@ internal object BandwidthUpgradeOrchestrator {
             return ActiveTransportChannel(oldChannel, currentMedium)
         }
 
+        var priorChannelTeardownBegan = false
         return runCatching {
             completeClientUpgrade(
                 oldChannel = oldChannel,
@@ -180,6 +181,7 @@ internal object BandwidthUpgradeOrchestrator {
                 credentials = credentials,
                 endpointId = endpointId,
                 expectsClientIntroductionAck = expectsClientIntroductionAck,
+                onPriorChannelTeardown = { priorChannelTeardownBegan = true },
                 logger = logger,
             )
         }.getOrElse { failure ->
@@ -189,16 +191,28 @@ internal object BandwidthUpgradeOrchestrator {
             )
             transport.close()
             provider.cancelPendingUpgrade()
-            ActiveTransportChannel(oldChannel, currentMedium)
+            // Failures before LAST_WRITE_TO_PRIOR_CHANNEL went out (e.g. the
+            // new transport died during the raw introduction) leave the prior
+            // channel intact and usable. Once the teardown began, the peer may
+            // no longer read anything we write there (and the channel may
+            // already be closed), so callers that would otherwise fall back to
+            // it must treat the failure as terminal.
+            ActiveTransportChannel(
+                channel = oldChannel,
+                medium = currentMedium,
+                fallbackChannelUsable = !priorChannelTeardownBegan,
+            )
         }
     }
 
+    @Suppress("LongParameterList")
     private suspend fun completeClientUpgrade(
         oldChannel: SecureChannel,
         transport: UpgradedTransport,
         credentials: UpgradePathCredentials,
         endpointId: String,
         expectsClientIntroductionAck: Boolean,
+        onPriorChannelTeardown: () -> Unit,
         logger: (String) -> Unit,
     ): ActiveTransportChannel {
         val bufferedFrames = mutableListOf<OfflineFrame>()
@@ -214,6 +228,7 @@ internal object BandwidthUpgradeOrchestrator {
         }
         val newChannel = oldChannel.withTransport(newFramedConnection)
         val reader = DualChannelFrameReader(oldChannel, newChannel, logger)
+        onPriorChannelTeardown()
         exchangeClientPriorChannelClose(
             oldChannel = oldChannel,
             reader = reader,
@@ -650,6 +665,22 @@ internal data class ActiveTransportChannel(
     val medium: Medium,
     val bufferedFrames: List<OfflineFrame> = emptyList(),
     val wifiFrequencyMhz: Int? = null,
+    /**
+     * False only when this is a failure result whose [channel] is the prior
+     * channel AND the failed upgrade already began the prior-channel teardown
+     * (LAST_WRITE/SAFE_TO_CLOSE possibly sent, channel possibly closed) —
+     * continuing to stream on it would write into a socket the peer stopped
+     * reading. True for every other result, including the pre-teardown
+     * failure paths that hand the prior channel back intact.
+     *
+     * Caveats: the flag tracks OUR writes only — a GMS peer starts its own
+     * prior-channel teardown as soon as our CLIENT_INTRODUCTION is delivered,
+     * so "usable" is best-effort for failures in that sub-second window. And
+     * only the client path ([BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer])
+     * maintains it today; the server path's failure fallback still returns
+     * the default without tracking teardown.
+     */
+    val fallbackChannelUsable: Boolean = true,
 )
 
 internal sealed interface UpgradeOfferProbe {

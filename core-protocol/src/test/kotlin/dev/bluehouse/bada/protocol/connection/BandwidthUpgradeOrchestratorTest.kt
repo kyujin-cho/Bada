@@ -202,6 +202,131 @@ class BandwidthUpgradeOrchestratorTest {
             }
         }
 
+    @Test
+    fun `client failure before prior-channel teardown keeps fallback channel usable`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MILLIS) {
+                val (oldClientSocket, _) = connectedSocketPair()
+                val (newClientSocket, _) = connectedSocketPair()
+                val oldClientChannel =
+                    SecureChannel(
+                        FramedConnection(oldClientSocket),
+                        freshSessionKeys(D2DRole.CLIENT),
+                        SecureRandom(),
+                    )
+                // The adopted transport is already dead: the very first raw
+                // CLIENT_INTRODUCTION write fails before the prior channel is
+                // touched, so the failure must hand the prior channel back as
+                // still usable.
+                newClientSocket.close()
+                val registry =
+                    MediumRegistry(
+                        providers = listOf(clientProvider(newClientSocket)),
+                        ladder = MediumLadder(listOf(Medium.WIFI_DIRECT)),
+                    )
+                val logs = Collections.synchronizedList(mutableListOf<String>())
+
+                val result =
+                    BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer(
+                        oldChannel = oldClientChannel,
+                        currentMedium = Medium.BLUETOOTH,
+                        offer = BandwidthUpgradeFrames.upgradePathAvailable(wifiDirectCredentials()),
+                        mediumRegistry = registry,
+                        endpointId = ENDPOINT_ID,
+                        logger = logs::add,
+                    )
+
+                assertThat(result.channel).isSameInstanceAs(oldClientChannel)
+                assertThat(result.medium).isEqualTo(Medium.BLUETOOTH)
+                assertThat(result.fallbackChannelUsable).isTrue()
+                assertThat(logs.joinToString("\n")).contains("client failed WIFI_DIRECT")
+            }
+        }
+
+    @Test
+    fun `client failure after prior-channel teardown marks fallback channel unusable`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MILLIS) {
+                val (oldClientSocket, oldServerSocket) = connectedSocketPair()
+                val (newClientSocket, newServerSocket) = connectedSocketPair()
+                val oldClientChannel =
+                    SecureChannel(
+                        FramedConnection(oldClientSocket),
+                        freshSessionKeys(D2DRole.CLIENT),
+                        SecureRandom(),
+                    )
+                val oldServerChannel =
+                    SecureChannel(
+                        FramedConnection(oldServerSocket),
+                        freshSessionKeys(D2DRole.SERVER),
+                        SecureRandom(),
+                    )
+                val newServerFramed = FramedConnection(newServerSocket)
+                val registry =
+                    MediumRegistry(
+                        providers = listOf(clientProvider(newClientSocket)),
+                        ladder = MediumLadder(listOf(Medium.WIFI_DIRECT)),
+                    )
+                val logs = Collections.synchronizedList(mutableListOf<String>())
+
+                coroutineScope {
+                    val peer =
+                        async {
+                            newServerFramed.receiveRawOfflineFrame().assertUpgradeEvent(
+                                BandwidthUpgradeNegotiationFrame.EventType.CLIENT_INTRODUCTION,
+                            )
+                            newServerFramed.sendFrame(
+                                BandwidthUpgradeFrames.clientIntroductionAck().toByteArray(),
+                            )
+                            oldServerChannel.receiveOfflineFrame().assertUpgradeEvent(
+                                BandwidthUpgradeNegotiationFrame.EventType.LAST_WRITE_TO_PRIOR_CHANNEL,
+                            )
+                            // Answer the client's LAST_WRITE with UPGRADE_FAILURE:
+                            // the client has already stopped writing application
+                            // frames to the prior channel, so this failure must
+                            // NOT be treated as fall-back-able.
+                            oldServerChannel.sendOfflineFrame(
+                                BandwidthUpgradeFrames.upgradeFailure(Medium.WIFI_DIRECT),
+                            )
+                        }
+
+                    val result =
+                        BandwidthUpgradeOrchestrator.runClientUpgradeFromOffer(
+                            oldChannel = oldClientChannel,
+                            currentMedium = Medium.BLUETOOTH,
+                            offer = BandwidthUpgradeFrames.upgradePathAvailable(wifiDirectCredentials()),
+                            mediumRegistry = registry,
+                            endpointId = ENDPOINT_ID,
+                            logger = logs::add,
+                        )
+                    peer.await()
+
+                    assertThat(result.channel).isSameInstanceAs(oldClientChannel)
+                    assertThat(result.medium).isEqualTo(Medium.BLUETOOTH)
+                    assertThat(result.fallbackChannelUsable).isFalse()
+                }
+            }
+        }
+
+    private fun clientProvider(socket: Socket): MediumProvider =
+        object : MediumProvider {
+            override val medium: Medium = Medium.WIFI_DIRECT
+
+            override fun isSupported(): Boolean = true
+
+            override suspend fun adoptUpgrade(credentials: UpgradePathCredentials): UpgradedTransport =
+                UpgradedTransport.SocketBacked(Medium.WIFI_DIRECT, socket)
+        }
+
+    private fun wifiDirectCredentials(): UpgradePathCredentials =
+        UpgradePathCredentials.WifiDirect(
+            ipAddress = byteArrayOf(127, 0, 0, 1),
+            port = 1,
+            ssid = "DIRECT-xy-test",
+            passphrase = "12345678",
+            frequency = 5_180,
+        )
+
     private fun serverProvider(socket: Socket): MediumProvider =
         object : MediumProvider {
             override val medium: Medium = Medium.WIFI_DIRECT

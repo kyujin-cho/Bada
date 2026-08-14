@@ -24,6 +24,13 @@ androidxDynamicAnimation = "1.0.0"
 # send/receive tab and the settings tab.
 material = "1.12.0"
 
+# WorkManager — reboot-surviving periodic scheduler for the automatic update
+# check (UpdateCheckWorker polls GitHub Releases every 6h). Chosen over
+# AlarmManager+BootReceiver because WorkManager re-enqueues persisted
+# PeriodicWork after a reboot with ZERO user action. 2.9.1 is the current
+# stable line compatible with minSdk 24 / coroutines 1.9.0.
+androidxWork = "2.9.1"
+
 # Coroutines
 kotlinxCoroutines = "1.9.0"
 
@@ -82,6 +89,10 @@ material = { module = "com.google.android.material:material", version.ref = "mat
 # the BLE scan mode between BALANCED (background) and LOW_LATENCY
 # (foreground) without inventing a separate process-state mechanism.
 androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidxLifecycle" }
+
+# WorkManager (Kotlin/coroutines flavour) — drives the periodic GitHub update
+# check (UpdateCheckWorker) scheduled from BadaApplication.onCreate.
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "androidxWork" }
 
 # Kotlin coroutines
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }

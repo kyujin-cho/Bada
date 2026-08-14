@@ -91,6 +91,12 @@
     <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">%1$d address(es)</string>
     <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">%1$d phone number(s)</string>
     <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">%1$d text(s)</string>
+    <string name="consent_notification_segment_photos" tools:ignore="PluralsCandidate">%1$d photo(s)</string>
+    <string name="consent_notification_segment_videos" tools:ignore="PluralsCandidate">%1$d video(s)</string>
+    <!-- PIN chip caption + expanded file-list strings (heads-up redesign). -->
+    <string name="consent_notification_pin_label">PIN</string>
+    <string name="consent_notification_filelist_item">%1$s · %2$s</string>
+    <string name="consent_notification_filelist_more" tools:ignore="PluralsCandidate">…and %1$d more</string>
 
     <!--
       Folder-receive summary (#39). Surfaced when the introduction
@@ -100,19 +106,6 @@
       formatted total size.
     -->
     <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">Folder \"%1$s\" (%2$d file(s), %3$s)</string>
-
-    <!--
-      Body line shown collapsed: "%summary% — PIN %pin%". The PIN is
-      always the 4-digit confirmation code from TransferMetadata.
-    -->
-    <string name="consent_notification_body">%1$s · PIN %2$s</string>
-
-    <!--
-      Expanded-notification PIN re-iteration. Repeating the PIN on the
-      big-text view makes it readable without dismissing other
-      notifications above ours.
-    -->
-    <string name="consent_notification_bigtext_pin_line">Confirm PIN: %1$s</string>
 
     <!-- Action button labels. -->
     <string name="consent_notification_action_accept">Accept</string>

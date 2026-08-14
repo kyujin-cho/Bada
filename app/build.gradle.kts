@@ -77,8 +77,8 @@ android {
             libs.versions.targetSdk
                 .get()
                 .toInt()
-        versionCode = 2026061401
-        versionName = "20260614.01"
+        versionCode = 2026081401
+        versionName = "20260814.01"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -168,6 +168,12 @@ dependencies {
     // (`QRCodeWriter`) is pulled in; the Android camera/scanner side of
     // ZXing (`zxing-android-embedded`) is intentionally not used.
     implementation(libs.zxing.core)
+
+    // WorkManager — runs the automatic update check (UpdateCheckWorker): a
+    // 6-hourly PeriodicWork, scheduled in BadaApplication.onCreate, that polls
+    // GitHub Releases and posts an "update available" notification. WorkManager
+    // persists the schedule across reboots with no user action.
+    implementation(libs.androidx.work.runtime.ktx)
 
     // NOTE: the self-ADB Wi-Fi stack (libadb-android + Conscrypt + BouncyCastle)
     // was MOVED OUT of :app into :radio-helper. The radios are toggled by the

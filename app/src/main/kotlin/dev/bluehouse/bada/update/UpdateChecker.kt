@@ -7,6 +7,7 @@ package dev.bluehouse.bada.update
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -61,12 +62,41 @@ internal object UpdateChecker {
                     val htmlUrl =
                         json.optString("html_url").takeIf { it.isNotBlank() }
                             ?: error("`html_url` missing from GitHub response")
-                    LatestRelease(version = stripVPrefix(tag), releaseUrl = htmlUrl)
+                    LatestRelease(
+                        version = stripVPrefix(tag),
+                        releaseUrl = htmlUrl,
+                        apkAssetUrl = UpdateApkAssets.selectAppApkUrl(parseAssets(json.optJSONArray("assets"))),
+                    )
                 } finally {
                     connection.disconnect()
                 }
             }
         }
+
+    /**
+     * Project the release's `assets` array into plain [ReleaseAsset]s for
+     * [UpdateApkAssets.selectAppApkUrl], which picks the app's own APK by
+     * its `dev.bluehouse.bada-` filename prefix (releases can also ship
+     * companion APKs, so "first `.apk`" is not safe) or `null` when the
+     * release carries no installable app APK.
+     *
+     * This is what makes the update NOTIFICATION adaptive: when a release
+     * has the installable APK attached, the notification can offer a direct
+     * "Download & install" drop-in update; when no APK is present, the
+     * caller falls back to only sending the user to the GitHub release page.
+     */
+    private fun parseAssets(assets: JSONArray?): List<ReleaseAsset> =
+        assets
+            ?.let { array ->
+                (0 until array.length())
+                    .mapNotNull { array.optJSONObject(it) }
+                    .map {
+                        ReleaseAsset(
+                            name = it.optString("name"),
+                            url = it.optString("browser_download_url"),
+                        )
+                    }
+            }.orEmpty()
 
     private fun openConnection(): HttpURLConnection {
         val connection = URL(RELEASES_LATEST_URL).openConnection() as HttpURLConnection
@@ -84,11 +114,20 @@ internal object UpdateChecker {
 }
 
 /**
- * Minimal `releases/latest` projection: just the version string the
- * UI needs to render, and the URL the user is sent to when they tap
- * "Update".
+ * Minimal `releases/latest` projection.
+ *
+ * @param version    the release version (`tag_name` with any leading `v`
+ *                   stripped), compared against `BuildConfig.VERSION_NAME`.
+ * @param releaseUrl the human GitHub release page (`html_url`) — the
+ *                   "View on GitHub" destination; always present.
+ * @param apkAssetUrl direct `browser_download_url` of the release's app APK
+ *                   asset (matched by the `dev.bluehouse.bada-` filename
+ *                   prefix), or `null` when none is attached. When non-null
+ *                   the update notification can offer a direct
+ *                   "Download & install"; when null it offers GitHub only.
  */
 internal data class LatestRelease(
     val version: String,
     val releaseUrl: String,
+    val apkAssetUrl: String?,
 )
