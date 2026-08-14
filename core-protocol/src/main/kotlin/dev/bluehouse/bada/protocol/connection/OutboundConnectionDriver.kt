@@ -791,6 +791,11 @@ internal class OutboundConnectionDriver(
                 OutboundDriverEvent.PeerClosed
             }
         }
+        // When the entry UPGRADE_PATH_REQUEST below goes out, remember when:
+        // the pre-payload offer wait in ensureWifiDirectBeforePayloads counts
+        // the receiver's answer window from this timestamp, not from payload
+        // time. Stays null on paths that send no entry request (BLE).
+        var upgradeRequestSentAtMillis: Long? = null
         try {
             if (!upgradeRequired) {
                 // Solicit the Wi-Fi Direct path NOW so the receiver's P2P
@@ -799,6 +804,7 @@ internal class OutboundConnectionDriver(
                 activeChannel.sendOfflineFrame(
                     BandwidthUpgradeFrames.upgradePathRequest(setOf(Medium.WIFI_DIRECT)),
                 )
+                upgradeRequestSentAtMillis = nowMillisSource()
                 logger("medium-upgrade: requested receiver Wi-Fi Direct upgrade (bootstrap=$activeMedium)")
             }
             while (true) {
@@ -894,6 +900,7 @@ internal class OutboundConnectionDriver(
                                 currentMedium = activeMedium,
                                 currentWifiFrequencyMhz = activeWifiFrequencyMhz,
                                 upgradeRequired = upgradeRequired,
+                                upgradeRequestSentAtMillis = upgradeRequestSentAtMillis,
                             )
                         if (upgraded is PayloadChannelSelection.Failed) {
                             return failWifiDirectUpgrade(upgraded.reason, activeChannel)
@@ -1052,11 +1059,18 @@ internal class OutboundConnectionDriver(
         }
     }
 
+    /**
+     * [upgradeRequestSentAtMillis] is when the entry `UPGRADE_PATH_REQUEST`
+     * went out in [runWifiDirectUpgradeReceiveLoop] (null when no entry
+     * request was sent — the BLE/[upgradeRequired] path, which sends its own
+     * request here at ensure-time and keeps its fixed timeout).
+     */
     private suspend fun ensureWifiDirectBeforePayloads(
         channel: SecureChannel,
         currentMedium: Medium,
         currentWifiFrequencyMhz: Int?,
         upgradeRequired: Boolean,
+        upgradeRequestSentAtMillis: Long?,
     ): PayloadChannelSelection {
         // Also covers a mid-loop upgrade that landed on another Wi-Fi
         // medium (e.g. WIFI_HOTSPOT): payloads are already off the
@@ -1075,13 +1089,16 @@ internal class OutboundConnectionDriver(
         // Bluetooth bootstraps sent their UPGRADE_PATH_REQUEST when the
         // upgrade loop started; re-requesting here could make the receiver
         // tear down and recreate a group that is already being offered.
-        logger("medium-upgrade: waiting for receiver Wi-Fi Direct offer before streaming payloads")
         val offerTimeoutMillis =
             if (upgradeRequired) {
                 BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS
             } else {
-                BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS
+                bluetoothOfferWaitMillis(upgradeRequestSentAtMillis)
             }
+        logger(
+            "medium-upgrade: waiting up to ${offerTimeoutMillis}ms for receiver " +
+                "Wi-Fi Direct offer before streaming payloads",
+        )
         return when (val probe = pollWifiDirectOffer(channel, offerTimeoutMillis)) {
             UpgradeOfferProbe.None -> {
                 logger(
@@ -1116,6 +1133,28 @@ internal class OutboundConnectionDriver(
                     upgradeRequired = upgradeRequired,
                 )
         }
+    }
+
+    /**
+     * Residual pre-payload offer wait for a Bluetooth-RFCOMM bootstrap.
+     *
+     * The solicited offer's answer window is
+     * [BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS] counted from when the
+     * entry `UPGRADE_PATH_REQUEST` was sent — the receiver has had the whole
+     * PKE/introduction/consent phase since then to bring its P2P group up and
+     * offer. Waiting only for what remains of that window (instead of a fresh
+     * full window at payload time) keeps a never-offering receiver from
+     * adding dead air between the user's Accept and the first payload byte;
+     * the [BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS] floor still catches
+     * an offer already in flight.
+     */
+    private fun bluetoothOfferWaitMillis(upgradeRequestSentAtMillis: Long?): Long {
+        if (upgradeRequestSentAtMillis == null) {
+            return BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS
+        }
+        val elapsedSinceRequest = nowMillisSource() - upgradeRequestSentAtMillis
+        return (BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS - elapsedSinceRequest)
+            .coerceAtLeast(BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS)
     }
 
     private suspend fun adoptOfferBeforePayloads(
@@ -1945,15 +1984,32 @@ internal class OutboundConnectionDriver(
         private const val BLE_WIFI_DIRECT_UPGRADE_TIMEOUT_MILLIS: Long = 3_000L
 
         /**
-         * How long a Bluetooth-RFCOMM bootstrap waits before payload
-         * streaming for the Wi-Fi Direct offer it solicited when the
-         * upgrade loop started. Group bring-up on stock GMS receivers
-         * takes ~1–3 s and usually overlaps the consent wait, so this
-         * bound only bites when consent was near-instant; the cost of
-         * expiring is staying on Bluetooth for the whole payload, so
-         * spend a bit more than the BLE bound.
+         * Total answer window a Bluetooth-RFCOMM bootstrap grants the
+         * receiver for the Wi-Fi Direct offer it solicited when the
+         * upgrade loop started, measured FROM the entry
+         * `UPGRADE_PATH_REQUEST`'s send time — not from payload time.
+         * Group bring-up on stock GMS receivers takes ~1–3 s and usually
+         * overlaps the consent wait, so by payload time most of this
+         * window has already elapsed; the pre-payload wait only spends
+         * whatever remains of it (issue #261). The full 5 s therefore
+         * only bites when consent came back near-instantly (auto-accept),
+         * which is the case it was sized for; the cost of expiring is
+         * staying on Bluetooth for the whole payload, so spend a bit more
+         * than the BLE bound.
          */
         private const val BLUETOOTH_WIFI_DIRECT_OFFER_TIMEOUT_MILLIS: Long = 5_000L
+
+        /**
+         * Floor on the residual pre-payload offer wait when the entry
+         * `UPGRADE_PATH_REQUEST`'s window has already (nearly) elapsed
+         * during the PKE/introduction/consent phase. A receiver that was
+         * ever going to offer has had the whole negotiation phase to do
+         * so; this short grace only covers an offer already in flight —
+         * e.g. a group that finished bring-up moments before the user's
+         * Accept — without re-spending the full window against a receiver
+         * that will never answer (issue #261).
+         */
+        private const val BLUETOOTH_WIFI_DIRECT_MIN_OFFER_WAIT_MILLIS: Long = 1_000L
         private const val WIFI_DIRECT_UPGRADE_POLL_DELAY_MILLIS: Long = 25L
 
         /**
