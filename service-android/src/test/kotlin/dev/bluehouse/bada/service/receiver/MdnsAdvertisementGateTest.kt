@@ -8,6 +8,7 @@ package dev.bluehouse.bada.service.receiver
 import com.google.common.truth.Truth.assertThat
 import dev.bluehouse.bada.discovery.AdvertiseHandle
 import dev.bluehouse.bada.discovery.ble.ScanActivity
+import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.medium.MediumRegistry
@@ -47,6 +48,7 @@ import java.security.SecureRandom
  * without sleeping.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LargeClass")
 class MdnsAdvertisementGateTest {
     @BeforeEach
     fun setUp() {
@@ -657,9 +659,203 @@ class MdnsAdvertisementGateTest {
             session.stop()
         }
 
+    @Test
+    fun `repeated BLE pulse sightings log advertise start only once`() =
+        runTest {
+            val advertiser = RecordingAdvertiser()
+            val session = startedGatedSession(advertiser = advertiser)
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
+            val override = MutableStateFlow(false)
+            val qr = MutableStateFlow(false)
+            val broadcaster = RecordingBleBroadcaster()
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    bleBroadcaster = broadcaster,
+                )
+            gate.start(this)
+            advanceUntilIdle()
+            val baseline = diagnosticCount("BLE pulse advertise started")
+
+            // Every BLE pulse sighting re-publishes ScanActivity.Active
+            // with a fresh timestamp, so each is a distinct StateFlow
+            // value the gate re-applies on (#262). The broadcaster is
+            // still invoked each time (its production implementation is
+            // an identity-unchanged no-op), but the diagnostics line must
+            // be logged only on the transition.
+            repeat(20) { i ->
+                ble.value = ScanActivity.Active(lastSeenAtMillis = 1_000L + i)
+                advanceUntilIdle()
+            }
+
+            assertThat(broadcaster.startCount).isEqualTo(20)
+            assertThat(diagnosticCount("BLE pulse advertise started") - baseline).isEqualTo(1)
+
+            gate.stop()
+            session.stop()
+        }
+
+    @Test
+    fun `BLE advertise start is logged again after a stop transition`() =
+        runTest {
+            val advertiser = RecordingAdvertiser()
+            val session = startedGatedSession(advertiser = advertiser)
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
+            val override = MutableStateFlow(false)
+            val qr = MutableStateFlow(false)
+            val broadcaster = RecordingBleBroadcaster()
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    debounceIdleMillis = 30_000L,
+                    bleBroadcaster = broadcaster,
+                )
+            gate.start(this)
+            advanceUntilIdle()
+            val baseline = diagnosticCount("BLE pulse advertise started")
+
+            // First up transition: logged.
+            ble.value = ScanActivity.Active(lastSeenAtMillis = 1_000L)
+            advanceUntilIdle()
+            assertThat(diagnosticCount("BLE pulse advertise started") - baseline).isEqualTo(1)
+
+            // Idle past the debounce: both channels torn down.
+            ble.value = ScanActivity.Idle
+            advanceTimeBy(1L)
+            advanceTimeBy(30_010L)
+            advanceUntilIdle()
+            assertThat(broadcaster.stopCount).isAtLeast(1)
+
+            // Second up transition after the stop: logged again — the
+            // dedupe suppresses repeats, not transitions.
+            ble.value = ScanActivity.Active(lastSeenAtMillis = 50_000L)
+            advanceUntilIdle()
+            assertThat(diagnosticCount("BLE pulse advertise started") - baseline).isEqualTo(2)
+
+            gate.stop()
+            session.stop()
+        }
+
+    @Test
+    fun `failed publish is not re-attempted per pulse and logs a throttled summary line`() =
+        runTest {
+            val advertiser = FailThenSucceedAdvertiser(failuresBeforeSuccess = Int.MAX_VALUE)
+            val session = startedGatedSession(advertiser = advertiser)
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
+            val override = MutableStateFlow(false)
+            val qr = MutableStateFlow(false)
+            var fakeNow = 0L
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    publishRetryDelayMillis = 5_000L,
+                    wallClockMillis = { fakeNow },
+                )
+            gate.start(this)
+            runCurrent()
+            val failBaseline = diagnosticCount("publish: failed (decision=")
+            val stackBaseline = diagnosticCount("\tat ")
+
+            ble.value = ScanActivity.Active(lastSeenAtMillis = 1_000L)
+            runCurrent()
+            assertThat(advertiser.attempts).isEqualTo(1)
+
+            // Ten more pulse sightings inside the retry window: the
+            // 2-s-blocking NsdManager registration must NOT be re-attempted
+            // per pulse — the scheduled retry owns the cadence (#262).
+            repeat(10) { i ->
+                ble.value = ScanActivity.Active(lastSeenAtMillis = 2_000L + i)
+                runCurrent()
+            }
+            assertThat(advertiser.attempts).isEqualTo(1)
+
+            // Exactly one summary line, and no stack trace frames.
+            assertThat(diagnosticCount("publish: failed (decision=") - failBaseline).isEqualTo(1)
+            assertThat(diagnosticCount("\tat ") - stackBaseline).isEqualTo(0)
+
+            // The scheduled retry still fires and re-attempts...
+            advanceTimeBy(5_001L)
+            runCurrent()
+            assertThat(advertiser.attempts).isEqualTo(2)
+            // ...but its identical failure stays throttled.
+            assertThat(diagnosticCount("publish: failed (decision=") - failBaseline).isEqualTo(1)
+
+            // Past the throttle window the failure logs again (one line).
+            fakeNow += MdnsAdvertisementGate.FAILURE_LOG_THROTTLE_MILLIS + 1
+            advanceTimeBy(5_001L)
+            runCurrent()
+            assertThat(advertiser.attempts).isEqualTo(3)
+            assertThat(diagnosticCount("publish: failed (decision=") - failBaseline).isEqualTo(2)
+            assertThat(diagnosticCount("\tat ") - stackBaseline).isEqualTo(0)
+
+            // Dropping the publish signal cancels the pending retry so the
+            // test scheduler quiesces.
+            ble.value = ScanActivity.Idle
+            advanceUntilIdle()
+            assertThat(advertiser.attempts).isEqualTo(3)
+
+            gate.stop()
+            session.stop()
+        }
+
+    @Test
+    fun `decision change re-attempts publish immediately despite pending retry`() =
+        runTest {
+            val advertiser = FailThenSucceedAdvertiser(failuresBeforeSuccess = 1)
+            val session = startedGatedSession(advertiser = advertiser)
+            val ble = MutableStateFlow<ScanActivity>(ScanActivity.Idle)
+            val override = MutableStateFlow(false)
+            val qr = MutableStateFlow(false)
+
+            val gate =
+                MdnsAdvertisementGate(
+                    session = session,
+                    bleActivity = ble,
+                    alwaysVisibleOverride = override,
+                    qrSessionActive = qr,
+                    publishRetryDelayMillis = 5_000L,
+                )
+            gate.start(this)
+            runCurrent()
+
+            ble.value = ScanActivity.Active(lastSeenAtMillis = 1_000L)
+            runCurrent()
+            assertThat(advertiser.attempts).isEqualTo(1)
+            assertThat(session.isAdvertising).isFalse()
+
+            // A different decision (override flips on) must not wait for
+            // the retry timer.
+            override.value = true
+            runCurrent()
+            assertThat(advertiser.attempts).isEqualTo(2)
+            assertThat(session.isAdvertising).isTrue()
+
+            gate.stop()
+            session.stop()
+        }
+
     // --------------------------------------------------------------
     // Helpers
     // --------------------------------------------------------------
+
+    /**
+     * Count DiagnosticLog ring-buffer lines containing [marker]. The
+     * buffer is process-global, so callers snapshot a baseline first and
+     * assert on the delta.
+     */
+    private fun diagnosticCount(marker: String): Int = DiagnosticLog.dumpRecent().lines().count { it.contains(marker) }
 
     /**
      * Build a [ReceiverSession] configured with `advertiseGated = true`,

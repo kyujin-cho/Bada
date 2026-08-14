@@ -43,6 +43,9 @@ jobs:
       - name: Run :discovery-android JVM unit tests
         run: ./gradlew :discovery-android:testDebugUnitTest --stacktrace
 
+      - name: Run :service-android JVM unit tests
+        run: ./gradlew :service-android:testDebugUnitTest --stacktrace
+
       - name: Run :app JVM unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
