@@ -10,7 +10,11 @@ import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.Band
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.MediumMetadata
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import com.google.security.cryptauth.lib.securegcm.UkeyProto.Ukey2Message
+import dev.bluehouse.bada.protocol.crypto.D2DKeyDerivation
+import dev.bluehouse.bada.protocol.crypto.D2DRole
+import dev.bluehouse.bada.protocol.crypto.securemessage.SecureChannel
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import dev.bluehouse.bada.protocol.medium.Medium
@@ -24,6 +28,7 @@ import dev.bluehouse.bada.protocol.payload.FileDestinationFactory
 import dev.bluehouse.bada.protocol.transport.ConnectedTransport
 import dev.bluehouse.bada.protocol.transport.FramedConnection
 import dev.bluehouse.bada.protocol.transport.asConnectedTransport
+import dev.bluehouse.bada.protocol.ukey2.Ukey2Server
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -764,7 +769,155 @@ class OutboundConnectionTest {
         }
 
     @Test
-    fun `preconnected bluetooth bootstrap solicits and adopts Wi-Fi Direct upgrade`() =
+    fun `bluetooth bootstrap solicits Wi-Fi Direct from a receiver that never offers unprompted`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (client, server) = connectedSocketPair()
+                val (newClient, newServer) = connectedSocketPair()
+                val logs = java.util.Collections.synchronizedList(mutableListOf<String>())
+                val adoptProvider =
+                    object : MediumProvider {
+                        override val medium: Medium = Medium.WIFI_DIRECT
+
+                        override fun isSupported(): Boolean = true
+
+                        override suspend fun adoptUpgrade(credentials: UpgradePathCredentials): UpgradedTransport =
+                            UpgradedTransport.SocketBacked(Medium.WIFI_DIRECT, newClient)
+                    }
+                val outbound =
+                    OutboundConnection(
+                        transport = client.asConnectedTransport(Medium.BLUETOOTH),
+                        secureRandom = SecureRandom("outbound-bt-solicit-scripted".toByteArray()),
+                        mediumRegistry =
+                            MediumRegistry(
+                                providers =
+                                    listOf(
+                                        MediumRegistry.DefaultWifiLan.providerFor(Medium.WIFI_LAN)!!,
+                                        adoptProvider,
+                                    ),
+                                ladder = MediumLadder(listOf(Medium.WIFI_DIRECT, Medium.WIFI_LAN, Medium.BLUETOOTH)),
+                            ),
+                        logger = { logs.add(it) },
+                    )
+
+                val fileBytes = ByteArray(512) { (it and 0x0F).toByte() }
+                val files = listOf(bytesSource("bt-solicit-scripted.bin", fileBytes, 0x515AL))
+
+                coroutineScope {
+                    val outboundJob = async { outbound.run(files) }
+                    // Scripted GMS-like receiver: completes the handshake but
+                    // NEVER offers a bandwidth upgrade on its own (stock
+                    // advertises autoUpgradeBandwidth=false) — it only answers
+                    // the sender's solicited UPGRADE_PATH_REQUEST. A sender
+                    // that does not solicit leaves the script stuck waiting
+                    // for the request, failing this test via the outer
+                    // timeout.
+                    val peerJob =
+                        async(Dispatchers.IO) {
+                            runScriptedNonOfferingReceiver(
+                                oldSocket = server,
+                                newTransportFramed = FramedConnection(newServer),
+                            )
+                        }
+
+                    outbound.activeMedium.first { it == Medium.WIFI_DIRECT }
+                    val requestedMediums = peerJob.await()
+                    assertThat(requestedMediums).contains(Medium.WIFI_DIRECT)
+                    val log = logs.toList()
+                    assertThat(log.any { it.contains("requested receiver Wi-Fi Direct upgrade") }).isTrue()
+                    assertThat(log.any { it.contains("medium-upgrade: client completed WIFI_DIRECT") }).isTrue()
+
+                    // The scripted peer stops after the transport swap; end
+                    // the transfer from our side.
+                    outbound.cancel()
+                    assertThat(outboundJob.await()).isInstanceOf(OutboundResult.Cancelled::class.java)
+                }
+            }
+        }
+
+    /**
+     * Drives the receiver side of a Bluetooth-bootstrapped session up to and
+     * through the sender-solicited Wi-Fi Direct transport swap, without ever
+     * offering an upgrade unprompted. Returns the mediums decoded from the
+     * sender's UPGRADE_PATH_REQUEST.
+     */
+    private suspend fun runScriptedNonOfferingReceiver(
+        oldSocket: Socket,
+        newTransportFramed: FramedConnection,
+    ): Set<Medium> {
+        val framed = FramedConnection(oldSocket)
+        // Step 1: sender's unencrypted ConnectionRequest.
+        val request = OfflineFrame.parseFrom(framed.receiveFrame())
+        assertThat(request.v1.type).isEqualTo(V1Frame.FrameType.CONNECTION_REQUEST)
+        // Step 2: UKEY2 server handshake.
+        val handshake = Ukey2Server.performHandshake(framed)
+        // Step 3/4: unencrypted ConnectionResponse exchange (send-first, like
+        // stock receivers; the sender sends its own concurrently).
+        framed.sendFrame(OfflineFrames.connectionResponse().toByteArray())
+        val peerResponse = OfflineFrame.parseFrom(framed.receiveFrame())
+        assertThat(peerResponse.isConnectionResponse()).isTrue()
+        // Step 5: SERVER-role session keys -> SecureChannel.
+        val keys =
+            D2DKeyDerivation.derive(
+                dhs = handshake.dhs,
+                ukeyClientInitMsg = handshake.clientInitMsg,
+                ukeyServerInitMsg = handshake.serverInitMsg,
+                role = D2DRole.SERVER,
+            )
+        val channel = SecureChannel(framed, keys, SecureRandom())
+        // Real receivers put their PAIRED_KEY_ENCRYPTION on the wire ~30 ms
+        // after the ConnectionResponse; the sender's post-UKEY2 offer probe
+        // is a blocking read that only returns once SOMETHING arrives. A
+        // KEEP_ALIVE stands in for that first frame here — without it the
+        // probe parks forever and the test deadlocks.
+        channel.sendOfflineFrame(OfflineFrames.keepAlive(ack = false))
+        // Read sharing frames (the PKE payload chunks) until the solicited
+        // UPGRADE_PATH_REQUEST arrives.
+        var requestedMediums: Set<Medium>? = null
+        var reads = 0
+        while (requestedMediums == null && reads < 8) {
+            val frame = channel.receiveOfflineFrame()
+            requestedMediums = BandwidthUpgradeFrames.decodeUpgradePathRequestMediums(frame)
+            reads++
+        }
+        val decoded = requireNotNull(requestedMediums) { "sender never sent UPGRADE_PATH_REQUEST" }
+        // Answer with the Wi-Fi Direct offer and complete the server side of
+        // the transport swap.
+        channel.sendOfflineFrame(
+            BandwidthUpgradeFrames.upgradePathAvailable(
+                UpgradePathCredentials.WifiDirect(
+                    ipAddress = byteArrayOf(127, 0, 0, 1),
+                    port = 1,
+                    ssid = "DIRECT-xy-test",
+                    passphrase = "12345678",
+                    frequency = 5_180,
+                ),
+            ),
+        )
+        val intro = OfflineFrame.parseFrom(newTransportFramed.receiveFrame())
+        assertThat(intro.v1.bandwidthUpgradeNegotiation.eventType)
+            .isEqualTo(BandwidthUpgradeNegotiationFrame.EventType.CLIENT_INTRODUCTION)
+        newTransportFramed.sendFrame(BandwidthUpgradeFrames.clientIntroductionAck().toByteArray())
+        // Prior-channel close: sender LAST_WRITE -> ours -> sender
+        // SAFE_TO_CLOSE -> ours.
+        val senderLastWrite = channel.receiveOfflineFrame()
+        assertThat(senderLastWrite.v1.bandwidthUpgradeNegotiation.eventType)
+            .isEqualTo(BandwidthUpgradeNegotiationFrame.EventType.LAST_WRITE_TO_PRIOR_CHANNEL)
+        channel.sendOfflineFrame(BandwidthUpgradeFrames.lastWriteToPriorChannel())
+        val senderSafeToClose = channel.receiveOfflineFrame()
+        assertThat(senderSafeToClose.v1.bandwidthUpgradeNegotiation.eventType)
+            .isEqualTo(BandwidthUpgradeNegotiationFrame.EventType.SAFE_TO_CLOSE_PRIOR_CHANNEL)
+        channel.sendOfflineFrame(BandwidthUpgradeFrames.safeToClosePriorChannel())
+        return decoded
+    }
+
+    // NOTE: this loopback scenario is satisfied by window-B adoption alone —
+    // the Bada loopback receiver offers the upgrade unprompted at its step 7,
+    // so it does NOT exercise the sender's solicitation (#259). The scripted
+    // test above is the solicitation regression guard; this one covers plain
+    // offer adoption on a Bluetooth bootstrap.
+    @Test
+    fun `preconnected bluetooth bootstrap adopts Wi-Fi Direct offered by the receiver`() =
         runBlocking {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {
                 val (client, server) = connectedSocketPair()
