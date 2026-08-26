@@ -19,6 +19,13 @@ import android.widget.TextView
  *
  * [peerId] carries the discovered peer's stable identity so the host can
  * route this chip's click back through the unchanged selection path.
+ * `nameView` is the centered peer-name label shown directly below the 64dp
+ * circular device icon in both the external share sheet and the in-app send
+ * screen. It renders up to two 13sp lines and inherits the activity theme's
+ * primary text color, keeping it dark in day mode and light in night mode.
+ * [SendPeerPickerController] creates the view whenever discovery renders a
+ * connectable peer. [DeviceIconViewSourceTest] guards the no-hardcoded-color
+ * contract; rendered day/night behavior still requires an on-device UI check.
  *
  * Programmatic custom view: dp sizes, text sizes, and ARGB colour components are
  * inherently numeric layout constants, so MagicNumber is suppressed.
@@ -47,7 +54,6 @@ public class DeviceIconView(
         nameView =
             TextView(context).apply {
                 text = name
-                setTextColor(NAME_COLOR)
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setPadding(0, (6 * d).toInt(), 0, 0)
@@ -102,7 +108,6 @@ public class DeviceIconView(
     }
 
     public companion object {
-        private const val NAME_COLOR = 0xFF111114.toInt()
         private const val STATUS_COLOR = 0xFF0A84FF.toInt()
         private const val BOUNCE_DOWN_SCALE = 0.82f
         private const val BOUNCE_DOWN_MS = 90L
