@@ -612,6 +612,13 @@
             android:name=".update.UpdateInstallReceiver"
             android:exported="false" />
 
+        <!-- Receives PackageInstaller status for the Settings > Radio Helper
+             install flow. Not exported: only the app's explicit session
+             PendingIntent can deliver status or the confirmation Intent. -->
+        <receiver
+            android:name=".helper.HelperInstallReceiver"
+            android:exported="false" />
+
         <!-- WorkManager's foreground-service host. The merge override pins the
              dataSync FGS type so the expedited update-download worker
              (UpdateInstallWorker) can foreground itself on API 34+, where an

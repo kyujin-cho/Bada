@@ -14,6 +14,52 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+data class HelperReleaseSigningInputs(
+    val keystoreFile: String,
+    val keystorePassword: String,
+    val keyAlias: String,
+    val keyPassword: String,
+)
+
+/**
+ * Reads the same four signing inputs as `:app`. A complete set signs the
+ * release helper with Bada's release key so its signature-protected
+ * `BIND_RADIO` service accepts the main app; a partial set fails configuration
+ * instead of producing an unusable mismatched pair. Local builds with no
+ * signing inputs retain the Android plugin's ordinary unsigned-release rule.
+ */
+fun helperReleaseSigningInputs(): HelperReleaseSigningInputs? {
+    fun propertyOrEnvironment(name: String): String? =
+        providers
+            .gradleProperty(name)
+            .orElse(providers.environmentVariable(name))
+            .orNull
+            ?.takeIf { it.isNotBlank() }
+
+    val values =
+        mapOf(
+            "KEYSTORE_FILE" to propertyOrEnvironment("KEYSTORE_FILE"),
+            "KEYSTORE_PASSWORD" to propertyOrEnvironment("KEYSTORE_PASSWORD"),
+            "KEY_ALIAS" to propertyOrEnvironment("KEY_ALIAS"),
+            "KEY_PASSWORD" to propertyOrEnvironment("KEY_PASSWORD"),
+        )
+    val present = values.filterValues { it != null }
+    if (present.isEmpty()) return null
+
+    val missing = values.filterValues { it == null }.keys
+    check(missing.isEmpty()) {
+        "Radio Helper signing config is incomplete. Missing: ${missing.joinToString()}"
+    }
+    return HelperReleaseSigningInputs(
+        keystoreFile = values.getValue("KEYSTORE_FILE")!!,
+        keystorePassword = values.getValue("KEYSTORE_PASSWORD")!!,
+        keyAlias = values.getValue("KEY_ALIAS")!!,
+        keyPassword = values.getValue("KEY_PASSWORD")!!,
+    )
+}
+
+val helperReleaseSigningInputs = helperReleaseSigningInputs()
+
 android {
     namespace = "dev.bluehouse.bada.radiohelper"
     compileSdk =
@@ -33,6 +79,17 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        if (helperReleaseSigningInputs != null) {
+            create("release") {
+                storeFile = file(helperReleaseSigningInputs.keystoreFile)
+                storePassword = helperReleaseSigningInputs.keystorePassword
+                keyAlias = helperReleaseSigningInputs.keyAlias
+                keyPassword = helperReleaseSigningInputs.keyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -40,6 +97,9 @@ android {
         }
         release {
             isMinifyEnabled = false
+            if (helperReleaseSigningInputs != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

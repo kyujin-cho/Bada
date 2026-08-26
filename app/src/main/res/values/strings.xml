@@ -49,6 +49,26 @@
     <string name="update_open_release_failed">Couldn\'t open the release page.</string>
     <string name="settings_auto_update_title">Automatic update check</string>
     <string name="settings_auto_update_subtitle">Every 6 hours, check GitHub for a newer Bada release and show a notification when one is available.</string>
+
+    <!-- Settings-managed installation of the bundled Radio Helper companion. -->
+    <string name="settings_radio_helper_title">Radio Helper</string>
+    <string name="settings_radio_helper_subtitle">Turns Wi-Fi and Bluetooth on when a transfer starts, then restores the radios Bada enabled when the transfer ends.</string>
+    <string name="settings_radio_helper_status_installed">Currently: installed</string>
+    <string name="settings_radio_helper_status_installing">Currently: waiting for installation confirmation</string>
+    <string name="settings_radio_helper_status_missing">Currently: not installed — automatic radio control is unavailable</string>
+    <string name="settings_radio_helper_install">Install Radio Helper</string>
+    <string name="settings_radio_helper_open">Open Radio Helper setup</string>
+    <string name="settings_radio_helper_allow_sources">Allow Bada to install apps, then return to continue.</string>
+    <string name="settings_radio_helper_unknown_sources_denied">Radio Helper was not installed because Bada is not allowed to install apps.</string>
+    <string name="settings_radio_helper_unknown_sources_unavailable">This device did not open the “Install unknown apps” setting. Radio Helper was not installed.</string>
+    <string name="settings_radio_helper_install_started">Radio Helper is ready for installation.</string>
+    <string name="settings_radio_helper_install_success">Radio Helper installed</string>
+    <string name="settings_radio_helper_install_failed">Couldn’t install Radio Helper</string>
+    <string name="settings_radio_helper_open_failed">Couldn’t open Radio Helper setup</string>
+    <string name="settings_radio_helper_confirm_title">Finish installing Radio Helper</string>
+    <string name="settings_radio_helper_confirm_text">Tap to confirm the companion app installation.</string>
+    <string name="settings_radio_helper_channel_name">Radio Helper installation</string>
+    <string name="settings_radio_helper_channel_description">Installation confirmation for Bada’s Radio Helper companion app</string>
     <string name="credit_placeholder_text">credit</string>
 
     <!--

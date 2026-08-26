@@ -1,4 +1,5 @@
 import com.android.build.gradle.internal.api.BaseVariantOutputImpl
+import org.gradle.api.tasks.Sync
 
 // :app — Android application module. Empty by design at this stage; the
 // real share intent handling (#24), settings UI, and device list land in
@@ -140,6 +141,37 @@ android.applicationVariants.configureEach {
 kotlin {
     jvmToolchain(17)
 }
+
+/**
+ * Bundle the matching Radio Helper APK inside each Bada APK so Settings can
+ * install the companion without a browser or a second download. Debug embeds
+ * the `.debug` helper; release embeds the release helper. Variant-specific
+ * generated asset directories prevent a stale helper variant from leaking
+ * into another build. `mergeDebugAssets` / `mergeReleaseAssets` own the final
+ * embedding boundary; configuration and asset-presence checks are static-only
+ * in this change because Android compilation was not authorized.
+ */
+fun registerBundledRadioHelper(variantName: String) {
+    val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
+    val generatedAssets = layout.buildDirectory.dir("generated/radio-helper/$variantName")
+    val bundleTask =
+        tasks.register<Sync>("bundleRadioHelper$capitalizedVariant") {
+            dependsOn(":radio-helper:assemble$capitalizedVariant")
+            from(project(":radio-helper").layout.buildDirectory.dir("outputs/apk/$variantName")) {
+                include("*.apk")
+                rename { "radio-helper.apk" }
+            }
+            into(generatedAssets)
+        }
+
+    android.sourceSets.getByName(variantName).assets.srcDir(generatedAssets)
+    tasks.matching { it.name == "merge${capitalizedVariant}Assets" }.configureEach {
+        dependsOn(bundleTask)
+    }
+}
+
+registerBundledRadioHelper("debug")
+registerBundledRadioHelper("release")
 
 dependencies {
     implementation(project(":core-protocol"))
