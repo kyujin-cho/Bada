@@ -20,19 +20,44 @@ import androidx.core.app.NotificationManagerCompat
 import dev.bluehouse.bada.R
 
 /**
- * PackageInstaller status receiver for the Settings-managed helper install.
- * Pending confirmation opens directly while Bada is foregrounded; otherwise a
- * high-priority notification provides a user-initiated launch path that remains
- * valid under Android 14+ background-activity restrictions. The receiver is
- * manifest-private and accepts only [HelperInstaller.ACTION_INSTALL_STATUS]. It
- * never reads the APK or controls radios; PackageInstaller owns identity/signing
- * enforcement, and the helper owns Wi-Fi/Bluetooth after installation.
+ * WHAT THIS IS
+ * ------------
+ * `HelperInstallReceiver` — the manifest-private [PackageInstaller] status
+ * state machine for Settings > Radio Helper > **"Install Radio Helper"**.
  *
- * Device test: complete or cancel Settings' "Install Radio Helper" action both
- * while Bada remains foregrounded and after backgrounding it. This source is
- * currently device/UI-unverified because Android compilation was not authorized.
+ * STATE, OWNERSHIP, AND ORDERING
+ * ------------------------------
+ * [HelperInstaller] commits an explicit, mutable status PendingIntent carrying
+ * [HelperInstaller.ACTION_INSTALL_STATUS]. This receiver rejects other actions:
+ * `STATUS_PENDING_USER_ACTION` keeps the duplicate-install latch set and routes
+ * the supplied system confirmation Intent; terminal success/failure clears the
+ * latch and surfaces a toast. It never reads the APK or controls radios.
+ * PackageInstaller owns package/signature checks and the system confirmation;
+ * the installed helper owns later Wi-Fi/Bluetooth share-session behavior.
+ *
+ * BACKGROUND, SECURITY, AND FAILURE BOUNDARIES
+ * --------------------------------------------
+ * Foreground Bada attempts the confirmation activity directly. Background Bada
+ * or a failed direct launch posts the high-importance **"Finish installing
+ * Radio Helper"** notification, whose tap launches that same Intent. The
+ * notification is best-effort when notification permission is denied; the
+ * PackageInstaller session remains system-owned. A missing confirmation Intent
+ * is treated as terminal local failure. `exported=false`, the explicit component,
+ * and action check prevent another app from driving this state machine.
+ *
+ * TEST STATUS
+ * -----------
+ * Complete and cancel installation with Bada foregrounded and backgrounded;
+ * test denied notifications, malformed pending confirmation, and success/fail
+ * callbacks, then verify the Settings status after returning. Source/static
+ * checks are proven; compilation, callback delivery, notification appearance,
+ * and system-installer UI remain device-UNVERIFIED.
  */
 internal class HelperInstallReceiver : BroadcastReceiver() {
+    /**
+     * PackageInstaller callback dispatcher. Pending confirmation is non-terminal;
+     * every other status is terminal for this app's process-local latch.
+     */
     override fun onReceive(
         context: Context,
         intent: Intent,
@@ -61,6 +86,7 @@ internal class HelperInstallReceiver : BroadcastReceiver() {
         }
     }
 
+    /** Route system confirmation directly only while visible, otherwise through the shade. */
     private fun handlePendingUserAction(
         context: Context,
         intent: Intent,
@@ -87,6 +113,11 @@ internal class HelperInstallReceiver : BroadcastReceiver() {
         return processInfo.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
 
+    /**
+     * Best-effort background-launch fallback. The full-width notification row
+     * shows the download glyph, title "Finish installing Radio Helper", and
+     * explanatory text; tapping it opens the PackageInstaller confirmation.
+     */
     private fun postConfirmNotification(
         context: Context,
         confirm: Intent,
@@ -114,8 +145,9 @@ internal class HelperInstallReceiver : BroadcastReceiver() {
 
     /**
      * Create the dedicated high-importance "Radio Helper installation"
-     * channel. Keeping this separate from app-update alerts makes the fallback
-     * confirmation accurately identifiable in Android notification settings.
+     * channel once on API 26+. Keeping it separate from app-update alerts makes
+     * the fallback identifiable and independently configurable in Android
+     * notification settings; pre-26 devices use builder priority only.
      */
     private fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

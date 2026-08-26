@@ -20,19 +20,42 @@ import dev.bluehouse.bada.R
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Installer owned by Settings' user-facing "Radio Helper" card.
+ * WHAT THIS IS
+ * ------------
+ * `HelperInstaller` — the process-side installer for Settings' user-facing
+ * **Radio Helper** card and its **"Install Radio Helper"** action.
  *
+ * INVOCATION AND OWNERSHIP
+ * ------------------------
+ * [dev.bluehouse.bada.ui.SettingsFragment] queries package/install state, opens
+ * the one-time "Install unknown apps" system page when required, then calls
+ * [installBundledHelper]. `:app` embeds the matching debug/release helper as
+ * `assets/radio-helper.apk`; [HelperInstallReceiver] owns PackageInstaller
+ * confirmation and terminal status after commit. This object never toggles a
+ * radio—the installed helper service owns that separate share-session lifecycle.
+ *
+ * SECURITY, THREADING, AND FAILURE CONTRACT
+ * -----------------------------------------
  * `:app` embeds the debug helper in debug builds and the release helper in
  * release builds. The two APKs use the same signing configuration because the
  * helper's `BIND_RADIO` service permission is signature protected. The asset is
- * streamed into PackageInstaller off the main thread; no browser, download, or
- * temporary APK file is involved. [HelperInstallReceiver] owns confirmation
- * and terminal status; an atomic process latch rejects duplicate taps.
+ * local-only: it is streamed into PackageInstaller on the dedicated
+ * `radio-helper-install` thread, with no network, browser, or temporary APK
+ * file. SessionParams pins the expected variant package; Android owns final APK
+ * identity/signature validation. Every failure before commit abandons the
+ * staged session and clears the latch. The [AtomicBoolean] is intentionally
+ * process-local: it prevents double taps while this process lives, remains set
+ * through pending confirmation, clears on terminal callback, and naturally
+ * resets if Android recreates the process. No app-level cancellation control is
+ * exposed after commit; the system installer owns the user's confirm/cancel UI.
  *
- * Test route: open Bada > Settings > Radio Helper, grant "Install unknown apps"
- * if requested, tap Install, confirm the system installer, then return and open
- * the helper setup. This change is source/diff-checked only; compilation and the
- * real device click path remain unverified because they were not authorized.
+ * TEST STATUS
+ * -----------
+ * Exercise Bada > Settings > Radio Helper in missing, permission-denied,
+ * installing, installed, cancelled, and failed states; confirm the debug build
+ * installs `.debug`, release installs the release package, and "Open Radio
+ * Helper setup" launches the matching package. Source/diff checks are proven;
+ * compilation and the real device click path remain UNVERIFIED.
  */
 internal object HelperInstaller {
     const val ACTION_INSTALL_STATUS = "dev.bluehouse.bada.helper.INSTALL_STATUS"
@@ -41,6 +64,7 @@ internal object HelperInstaller {
     private const val HELPER_BASE_PACKAGE = "dev.bluehouse.bada.radiohelper"
     private val installInFlight = AtomicBoolean(false)
 
+    /** Variant identity shared by installed-state lookup, session pinning, and setup launch. */
     fun helperPackage(context: Context): String =
         if (context.packageName.endsWith(".debug")) {
             "$HELPER_BASE_PACKAGE.debug"
@@ -48,6 +72,7 @@ internal object HelperInstaller {
             HELPER_BASE_PACKAGE
         }
 
+    /** PackageManager is the durable source of truth; the in-flight latch is not. */
     @Suppress("DEPRECATION")
     fun isHelperInstalled(context: Context): Boolean =
         try {
@@ -59,16 +84,19 @@ internal object HelperInstaller {
 
     fun isInstallInFlight(): Boolean = installInFlight.get()
 
+    /** Precondition checked before any asset/session work or unknown-source round trip. */
     fun canInstallPackages(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
             context.packageManager.canRequestPackageInstalls()
 
+    /** App-scoped system Settings route used by SettingsFragment's result launcher. */
     fun unknownSourcesSettingsIntent(context: Context): Intent =
         Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
             Uri.parse("package:${context.packageName}"),
         )
 
+    /** Launch the matching helper's setup activity; false means no resolvable launcher. */
     fun openHelper(context: Context): Boolean {
         val launchIntent =
             context.packageManager.getLaunchIntentForPackage(helperPackage(context))
@@ -77,11 +105,14 @@ internal object HelperInstaller {
     }
 
     /**
-     * Stage the bundled helper for system confirmation. Repeated taps while a
-     * session is active are ignored; every pre-commit failure abandons its
-     * PackageInstaller session and surfaces a user-visible error. The helper's
-     * declared package is pinned into SessionParams; Android still performs the
-     * final APK identity and signing checks in the system confirmation flow.
+     * Stage the bundled helper for system confirmation after Settings has
+     * established unknown-source permission. Repeated taps while this process
+     * owns a live request are no-ops. The background thread creates one full-
+     * install session, pins [helperPackage], copies the local asset, fsyncs it,
+     * and commits an explicit status PendingIntent. Every pre-commit exception
+     * abandons the session, clears the latch, and posts the visible failure
+     * toast on the main looper; success here means only "staged for system
+     * confirmation," not installed.
      */
     fun installBundledHelper(context: Context) {
         if (!installInFlight.compareAndSet(false, true)) return
@@ -111,6 +142,12 @@ internal object HelperInstaller {
         ).start()
     }
 
+    /**
+     * Blocking asset-copy/commit boundary; called only by the installer thread.
+     * The API-31+ PendingIntent must remain mutable because PackageInstaller
+     * supplies status and confirmation extras before delivering it to the
+     * manifest-private [HelperInstallReceiver].
+     */
     private fun commitSession(
         appContext: Context,
         installer: PackageInstaller,
@@ -138,7 +175,7 @@ internal object HelperInstaller {
         }
     }
 
-    /** Clear the duplicate-install latch only after terminal installer status. */
+    /** Clear the duplicate-install latch only after terminal success/failure or pre-commit failure. */
     fun markInstallFinished() {
         installInFlight.set(false)
     }

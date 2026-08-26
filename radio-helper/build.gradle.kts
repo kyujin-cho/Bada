@@ -22,11 +22,21 @@ data class HelperReleaseSigningInputs(
 )
 
 /**
- * Reads the same four signing inputs as `:app`. A complete set signs the
- * release helper with Bada's release key so its signature-protected
- * `BIND_RADIO` service accepts the main app; a partial set fails configuration
- * instead of producing an unusable mismatched pair. Local builds with no
- * signing inputs retain the Android plugin's ordinary unsigned-release rule.
+ * Signing contract for the release **Radio Helper** companion embedded by
+ * `:app` and installed from Settings > Radio Helper.
+ *
+ * Reads the same `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and
+ * `KEY_PASSWORD` properties/environment variables as `:app`. All four present
+ * signs the helper with Bada's release certificate so the main app may bind the
+ * helper's signature-protected `BIND_RADIO` service; a partial set fails during
+ * configuration instead of producing an installable-looking but unusable pair.
+ * No inputs preserves the Android plugin's ordinary unsigned local-release
+ * behavior. Values are consumed only by Gradle signing configuration and are
+ * never copied into generated assets or source.
+ *
+ * Verify with certificate comparison on assembled app/helper release APKs and
+ * a real service bind after installation. Input-shape/source checks are proven;
+ * release assembly, certificate comparison, and device binding are UNVERIFIED.
  */
 fun helperReleaseSigningInputs(): HelperReleaseSigningInputs? {
     fun propertyOrEnvironment(name: String): String? =

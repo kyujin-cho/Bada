@@ -50,7 +50,11 @@
     <string name="settings_auto_update_title">Automatic update check</string>
     <string name="settings_auto_update_subtitle">Every 6 hours, check GitHub for a newer Bada release and show a notification when one is available.</string>
 
-    <!-- Settings-managed installation of the bundled Radio Helper companion. -->
+    <!-- Settings > Radio Helper card, PackageInstaller status/toasts, and the
+         background confirmation notification. These labels are consumed by
+         SettingsFragment, HelperInstaller, and HelperInstallReceiver; status
+         text deliberately distinguishes durable PackageManager state from the
+         process-local waiting latch. -->
     <string name="settings_radio_helper_title">Radio Helper</string>
     <string name="settings_radio_helper_subtitle">Turns Wi-Fi and Bluetooth on when a transfer starts, then restores the radios Bada enabled when the transfer ends.</string>
     <string name="settings_radio_helper_status_installed">Currently: installed</string>

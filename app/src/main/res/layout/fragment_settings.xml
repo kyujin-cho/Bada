@@ -533,12 +533,16 @@
         </LinearLayout>
 
         <!-- ============ Card 7: Radio Helper companion ============
-             White rounded Settings card below the shake-to-report toggle.
-             It shows a gray rounded status chip (installed / installing /
-             missing) and one full-width action button. SettingsFragment maps
-             the button to bundled installation while missing and to the
-             helper's launcher/setup screen after installation. No motion or
-             hidden gesture is attached to this card. -->
+             White rounded, wrap-height Settings card 12dp below the
+             shake-to-report card, with 20dp inner padding. The bold "Radio
+             Helper" title and gray explanatory subtitle sit above
+             settings_radio_helper_status: a full-width gray rounded chip with
+             12dp horizontal/10dp vertical padding and installed / waiting /
+             missing text. settings_radio_helper_action is the full-width
+             standard Button 16dp below it; SettingsFragment changes its visible
+             label/action between bundled installation and "Open Radio Helper
+             setup", and disables it while waiting. No animation, hidden
+             gesture, icon, or automatic tap action belongs to this card. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

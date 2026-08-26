@@ -55,11 +55,13 @@ import dev.bluehouse.bada.update.UpdatePreferences
  *     debug/release helper package is installed; install the APK bundled in
  *     this Bada build, or open the helper's own setup screen when present.
  *
- * Each control mutates a single SharedPreferences-backed value (or
- * platform power-manager state for the battery row) and refreshes
- * its summary line on every onStart so an external state change
- * (e.g. the user revoked the SAF grant in system Settings while we
- * were paused) reflects immediately.
+ * Preference controls mutate one SharedPreferences-backed value; platform rows
+ * instead re-query their owning system API. The Radio Helper card reads
+ * PackageManager plus [HelperInstaller]'s process-local staging latch. Summary
+ * state is refreshed on every onStart/onResume so system-Settings round trips,
+ * package installation, and external permission changes are reflected without
+ * recreating the fragment. Radio Helper compilation and rendered interaction
+ * remain device-UNVERIFIED; the documented source/static contracts are proven.
  */
 internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
     /**
@@ -132,10 +134,12 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
             startActivity(Intent(requireContext(), NameCardSetupActivity::class.java))
         }
 
-        // settings_radio_helper_action — full-width button at the bottom of
-        // the white Radio Helper card. Its visible label changes from
-        // "Install Radio Helper" to "Open Radio Helper setup" based on the
-        // matching package's installed state.
+        // settings_radio_helper_action — standard-height, full-width button
+        // 16dp below the gray status chip at the bottom of the white rounded
+        // Radio Helper card. It has no custom motion. Missing state shows
+        // "Install Radio Helper" and starts permission/install staging;
+        // installing keeps that label but disables the button; installed shows
+        // "Open Radio Helper setup" and launches the matching companion.
         view.findViewById<Button>(R.id.settings_radio_helper_action).setOnClickListener {
             if (HelperInstaller.isHelperInstalled(requireContext())) {
                 if (!HelperInstaller.openHelper(requireContext())) {
@@ -267,7 +271,10 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
     /**
      * Entry point for Settings' "Install Radio Helper" button. The one-time
      * unknown-source grant is resolved before [HelperInstaller] starts any
-     * asset I/O; denial leaves the card in its explicit missing state.
+     * asset I/O. If the platform Settings route cannot open or the user returns
+     * without granting access, no session is created and the card remains in
+     * its explicit missing state with a toast. Returning with access stages one
+     * request and immediately refreshes the card to installing.
      */
     private fun startRadioHelperInstall() {
         val context = requireContext()
@@ -295,7 +302,10 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
      * Refresh the card's gray rounded status chip and full-width action button.
      * PackageManager is the installed-state source of truth; the process-local
      * in-flight latch only disables duplicate taps while PackageInstaller owns
-     * an active session. Called onStart/onResume and after staging begins.
+     * an active request. Installed wins over the latch so a terminal install is
+     * actionable even before its callback updates the process. Called from
+     * onStart/onResume and immediately after staging begins; it performs only
+     * local PackageManager/view work and no APK I/O.
      */
     private fun refreshRadioHelperSection() {
         val v = view ?: return
