@@ -19,7 +19,7 @@ import android.widget.TextView
  *
  * [peerId] carries the discovered peer's stable identity so the host can
  * route this chip's click back through the unchanged selection path.
- * `nameView` is the centered peer-name label shown directly below the 64dp
+ * `peerNameLabel` is the centered peer-name label shown directly below the 64dp
  * circular device icon in both the external share sheet and the in-app send
  * screen. It renders up to two 13sp lines and inherits the activity theme's
  * primary text color, keeping it dark in day mode and light in night mode.
@@ -37,7 +37,7 @@ public class DeviceIconView(
     name: String,
 ) : LinearLayout(context) {
     private val ring: RingProgressView
-    private val nameView: TextView
+    private val peerNameLabel: TextView
     private val statusView: TextView
 
     init {
@@ -51,7 +51,12 @@ public class DeviceIconView(
         val size = (64 * d).toInt()
         addView(ring, LayoutParams(size, size))
 
-        nameView =
+        // peerNameLabel — stationary, borderless peer-name text centered 6dp
+        // below the blue 64dp device circle in both send pickers. Discovery
+        // supplies the visible device name; the label itself has no tap action
+        // or animation. Its TextView default must retain Theme.Bada's stateful
+        // day/night text color, so do not replace it with a fixed ARGB value.
+        peerNameLabel =
             TextView(context).apply {
                 text = name
                 textSize = 13f
@@ -60,7 +65,7 @@ public class DeviceIconView(
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
-        addView(nameView, LayoutParams((96 * d).toInt(), LayoutParams.WRAP_CONTENT))
+        addView(peerNameLabel, LayoutParams((96 * d).toInt(), LayoutParams.WRAP_CONTENT))
 
         statusView =
             TextView(context).apply {
@@ -104,7 +109,7 @@ public class DeviceIconView(
     }
 
     public fun setName(name: String) {
-        nameView.text = name
+        peerNameLabel.text = name
     }
 
     public companion object {
