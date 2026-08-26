@@ -532,7 +532,63 @@
 
         </LinearLayout>
 
-        <!-- ============ Card 7: Automatic update check ============ -->
+        <!-- ============ Card 7: Radio Helper companion ============
+             White rounded, wrap-height Settings card 12dp below the
+             shake-to-report card, with 20dp inner padding. The bold "Radio
+             Helper" title and gray explanatory subtitle sit above
+             settings_radio_helper_status: a full-width gray rounded chip with
+             12dp horizontal/10dp vertical padding and installed / waiting /
+             missing text. settings_radio_helper_action is the full-width
+             standard Button 16dp below it; SettingsFragment changes its visible
+             label/action between bundled installation and "Open Radio Helper
+             setup", and disables it while waiting. No animation, hidden
+             gesture, icon, or automatic tap action belongs to this card. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/settings_card_background"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_radio_helper_title"
+                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/settings_radio_helper_subtitle"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textColor="?android:attr/textColorSecondary" />
+
+            <TextView
+                android:id="@+id/settings_radio_helper_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/qr_url_background"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textColor="?android:attr/textColorPrimary"
+                tools:text="Currently: not installed" />
+
+            <Button
+                android:id="@+id/settings_radio_helper_action"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/settings_radio_helper_install" />
+
+        </LinearLayout>
+
+        <!-- ============ Card 8: Automatic update check ============ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

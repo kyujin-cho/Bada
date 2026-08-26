@@ -24,6 +24,7 @@ import dev.bluehouse.bada.R
 import dev.bluehouse.bada.battery.BatteryOptimizationOemHelper
 import dev.bluehouse.bada.bugreport.BugReportPreferences
 import dev.bluehouse.bada.consent.FullScreenIntentPermission
+import dev.bluehouse.bada.helper.HelperInstaller
 import dev.bluehouse.bada.namecard.NameCardProfileStore
 import dev.bluehouse.bada.namecard.NameCardSetupActivity
 import dev.bluehouse.bada.service.downloads.SaveLocationDisplayName
@@ -50,12 +51,17 @@ import dev.bluehouse.bada.update.UpdatePreferences
  *     battery-optimization Settings page after the first-launch dialog
  *     has been skipped. Status summary is refreshed on every onStart
  *     so a system-Settings round trip reflects immediately.
+ *   * "Radio Helper" companion management — show whether the matching
+ *     debug/release helper package is installed; install the APK bundled in
+ *     this Bada build, or open the helper's own setup screen when present.
  *
- * Each control mutates a single SharedPreferences-backed value (or
- * platform power-manager state for the battery row) and refreshes
- * its summary line on every onStart so an external state change
- * (e.g. the user revoked the SAF grant in system Settings while we
- * were paused) reflects immediately.
+ * Preference controls mutate one SharedPreferences-backed value; platform rows
+ * instead re-query their owning system API. The Radio Helper card reads
+ * PackageManager plus [HelperInstaller]'s process-local staging latch. Summary
+ * state is refreshed on every onStart/onResume so system-Settings round trips,
+ * package installation, and external permission changes are reflected without
+ * recreating the fragment. Radio Helper compilation and rendered interaction
+ * remain device-UNVERIFIED; the documented source/static contracts are proven.
  */
 internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
     /**
@@ -67,6 +73,14 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
      * selection.
      */
     private lateinit var saveLocationLauncher: ActivityResultLauncher<Uri?>
+
+    /**
+     * Owns the one-time Android "Install unknown apps" round trip for the
+     * Radio Helper card. Returning with the grant stages the bundled companion;
+     * returning without it leaves the helper missing and surfaces that denial.
+     * The system Settings and installer UI remain device/UI-unverified here.
+     */
+    private lateinit var unknownSourcesLauncher: ActivityResultLauncher<Intent>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,6 +106,21 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
                         ).show()
                 }
             }
+
+        unknownSourcesLauncher =
+            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+                if (HelperInstaller.canInstallPackages(requireContext())) {
+                    HelperInstaller.installBundledHelper(requireContext())
+                    refreshRadioHelperSection()
+                } else {
+                    Toast
+                        .makeText(
+                            requireContext(),
+                            R.string.settings_radio_helper_unknown_sources_denied,
+                            Toast.LENGTH_LONG,
+                        ).show()
+                }
+            }
     }
 
     override fun onViewCreated(
@@ -103,6 +132,27 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         // "Name Card" row → My Name Card setup page (tap-to-share contacts).
         view.findViewById<View>(R.id.settings_name_card_row).setOnClickListener {
             startActivity(Intent(requireContext(), NameCardSetupActivity::class.java))
+        }
+
+        // settings_radio_helper_action — standard-height, full-width button
+        // 16dp below the gray status chip at the bottom of the white rounded
+        // Radio Helper card. It has no custom motion. Missing state shows
+        // "Install Radio Helper" and starts permission/install staging;
+        // installing keeps that label but disables the button; installed shows
+        // "Open Radio Helper setup" and launches the matching companion.
+        view.findViewById<Button>(R.id.settings_radio_helper_action).setOnClickListener {
+            if (HelperInstaller.isHelperInstalled(requireContext())) {
+                if (!HelperInstaller.openHelper(requireContext())) {
+                    Toast
+                        .makeText(
+                            requireContext(),
+                            R.string.settings_radio_helper_open_failed,
+                            Toast.LENGTH_LONG,
+                        ).show()
+                }
+            } else {
+                startRadioHelperInstall()
+            }
         }
 
         view.findViewById<Button>(R.id.main_save_location_pick).setOnClickListener {
@@ -181,6 +231,7 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         refreshBugReportSwitch()
         refreshTransferSwitches()
         refreshNameCardDot()
+        refreshRadioHelperSection()
     }
 
     /**
@@ -214,6 +265,69 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         // immediately after the user grants the exemption, instead
         // of waiting for the next manual tab switch.
         refreshBatteryStatus()
+        refreshRadioHelperSection()
+    }
+
+    /**
+     * Entry point for Settings' "Install Radio Helper" button. The one-time
+     * unknown-source grant is resolved before [HelperInstaller] starts any
+     * asset I/O. If the platform Settings route cannot open or the user returns
+     * without granting access, no session is created and the card remains in
+     * its explicit missing state with a toast. Returning with access stages one
+     * request and immediately refreshes the card to installing.
+     */
+    private fun startRadioHelperInstall() {
+        val context = requireContext()
+        if (HelperInstaller.canInstallPackages(context)) {
+            HelperInstaller.installBundledHelper(context)
+            refreshRadioHelperSection()
+            return
+        }
+        Toast
+            .makeText(context, R.string.settings_radio_helper_allow_sources, Toast.LENGTH_LONG)
+            .show()
+        runCatching {
+            unknownSourcesLauncher.launch(HelperInstaller.unknownSourcesSettingsIntent(context))
+        }.onFailure {
+            Toast
+                .makeText(
+                    context,
+                    R.string.settings_radio_helper_unknown_sources_unavailable,
+                    Toast.LENGTH_LONG,
+                ).show()
+        }
+    }
+
+    /**
+     * Refresh the card's gray rounded status chip and full-width action button.
+     * PackageManager is the installed-state source of truth; the process-local
+     * in-flight latch only disables duplicate taps while PackageInstaller owns
+     * an active request. Installed wins over the latch so a terminal install is
+     * actionable even before its callback updates the process. Called from
+     * onStart/onResume and immediately after staging begins; it performs only
+     * local PackageManager/view work and no APK I/O.
+     */
+    private fun refreshRadioHelperSection() {
+        val v = view ?: return
+        val context = requireContext()
+        val installed = HelperInstaller.isHelperInstalled(context)
+        val installing = HelperInstaller.isInstallInFlight()
+        v.findViewById<TextView>(R.id.settings_radio_helper_status).text =
+            when {
+                installed -> getString(R.string.settings_radio_helper_status_installed)
+                installing -> getString(R.string.settings_radio_helper_status_installing)
+                else -> getString(R.string.settings_radio_helper_status_missing)
+            }
+        v.findViewById<Button>(R.id.settings_radio_helper_action).apply {
+            isEnabled = installed || !installing
+            setText(
+                if (installed) {
+                    R.string.settings_radio_helper_open
+                } else {
+                    R.string.settings_radio_helper_install
+                },
+            )
+        }
     }
 
     /**

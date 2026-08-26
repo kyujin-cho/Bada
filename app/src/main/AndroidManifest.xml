@@ -612,6 +612,20 @@
             android:name=".update.UpdateInstallReceiver"
             android:exported="false" />
 
+        <!-- HelperInstallReceiver — private PackageInstaller state-machine owner
+             for Settings > Radio Helper > "Install Radio Helper". The explicit,
+             mutable session PendingIntent uses action
+             dev.bluehouse.bada.helper.INSTALL_STATUS so Android can attach its
+             status/confirmation extras. Pending confirmation opens the system
+             installer while Bada is foregrounded, or posts a high-importance
+             shade action when background launch is unavailable; terminal status
+             clears the process-local duplicate-install latch. exported=false
+             prevents another app from invoking this receiver directly. Runtime
+             delivery and system-installer UI remain device-UNVERIFIED. -->
+        <receiver
+            android:name=".helper.HelperInstallReceiver"
+            android:exported="false" />
+
         <!-- WorkManager's foreground-service host. The merge override pins the
              dataSync FGS type so the expedited update-download worker
              (UpdateInstallWorker) can foreground itself on API 34+, where an
