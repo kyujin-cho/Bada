@@ -111,10 +111,15 @@
 
         </LinearLayout>
 
-        <!-- ============ Card 1: Save location ============ -->
+        <!-- ============ Card 1: Save location ============
+             marginTop matches every other card's 12dp gap. It was absent
+             while this was the FIRST card; the Name Card row (#251) now
+             sits above, and without the margin the two cards render
+             flush against each other. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
             android:background="@drawable/settings_card_background"
             android:orientation="vertical"
             android:padding="20dp">

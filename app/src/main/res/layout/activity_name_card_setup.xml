@@ -7,11 +7,18 @@
   Visual: a single rounded white panel (@drawable/settings_card_background)
   matching the Settings cards, with a title, subtitle, three labelled text
   fields (name / phone / email), and an action row.
+
+  System-bar inset handling: `fitsSystemWindows="true"` on the root, the
+  same pattern every other full-screen activity here uses (main / credit /
+  onboarding / check-for-updates / in-app send) — with targetSdk 35+
+  edge-to-edge enforcement the content otherwise starts underneath the
+  status bar.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
     android:fillViewport="true">
 
     <LinearLayout
