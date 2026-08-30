@@ -356,4 +356,74 @@
     <string name="settings_auto_update_title">自動檢查更新</string>
     <string name="settings_auto_update_subtitle">每 6 小時在 GitHub 檢查是否有新的 Bada 版本，並在有新版本時顯示通知。</string>
 
+    <!-- Locale parity backfill: Name Card (#251), receive-waiting sheet,
+         NFC tap-to-share settings, empty-state radio hints, consent style,
+         update checker, and credits. Keys mirror values/strings.xml. -->
+    <string name="credit_section_developer">開發</string>
+    <string name="credit_section_polisher">打磨</string>
+    <string name="credit_section_qa">QA</string>
+    <string name="credit_section_thanks">特別感謝</string>
+    <string name="credit_teqhnikacross_desc">我們都渴望被愛</string>
+    <string name="settings_nfc_diagnostics_title">顯示 NFC 輕碰診斷</string>
+    <string name="settings_nfc_diagnostics_subtitle">啟用後，每次 NFC 輕碰分享都會在螢幕上顯示診斷訊息（讀取結果、喚醒、連線的裝置或失敗原因）。一切正常後可關閉以獲得乾淨的體驗。詳細記錄一律保留供錯誤回報使用。</string>
+    <string name="settings_nfc_title">NFC 輕碰分享</string>
+    <string name="settings_nfc_subtitle">選擇其他手機何時可以透過輕碰此裝置來開始傳輸。</string>
+    <string name="settings_nfc_mode_sheet">僅在接收面板開啟時</string>
+    <string name="settings_nfc_mode_foreground">應用程式開啟時</string>
+    <string name="settings_nfc_mode_background">一律（包括背景）</string>
+    <string name="settings_consent_style_title">接收提示樣式</string>
+    <string name="settings_consent_style_subtitle">選擇當其他裝置想傳送檔案給您時確認提示的外觀。</string>
+    <string name="settings_consent_style_recolored">重新上色按鈕</string>
+    <string name="settings_consent_style_bridge">橋接卡片樣式</string>
+    <string name="settings_consent_style_sheet">僅底部面板</string>
+    <string name="settings_consent_style_sheet_needs_fsi">「僅底部面板」需要全螢幕權限才能在其他應用程式上方彈出面板。請在下一個畫面中允許。</string>
+    <string name="send_empty_state_no_bt_no_wifi">未找到裝置。請開啟藍牙並連線到與接收端相同的 Wi-Fi 網路，然後確認接收端已開啟 Quick Share。</string>
+    <string name="send_empty_state_no_bt">未透過 Wi-Fi 找到裝置。開啟藍牙即可找到不在此 Wi-Fi 網路中的裝置，並請確認接收端已開啟 Quick Share。</string>
+    <string name="send_empty_state_no_wifi">未找到裝置。將兩台裝置連線到同一 Wi-Fi 網路可獲得最可靠的搜尋效果，並請確認接收端已開啟 Quick Share。</string>
+    <string name="send_help_sheet_tap_title">輕碰分享</string>
+    <string name="send_help_sheet_tap_body">要透過輕碰分享，請將兩台手機背對背靠攏。對方手機只需螢幕亮起，無需開啟應用程式。只能由一方輕碰傳送：如果對方也停留在傳送畫面，雙方都無法接收，請讓對方手機停留在主畫面。</string>
+    <string name="send_status_tap_waiting_wifi">正在等待 Wi‑Fi…</string>
+    <string name="consent_state_waiting_title">已準備好接收</string>
+    <string name="consent_state_waiting_body">正在等待附近裝置分享…</string>
+    <string name="nfc_tap_hce_service_description">Bada Quick Share 輕觸分享</string>
+    <string name="nfc_hce_service_description">Bada NFC 連結</string>
+    <string name="nfc_namecard_hce_service_description">Bada 名片</string>
+    <string name="settings_name_card_row_title">名片</string>
+    <string name="settings_name_card_row_subtitle">設定手機輕碰時分享的聯絡人名片</string>
+    <string name="name_card_activity_label">名片</string>
+    <string name="name_card_setup_title">我的名片</string>
+    <string name="name_card_setup_subtitle">兩台手機輕碰時與對方的 Bada 手機分享。留空則使用手機本身的名稱與號碼。</string>
+    <string name="name_card_enable_title">手機輕碰時分享我的名片</string>
+    <string name="name_card_field_name">姓名</string>
+    <string name="name_card_field_phone">電話</string>
+    <string name="name_card_field_email">電子郵件</string>
+    <string name="name_card_use_phone_info">使用手機資訊</string>
+    <string name="name_card_use_phone_info_filled">已從手機填入</string>
+    <string name="name_card_use_phone_info_empty">未在手機上找到可填入的資訊</string>
+    <string name="name_card_use_phone_info_denied">權限遭拒，請手動輸入</string>
+    <string name="name_card_save">儲存</string>
+    <string name="name_card_saved">已儲存名片</string>
+    <string name="name_card_clear">清除</string>
+    <string name="name_card_cleared">已清除名片</string>
+    <string name="name_card_save_empty">請先輸入姓名、電話或電子郵件</string>
+    <string name="name_card_choose_share">選擇要分享的資訊</string>
+    <string name="name_card_choose_share_title">選擇要分享的資訊</string>
+    <string name="name_card_share_saved">已儲存要分享的資訊</string>
+    <string name="name_card_transfer_connecting">連線中…</string>
+    <string name="name_card_transfer_failed">無法連線</string>
+    <string name="name_card_transfer_share">分享</string>
+    <string name="name_card_transfer_receive_only">僅接收</string>
+    <string name="name_card_transfer_save">儲存</string>
+    <string name="name_card_transfer_done">完成</string>
+    <string name="name_card_transfer_no_name">（無姓名）</string>
+    <string name="name_card_transfer_waiting">等待中…</string>
+    <string name="name_card_transfer_declined">對方拒絕分享聯絡資訊</string>
+    <string name="name_card_transfer_no_response">無回應</string>
+    <string name="name_card_share_error">無法準備要分享的名片，未傳送任何內容。</string>
+    <string name="name_card_consent_headsup_waiting">正在等待對方回應</string>
+    <string name="name_card_consent_headsup_declined">對方拒絕分享資訊</string>
+    <string name="name_card_consent_channel">名片確認</string>
+    <string name="name_card_exchange_channel">名片交換</string>
+    <string name="name_card_exchange_notification">正在分享名片…</string>
+
 </resources>

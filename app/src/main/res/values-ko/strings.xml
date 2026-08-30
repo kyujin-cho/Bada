@@ -382,4 +382,67 @@
     <string name="qs_tile_content_desc_on">근처 기기에서 Bada를 검색할 수 있습니다</string>
     <string name="qs_tile_content_desc_off">Bada를 검색할 수 없습니다</string>
 
+    <!-- Locale parity backfill: Name Card (#251), receive-waiting sheet,
+         NFC tap-to-share settings, empty-state radio hints, consent style,
+         update checker, and credits. Keys mirror values/strings.xml. -->
+    <string name="credit_teqhnikacross_desc">우리는 모두 사랑받고 싶다</string>
+    <string name="settings_nfc_diagnostics_title">NFC 탭 진단 표시</string>
+    <string name="settings_nfc_diagnostics_subtitle">켜면 NFC 탭 공유 때마다 화면에 진단 메시지(읽기 결과, 깨우기, 연결 대상 기기, 실패 사유)가 표시됩니다. 모든 것이 잘 동작하면 꺼서 깔끔하게 사용하세요. 상세 로그는 버그 리포트용으로 항상 보관됩니다.</string>
+    <string name="settings_nfc_title">NFC 탭 공유</string>
+    <string name="settings_nfc_subtitle">다른 폰이 이 기기에 맞대어 전송을 시작할 수 있는 시점을 선택합니다.</string>
+    <string name="settings_nfc_mode_sheet">수신 시트가 열려 있는 동안만</string>
+    <string name="settings_nfc_mode_foreground">앱이 열려 있는 동안</string>
+    <string name="settings_nfc_mode_background">항상 (백그라운드에서도)</string>
+    <string name="settings_consent_style_title">수신 화면 스타일</string>
+    <string name="settings_consent_style_subtitle">다른 기기가 파일을 보내려 할 때 표시되는 수신 동의 화면의 모양을 선택합니다.</string>
+    <string name="settings_consent_style_recolored">색을 입힌 버튼</string>
+    <string name="settings_consent_style_bridge">브리지 카드 스타일</string>
+    <string name="settings_consent_style_sheet">바텀시트만</string>
+    <string name="settings_consent_style_sheet_needs_fsi">\'바텀시트만\' 스타일은 다른 앱 위에 시트를 띄우기 위해 전체 화면 권한이 필요합니다. 다음 화면에서 허용해 주세요.</string>
+    <string name="send_help_sheet_tap_title">탭으로 공유하기</string>
+    <string name="send_help_sheet_tap_body">탭으로 공유하려면 두 폰의 뒷면을 맞대세요. 상대 폰은 화면만 켜져 있으면 되고 앱을 열 필요는 없습니다. 탭 전송은 한쪽만 해야 합니다. 상대 폰도 전송 화면에 있으면 어느 쪽도 탭을 받을 수 없으니, 상대 폰은 홈 화면에 두세요.</string>
+    <string name="send_status_tap_waiting_wifi">Wi‑Fi 대기 중…</string>
+    <string name="consent_state_waiting_title">수신 준비 완료</string>
+    <string name="consent_state_waiting_body">근처 기기의 공유를 기다리는 중…</string>
+    <string name="nfc_tap_hce_service_description">Bada Quick Share 탭 공유</string>
+    <string name="nfc_hce_service_description">Bada NFC 링크</string>
+    <string name="nfc_namecard_hce_service_description">Bada 네임 카드</string>
+    <string name="settings_name_card_row_title">네임 카드</string>
+    <string name="settings_name_card_row_subtitle">폰을 맞대어 공유할 연락처 카드를 설정합니다</string>
+    <string name="name_card_activity_label">네임 카드</string>
+    <string name="name_card_setup_title">내 네임 카드</string>
+    <string name="name_card_setup_subtitle">두 폰을 맞대면 상대 Bada 폰과 공유됩니다. 비워 두면 휴대폰의 기기 이름과 번호가 대신 사용됩니다.</string>
+    <string name="name_card_enable_title">폰을 맞댈 때 내 카드 공유</string>
+    <string name="name_card_field_name">이름</string>
+    <string name="name_card_field_phone">전화번호</string>
+    <string name="name_card_field_email">이메일</string>
+    <string name="name_card_use_phone_info">내 휴대폰 정보 사용</string>
+    <string name="name_card_use_phone_info_filled">휴대폰 정보로 채웠습니다</string>
+    <string name="name_card_use_phone_info_empty">채울 수 있는 정보를 휴대폰에서 찾지 못했습니다</string>
+    <string name="name_card_use_phone_info_denied">권한이 거부되었습니다. 직접 입력해 주세요</string>
+    <string name="name_card_save">저장</string>
+    <string name="name_card_saved">네임 카드를 저장했습니다</string>
+    <string name="name_card_clear">지우기</string>
+    <string name="name_card_cleared">네임 카드를 지웠습니다</string>
+    <string name="name_card_save_empty">이름, 전화번호, 이메일 중 하나를 먼저 입력하세요</string>
+    <string name="name_card_choose_share">공유할 정보 선택</string>
+    <string name="name_card_choose_share_title">공유할 정보 선택</string>
+    <string name="name_card_share_saved">공유할 정보를 저장했습니다</string>
+    <string name="name_card_transfer_connecting">연결 중…</string>
+    <string name="name_card_transfer_failed">연결하지 못했습니다</string>
+    <string name="name_card_transfer_share">공유</string>
+    <string name="name_card_transfer_receive_only">받기만 하기</string>
+    <string name="name_card_transfer_save">저장</string>
+    <string name="name_card_transfer_done">완료</string>
+    <string name="name_card_transfer_no_name">(이름 없음)</string>
+    <string name="name_card_transfer_waiting">기다리는 중…</string>
+    <string name="name_card_transfer_declined">상대방이 연락처 공유를 거절했습니다</string>
+    <string name="name_card_transfer_no_response">응답 없음</string>
+    <string name="name_card_share_error">공유할 카드를 준비하지 못했습니다. 아무것도 전송되지 않았습니다.</string>
+    <string name="name_card_consent_headsup_waiting">상대방의 응답을 기다리는 중</string>
+    <string name="name_card_consent_headsup_declined">상대방이 정보 공유를 거절했습니다</string>
+    <string name="name_card_consent_channel">네임 카드 동의</string>
+    <string name="name_card_exchange_channel">네임 카드 교환</string>
+    <string name="name_card_exchange_notification">네임 카드 공유 중…</string>
+
 </resources>

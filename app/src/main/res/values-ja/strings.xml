@@ -359,4 +359,74 @@
     <string name="fsi_dialog_body">Bada がバックグラウンドにあるときに受信要求が届くと、PIN 要求を画面の上に表示するために全画面通知の権限が必要です。許可しない場合、要求は通常の通知として届き、タップして開けます。設定を開いて許可するか、後で設定タブから対応するにはスキップしてください。</string>
     <string name="fsi_dialog_skip_toast">設定から変更できます。</string>
 
+    <!-- Locale parity backfill: Name Card (#251), receive-waiting sheet,
+         NFC tap-to-share settings, empty-state radio hints, consent style,
+         update checker, and credits. Keys mirror values/strings.xml. -->
+    <string name="credit_section_developer">開発</string>
+    <string name="credit_section_polisher">磨き上げ</string>
+    <string name="credit_section_qa">QA</string>
+    <string name="credit_section_thanks">スペシャルサンクス</string>
+    <string name="credit_teqhnikacross_desc">誰もが愛されたい</string>
+    <string name="settings_nfc_diagnostics_title">NFC タップ診断を表示</string>
+    <string name="settings_nfc_diagnostics_subtitle">オンにすると、NFC タップ共有のたびに画面に診断メッセージ（読み取り結果、ウェイク、接続先の端末、失敗の理由）が表示されます。問題なく動くようになったらオフにしてすっきり使えます。詳細ログはバグレポート用に常に保存されます。</string>
+    <string name="settings_nfc_title">NFC タップ共有</string>
+    <string name="settings_nfc_subtitle">他の端末をこの端末に重ねて転送を開始できるタイミングを選びます。</string>
+    <string name="settings_nfc_mode_sheet">受信シートを開いている間のみ</string>
+    <string name="settings_nfc_mode_foreground">アプリを開いている間</string>
+    <string name="settings_nfc_mode_background">常に（バックグラウンドでも）</string>
+    <string name="settings_consent_style_title">受信画面のスタイル</string>
+    <string name="settings_consent_style_subtitle">他の端末からファイルが送られてくるときに表示される同意画面のスタイルを選びます。</string>
+    <string name="settings_consent_style_recolored">色付きボタン</string>
+    <string name="settings_consent_style_bridge">ブリッジカードスタイル</string>
+    <string name="settings_consent_style_sheet">ボトムシートのみ</string>
+    <string name="settings_consent_style_sheet_needs_fsi">「ボトムシートのみ」では、他のアプリの上にシートを表示するために全画面の権限が必要です。次の画面で許可してください。</string>
+    <string name="send_empty_state_no_bt_no_wifi">端末が見つかりませんでした。Bluetooth をオンにして受信側と同じ Wi-Fi に接続し、受信側で Quick Share が開いているか確認してください。</string>
+    <string name="send_empty_state_no_bt">Wi-Fi で端末が見つかりませんでした。Bluetooth をオンにすると同じ Wi-Fi にない端末にも届きます。受信側で Quick Share が開いているかも確認してください。</string>
+    <string name="send_empty_state_no_wifi">端末が見つかりませんでした。両方の端末を同じ Wi-Fi に接続すると最も確実に見つかります。受信側で Quick Share が開いているかも確認してください。</string>
+    <string name="send_help_sheet_tap_title">タップで共有</string>
+    <string name="send_help_sheet_tap_body">タップで共有するには、2 台の端末の背面同士を重ねてください。相手の端末は画面が点いていれば十分で、アプリを開く必要はありません。タップで送るのは片方だけです。相手も送信画面を開いているとどちらもタップを受け取れないため、相手の端末はホーム画面のままにしてください。</string>
+    <string name="send_status_tap_waiting_wifi">Wi‑Fi を待っています…</string>
+    <string name="consent_state_waiting_title">受信の準備ができました</string>
+    <string name="consent_state_waiting_body">近くの端末からの共有を待っています…</string>
+    <string name="nfc_tap_hce_service_description">Bada Quick Share タップ共有</string>
+    <string name="nfc_hce_service_description">Bada NFC リンク</string>
+    <string name="nfc_namecard_hce_service_description">Bada ネームカード</string>
+    <string name="settings_name_card_row_title">ネームカード</string>
+    <string name="settings_name_card_row_subtitle">端末同士を重ねて共有する連絡先カードを設定します</string>
+    <string name="name_card_activity_label">ネームカード</string>
+    <string name="name_card_setup_title">マイネームカード</string>
+    <string name="name_card_setup_subtitle">端末同士を重ねると相手の Bada 端末と共有されます。空欄の場合は端末自体の名前と番号が使われます。</string>
+    <string name="name_card_enable_title">端末を重ねたときに自分のカードを共有</string>
+    <string name="name_card_field_name">名前</string>
+    <string name="name_card_field_phone">電話番号</string>
+    <string name="name_card_field_email">メール</string>
+    <string name="name_card_use_phone_info">端末の情報を使う</string>
+    <string name="name_card_use_phone_info_filled">端末の情報を入力しました</string>
+    <string name="name_card_use_phone_info_empty">入力に使える情報が端末に見つかりませんでした</string>
+    <string name="name_card_use_phone_info_denied">権限が拒否されました。手動で入力してください</string>
+    <string name="name_card_save">保存</string>
+    <string name="name_card_saved">ネームカードを保存しました</string>
+    <string name="name_card_clear">クリア</string>
+    <string name="name_card_cleared">ネームカードをクリアしました</string>
+    <string name="name_card_save_empty">先に名前・電話番号・メールのいずれかを入力してください</string>
+    <string name="name_card_choose_share">共有する情報を選択</string>
+    <string name="name_card_choose_share_title">共有する情報を選択</string>
+    <string name="name_card_share_saved">共有する情報を保存しました</string>
+    <string name="name_card_transfer_connecting">接続中…</string>
+    <string name="name_card_transfer_failed">接続できませんでした</string>
+    <string name="name_card_transfer_share">共有</string>
+    <string name="name_card_transfer_receive_only">受け取りのみ</string>
+    <string name="name_card_transfer_save">保存</string>
+    <string name="name_card_transfer_done">完了</string>
+    <string name="name_card_transfer_no_name">（名前なし）</string>
+    <string name="name_card_transfer_waiting">待機中…</string>
+    <string name="name_card_transfer_declined">相手が連絡先の共有を断りました</string>
+    <string name="name_card_transfer_no_response">応答なし</string>
+    <string name="name_card_share_error">共有するカードを準備できませんでした。何も送信されていません。</string>
+    <string name="name_card_consent_headsup_waiting">相手の応答を待っています</string>
+    <string name="name_card_consent_headsup_declined">相手が情報の共有を断りました</string>
+    <string name="name_card_consent_channel">ネームカードの同意</string>
+    <string name="name_card_exchange_channel">ネームカード交換</string>
+    <string name="name_card_exchange_notification">ネームカードを共有しています…</string>
+
 </resources>

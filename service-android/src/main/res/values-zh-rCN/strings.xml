@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Simplified Chinese (`zh-rCN`) string overrides for :service-android.
+  Mirrors every user-visible string in `values/strings.xml` so receiver
+  and consent notifications render in Simplified Chinese on a matching
+  locale device while every other locale falls back to the English
+  originals.
+
+  Format placeholders (%1$s, %1$d, etc.) and escaped quotes are
+  preserved verbatim — translators only adjust the surrounding
+  prose. Pluralisation is still handled in code (no `<plurals>`
+  resources here yet); the segment strings below match what the
+  consent / progress notification builders interpolate.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Receiver foreground notification channel + body (#21). -->
+    <string name="receiver_notification_channel_name">Quick Share 接收器</string>
+    <string name="receiver_notification_channel_description">等待接收 Quick Share 传输时显示的状态通知</string>
+    <string name="receiver_notification_title">Quick Share 已启用</string>
+    <string name="receiver_notification_text">正在接收附近文件…</string>
+    <string name="receiver_notification_text_with_ssid">正在“%1$s”网络上接收</string>
+    <string name="receiver_notification_text_unknown_ssid">正在此网络上接收</string>
+
+    <!-- Consent notification (#22). -->
+    <string name="consent_notification_channel_name">传入传输请求</string>
+    <string name="consent_notification_channel_description">其他设备请求发送文件时显示的弹出通知</string>
+    <string name="consent_notification_title_with_name">%1$s 想要分享</string>
+    <string name="consent_notification_title_unknown_sender">附近有设备想要分享内容</string>
+
+    <string name="consent_notification_summary_n_items" tools:ignore="PluralsCandidate">%1$d 项（%2$s）</string>
+    <string name="consent_notification_summary_no_items">没有内容</string>
+
+    <!-- Mixed-introduction summary (#40). -->
+    <string name="consent_notification_summary_kinds_with_size">%1$s（%2$s）</string>
+    <string name="consent_notification_segment_files" tools:ignore="PluralsCandidate">%1$d 个文件</string>
+    <string name="consent_notification_segment_urls" tools:ignore="PluralsCandidate">%1$d 个 URL</string>
+    <string name="consent_notification_segment_addresses" tools:ignore="PluralsCandidate">%1$d 个地址</string>
+    <string name="consent_notification_segment_phone_numbers" tools:ignore="PluralsCandidate">%1$d 个电话号码</string>
+    <string name="consent_notification_segment_texts" tools:ignore="PluralsCandidate">%1$d 段文字</string>
+    <string name="consent_notification_segment_photos" tools:ignore="PluralsCandidate">%1$d 张照片</string>
+    <string name="consent_notification_segment_videos" tools:ignore="PluralsCandidate">%1$d 个视频</string>
+    <string name="consent_notification_pin_label">PIN</string>
+    <string name="consent_notification_filelist_item">%1$s · %2$s</string>
+    <string name="consent_notification_filelist_more" tools:ignore="PluralsCandidate">及其他 %1$d 个</string>
+
+    <!-- Folder-receive summary (#39). -->
+    <string name="consent_notification_summary_folder" tools:ignore="PluralsCandidate">文件夹“%1$s”（%2$d 个文件，%3$s）</string>
+
+    <string name="consent_notification_action_accept">接受</string>
+    <string name="consent_notification_action_reject">拒绝</string>
+
+    <!-- Transfer progress notification (#46). -->
+    <string name="transfer_progress_channel_name">传输进度</string>
+    <string name="transfer_progress_channel_description">Quick Share 传输进行中时显示的静音进度通知</string>
+
+    <string name="transfer_progress_title_with_name">正在接收来自 %1$s 的文件</string>
+    <string name="transfer_progress_title_unknown_sender">正在接收文件</string>
+
+    <string name="transfer_progress_body_size">%1$s / %2$s</string>
+    <string name="transfer_progress_body_rate">%1$s/s</string>
+    <string name="transfer_progress_body_eta">剩余 %1$s</string>
+
+    <string name="transfer_progress_duration_few_seconds">不到一秒</string>
+    <string name="transfer_progress_duration_seconds" tools:ignore="PluralsCandidate">%1$d 秒</string>
+    <string name="transfer_progress_duration_about_minutes" tools:ignore="PluralsCandidate">约 %1$d 分钟</string>
+    <string name="transfer_progress_duration_about_hours" tools:ignore="PluralsCandidate">约 %1$d 小时</string>
+
+    <string name="transfer_progress_action_cancel">取消</string>
+
+</resources>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="app_name">Bada</string>
+    <string name="app_name" translatable="false">Bada</string>
 
     <!-- Bottom-navigation tab labels for MainActivity. The send/receive
          tab is the default destination on cold start; settings holds the
@@ -26,7 +26,7 @@
     <string name="update_status_available">New update available</string>
     <string name="update_status_error">Couldn\'t check for updates</string>
     <string name="update_subtitle_current_version">Current: %1$s</string>
-    <string name="update_subtitle_latest_version">%1$s</string>
+    <string name="update_subtitle_latest_version" translatable="false">%1$s</string>
     <string name="update_button_check_again">Check again</string>
     <string name="update_button_update">Update</string>
     <!-- Automatic update check: notification + download/install flow. -->
@@ -37,7 +37,7 @@
     <string name="update_notification_action_github">View on GitHub</string>
     <string name="update_notification_action_download">Download &amp; install</string>
     <string name="update_downloading_title">Downloading update…</string>
-    <string name="update_downloading_text">Bada %1$s</string>
+    <string name="update_downloading_text" translatable="false">Bada %1$s</string>
     <string name="update_download_failed_title">Update download failed</string>
     <string name="update_download_failed_text">Couldn\'t download the update. Tap the notification to try again or open GitHub.</string>
     <string name="update_install_need_unknown_sources">Allow Bada to install apps, then tap Download again.</string>
@@ -49,7 +49,7 @@
     <string name="update_open_release_failed">Couldn\'t open the release page.</string>
     <string name="settings_auto_update_title">Automatic update check</string>
     <string name="settings_auto_update_subtitle">Every 6 hours, check GitHub for a newer Bada release and show a notification when one is available.</string>
-    <string name="credit_placeholder_text">credit</string>
+    <string name="credit_placeholder_text" translatable="false">credit</string>
 
     <!--
       Credit screen content. Three primary categories (Developer,
@@ -63,9 +63,9 @@
     <string name="credit_section_qa">QA</string>
     <string name="credit_section_thanks">Special Thanks to</string>
 
-    <string name="credit_kevin_name">Kevin Cho</string>
+    <string name="credit_kevin_name" translatable="false">Kevin Cho</string>
     <string name="credit_kevin_desc">I\'m running low on miles</string>
-    <string name="credit_yeonfeel_name">YEONFEEL</string>
+    <string name="credit_yeonfeel_name" translatable="false">YEONFEEL</string>
     <!-- YEONFEEL's tagline is fully localized: this is the English
          rendering of the Korean source "아무도 알지 못하는 세상을 걷는 법"
          (the Korean original lives in values-ko, Japanese in values-ja). -->
@@ -75,15 +75,15 @@
          duplication is intentional: the QA listing recognizes
          Chiyak's testing work, while Special Thanks separately
          credits the dev-token contribution. -->
-    <string name="credit_chiyak_name">Chiyak</string>
+    <string name="credit_chiyak_name" translatable="false">Chiyak</string>
     <string name="credit_chiyak_qa_desc">I wanna buy a concert ticket</string>
-    <string name="credit_teqhnikacross_name">TEQHNIKACROSS</string>
+    <string name="credit_teqhnikacross_name" translatable="false">TEQHNIKACROSS</string>
     <!-- TEQHNIKACROSS keeps the same tagline for both English and Korean
          on purpose (no values-ko override below): the contributor wanted
          "We all want to be loved" rendered as-is, regardless of device
          locale. -->
     <string name="credit_teqhnikacross_desc">We all want to be loved</string>
-    <string name="credit_parami_name">Parami</string>
+    <string name="credit_parami_name" translatable="false">Parami</string>
     <!-- Parami's tagline. Kept as the same English motto across all
          locales. -->
     <string name="credit_parami_desc">Justice will be served.</string>
@@ -562,7 +562,7 @@
       receiver's Receiving state. Uses %% so the literal `%` glyph
       survives string formatting unchanged.
     -->
-    <string name="transfer_progress_percent">%1$d%%</string>
+    <string name="transfer_progress_percent" translatable="false">%1$d%%</string>
 
     <!--
       Quick Settings tile (BadaQuickShareTileService). Toggles the
@@ -573,7 +573,7 @@
       under the tile label on API 29+; the content descriptions back
       TalkBack on every API level.
     -->
-    <string name="qs_tile_label">Bada</string>
+    <string name="qs_tile_label" translatable="false">Bada</string>
     <string name="qs_tile_subtitle_on">Discoverable</string>
     <string name="qs_tile_subtitle_off">Off</string>
     <string name="qs_tile_content_desc_on">Bada is discoverable to nearby devices</string>
