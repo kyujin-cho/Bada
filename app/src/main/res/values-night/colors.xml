@@ -47,6 +47,10 @@
     <color name="frosted_button_stroke">#33FFFFFF</color>
     <color name="frosted_button_disabled">#1A000000</color>
     <color name="frosted_button_ripple">#3D5B82FF</color>
+    <!-- Pressed wash mirrors the day token: lighter brand tint at
+         higher alpha so the instant pressed cue stays legible on the
+         darker plate. See values/colors.xml for why this exists. -->
+    <color name="frosted_button_pressed">#455B82FF</color>
 
     <!-- Popup menu surface flips dark too — keeping it white on
          dark would create a glaring rectangle when the toolbar

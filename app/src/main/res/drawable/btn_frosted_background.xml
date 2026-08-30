@@ -21,6 +21,10 @@
       inside the rounded shape. The `@android:id/mask` shape clips
       the ripple to the same 24dp corner radius — without it, the
       ripple would spill out of the rounded ends as a square.
+    * Pressed wash — an instant `frosted_button_pressed` overlay
+      shared by every frosted button drawable, so the whole family
+      presses identically even where the animated ripple renders
+      poorly (see the token's comment in colors.xml).
 
   Borderless variants (`?android:attr/borderlessButtonStyle`, used
   for Skip / Reset) opt out of this drawable on a per-Button basis,
@@ -52,6 +56,22 @@
                         android:width="1dp"
                         android:color="@color/frosted_button_stroke" />
                     <corners android:radius="24dp" />
+                </shape>
+            </item>
+        </selector>
+    </item>
+
+    <item>
+        <selector>
+            <item android:state_pressed="true">
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/frosted_button_pressed" />
+                    <corners android:radius="24dp" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent" />
                 </shape>
             </item>
         </selector>

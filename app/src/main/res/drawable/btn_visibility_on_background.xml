@@ -14,6 +14,10 @@
     * Default — the linear blue gradient fill.
     * Ripple color — soft white at low alpha so a press glows on top
       of the gradient without washing it out.
+    * Pressed wash — the same instant state_pressed overlay the
+      frosted button family carries, but in white: the brand-blue
+      `frosted_button_pressed` token would vanish on this blue
+      gradient, so the wash matches the ripple's white instead.
 -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
     android:color="#26FFFFFF">
@@ -34,6 +38,22 @@
                 android:startColor="#2D58D5"
                 android:type="linear" />
         </shape>
+    </item>
+
+    <item>
+        <selector>
+            <item android:state_pressed="true">
+                <shape android:shape="rectangle">
+                    <solid android:color="#33FFFFFF" />
+                    <corners android:radius="24dp" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent" />
+                </shape>
+            </item>
+        </selector>
     </item>
 
 </ripple>

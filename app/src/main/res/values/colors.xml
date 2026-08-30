@@ -75,6 +75,17 @@
     <color name="frosted_button_stroke">#22000000</color>
     <color name="frosted_button_disabled">#33000000</color>
     <color name="frosted_button_ripple">#1F0F62FE</color>
+    <!--
+      Instant pressed wash layered under the ripple in every frosted
+      button drawable. The ripple alone is not a reliable pressed cue:
+      on the send sheet's Cancel/Done plate the transparent fill sits
+      on a BackdropBlurView that software-recaptures the view tree
+      every frame, and the animated ripple ends up imperceptible
+      there. A plain state_pressed shape renders through the normal
+      draw path everywhere, so every button in the family presses
+      identically; the ripple still glows on top where it renders.
+    -->
+    <color name="frosted_button_pressed">#2B0F62FE</color>
 
     <!--
       Popup menu (toolbar overflow). Same surface_card token in spirit

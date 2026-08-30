@@ -5,6 +5,13 @@
   BackdropBlurView sitting behind the button shows through, while keeping
   the same 1dp frosted-button stroke + 24dp rounded shape + ripple so the
   button still reads with its usual outline and tap feedback.
+
+  The topmost layer is the shared instant pressed wash (see
+  `frosted_button_pressed` in colors.xml): on THIS button the ripple
+  alone was invisible in practice — the transparent fill sits over a
+  BackdropBlurView whose per-frame software recapture of the view tree
+  leaves the animated ripple imperceptible — so the wash is what
+  guarantees the press reads, here and identically across the family.
 -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
     android:color="@color/frosted_button_ripple">
@@ -31,6 +38,22 @@
                         android:width="1dp"
                         android:color="@color/frosted_button_stroke" />
                     <corners android:radius="24dp" />
+                </shape>
+            </item>
+        </selector>
+    </item>
+
+    <item>
+        <selector>
+            <item android:state_pressed="true">
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/frosted_button_pressed" />
+                    <corners android:radius="24dp" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent" />
                 </shape>
             </item>
         </selector>
