@@ -5,7 +5,6 @@
  */
 package dev.bluehouse.bada.service.receiver.consent
 
-import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -13,9 +12,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.PowerManager
-import android.view.View
-import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import dev.bluehouse.bada.service.R
@@ -25,20 +21,21 @@ import dev.bluehouse.bada.service.R
  *
  * ### Two layers, one notification
  *
- * The issue calls for a two-layered consent UX (#22):
+ * The consent UX is two-layered (#22, reshaped in #279):
  *
- *  1. **High-importance heads-up notification** with Accept / Reject
- *     `Notification.Action`s — fires through
- *     [ConsentBroadcastReceiver] so consent works even when the
- *     screen is off.
- *  2. **Trampoline activity** for users who tap the notification body
- *     to see file details. Same pattern as an incoming call: the
- *     activity uses `setShowWhenLocked(true) + setTurnScreenOn(true)`
- *     to wake the screen.
+ *  1. **High-importance heads-up notification** — a PLAIN banner
+ *     (title + payload summary, no action buttons): it announces the
+ *     incoming transfer and routes every interaction to layer 2.
+ *  2. **Consent bottom sheet** (the trampoline activity) — opened by
+ *     tapping the notification body, or raised directly via the
+ *     full-screen intent when the device is locked / screen-off. It
+ *     shows the full transfer details (file list, PIN) and hosts the
+ *     Accept / Decline decision, which it dispatches through
+ *     [ConsentBroadcastReceiver].
  *
  * Both layers share the same [ConsentRegistry] entry, so whichever
- * surface the user chooses, the resulting `submitUserConsent` lands
- * on the same connection.
+ * surface resolves the prompt, the resulting `submitUserConsent`
+ * lands on the same connection.
  *
  * ### Channel design
  *
@@ -158,21 +155,6 @@ public object ConsentNotification {
     ): Notification {
         val content = ConsentNotificationContent.from(context.resources, entry)
 
-        val acceptIntent =
-            PendingIntent.getBroadcast(
-                context,
-                acceptRequestCodeFor(connectionId),
-                consentBroadcastIntent(context, ConsentIntents.ACTION_ACCEPT, connectionId),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-        val rejectIntent =
-            PendingIntent.getBroadcast(
-                context,
-                rejectRequestCodeFor(connectionId),
-                consentBroadcastIntent(context, ConsentIntents.ACTION_REJECT, connectionId),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-
         val tapIntent =
             if (trampolineTarget != null) {
                 PendingIntent.getActivity(
@@ -189,13 +171,6 @@ public object ConsentNotification {
                 null
             }
 
-        // Decide ONCE whether this post should interrupt with the
-        // full-screen consent sheet (device locked / screen off) or a
-        // heads-up banner (device in use). Only the full-screen intent
-        // hangs off this — see setOngoing below for why the ongoing flag
-        // does not.
-        val useFullScreen = shouldUseFullScreenConsent(context)
-
         val builder =
             NotificationCompat
                 .Builder(context, CHANNEL_ID)
@@ -204,113 +179,57 @@ public object ConsentNotification {
                 .setContentText(content.body)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
-                // Tints the DecoratedCustomViewStyle small-icon circle (the
-                // left-side icon) brand blue — same accent the layout uses
-                // for the PIN chip and Accept button.
+                // Tints the small-icon circle brand blue — same accent the
+                // consent sheet uses for its PIN chip and Accept button.
                 .setColor(ContextCompat.getColor(context, R.color.consent_accent))
                 // ALWAYS ongoing: the consent prompt is the only surface that
                 // resolves the peer's pending request, and there is no
                 // deleteIntent / re-post path — a swipe-dismiss would silently
                 // strand the sender until timeout. Keeping it non-dismissible
-                // on every path (not just the locked / full-screen one)
-                // guarantees the prompt survives a stray swipe on an unlocked
-                // device. The vivo fix for full-screen-intent misuse lives
-                // solely in the keyguard / interactive gating of
-                // setFullScreenIntent below, not in this flag.
+                // on every path guarantees the prompt survives a stray swipe
+                // on an unlocked device.
                 .setOngoing(true)
                 .setAutoCancel(false)
                 .setShowWhen(true)
 
-        // A custom RemoteViews body (notification_consent) wired with the same
-        // broadcast PendingIntents the standard action buttons would use:
-        // recolored Decline/Accept in a start-aligned row, the PIN as its own
-        // prominent chip, and a thumbnail of the incoming item.
-        // DecoratedCustomViewStyle keeps the native notification frame (small
-        // icon, app name, time) and renders our layout as the body. The
-        // collapsed / heads-up view hides the per-file list; the expanded
-        // (big) view reveals it so pulling the notification down shows exactly
-        // what is being sent. The two consent buttons live in the layout, so no
-        // addAction() row is added (it would duplicate them).
-        val collapsedView = buildConsentView(context, content, acceptIntent, rejectIntent, expanded = false)
-        val expandedView = buildConsentView(context, content, acceptIntent, rejectIntent, expanded = true)
-        builder
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            .setCustomContentView(collapsedView)
-            .setCustomBigContentView(expandedView)
-            .setCustomHeadsUpContentView(collapsedView)
+        // The notification is deliberately PLAIN — title + summary only,
+        // no action buttons, no PIN, no custom RemoteViews body. Two
+        // richer presentations were tried and both failed on OEM shades
+        // (vivo / OriginOS, #279): a DecoratedCustomViewStyle body with
+        // in-layout Accept/Decline buttons gets its collapsed height
+        // hard-capped so the button row renders clipped, and a CallStyle
+        // upgrade — the platform's own always-visible-actions template —
+        // still came up with the actions cut off. Android offers no
+        // public API to post a notification pre-expanded (expansion is
+        // SystemUI's call), so the decision UI moved off the notification
+        // entirely: the heads-up is a plain banner, and tapping it (or
+        // the lock-screen full-screen intent below) opens the bottom-
+        // sheet consent surface where Accept / Decline live.
 
         if (tapIntent != null) {
-            // Tapping the notification body opens the consent sheet for
-            // details in every style.
+            // Tapping the notification body opens the consent sheet.
             builder.setContentIntent(tapIntent)
-            // Full-screen intent ONLY while the device is locked or its
-            // screen is off — there the incoming-call-style full-screen sheet
-            // is the right interruption. When the device is unlocked and in
-            // use, stock Android auto-degrades a full-screen intent to a
-            // heads-up banner, but vivo (Funtouch / OriginOS) and some other
-            // OEMs honour the FSI regardless and pop the consent activity
-            // full-screen on top of whatever the user is doing, instead of a
-            // banner. Gating on the live keyguard / interactive state lets the
-            // IMPORTANCE_HIGH channel show its heads-up banner in-use (the
-            // desired UX) while keeping the full-screen sheet on the lock
-            // screen. (Showing the sheet over other apps while in use would
-            // require a draw-over-apps overlay, which we do not use.)
-            if (useFullScreen) {
-                builder.setFullScreenIntent(tapIntent, true)
-            }
+            // Full-screen intent on EVERY post, not just locked / screen-off
+            // (#279 reversed the earlier keyguard gating): the consent sheet
+            // should open BY ITSELF the moment a transfer arrives, the way
+            // stock Quick Share raises its receive prompt, with the
+            // notification landing alongside it in the shade. The FSI is the
+            // only sanctioned background-activity-launch path for that.
+            // Platform behaviour varies by state and skin — locked /
+            // screen-off raises the sheet over the keyguard everywhere;
+            // unlocked-and-in-use auto-opens on skins that honour the FSI
+            // live (vivo / OriginOS — previously treated as misbehaviour
+            // when the surface was a jarring full dialog, now the point:
+            // the sheet is a light translucent overlay in its own task),
+            // while stock Android degrades to the heads-up banner whose tap
+            // opens the same sheet. Android 14+ additionally gates FSI
+            // behind the user-manageable special permission; when revoked
+            // the platform silently falls back to the banner, which is the
+            // same acceptable degradation.
+            builder.setFullScreenIntent(tapIntent, true)
         }
 
         return builder.build()
-    }
-
-    /**
-     * Inflate one [RemoteViews] copy of [R.layout.notification_consent],
-     * bound with the consent text, the PIN chip, the action PendingIntents
-     * and the thumbnail. [expanded] controls the per-file list: the
-     * collapsed / heads-up copy hides it, the big-content copy reveals it
-     * (when there is a list to show). Two copies are needed because the
-     * collapsed and expanded notification states are independent
-     * RemoteViews instances.
-     */
-    private fun buildConsentView(
-        context: Context,
-        content: ConsentNotificationContent,
-        acceptIntent: PendingIntent,
-        rejectIntent: PendingIntent,
-        expanded: Boolean,
-    ): RemoteViews =
-        RemoteViews(context.packageName, R.layout.notification_consent).apply {
-            setTextViewText(R.id.notif_consent_title, content.title)
-            setTextViewText(R.id.notif_consent_body, content.body)
-            setTextViewText(R.id.notif_consent_pin, content.pin)
-            setTextViewText(R.id.notif_consent_accept, content.acceptLabel)
-            setTextViewText(R.id.notif_consent_decline, content.rejectLabel)
-            setOnClickPendingIntent(R.id.notif_consent_accept, acceptIntent)
-            setOnClickPendingIntent(R.id.notif_consent_decline, rejectIntent)
-            // The gallery glyph is a vector set in the layout
-            // (ic_consent_gallery) with a fixed mid-grey tint that stays
-            // legible on both light and dark notification cards — no
-            // runtime bitmap needed. (Theme-attr tints are deliberately
-            // avoided in RemoteViews; see the layout comment.)
-            val showList = expanded && content.fileList.isNotEmpty()
-            setViewVisibility(R.id.notif_consent_filelist, if (showList) View.VISIBLE else View.GONE)
-            if (showList) {
-                setTextViewText(R.id.notif_consent_filelist, content.fileList)
-            }
-        }
-
-    /**
-     * True when the consent prompt should interrupt with the full-screen
-     * sheet (device locked or screen off) rather than a heads-up banner
-     * (device unlocked and in use). Evaluated at post time so it reflects
-     * the device state at the moment the incoming request arrives.
-     */
-    private fun shouldUseFullScreenConsent(context: Context): Boolean {
-        val keyguardLocked =
-            context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
-        val screenOff =
-            context.getSystemService(PowerManager::class.java)?.isInteractive == false
-        return keyguardLocked || screenOff
     }
 
     /**
@@ -370,39 +289,15 @@ public object ConsentNotification {
         manager.cancel(stableNotificationIdFor(connectionId))
     }
 
-    private fun consentBroadcastIntent(
-        context: Context,
-        action: String,
-        connectionId: Long,
-    ): Intent =
-        Intent(action).apply {
-            // Dispatch via setPackage + action only. ConsentBroadcastReceiver
-            // is registered dynamically by ReceiverForegroundService with
-            // RECEIVER_NOT_EXPORTED — there is no manifest entry, so an
-            // explicit setClass(receiver::class) component reference does
-            // not resolve at the BroadcastQueue and the broadcast is
-            // silently dropped (observed on Vivo Funtouch 16 during the
-            // #151 hardware loop, and on OnePlus 15 / Android 16 / ColorOS
-            // 16 where the strict broadcast routing also drops it).
-            // setPackage(packageName) is enough to keep delivery inside
-            // our process; the dynamic receiver's IntentFilter is the
-            // only listener for ACCEPT / REJECT in the package.
-            setPackage(context.packageName)
-            putExtra(ConsentIntents.EXTRA_CONNECTION_ID, connectionId)
-        }
-
     /**
-     * `PendingIntent` request code namespaces. Three slots per
-     * connection (accept / reject / content tap) so updating one does
-     * not implicitly mutate another. Folded into 31 bits because
-     * `getBroadcast` request codes must be int.
+     * `PendingIntent` request code namespace for the content-tap intent.
+     * The stride/offset scheme predates the removal of the notification's
+     * Accept / Reject broadcast actions (their decision surface moved to
+     * the consent bottom sheet); the stride is kept so the content-tap
+     * request codes stay identical across the change and a pending
+     * intent posted by an older build cannot collide with a new one.
+     * Folded into 31 bits because request codes must be int.
      */
-    private fun acceptRequestCodeFor(connectionId: Long): Int =
-        ((connectionId * REQUEST_CODE_STRIDE + ACCEPT_OFFSET) and POSITIVE_INT_MASK_LONG).toInt()
-
-    private fun rejectRequestCodeFor(connectionId: Long): Int =
-        ((connectionId * REQUEST_CODE_STRIDE + REJECT_OFFSET) and POSITIVE_INT_MASK_LONG).toInt()
-
     private fun contentRequestCodeFor(connectionId: Long): Int =
         ((connectionId * REQUEST_CODE_STRIDE + CONTENT_OFFSET) and POSITIVE_INT_MASK_LONG).toInt()
 
@@ -411,7 +306,5 @@ public object ConsentNotification {
     private const val POSITIVE_INT_MASK_LONG: Long = 0x7FFF_FFFFL
 
     private const val REQUEST_CODE_STRIDE = 3L
-    private const val ACCEPT_OFFSET = 0L
-    private const val REJECT_OFFSET = 1L
     private const val CONTENT_OFFSET = 2L
 }

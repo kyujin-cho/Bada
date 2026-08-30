@@ -179,84 +179,6 @@
     </style>
 
     <!--
-      Theme for ConsentTrampolineActivity (#22). The activity is raised
-      via the consent notification's `setFullScreenIntent` (see
-      ConsentNotification.kt) so it appears as a floating card over
-      whatever the user is doing — incoming-call UX. The dialog parent
-      gives us:
-
-        * A windowed (non-fullscreen) layout the platform sizes via
-          windowMinWidthMajor / Minor — typically ~85% of the screen.
-        * A platform dim layer behind the window for the modal feel.
-        * Material widget tinting consistent with the rest of the app
-          (colorPrimary etc.) without breaking the AppCompat-based
-          widgets the layout uses.
-
-      The rounded-card surface is painted by `consent_dialog_background`
-      so the dialog reads as a clean card rather than the
-      Material-default rectangular dialog. `windowIsFloating=true` is
-      inherited from the Dialog parent and is what tells the platform
-      to dim the underlying surface and constrain the window to dialog
-      dimensions; we leave it as inherited.
-    -->
-    <style name="Theme.Bada.ConsentDialog" parent="Theme.MaterialComponents.DayNight.Dialog.Bridge">
-        <item name="colorPrimary">@color/brand_primary</item>
-        <item name="colorPrimaryDark">@color/brand_primary</item>
-        <item name="colorOnPrimary">@color/brand_on_primary</item>
-        <item name="android:windowBackground">@drawable/consent_dialog_background</item>
-
-        <!--
-            Mirror the Theme.Bada brand-face declarations here —
-            the consent dialog activity uses this theme directly, so
-            without these the dialog body would fall back to platform
-            Roboto while the rest of the app reads in Google Sans
-            Flex. Keep these in sync with Theme.Bada.
-        -->
-        <item name="fontFamily">@font/google_sans_flex</item>
-        <item name="android:fontFamily">@font/google_sans_flex</item>
-
-        <!--
-          Mirror the Theme.Bada button-style overrides here too —
-          the dialog activity uses this theme directly (it extends the
-          Material Bridge dialog parent, NOT Theme.Bada), so
-          without these declarations the consent / receiving /
-          completed / failed panel buttons fall back to the platform's
-          default flat gray rectangle and uppercase text. Keep these
-          two blocks in sync with Theme.Bada.
-        -->
-        <item name="buttonStyle">@style/Widget.Bada.Button</item>
-        <item name="android:buttonStyle">@style/Widget.Bada.Button</item>
-        <item name="android:textAppearanceButton">@style/TextAppearance.Bada.Button</item>
-        <!--
-          Suppress the platform-drawn dialog title. Without this, the
-          Activity's `android:label` ("Incoming transfer") shows as a
-          gray bar above our panel content, which reads stale once the
-          flow has moved past consent into receiving / completed
-          states. Each panel already carries its own headline TextView,
-          so the activity-level title is redundant.
-
-          Both the AppCompat-namespaced and android-namespaced versions
-          are set: the Material dialog parent's window decoration goes
-          through the AppCompat path on most APIs, and the platform
-          path is the one PhoneWindow honors when the activity is laid
-          out before AppCompat's decor inflater runs.
-        -->
-        <item name="windowNoTitle">true</item>
-        <item name="android:windowNoTitle">true</item>
-        <!--
-          Match the dialog's width to the SendActivity card: 16dp
-          horizontal margin from the screen edge ≈ 90% of screen
-          width on every standard portrait Android device, which keeps
-          the consent dialog visually congruent with the rest of the
-          app's card-style surfaces. `Minor` covers portrait, `Major`
-          covers landscape; both at the same percentage produces a
-          consistent footprint regardless of orientation.
-        -->
-        <item name="android:windowMinWidthMinor">90%</item>
-        <item name="android:windowMinWidthMajor">90%</item>
-    </style>
-
-    <!--
       Translucent bottom-sheet theme for SendActivity. The activity
       window is made transparent and non-fullscreen
       so its layout — a transparent FrameLayout scrim hosting a
@@ -396,7 +318,29 @@
         <item name="android:windowNoTitle">true</item>
         <item name="android:backgroundDimEnabled">true</item>
         <item name="android:backgroundDimAmount">0.2</item>
-        <item name="android:windowAnimationStyle">@style/WindowAnimation.Bada.SendSheet</item>
+        <item name="android:windowAnimationStyle">@style/WindowAnimation.Bada.ReceiveSheet</item>
+    </style>
+
+    <!--
+      Window enter/exit pair for Theme.Bada.ReceiveSheet. The consent
+      sheet lives in its OWN task (taskAffinity="", launched with
+      FLAG_ACTIVITY_NEW_TASK from the notification tap / full-screen
+      intent), so the task transitions — including taskToFront for a
+      singleTop re-open — must all be pinned here; any slot left to the
+      OEM default plays the skin's app-open zoom on the translucent
+      window, which reads as a ghost app window trailing out behind the
+      sheet. Enter is a fade-only dim ease-in (sheet_dim_fade_in — see
+      that file for why no scale); the visible rise is the sheet's own
+      view-level slide-up. Exit slides the window down, the same close
+      the send sheet uses.
+    -->
+    <style name="WindowAnimation.Bada.ReceiveSheet" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/sheet_dim_fade_in</item>
+        <item name="android:activityCloseExitAnimation">@anim/slide_down_out</item>
+        <item name="android:taskOpenEnterAnimation">@anim/sheet_dim_fade_in</item>
+        <item name="android:taskCloseExitAnimation">@anim/slide_down_out</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/sheet_dim_fade_in</item>
+        <item name="android:taskToBackExitAnimation">@anim/slide_down_out</item>
     </style>
 
     <!--

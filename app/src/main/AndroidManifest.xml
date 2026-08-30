@@ -485,14 +485,25 @@
           the manifest attributes here are belt-and-braces for the
           launcher hint.
         -->
+        <!--
+          taskAffinity="" detaches the consent sheet from the app's main
+          task: the notification tap / full-screen intent launches it with
+          FLAG_ACTIVITY_NEW_TASK, and with the default affinity that
+          resolved INTO the app task — bringing MainActivity forward
+          underneath the translucent sheet, so a notification tap read as
+          "the whole app opened". With its own empty-affinity task, only
+          the sheet appears, floating over whatever the user was doing —
+          the same presentation stock Quick Share's receive prompt has.
+        -->
         <activity
             android:name=".consent.ConsentTrampolineActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTop"
             android:showOnLockScreen="true"
+            android:taskAffinity=""
             android:turnScreenOn="true"
-            android:theme="@style/Theme.Bada.ConsentDialog"
+            android:theme="@style/Theme.Bada.ReceiveSheet"
             android:label="@string/consent_activity_label" />
 
         <!--

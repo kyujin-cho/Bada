@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Window OPEN animation for the consent sheet (Theme.Bada.ReceiveSheet).
+
+  A pure alpha fade — deliberately NO scale, unlike popup_fade_in /
+  popup_fade_in_fast. The consent sheet window is a full-screen
+  translucent surface whose only visible pixels are the 0.2 dim and the
+  bottom sheet card; a scale component animates that whole surface from
+  the screen centre, which on device reads as "a transparent app window
+  zooming open behind the sheet" (reported on vivo / OriginOS, #279).
+  With a fade-only open, the dim eases in and the ONLY motion is the
+  sheet's own view-level slide-up (DraggableSheetLayout.playEntrance,
+  triggered from onEnterAnimationComplete) — the system-bottom-sheet
+  look.
+
+  Kept short (120ms) but not zero: a zero-duration window animation
+  risks the "appears already settled, no slide" masking bug the
+  onEnterAnimationComplete trigger fixed for the send sheet (see
+  popup_fade_in_fast.xml).
+-->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="120"
+    android:fromAlpha="0.0"
+    android:interpolator="@android:interpolator/decelerate_quad"
+    android:toAlpha="1.0" />

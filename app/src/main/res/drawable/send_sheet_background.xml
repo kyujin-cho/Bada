@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Background for the floating send bottom sheet (DraggableSheetLayout in
-  activity_send.xml). The sheet sits inset from all four screen edges
-  (12dp margins) and reads as a card, so all four corners are rounded with
-  a 28dp sheet radius — larger than the 20dp sender card / consent dialog
-  so the larger surface still reads as a sheet rather than a small card.
+  Background for the floating bottom sheets (DraggableSheetLayout in
+  activity_send.xml and activity_consent_trampoline.xml). Each sheet sits
+  inset from the screen edges (12dp margins) and reads as a card, so all
+  four corners are rounded with a 28dp sheet radius — larger than the 20dp
+  sender card so the larger surface still reads as a sheet rather than a
+  small card.
 
   Shares the low-amplitude `card_dialog_gradient_*` colour ramp with
-  `dialog_gradient_background.xml` and `consent_dialog_background.xml` so the
-  send sheet, sender card, and consent dialog feel like the same family —
-  barely-tinted sky blue at top fading to neutral surface at bottom in day
-  mode; barely-tinted navy fading to dark surface in night mode.
+  `dialog_gradient_background.xml` so the send sheet, sender card, and
+  consent sheet feel like the same family — barely-tinted sky blue at top
+  fading to neutral surface at bottom in day mode; barely-tinted navy
+  fading to dark surface in night mode.
 
   `angle="270"` is "top → bottom" in Android's drawable convention.
 -->

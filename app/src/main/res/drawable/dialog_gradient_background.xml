@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Gradient backdrop drawable for the SendActivity card. Shares its
-  colour ramp with `consent_dialog_background.xml` so the two
-  primary card surfaces (sender card + consent dialog) feel like
-  the same family.
+  colour ramp with `send_sheet_background.xml` so the primary card
+  surfaces feel like the same family.
 
   Pinned 20dp corner radius matches the host MaterialCardView's
   `app:cardCornerRadius="20dp"` so the rasterized drawable lines up

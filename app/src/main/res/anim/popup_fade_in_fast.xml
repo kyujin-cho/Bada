@@ -6,11 +6,12 @@
   which makes the view-level slide-up start sooner, so the sheet animates in
   over the still-fading chooser instead of appearing already settled.
 
-  WHY a separate resource (not just shortening popup_fade_in): popup_fade_in is
-  shared by Theme.Bada.ReceiveSheet (the consent sheet) via the shared
+  WHY a separate resource (not just shortening popup_fade_in): popup_fade_in
+  stays on the generic dialog surfaces via the shared
   WindowAnimation.Bada.SendSheet style; this fast variant is wired ONLY to
-  the SEND sheet (WindowAnimation.Bada.SendSheet.Fast) so the consent
-  sheet's entrance is unchanged.
+  the SEND sheet (WindowAnimation.Bada.SendSheet.Fast). The consent sheet
+  uses its own scale-free fade (sheet_dim_fade_in via
+  WindowAnimation.Bada.ReceiveSheet — see that file for why no scale).
 
   Still a FADE only (no vertical translate): the visible slide-up is the
   DraggableSheetLayout.playEntrance VIEW animation, triggered AFTER this fade

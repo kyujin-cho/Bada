@@ -49,16 +49,13 @@ public data class ConsentNotificationContent(
 ) {
     public companion object {
         /**
-         * Cap on the number of file lines included verbatim in the
-         * expanded notification. A typical Quick Share consent prompt
-         * shows at most a handful of files; capping protects against a
+         * Cap on the number of file lines included verbatim in
+         * [buildFileList]. A typical Quick Share consent prompt shows
+         * at most a handful of files; capping protects against a
          * malicious or buggy peer announcing thousands of items.
-         *
-         * Line budget: the expanded list TextView allows `maxLines="9"`
-         * (see `notification_consent.xml`), which must hold these 7
-         * item lines plus the "…and N more" trailer with one spare
-         * line, so a single wrapped long filename cannot silently push
-         * the trailer off the end. Keep the two values in sync.
+         * (The notification itself no longer renders this list — the
+         * consent bottom sheet is the detail surface — but the capped
+         * builder stays for any text surface that needs the summary.)
          */
         public const val MAX_LISTED_ITEMS: Int = 7
 

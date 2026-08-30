@@ -1,10 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Layout for ConsentTrampolineActivity (#22).
+  Layout for ConsentTrampolineActivity (#22, bottom-sheet shape #279).
 
-  This is the screen-on, lock-screen-bypassing dialog that opens when
-  the user taps the consent notification body. The activity now hosts
-  four sequential states inside a single dialog-themed window:
+  This is the screen-on, lock-screen-bypassing consent surface that
+  opens when the user taps the consent notification body. It is
+  presented as a bottom sheet — the same shape stock Quick Share uses
+  for its receive prompt, and the same scrim + DraggableSheetLayout
+  structure as the send sheet (activity_send.xml), hosted by the
+  translucent Theme.Bada.ReceiveSheet:
+
+    1. consent_sheet_root — transparent full-screen FrameLayout. The
+       window behind shows through with a soft 0.2 dim; tapping the
+       scrim area outside the card finishes the activity WITHOUT a
+       decision (dismissal is not a reject — the ongoing notification
+       stays in the shade so the user can still decide).
+    2. consent_sheet — the bottom-anchored DraggableSheetLayout card
+       (rounded send_sheet_background, 12dp side margins), draggable
+       down to dismiss.
+
+  Inside the sheet, the activity hosts five sequential states:
 
     1. consent_panel — Accept / Reject prompt with sender name, file
        summary, and the 4-digit PIN. Default visible state on entry.
@@ -20,20 +34,58 @@
        headline + a `Close` action. Switched in on
        InboundConnectionState.Cancelled / Failed / Rejected.
 
-  All four panels share the same FrameLayout slot inside the
-  ScrollView so the dialog window resizes to fit whichever panel is
-  currently visible. Only one panel is visible at any time;
+  All panels share the same fixed-height FrameLayout slot inside the
+  ScrollView. Only one panel is visible at any time;
   ConsentTrampolineActivity flips visibility via
   TransitionManager.beginDelayedTransition with a ChangeBounds
-  transition so the dialog smoothly resizes between states.
+  transition so the sheet content swaps smoothly between states.
 -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/consent_root"
+    android:id="@+id/consent_sheet_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+    <!--
+      Full-bleed transparent scrim behind the sheet. Consumes taps
+      outside the card; ConsentTrampolineActivity wires its click to
+      finish() — a no-decision dismiss, same semantics as system back.
+    -->
+    <View
+        android:id="@+id/consent_sheet_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent" />
+
+    <!--
+      Unlike the send sheet, the card carries NO inner padding: every
+      panel already brings its own 24dp content padding, and the
+      completed-state blur backdrop must reach the card edges — with
+      the send sheet's 4/8dp padding it rendered as a square-cornered
+      rectangle floating inside a white ring. The blur's rounded clip
+      (matching the 28dp card radius) is applied in code on
+      consent_card_frame — see ConsentTrampolineActivity.wireBottomSheet.
+    -->
+    <dev.bluehouse.bada.ui.sheet.DraggableSheetLayout
+        android:id="@+id/consent_sheet"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="12dp"
+        android:background="@drawable/send_sheet_background"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical">
+
+    <ScrollView
+        android:id="@+id/consent_root"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
 
     <!--
       Inner content has a FIXED height of 480dp so the dialog never
@@ -44,6 +96,7 @@
       both completion surfaces share the same footprint.
     -->
     <FrameLayout
+        android:id="@+id/consent_card_frame"
         android:layout_width="match_parent"
         android:layout_height="480dp">
 
@@ -500,4 +553,8 @@
 
     </FrameLayout>
 
-</ScrollView>
+    </ScrollView>
+
+    </dev.bluehouse.bada.ui.sheet.DraggableSheetLayout>
+
+</FrameLayout>

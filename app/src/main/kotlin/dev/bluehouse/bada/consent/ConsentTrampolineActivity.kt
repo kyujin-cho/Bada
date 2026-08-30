@@ -12,6 +12,7 @@ import android.graphics.Bitmap
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.ImageDecoder
+import android.graphics.Outline
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.net.Uri
@@ -25,6 +26,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.Button
@@ -57,6 +59,7 @@ import dev.bluehouse.bada.service.receiver.consent.ConsentRegistry
 import dev.bluehouse.bada.transfer.KeepScreenOnPreferences
 import dev.bluehouse.bada.transfer.TransferExpertDetailsFormatter
 import dev.bluehouse.bada.transfer.TransferExpertViewPreferences
+import dev.bluehouse.bada.ui.sheet.DraggableSheetLayout
 import dev.bluehouse.bada.ui.sheet.RoundedProgressBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -130,6 +133,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private var connectionId: Long = ConsentIntents.MISSING_CONNECTION_ID
     private var decisionSubmitted: Boolean = false
     private var modalRegistered: Boolean = false
+    private var sheetEntrancePlayed: Boolean = false
     private lateinit var bugReportFlowSupport: BugReportFlowSupport
 
     /**
@@ -162,25 +166,108 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_consent_trampoline)
         bugReportFlowSupport = BugReportFlowSupport.install(this)
+        wireBottomSheet()
 
         ConsentDiagnostic.log(this, "trampoline.onCreate intent.id=${incomingId(intent)}")
         bindIntent(intent)
     }
 
     /**
-     * Override the activity-level dismissal animation so every path
-     * out of the popup — accept / reject button, close button on the
-     * completed panel, system back, or tap-outside on the dialog
-     * window — fades + slightly scales the dialog as it leaves
-     * instead of disappearing in a single frame. The platform's
-     * default Dialog-theme exit is just an alpha fade with a short
-     * duration; the custom [popup_fade_out] keeps the same direction
-     * but adds the matching scale + interpolator the entrance uses.
+     * Wire the bottom-sheet presentation (#279) — the same scrim +
+     * [DraggableSheetLayout] structure and entrance as the send sheet:
+     * the card is pre-hidden below the screen and slides up via
+     * [DraggableSheetLayout.playEntrance] once the window's open fade
+     * has finished ([onEnterAnimationComplete]), so the ONLY visible
+     * motion is the sheet rising from the bottom edge — the window
+     * itself only fades its dim in (see
+     * `WindowAnimation.Bada.ReceiveSheet` for why it must not slide
+     * or scale).
      *
-     * `overridePendingTransition` is deprecated on API 34+ in favour
-     * of `overrideActivityTransition`, but the old API still works
-     * (back-compat shim is still wired in the framework) and is
-     * trivially correct for our minSdk = 24 floor.
+     * Scrim tap and drag-down both [finish] WITHOUT a decision —
+     * same semantics as system back: dismissal is not a reject, and
+     * the ongoing consent notification stays in the shade so the
+     * user can still decide.
+     */
+    private fun wireBottomSheet() {
+        val sheet = findViewById<DraggableSheetLayout>(R.id.consent_sheet)
+        findViewById<View>(R.id.consent_sheet_scrim).setOnClickListener { finish() }
+        sheet.setOnDismiss { finish() }
+        // Track the navigation-bar inset as OUTER bottom margin, not the
+        // sheet padding the send sheet uses (applyBottomInset): the card
+        // carries no inner padding here, so padding-based insetting
+        // painted the inset as a white band INSIDE the card, below the
+        // clipped state frame. Growing the margin instead floats the
+        // whole card above the nav bar and keeps the card edge flush
+        // with its content (the completed-state blur in particular).
+        val root = findViewById<View>(R.id.consent_sheet_root)
+        val baseBottomMargin = (sheet.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin
+        root.setOnApplyWindowInsetsListener { _, insets ->
+            val navBottom =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    insets
+                        .getInsets(
+                            android.view.WindowInsets.Type
+                                .navigationBars(),
+                        ).bottom
+                } else {
+                    @Suppress("DEPRECATION")
+                    insets.systemWindowInsetBottom
+                }
+            val params = sheet.layoutParams as ViewGroup.MarginLayoutParams
+            if (params.bottomMargin != baseBottomMargin + navBottom) {
+                params.bottomMargin = baseBottomMargin + navBottom
+                sheet.layoutParams = params
+            }
+            insets
+        }
+        // Round-clip the state frame to the card's own corner radius so
+        // full-bleed layers inside it — the completed-state photo blur
+        // in particular — take the sheet's shape instead of poking
+        // square corners past the rounded card.
+        val cardFrame = findViewById<View>(R.id.consent_card_frame)
+        cardFrame.outlineProvider =
+            object : ViewOutlineProvider() {
+                override fun getOutline(
+                    view: View,
+                    outline: Outline,
+                ) {
+                    val radius = SHEET_CORNER_RADIUS_DP * resources.displayMetrics.density
+                    outline.setRoundRect(0, 0, view.width, view.height, radius)
+                }
+            }
+        cardFrame.clipToOutline = true
+        // Pre-hide below the screen before the first frame; the slide-up
+        // is kicked from onEnterAnimationComplete (with a delayed
+        // fallback for OEM launch paths that never fire it).
+        sheet.prepareOffscreen()
+        sheet.postDelayed({ startSheetEntrance() }, ENTRANCE_TRIGGER_FALLBACK_MS)
+    }
+
+    /**
+     * Kick the sheet's view-level slide-up exactly once — normally from
+     * [onEnterAnimationComplete] (after the window open fade), with the
+     * [wireBottomSheet] postDelayed fallback covering launch paths where
+     * the callback never fires. Mirrors the send sheet's trigger.
+     */
+    override fun onEnterAnimationComplete() {
+        super.onEnterAnimationComplete()
+        startSheetEntrance()
+    }
+
+    private fun startSheetEntrance() {
+        if (sheetEntrancePlayed) return
+        sheetEntrancePlayed = true
+        val sheet = findViewById<DraggableSheetLayout>(R.id.consent_sheet)
+        sheet.post { sheet.playEntrance() }
+    }
+
+    /**
+     * Every path out of the sheet — reject button, close button on
+     * the completed panel, system back, scrim tap, or drag-down —
+     * routes through here; the slide-down exit is the window close
+     * animation from Theme.Bada.ReceiveSheet (see
+     * [DraggableSheetLayout.dismiss] for why the view does not also
+     * translate itself).
      */
     override fun finish() {
         // If this sheet was opened by the Quick Settings tile in waiting
@@ -1097,6 +1184,23 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private companion object {
         /** Cap on the number of file lines rendered before truncation. */
         private const val MAX_ITEM_LINES = 8
+
+        /**
+         * Corner radius of the sheet card's rounded clip — MUST match
+         * the 28dp `<corners>` radius in `send_sheet_background.xml`
+         * (the card background both bottom sheets share), so the
+         * completed-state blur clipped by [wireBottomSheet]'s outline
+         * lines up with the card's own rounded edge.
+         */
+        private const val SHEET_CORNER_RADIUS_DP = 28f
+
+        /**
+         * Fallback delay before the sheet entrance when
+         * [onEnterAnimationComplete] never fires (some OEM launch
+         * paths). Same value the send sheet uses; idempotent with the
+         * callback via [sheetEntrancePlayed].
+         */
+        private const val ENTRANCE_TRIGGER_FALLBACK_MS = 260L
 
         /** Diagnostic tag for the activity-side preview / view-image paths. */
         private const val TAG = "BadaConsent"
