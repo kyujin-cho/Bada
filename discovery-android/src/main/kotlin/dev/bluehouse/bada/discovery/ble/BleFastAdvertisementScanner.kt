@@ -615,11 +615,16 @@ private fun BleFastAdvertisementScanner.Observation.requiresGattVerification(): 
         l2capPsm == null &&
         !gattConnectable
 
+// The DCT (0xFEF3) advertisement carries no device-type field on the
+// wire, so the synthesized EndpointInfo must not fabricate one. UNKNOWN
+// keeps a later [NearbyPeerDiscovery.chooseEndpointInfo] merge from
+// letting this placeholder clobber a real device type observed over
+// mDNS (#277).
 private fun DctAdvertisement.Parsed.toEndpointInfo(): EndpointInfo =
     EndpointInfo(
         version = 1,
         hidden = false,
-        deviceType = DeviceType.PHONE,
+        deviceType = DeviceType.UNKNOWN,
         reserved = false,
         metadata = ByteArray(EndpointInfo.METADATA_LEN),
         deviceName = deviceName,

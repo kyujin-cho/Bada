@@ -24,6 +24,7 @@ import dev.bluehouse.bada.discovery.NearbyPeerEvent
 import dev.bluehouse.bada.discovery.NearbyPeerRoute
 import dev.bluehouse.bada.discovery.ble.BleAdvertiseHandle
 import dev.bluehouse.bada.discovery.ble.BleAdvertiser
+import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.service.receiver.ReceiverAdvertisementStateHolder
 import dev.bluehouse.bada.ui.sheet.DeviceIconView
 import kotlinx.coroutines.CoroutineScope
@@ -124,7 +125,8 @@ internal class SendPeerPickerController(
      * Snapshot of the row contents the picker was last rendered with —
      * one entry per visible peer in the order they were drawn, capturing
      * only the fields the row actually displays (stableId for identity,
-     * title for the primary line, subtitle for the secondary line).
+     * title for the primary line, subtitle for the secondary line,
+     * deviceType for the disc icon).
      *
      * Used to short-circuit [renderPeerList] when a discovery event
      * carries no display-relevant change. Without this gate, every BLE
@@ -135,6 +137,11 @@ internal class SendPeerPickerController(
      * more peers in the list, that churn lands inside roughly 10% of
      * tap windows and the user has to double-tap to register a click —
      * exactly the symptom reported on multi-peer environments.
+     *
+     * deviceType participates in the comparison so a type that arrives
+     * or changes after the row was first drawn (e.g. UNKNOWN until an
+     * mDNS resolve lands LAPTOP, #277) still triggers a repaint with
+     * the right device-type icon.
      */
     private var lastRenderedRowSnapshot: List<RenderedRowSnapshot> = emptyList()
 
@@ -165,6 +172,7 @@ internal class SendPeerPickerController(
         val stableId: String,
         val title: String,
         val subtitle: String,
+        val deviceType: DeviceType,
     )
 
     fun start() {
@@ -290,6 +298,13 @@ internal class SendPeerPickerController(
     fun peerSubtitle(peer: NearbyPeer): String = planFor(peer).subtitle
 
     fun peerFailureReason(peer: NearbyPeer): String = planFor(peer).failureReason ?: "no usable initial route"
+
+    /**
+     * The peer's advertised device type for the disc icon, falling back to
+     * UNKNOWN (smartphone glyph) when no endpoint info has been resolved
+     * yet (#277).
+     */
+    private fun peerDeviceType(peer: NearbyPeer): DeviceType = peer.endpointInfo?.deviceType ?: DeviceType.UNKNOWN
 
     fun formatPeerSnapshot(
         peer: NearbyPeer,
@@ -422,6 +437,7 @@ internal class SendPeerPickerController(
             val peer: NearbyPeer,
             val title: String,
             val subtitle: String,
+            val deviceType: DeviceType,
         )
         val seenNames = HashSet<String>()
         val targetRows =
@@ -430,11 +446,11 @@ internal class SendPeerPickerController(
                 if (!plan.isConnectable) return@mapNotNull null
                 val label = peerLabel(peer)
                 if (!seenNames.add(label)) return@mapNotNull null
-                TargetRow(peer, label, plan.subtitle)
+                TargetRow(peer, label, plan.subtitle, peerDeviceType(peer))
             }
         val targetSnapshot =
             targetRows.map { row ->
-                RenderedRowSnapshot(row.peer.stableId, row.title, row.subtitle)
+                RenderedRowSnapshot(row.peer.stableId, row.title, row.subtitle, row.deviceType)
             }
 
         // Subtitle ("Looking for nearby devices…" vs "Pick a device")
@@ -464,7 +480,7 @@ internal class SendPeerPickerController(
         container.removeAllViews()
         for (target in targetRows) {
             val stableId = target.peer.stableId
-            val icon = DeviceIconView(context, stableId, target.title)
+            val icon = DeviceIconView(context, stableId, target.title, target.deviceType)
             icon.isEnabled = true
             icon.alpha = 1f
             icon.setOnClickListener {

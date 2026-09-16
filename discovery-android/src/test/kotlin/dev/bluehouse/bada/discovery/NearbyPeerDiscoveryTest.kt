@@ -745,6 +745,70 @@ class NearbyPeerDiscoveryTest {
         }
 
     @Test
+    fun `named BLE observation after LAN resolve preserves the device type`() =
+        runTest {
+            // Reproduces #277: a named BLE/DCT observation has no
+            // device-type field on the wire (UNKNOWN), and "named
+            // incoming always wins" in [chooseEndpointInfo] would
+            // otherwise let that placeholder clobber a real LAPTOP
+            // carried by an earlier mDNS resolve. The merged record
+            // must keep the real type so the picker can show the
+            // peer's device-type icon.
+            val lanEvents = MutableSharedFlow<DiscoveryEvent>()
+            val bleEvents = MutableSharedFlow<BleFastAdvertisementScanner.Observation>()
+            val bluetoothEvents = MutableSharedFlow<BluetoothClassicPeerScanner.Observation>()
+            val discovery =
+                NearbyPeerDiscovery.forTesting(
+                    lanEvents = lanEvents,
+                    bleEvents = bleEvents,
+                    bluetoothEvents = bluetoothEvents,
+                )
+            val seen = mutableListOf<NearbyPeerEvent>()
+            val collector =
+                backgroundScope.launch {
+                    discovery.browse().collect { seen += it }
+                }
+            runCurrent()
+
+            val endpointId = "TYPE".toByteArray(Charsets.US_ASCII)
+            val instanceName = "type-instance"
+            val address = listOf(InetAddress.getByName("192.168.1.72"))
+
+            lanEvents.emit(
+                DiscoveryEvent.Resolved(
+                    DiscoveredService(
+                        instanceName = instanceName,
+                        endpointId = endpointId,
+                        addresses = address,
+                        port = 41234,
+                        endpointInfo = endpointInfo(name = "MacBook", deviceType = DeviceType.LAPTOP),
+                    ),
+                ),
+            )
+            runCurrent()
+            val lanResolved = seen.last() as NearbyPeerEvent.Resolved
+            assertThat(lanResolved.peer.endpointInfo!!.deviceType).isEqualTo(DeviceType.LAPTOP)
+
+            bleEvents.emit(
+                BleFastAdvertisementScanner.Observation(
+                    endpointId = String(endpointId, Charsets.US_ASCII),
+                    endpointInfo = endpointInfo(name = "MacBook", deviceType = DeviceType.UNKNOWN),
+                    advertiserAddress = "77:88:99:AA:BB:CC",
+                    rssi = -47,
+                    l2capPsm = null,
+                    gattConnectable = false,
+                ),
+            )
+            runCurrent()
+
+            val merged = (seen.last() as NearbyPeerEvent.Resolved).peer.endpointInfo!!
+            assertThat(merged.deviceType).isEqualTo(DeviceType.LAPTOP)
+            assertThat(merged.deviceName).isEqualTo("MacBook")
+
+            collector.cancel()
+        }
+
+    @Test
     fun `displayName falls back to a generic label and never leaks the LAN address`() {
         // A nameless LAN-only peer (hidden EndpointInfo → no device name on the
         // wire, no endpointId, no BLE advertisement). The stableId is a raw LAN
@@ -772,11 +836,12 @@ class NearbyPeerDiscoveryTest {
     private fun endpointInfo(
         name: String?,
         hidden: Boolean = false,
+        deviceType: DeviceType = DeviceType.PHONE,
     ): EndpointInfo =
         EndpointInfo(
             version = 1,
             hidden = hidden,
-            deviceType = DeviceType.PHONE,
+            deviceType = deviceType,
             reserved = false,
             metadata = ByteArray(EndpointInfo.METADATA_LEN) { it.toByte() },
             deviceName = name,
