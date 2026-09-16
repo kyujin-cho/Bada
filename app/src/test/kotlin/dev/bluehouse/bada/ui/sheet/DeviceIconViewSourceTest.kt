@@ -37,4 +37,26 @@ class DeviceIconViewSourceTest {
         )
         assertFalse("Do not restore the old fixed peer-name color.", source.contains("NAME_COLOR"))
     }
+
+    @Test
+    fun `the device-type mapping wires the three drawable resources`() {
+        // The app unit-test classpath does not carry the module's own R
+        // class, so the exact resId wiring is guarded here at the source
+        // level (#277); resource compilation in :app:assembleDebug turns
+        // a bad resource reference into a build failure.
+        val mapping =
+            source.substringAfter("iconResIdFor(deviceType: DeviceType): Int =").substringBefore("}")
+        assertTrue(
+            "Laptop must map to the laptop drawable.",
+            mapping.contains("DeviceType.LAPTOP -> R.drawable.ic_device_laptop_24"),
+        )
+        assertTrue(
+            "Tablet must map to the tablet drawable.",
+            mapping.contains("DeviceType.TABLET -> R.drawable.ic_device_tablet_24"),
+        )
+        assertTrue(
+            "The fallback must map to the smartphone drawable.",
+            mapping.contains("else -> R.drawable.ic_device_smartphone_24"),
+        )
+    }
 }

@@ -157,7 +157,11 @@ class BleFastAdvertisementScannerTest {
         assertThat(observed!!.endpointId)
             .isEqualTo(DctAdvertisement.generateEndpointId(dct.dedup, dct.deviceName))
         assertThat(observed.endpointInfo!!.hidden).isFalse()
-        assertThat(observed.endpointInfo.deviceType).isEqualTo(DeviceType.PHONE)
+        // The DCT advertisement has no device-type field on the wire, so
+        // the synthesized EndpointInfo must carry UNKNOWN — never a
+        // fabricated PHONE that could clobber a real mDNS-observed type
+        // in the aggregator merge (#277).
+        assertThat(observed.endpointInfo.deviceType).isEqualTo(DeviceType.UNKNOWN)
         assertThat(observed.endpointInfo.deviceName).isEqualTo(dct.deviceName)
         assertThat(observed.advertiserAddress).isEqualTo("28:1B:3E:BA:B1:1B")
         assertThat(observed.rssi).isEqualTo(-41)

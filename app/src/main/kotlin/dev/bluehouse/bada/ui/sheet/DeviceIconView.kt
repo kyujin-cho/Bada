@@ -10,6 +10,8 @@ import android.view.Gravity
 import android.view.animation.OvershootInterpolator
 import android.widget.LinearLayout
 import android.widget.TextView
+import dev.bluehouse.bada.R
+import dev.bluehouse.bada.protocol.endpoint.DeviceType
 
 /**
  * One discovered device in the
@@ -24,8 +26,10 @@ import android.widget.TextView
  * screen. It renders up to two 13sp lines and inherits the activity theme's
  * primary text color, keeping it dark in day mode and light in night mode.
  * [SendPeerPickerController] creates the view whenever discovery renders a
- * connectable peer. [DeviceIconViewSourceTest] guards the no-hardcoded-color
- * contract; rendered day/night behavior still requires an on-device UI check.
+ * connectable peer; the disc icon reflects [deviceType] via
+ * [iconResIdFor] (#277). [DeviceIconViewSourceTest] guards the
+ * no-hardcoded-color contract; rendered day/night behavior still requires
+ * an on-device UI check.
  *
  * Programmatic custom view: dp sizes, text sizes, and ARGB colour components are
  * inherently numeric layout constants, so MagicNumber is suppressed.
@@ -35,6 +39,8 @@ public class DeviceIconView(
     context: Context,
     public val peerId: String,
     name: String,
+    /** Advertised device type; drives the disc icon via [iconResIdFor]. Defaults to UNKNOWN. */
+    deviceType: DeviceType = DeviceType.UNKNOWN,
 ) : LinearLayout(context) {
     private val ring: RingProgressView
     private val peerNameLabel: TextView
@@ -48,6 +54,7 @@ public class DeviceIconView(
         setPadding(pad, pad, pad, pad)
 
         ring = RingProgressView(context)
+        ring.setIconResId(iconResIdFor(deviceType))
         val size = (64 * d).toInt()
         addView(ring, LayoutParams(size, size))
 
@@ -118,5 +125,19 @@ public class DeviceIconView(
         private const val BOUNCE_DOWN_MS = 90L
         private const val BOUNCE_UP_MS = 320L
         private const val BOUNCE_TENSION = 3.5f
+
+        /**
+         * Maps the peer's advertised device type to the icon resource
+         * drawn inside the ring (#277). The wire field only lets us
+         * distinguish computer vs phone/tablet; CAR / FOLDABLE / XR
+         * would need their own drawables and fall back to the
+         * smartphone glyph together with UNKNOWN for now.
+         */
+        internal fun iconResIdFor(deviceType: DeviceType): Int =
+            when (deviceType) {
+                DeviceType.LAPTOP -> R.drawable.ic_device_laptop_24
+                DeviceType.TABLET -> R.drawable.ic_device_tablet_24
+                else -> R.drawable.ic_device_smartphone_24
+            }
     }
 }

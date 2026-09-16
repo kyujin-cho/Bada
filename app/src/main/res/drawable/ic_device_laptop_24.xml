@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Device-type icon for the send peer picker (#277): a minimal laptop
+  pictogram drawn for this app — a rounded-rect screen outline
+  (18x12 units, r=2, 1.5-unit bezel, square inner corners per the
+  Material convention used by the smartphone/tablet icons) floating
+  above a thin capsule bar (base, 22x2 units), separated by a 2-unit
+  gap. Vertically centered on the viewport (extent y[4,20]).
+  Shows inside the blue RingProgressView disc for peers whose
+  EndpointInfo advertises DeviceType.LAPTOP (NearDrop on macOS and
+  Windows Quick Share both advertise LAPTOP(3) over mDNS).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M5,4h14c1.1,0,2,0.9,2,2v8c0,1.1,-0.9,2,-2,2H5c-1.1,0,-2,-0.9,-2,-2V6c0,-1.1,0.9,-2,2,-2zM4.5,5.5v9h15v-9zM2,18h20c0.55,0,1,0.45,1,1s-0.45,1,-1,1H2c-0.55,0,-1,-0.45,-1,-1s0.45,-1,1,-1z" />
+</vector>

@@ -11,6 +11,7 @@ import android.content.Context
 import dev.bluehouse.bada.discovery.ble.BleFastAdvertisementScanner
 import dev.bluehouse.bada.discovery.classic.BluetoothClassicPeerScanner
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
+import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -386,28 +387,43 @@ private fun chooseEndpointInfo(
     if (incoming == null) return existing
     val existingNamed = !existing.deviceName.isNullOrBlank()
     val incomingNamed = !incoming.deviceName.isNullOrBlank()
-    return when {
-        // A named incoming observation always wins. Either it is the
-        // first time we have a name, or it is a fresh resolve that
-        // reflects a name change on the publishing peer (e.g. the
-        // user just edited the Quick Share display name in Settings
-        // and the receiver re-published its mDNS record). Keeping
-        // the cached `existing` here would freeze the picker on the
-        // old label until the peer entry is otherwise evicted, which
-        // is exactly the "name change does not propagate" symptom
-        // we want to avoid.
-        incomingNamed -> incoming
-        // Incoming has no name but existing does: keep the existing
-        // info (e.g. a partial BLE-only observation arriving after a
-        // fully resolved mDNS one). Dropping the name on a less-rich
-        // observation would regress the displayed label.
-        existingNamed -> existing
-        // Neither has a name. Prefer the non-hidden record so the
-        // picker can still surface the peer.
-        !incoming.hidden && existing.hidden -> incoming
-        else -> existing
-    }
+    val chosen =
+        when {
+            // A named incoming observation always wins. Either it is the
+            // first time we have a name, or it is a fresh resolve that
+            // reflects a name change on the publishing peer (e.g. the
+            // user just edited the Quick Share display name in Settings
+            // and the receiver re-published its mDNS record). Keeping
+            // the cached `existing` here would freeze the picker on the
+            // old label until the peer entry is otherwise evicted, which
+            // is exactly the "name change does not propagate" symptom
+            // we want to avoid.
+            incomingNamed -> incoming
+            // Incoming has no name but existing does: keep the existing
+            // info (e.g. a partial BLE-only observation arriving after a
+            // fully resolved mDNS one). Dropping the name on a less-rich
+            // observation would regress the displayed label.
+            existingNamed -> existing
+            // Neither has a name. Prefer the non-hidden record so the
+            // picker can still surface the peer.
+            !incoming.hidden && existing.hidden -> incoming
+            else -> existing
+        }
+    // The winning record may still lose a device type the losing
+    // observation carried: a named BLE/DCT observation has no
+    // device-type field on the wire (so it arrives as UNKNOWN) and can
+    // win over an mDNS resolve that carried a real type. Letting the
+    // placeholder win would regress the picker's device-type icon back
+    // to the fallback glyph (#277).
+    return chosen.withDeviceTypePreservedFrom(other = if (chosen === existing) incoming else existing)
 }
+
+private fun EndpointInfo.withDeviceTypePreservedFrom(other: EndpointInfo): EndpointInfo =
+    when {
+        deviceType != DeviceType.UNKNOWN -> this
+        other.deviceType == DeviceType.UNKNOWN -> this
+        else -> copy(deviceType = other.deviceType)
+    }
 
 private fun DiscoveredService.lanRouteKey(): Pair<String, Int>? =
     primaryAddress()?.hostAddress?.let { host -> host to port }
