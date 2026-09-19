@@ -1,4 +1,5 @@
 import com.android.build.gradle.internal.api.BaseVariantOutputImpl
+import org.gradle.api.tasks.Sync
 
 // :app — Android application module. Empty by design at this stage; the
 // real share intent handling (#24), settings UI, and device list land in
@@ -140,6 +141,48 @@ android.applicationVariants.configureEach {
 kotlin {
     jvmToolchain(17)
 }
+
+/**
+ * Build-time owner of the embedded **Radio Helper** companion offered by
+ * Bada's Settings > Radio Helper > "Install Radio Helper" action.
+ *
+ * For each requested app variant, `bundleRadioHelper<Variant>` first assembles
+ * the same helper variant, renames its APK to the stable runtime contract
+ * `assets/radio-helper.apk`, and writes it to a variant-specific generated
+ * assets directory before `merge<Variant>Assets`. Debug therefore embeds the
+ * `.debug` helper package and release embeds the release package; neither asset
+ * directory is shared, so one variant cannot consume a stale APK from another.
+ * [dev.bluehouse.bada.helper.HelperInstaller] owns the runtime stream from that
+ * asset into PackageInstaller.
+ *
+ * Release usability additionally requires `:app` and `:radio-helper` to receive
+ * the same complete signing input set because the helper service is guarded by
+ * a signature permission. Validate by building both app variants, inspecting
+ * the embedded asset/package identity, then exercising the Settings install
+ * flow. Only configuration/source checks have run; Gradle assembly and device
+ * installation remain UNVERIFIED because Android compilation was not authorized.
+ */
+fun registerBundledRadioHelper(variantName: String) {
+    val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
+    val generatedAssets = layout.buildDirectory.dir("generated/radio-helper/$variantName")
+    val bundleTask =
+        tasks.register<Sync>("bundleRadioHelper$capitalizedVariant") {
+            dependsOn(":radio-helper:assemble$capitalizedVariant")
+            from(project(":radio-helper").layout.buildDirectory.dir("outputs/apk/$variantName")) {
+                include("*.apk")
+                rename { "radio-helper.apk" }
+            }
+            into(generatedAssets)
+        }
+
+    android.sourceSets.getByName(variantName).assets.srcDir(generatedAssets)
+    tasks.matching { it.name == "merge${capitalizedVariant}Assets" }.configureEach {
+        dependsOn(bundleTask)
+    }
+}
+
+registerBundledRadioHelper("debug")
+registerBundledRadioHelper("release")
 
 dependencies {
     implementation(project(":core-protocol"))

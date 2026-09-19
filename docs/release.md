@@ -8,7 +8,12 @@ The workflow is separate from normal CI and runs when:
 The workflow builds `:app:assembleRelease`, signs the APK with a keystore
 supplied through GitHub Actions secrets, uploads the signed APK as a workflow
 artifact, and attaches it to a matching GitHub Release when one exists for the
-tag. Release APK filenames come from the Gradle release variant and follow
+tag. The app build also assembles `:radio-helper:assembleRelease` with the same
+signing inputs and embeds that companion as `assets/radio-helper.apk`. Bada's
+Settings > Radio Helper card streams the embedded APK into Android's system
+installer, so users do not need a browser or a separate helper download. Shared
+signing is required because the helper's `BIND_RADIO` service is protected by a
+signature permission. Release APK filenames come from the Gradle release variant and follow
 `<applicationId>-<versionName>.apk`, for example
 `dev.bluehouse.bada-0.1.0-alpha01.apk`. The decoded keystore lives in
 `$RUNNER_TEMP/release.keystore` for the Gradle step only and is removed before
@@ -84,4 +89,6 @@ environment variables:
   -PKEY_PASSWORD="$KEY_PASSWORD"
 ```
 
-If no signing values are supplied, local release builds remain unsigned.
+If no signing values are supplied, local release builds remain unsigned. A
+locally installable release must provide the complete signing set so both Bada
+and its embedded Radio Helper carry the same certificate.

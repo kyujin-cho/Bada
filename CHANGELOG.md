@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Radio Helper installation from Settings
+
+- Added a Settings card that reports whether the matching Radio Helper companion is installed, installs the helper bundled inside Bada, and opens the helper setup screen after installation.
+- Embedded the matching debug or release helper APK in generated app assets and applied Bada's release signing inputs to the release helper so the signature-protected radio service can bind.
+- Hardened PackageInstaller confirmation, duplicate taps, session cleanup, unknown-source denial, and background confirmation handling.
+- Verification: static source/reference checks, XML parsing, and `git diff --check` passed. Android compilation and the real Settings/system-installer click path were not run because compilation was not authorized for this task.
+
 ## 20260914.01
 
 - Add a master on/off switch at the top of Settings: off stops the receiver service entirely (no mDNS, no BLE advertisement, no listener) and every path that could bring it back honours the choice, while the receive tab greys out the visibility pill and says why. The Name Card entry is hidden until that flow is usable end to end. (#239, #293)
