@@ -8,6 +8,7 @@ package dev.bluehouse.bada.send
 import android.content.Context
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.protocol.connection.FileSource
+import dev.bluehouse.bada.protocol.connection.TextSource
 
 /**
  * Pure-JVM helpers for rendering "what is being shared" subtitles. Kept
@@ -40,6 +41,22 @@ internal object PayloadSummary {
      */
     fun sizeFor(files: List<FileSource>): String? {
         val totalBytes = files.sumOf { it.size }
+        return if (totalBytes > 0) formatBytes(totalBytes) else null
+    }
+
+    /** Build the headline for the canonical file-or-text payload set. */
+    fun forPayloads(
+        context: Context,
+        files: List<FileSource>,
+        texts: List<TextSource>,
+    ): String = if (texts.isNotEmpty()) context.getString(R.string.send_payload_text) else forFiles(context, files)
+
+    /** Aggregate transfer size across FILE and text/BYTES payloads. */
+    fun sizeFor(
+        files: List<FileSource>,
+        texts: List<TextSource>,
+    ): String? {
+        val totalBytes = files.sumOf { it.size } + texts.sumOf { it.bytes.size.toLong() }
         return if (totalBytes > 0) formatBytes(totalBytes) else null
     }
 

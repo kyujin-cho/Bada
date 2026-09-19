@@ -1,5 +1,9 @@
 # Changelog
 
+## 20260919.01
+
+- 2026-09-19 15:51 UTC: Address PR #264 review remediation for Tap to Share: remove the committed APK and hardcoded uploader, keep SDK levels at 36 while runtime-gating API-37 NFC support, leave the feature opt-in off by default, arm NFC independently of radio preparation, use Bada naming and visuals, and restore sender, text, and Settings integration. Static source/XML/diff checks passed; Android compilation and runtime UI were not run.
+
 ## 20260914.01
 
 - Add a master on/off switch at the top of Settings: off stops the receiver service entirely (no mDNS, no BLE advertisement, no listener) and every path that could bring it back honours the choice, while the receive tab greys out the visibility pill and says why. The Name Card entry is hidden until that flow is usable end to end. (#239, #293)

@@ -327,6 +327,7 @@ internal class SendPeerPickerController(
         val routeSummary =
             when (chosenRoute) {
                 is NearbyPeerRoute.Lan -> "lan=${chosenRoute.address.hostAddress}:${chosenRoute.port}"
+                is NearbyPeerRoute.Preconnected -> "tap-to-share=${chosenRoute.transport.medium}"
                 is NearbyPeerRoute.BluetoothClassic -> "bluetooth=${chosenRoute.macAddress}"
                 is NearbyPeerRoute.BleL2cap -> "ble-l2cap=${chosenRoute.macAddress}:${chosenRoute.psm}"
                 is NearbyPeerRoute.BleGatt -> "ble-gatt=${chosenRoute.macAddress}"
@@ -607,6 +608,7 @@ internal class SendPeerPickerController(
                         is SendBootstrapPlan.Action.Direct ->
                             when (val route = action.route) {
                                 is NearbyPeerRoute.Lan -> "${route.address.hostAddress}:${route.port}"
+                                is NearbyPeerRoute.Preconnected -> "tap-to-share:${route.transport.medium}"
                                 is NearbyPeerRoute.BluetoothClassic -> route.macAddress
                                 is NearbyPeerRoute.BleL2cap -> "${route.macAddress}:${route.psm}"
                                 is NearbyPeerRoute.BleGatt -> route.macAddress

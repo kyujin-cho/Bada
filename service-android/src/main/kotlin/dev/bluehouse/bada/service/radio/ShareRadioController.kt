@@ -77,13 +77,23 @@ public class ShareRadioController(
     /**
      * Bind the `:radio-helper` and force [radios] ON for the share. Idempotent
      * against repeat calls on the same instance (reuses the existing client).
+     * [onPrepared] reports whether the helper acknowledged readiness, allowing
+     * NFC callers to avoid advertising a ready-to-tap state before radios are on.
      */
-    public fun requestRadiosOn(radios: Int = RadioHelperClient.RADIO_BOTH) {
+    public fun requestRadiosOn(
+        radios: Int = RadioHelperClient.RADIO_BOTH,
+        onPrepared: (Boolean) -> Unit = {},
+    ) {
+        if (isPrepared) {
+            onPrepared(true)
+            return
+        }
         val c = client ?: RadioHelperClient(context).also { client = it }
         log("requesting radios (bitmask=$radios) via radio-helper")
         c.connect { connected ->
             if (!connected) {
                 log("radio-helper unavailable (not installed / wrong signing key / force-stopped) -> radios left as-is")
+                onPrepared(false)
                 return@connect
             }
             c.prepareForShare(radios) { nowOn ->
@@ -96,6 +106,7 @@ public class ShareRadioController(
                 // even if it crashes before the first interval elapsed.
                 mainHandler.removeCallbacks(heartbeatTick)
                 mainHandler.post(heartbeatTick)
+                onPrepared(true)
             }
         }
     }

@@ -527,6 +527,7 @@ public class ReceiverForegroundService : Service() {
                 // The live NFC tap-to-receive link is published reactively by
                 // [startNfcTapLinkPublisher] (tracks the advertise state), so no
                 // one-shot publish is needed here.
+                GestureReceiverSessionBridge.attach(newSession)
                 startMdnsGate(newSession)
             } catch (
                 @Suppress("SwallowedException") t: Throwable,
@@ -1070,6 +1071,7 @@ public class ReceiverForegroundService : Service() {
         mdnsGate?.stop()
         mdnsGate = null
 
+        session?.let(GestureReceiverSessionBridge::detach)
         session?.stop()
         session = null
         ActiveDiscoveryHolder.clear()

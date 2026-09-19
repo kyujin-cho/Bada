@@ -96,13 +96,24 @@ public class UriFileSourceFactory internal constructor(
      */
     public fun fromUri(uri: Uri): FileSource {
         val metadata = metadataReader.read(uri)
-        return buildFileSource(
+        return fromUri(uri, metadata, payloadIdGenerator())
+    }
+
+    internal fun readMetadata(uri: Uri): UriMetadata = metadataReader.read(uri)
+
+    internal fun openChannel(uri: Uri): ReadableByteChannel = channelOpener.open(uri)
+
+    internal fun fromUri(
+        uri: Uri,
+        metadata: UriMetadata,
+        payloadId: Long,
+    ): FileSource =
+        buildFileSource(
             metadata = metadata,
             fallbackPathSegment = uri.lastPathSegment,
-            payloadId = payloadIdGenerator(),
+            payloadId = payloadId,
             open = { channelOpener.open(uri) },
         )
-    }
 
     /**
      * Pure-JVM core of the URI-to-[FileSource] mapping. Lifted out of
@@ -306,11 +317,7 @@ internal class ContentResolverMetadataReader(
                 cursorSize >= 0L -> cursorSize
                 else -> -1L
             }
-        Log.e(
-            TAG,
-            "URI size resolved uri=$uri cursorSize=$cursorSize " +
-                "descriptorSize=$descriptorSize resolvedSize=$resolvedSize",
-        )
+        Log.e(TAG, "URI size resolved cursorSize=$cursorSize descriptorSize=$descriptorSize resolvedSize=$resolvedSize")
         return resolvedSize
     }
 
@@ -321,7 +328,7 @@ internal class ContentResolverMetadataReader(
                 ?.use(::sizeFromDescriptor)
                 ?: -1L
         }.getOrElse { e ->
-            Log.e(TAG, "URI descriptor size fallback failed uri=$uri: ${e.message}", e)
+            Log.e(TAG, "URI descriptor size fallback failed: ${e::class.simpleName}")
             -1L
         }
 
@@ -375,7 +382,7 @@ internal class ContentResolverChannelOpener(
     override fun open(uri: Uri): ReadableByteChannel {
         val stream =
             contentResolver.openInputStream(uri)
-                ?: error("ContentResolver returned null InputStream for $uri")
+                ?: error("ContentResolver returned null InputStream")
         return Channels.newChannel(stream)
     }
 }

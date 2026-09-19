@@ -121,4 +121,24 @@ class IntroductionFramesTest {
         assertThat(intro.getFileMetadata(3).type).isEqualTo(Protocol.FileMetadata.Type.ANDROID_APP)
         assertThat(intro.getFileMetadata(4).type).isEqualTo(Protocol.FileMetadata.Type.UNKNOWN)
     }
+
+    @Test
+    fun `text metadata preserves title kind size and payload identity`() {
+        val text =
+            TextSource(
+                bytes = "https://example.test/path".toByteArray(),
+                title = "Example",
+                kind = TextSource.Kind.URL,
+                payloadId = 991L,
+            )
+
+        val metadata = buildIntroductionFrame(emptyList(), listOf(text)).getTextMetadata(0)
+
+        assertThat(metadata.textTitle).isEqualTo("Example")
+        assertThat(metadata.type).isEqualTo(Protocol.TextMetadata.Type.URL)
+        assertThat(metadata.size).isEqualTo(text.bytes.size.toLong())
+        assertThat(metadata.payloadId).isEqualTo(991L)
+        assertThat(metadata.id).isEqualTo(991L)
+        assertThat(metadata.isSensitiveText).isFalse()
+    }
 }

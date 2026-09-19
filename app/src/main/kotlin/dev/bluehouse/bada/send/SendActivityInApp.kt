@@ -52,6 +52,10 @@ import dev.bluehouse.bada.discovery.bootstrap.BluetoothClassicBootstrapClient
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.discovery.medium.MediumRegistries
 import dev.bluehouse.bada.discovery.wifi.AndroidWifiCapabilities
+import dev.bluehouse.bada.gestureexchange.GestureCapabilityMetadataFactory
+import dev.bluehouse.bada.gestureexchange.GestureEdgeGlowController
+import dev.bluehouse.bada.gestureexchange.GestureExchangeReader
+import dev.bluehouse.bada.gestureexchange.GestureTapToSharePreferences
 import dev.bluehouse.bada.nfc.BadaTapReader
 import dev.bluehouse.bada.nfc.NfcLinkHolder
 import dev.bluehouse.bada.nfc.NfcTapDiagnosticsPreferences
@@ -60,9 +64,12 @@ import dev.bluehouse.bada.protocol.connection.FileSource
 import dev.bluehouse.bada.protocol.connection.OutboundConnection
 import dev.bluehouse.bada.protocol.connection.OutboundConnectionState
 import dev.bluehouse.bada.protocol.connection.OutboundResult
+import dev.bluehouse.bada.protocol.connection.TextSource
 import dev.bluehouse.bada.protocol.connection.TransferProgress
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
+import dev.bluehouse.bada.protocol.endpoint.NearbyServiceId
+import dev.bluehouse.bada.protocol.gestureexchange.GestureLocalIdentity
 import dev.bluehouse.bada.protocol.medium.LocalWifiCapabilities
 import dev.bluehouse.bada.protocol.medium.Medium
 import dev.bluehouse.bada.protocol.medium.MediumRegistry
@@ -87,6 +94,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.security.PrivateKey
 import java.security.SecureRandom
 import kotlin.math.min
@@ -110,14 +118,10 @@ import kotlin.math.min
  *     [OutboundConnectionState.Rejected], [OutboundConnectionState.Cancelled],
  *     [OutboundConnectionState.Failed]) lock the UI into a "Done" pose.
  *
- * #28 will add the matching Inbound side and turn the receiver into a
- * real testbed; this Activity intentionally keeps its public surface
- * minimal so the e2e wiring lands cleanly later.
- *
- * Plain-text shares are accepted by the router but **not yet shipped**
- * — Phase 1's protocol-level support for text payloads on the sender
- * side is a follow-up. We surface a clear "Done" with an explanation
- * for now rather than stubbing out a half-broken text path.
+ * File and text payloads are resolved off the UI thread. Unknown-length
+ * content is staged in the app cache and retained until an authoritative
+ * terminal connection state releases it. The optional compatible NFC path
+ * enters the same peer-selection and outbound-connection pipeline.
  *
  * `@Suppress("TooManyFunctions", "LargeClass")` — this Activity owns the share-intent
  * lifecycle, discovery, the picker, and the OutboundConnection driver.
@@ -134,6 +138,10 @@ public class SendActivityInApp : AppCompatActivity() {
     private lateinit var peerPickerController: SendPeerPickerController
 
     private var files: List<FileSource> = emptyList()
+    private var texts: List<TextSource> = emptyList()
+    private var preparedPayload: SendPayloadResolution.Payloads? = null
+    private var resumedForTap: Boolean = false
+    private var preparationJob: Job? = null
     private var connectionJob: Job? = null
     private var activeConnection: OutboundConnection? = null
     private var bluetoothBootstrapClient: BluetoothClassicBootstrapClient? = null
@@ -163,6 +171,8 @@ public class SendActivityInApp : AppCompatActivity() {
      * tag and auto-connect to it as if its peer-icon had been tapped.
      */
     private var tapReader: BadaTapReader? = null
+    private var gestureReader: GestureExchangeReader? = null
+    private lateinit var gestureGlow: GestureEdgeGlowController
 
     /**
      * Set to `true` while a connection attempt is being made AND there
@@ -241,11 +251,12 @@ public class SendActivityInApp : AppCompatActivity() {
         requestRadiosForSend()
         binding = ActivitySendFullscreenBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        gestureGlow = GestureEdgeGlowController(this)
         bugReportFlowSupport = BugReportFlowSupport.install(this)
 
         fileSourceFactory = UriFileSourceFactory(contentResolver)
         documentTreeFactory = DocumentTreeFileSourceFactory(contentResolver)
-        payloadResolver = SendPayloadResolver(fileSourceFactory, documentTreeFactory)
+        payloadResolver = SendPayloadResolver(fileSourceFactory, documentTreeFactory, File(cacheDir, "gesture-share"))
         // Generate the sender identity up front so the picker controller
         // can thread the endpointId into the BLE FastInitiation pulse's
         // `secret_id_hash`. Stock GMS receivers classify an all-zero hash
@@ -276,7 +287,24 @@ public class SendActivityInApp : AppCompatActivity() {
         // onResume/onPause + the QR open/close handlers so it is active
         // only while the send sheet is up and the iPhone-link QR panel
         // (which uses the NDEF HCE) is closed.
-        tapReader = BadaTapReader(this, ::onNfcPeerTapped, ::onNfcTapWake, ::onNfcTapDiagnostic)
+        if (GestureTapToSharePreferences.from(this).isEnabled()) {
+            gestureReader =
+                GestureExchangeReader(
+                    activity = this,
+                    identity = {
+                        GestureLocalIdentity(
+                            senderEndpointId,
+                            NearbyServiceId.VALUE,
+                            senderEndpointInfoBytes,
+                            GestureCapabilityMetadataFactory.create(this),
+                        )
+                    },
+                    onConnected = ::onGesturePeerConnected,
+                    onDiagnostic = ::onNfcTapDiagnostic,
+                )
+        } else {
+            tapReader = BadaTapReader(this, ::onNfcPeerTapped, ::onNfcTapWake, ::onNfcTapDiagnostic)
+        }
 
         binding.sendCancelButton.setOnClickListener { onCancelClicked() }
         binding.sendDoneButton.setOnClickListener { finish() }
@@ -303,29 +331,38 @@ public class SendActivityInApp : AppCompatActivity() {
         // return null; in that case we leave `files` as the default
         // empty list and bail without starting discovery. The terminal
         // states already display "Done" / explanatory text.
-        val resolvedFiles =
-            when (val resolved = payloadResolver.resolve(intent)) {
-                is SendPayloadResolution.Files -> resolved.files
-                SendPayloadResolution.Unsupported -> {
-                    renderUnsupportedPayload()
-                    null
-                }
-                SendPayloadResolution.FolderEmpty -> {
-                    renderFolderEmpty()
-                    null
-                }
-                SendPayloadResolution.FolderWalkFailed -> {
-                    renderFolderWalkFailed()
-                    null
-                }
-            } ?: return
-        files = resolvedFiles
-        logResolvedFiles(files)
+        preparePayloadAndStart()
+    }
 
-        binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
-        applyPayloadSize()
-        binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
-        peerPickerController.start()
+    /** Resolve provider metadata and stage unknown-length sources off the UI thread. */
+    private fun preparePayloadAndStart() {
+        binding.sendSubtitle.setText(R.string.send_subtitle_preparing)
+        preparationJob =
+            lifecycleScope.launch {
+                val resolved = withContext(Dispatchers.IO) { payloadResolver.resolve(intent) }
+                if (isFinishing || isDestroyed) {
+                    (resolved as? SendPayloadResolution.Payloads)?.close()
+                    return@launch
+                }
+                when (resolved) {
+                    is SendPayloadResolution.Payloads -> {
+                        preparedPayload = resolved
+                        files = resolved.files
+                        texts = resolved.texts
+                        logResolvedFiles(files)
+                        binding.sendPayloadSummary.text =
+                            PayloadSummary.forPayloads(this@SendActivityInApp, files, texts)
+                        applyPayloadSize()
+                        binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
+                        peerPickerController.start()
+                        maybeEnableTapReader()
+                    }
+                    is SendPayloadResolution.PreparationFailed -> renderPreparationFailed(resolved.reason)
+                    SendPayloadResolution.Unsupported -> renderUnsupportedPayload()
+                    SendPayloadResolution.FolderEmpty -> renderFolderEmpty()
+                    SendPayloadResolution.FolderWalkFailed -> renderFolderWalkFailed()
+                }
+            }
     }
 
     /**
@@ -337,7 +374,7 @@ public class SendActivityInApp : AppCompatActivity() {
      * hidden (it defaults to `gone` in the layout).
      */
     private fun applyPayloadSize() {
-        val sizeText = PayloadSummary.sizeFor(files)
+        val sizeText = PayloadSummary.sizeFor(files, texts)
         if (sizeText != null) {
             binding.sendPayloadSize.text = sizeText
             binding.sendPayloadSize.visibility = View.VISIBLE
@@ -364,9 +401,15 @@ public class SendActivityInApp : AppCompatActivity() {
         senderGattServer?.stop()
         senderGattServer = null
         connectionJob?.cancel()
+        preparationJob?.cancel()
+        preparedPayload?.close()
+        preparedPayload = null
         // Release NFC reader-mode when the Send screen is gone.
-        tapReader?.disable()
+        disableTapReaders()
         tapReader = null
+        gestureReader?.close()
+        gestureReader = null
+        gestureGlow.close()
         // Stop NFC link broadcast when the Send screen is gone.
         NfcLinkHolder.currentUrl = null
         // Lift the gate veto so the receiver-side mDNS record can come
@@ -423,10 +466,12 @@ public class SendActivityInApp : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumedForTap = true
+        gestureGlow.attach()
         // Enable NFC reader-mode unless the QR panel (which hands NFC to
         // the iPhone-link NDEF HCE) is currently showing.
         if (!binding.sendQrScroll.isVisible) {
-            tapReader?.enable()
+            maybeEnableTapReader()
         }
         // Re-evaluate the contextual empty-state hint when the user returns
         // from system settings after toggling Bluetooth or Wi-Fi (#209).
@@ -434,9 +479,11 @@ public class SendActivityInApp : AppCompatActivity() {
     }
 
     override fun onPause() {
+        resumedForTap = false
         super.onPause()
+        gestureGlow.detach()
         // Release the NFC controller while we are not the foreground sheet.
-        tapReader?.disable()
+        disableTapReaders()
     }
 
     /**
@@ -451,7 +498,7 @@ public class SendActivityInApp : AppCompatActivity() {
             if (isFinishing || isDestroyed) return@runOnUiThread
             // A tap commits us to a peer; stop reader-mode so a second tag
             // cannot race a connection that is already starting.
-            tapReader?.disable()
+            disableTapReaders()
             logOutboundDiagnostic(
                 "nfc tap: peer endpointId=${tapped.endpointId} " +
                     "${tapped.address.hostAddress}:${tapped.port} name=${tapped.endpointInfo.deviceName}",
@@ -470,6 +517,42 @@ public class SendActivityInApp : AppCompatActivity() {
                 )
             onPeerSelected(peer)
         }
+    }
+
+    /** Routes a compatible Tap to Share handoff through Bada's ordinary send flow. */
+    private fun onGesturePeerConnected(tapped: GestureExchangeReader.Peer) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) {
+                tapped.transport.close()
+                return@runOnUiThread
+            }
+            disableTapReaders()
+            val peer =
+                NearbyPeer(
+                    stableId = "gesture:${tapped.endpointId}",
+                    endpointId = tapped.endpointId,
+                    endpointInfo = tapped.endpointInfo,
+                    preconnectedTransport = tapped.transport,
+                )
+            logOutboundDiagnostic("tap-to-share: connectivity handoff ready endpointId=${tapped.endpointId}")
+            onPeerSelected(peer)
+        }
+    }
+
+    private fun enableTapReader() {
+        gestureReader?.enable() ?: tapReader?.enable()
+    }
+
+    /** Arm NFC once content and foreground ownership are ready; radio setup proceeds independently. */
+    private fun maybeEnableTapReader() {
+        val ready = resumedForTap && preparedPayload != null
+        if (!ready || binding.sendQrScroll.isVisible) return
+        enableTapReader()
+    }
+
+    private fun disableTapReaders() {
+        gestureReader?.disable()
+        tapReader?.disable()
     }
 
     /**
@@ -572,7 +655,7 @@ public class SendActivityInApp : AppCompatActivity() {
         tapWakeConnectStarted = true
         // A tap commits us to a peer; stop reader-mode so a second tag cannot race the
         // connection that is now starting (mirrors onNfcPeerTapped).
-        tapReader?.disable()
+        disableTapReaders()
         val route = if (candidate.lanEndpoint != null) "wifi-lan" else "ble"
         logOutboundDiagnostic("nfc tap-wake: auto-connecting to ${candidate.stableId} route=$route")
         nfcTapToast("NFC tap-wake: connecting to ${candidate.displayName()} over $route")
@@ -598,6 +681,16 @@ public class SendActivityInApp : AppCompatActivity() {
         val mediumRegistry = MediumRegistries.defaultForContext(applicationContext)
         val wifiCapabilities = AndroidWifiCapabilities.read(applicationContext)
         return when (route) {
+            is NearbyPeerRoute.Preconnected ->
+                OutboundConnection(
+                    transport = route.transport,
+                    endpointId = senderEndpointId,
+                    endpointInfo = endpointInfo,
+                    qrSigningKey = qrSigningKey,
+                    mediumRegistry = mediumRegistry,
+                    logger = ::logOutboundWireMessage,
+                    wifiCapabilities = wifiCapabilities,
+                )
             is NearbyPeerRoute.Lan ->
                 OutboundConnection(
                     targetAddress = route.address,
@@ -1146,7 +1239,7 @@ public class SendActivityInApp : AppCompatActivity() {
                             }
                     }
                 try {
-                    connection.run(files)
+                    connection.run(files, texts)
                 } finally {
                     collector.cancel()
                     activeConnection = null
@@ -1317,6 +1410,7 @@ public class SendActivityInApp : AppCompatActivity() {
         message: String,
         isSuccess: Boolean = false,
     ) {
+        releaseTerminalResources()
         setTransferKeepScreenOn(active = false)
         peerPickerController.stopBleAdvertise()
         beginCardBoundsTransition(BOUNDS_DURATION_MS)
@@ -1369,6 +1463,15 @@ public class SendActivityInApp : AppCompatActivity() {
             binding.sendTerminalPreviewCard.visibility = View.GONE
             applyBlurredCardBackground(null)
         }
+    }
+
+    /** Release staged content only after the authoritative connection state is terminal. */
+    private fun releaseTerminalResources() {
+        preparedPayload?.close()
+        preparedPayload = null
+        files = emptyList()
+        texts = emptyList()
+        shareRadios.restoreRadios(finishSession = true)
     }
 
     /**
@@ -1755,6 +1858,20 @@ public class SendActivityInApp : AppCompatActivity() {
         binding.sendCancelButton.text = getString(R.string.send_done)
     }
 
+    /** Maps bounded staging failures to the existing terminal payload surface. */
+    private fun renderPreparationFailed(reason: SourcePreparationFailure) {
+        renderUnsupportedPayload()
+        binding.sendSubtitle.text =
+            getString(
+                when (reason) {
+                    SourcePreparationFailure.SOURCE_UNREADABLE -> R.string.send_source_unreadable
+                    SourcePreparationFailure.SOURCE_STALLED -> R.string.send_source_stalled
+                    SourcePreparationFailure.SOURCE_TOO_LARGE_TO_STAGE -> R.string.send_source_too_large
+                    SourcePreparationFailure.INSUFFICIENT_STAGING_SPACE -> R.string.send_source_no_space
+                },
+            )
+    }
+
     /**
      * Folder send (#38) terminal: the picked folder contains zero files
      * (only empty subdirectories or nothing at all). Quick Share has no
@@ -1865,7 +1982,7 @@ public class SendActivityInApp : AppCompatActivity() {
         // The QR panel hands the NFC controller to the iPhone-link NDEF
         // HCE (NfcLinkHolder.currentUrl below), so leave reader-mode now —
         // reader-mode and HCE are mutually exclusive on one radio.
-        tapReader?.disable()
+        disableTapReaders()
 
         val generated = QrKeyData.generate()
         // Persist the keypair for this QR session: the discovery callback
@@ -1961,9 +2078,6 @@ public class SendActivityInApp : AppCompatActivity() {
         qrSession = null
         // Stop broadcasting the link over NFC now that the QR panel is gone.
         NfcLinkHolder.currentUrl = null
-        // The NDEF HCE is no longer needed; resume tap-to-share reader-mode
-        // so the picker can be NFC-tapped again.
-        tapReader?.enable()
         val panel = binding.sendQrPanel
         panel
             .animate()
@@ -2014,6 +2128,8 @@ public class SendActivityInApp : AppCompatActivity() {
                 TransitionManager.beginDelayedTransition(binding.root, transition)
 
                 binding.sendQrScroll.visibility = View.GONE
+                // The NDEF HCE is fully hidden; restore foreground NFC ownership.
+                maybeEnableTapReader()
                 panel.scaleX = 1f
                 panel.scaleY = 1f
                 panel.alpha = 1f

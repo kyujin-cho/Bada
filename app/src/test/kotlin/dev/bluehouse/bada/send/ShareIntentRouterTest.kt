@@ -74,6 +74,21 @@ class ShareIntentRouterTest {
     }
 
     @Test
+    fun `text title is preserved`() {
+        val intent = ShareIntent(action = Intent.ACTION_SEND, textExtra = "hello", textTitle = "Greeting")
+
+        assertEquals(ShareIntentInput.Text("hello", "Greeting"), ShareIntentRouter.route(intent))
+    }
+
+    @Test
+    fun `single action accepts the combined ordered URI list`() {
+        val uris = listOf<Any>("content://first", "content://second")
+        val intent = ShareIntent(action = Intent.ACTION_SEND, streamUris = uris)
+
+        assertEquals(ShareIntentInput.MultipleUris(uris), ShareIntentRouter.route(intent))
+    }
+
+    @Test
     fun `single send with neither stream nor text returns null`() {
         val intent = ShareIntent(action = Intent.ACTION_SEND)
 

@@ -348,21 +348,20 @@ internal class WifiDirectGroupController(
             return null
         }
 
-        try {
-            withTimeout(CONNECT_TIMEOUT_MS) {
-                connectionChanged.awaitConnectionEstablished()
+        val connectionInfo =
+            try {
+                withTimeout(CONNECT_TIMEOUT_MS) {
+                    connectionChanged.awaitConnectionEstablished()
+                }
+            } catch (_: TimeoutCancellationException) {
+                Log.w(TAG, "Wi-Fi Direct connect timed out after ${CONNECT_TIMEOUT_MS}ms")
+                teardown.close()
+                return null
             }
-        } catch (_: TimeoutCancellationException) {
-            Log.w(TAG, "Wi-Fi Direct connect timed out after ${CONNECT_TIMEOUT_MS}ms")
-            teardown.close()
-            return null
-        }
 
         val address =
-            try {
-                InetAddress.getByAddress(credentials.ipAddress)
-            } catch (e: java.net.UnknownHostException) {
-                Log.w(TAG, "Wi-Fi Direct credentials carry malformed IPv4 bytes", e)
+            connectionInfo.groupOwnerAddress ?: run {
+                Log.w(TAG, "Wi-Fi Direct connected without a group-owner address")
                 teardown.close()
                 return null
             }
