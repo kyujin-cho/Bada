@@ -270,6 +270,39 @@ class AndroidManifestPermissionsTest {
         )
     }
 
+    /**
+     * Issue #263: tapping the background consent notification must open
+     * only the dedicated consent surface, not bring the app's main task
+     * forward. The empty task affinity and excluded-recents task keep the
+     * trampoline isolated, while `singleTop` routes a repeated tap to the
+     * live topmost consent surface through `onNewIntent` without reusing an
+     * unrelated task instance.
+     */
+    @Test
+    fun `consent notification trampoline is an isolated internal task`() {
+        val consentBlock =
+            manifest
+                .substringAfter(".consent.ConsentTrampolineActivity")
+                .substringBefore("/>")
+
+        assertTrue(
+            "ConsentTrampolineActivity must be internal",
+            consentBlock.contains("android:exported=\"false\""),
+        )
+        assertTrue(
+            "ConsentTrampolineActivity must not share MainActivity's task",
+            consentBlock.contains("android:taskAffinity=\"\""),
+        )
+        assertTrue(
+            "ConsentTrampolineActivity must stay out of recents",
+            consentBlock.contains("android:excludeFromRecents=\"true\""),
+        )
+        assertTrue(
+            "ConsentTrampolineActivity must receive repeated topmost notification taps via onNewIntent",
+            consentBlock.contains("android:launchMode=\"singleTop\""),
+        )
+    }
+
     @Test
     fun `send activity declares share intent filters`() {
         // #24: the system share sheet routes ACTION_SEND /
