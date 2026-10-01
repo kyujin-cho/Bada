@@ -1790,6 +1790,130 @@ class OutboundConnectionTest {
         }
 
     @Test
+    fun `text accept - shared URL round-trips as a BYTES text payload`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                // #301: a link shared from another app (YouTube et al.)
+                // ships as one URL text item and no files.
+                val (port, accept) = listenAndAcceptInBackground()
+                val factory = InMemoryFactory()
+                val outbound =
+                    OutboundConnection(
+                        targetAddress = InetAddress.getLoopbackAddress(),
+                        port = port,
+                        secureRandom = SecureRandom("outbound-text".toByteArray()),
+                    )
+                val url =
+                    TextSource(
+                        text = "https://youtu.be/dQw4w9WgXcQ?si=Bada301",
+                        title = "youtu.be",
+                        kind = TransferItem.Text.Kind.URL,
+                        payloadId = 0x301L,
+                    )
+
+                lateinit var announced: TransferMetadata
+                lateinit var inboundResult: InboundResult
+                coroutineScope {
+                    val outboundJob = async { outbound.run(files = emptyList(), texts = listOf(url)) }
+
+                    val inbound =
+                        InboundConnection(
+                            socket = accept(),
+                            secureRandom = SecureRandom("inbound-text".toByteArray()),
+                        )
+
+                    launch {
+                        val consent =
+                            inbound.state.first {
+                                it is InboundConnectionState.WaitingForUserConsent
+                            } as InboundConnectionState.WaitingForUserConsent
+                        announced = consent.metadata
+                        inbound.submitUserConsent(accepted = true)
+                    }
+
+                    inboundResult = inbound.run(factory)
+                    assertThat(outboundJob.await()).isEqualTo(OutboundResult.Completed)
+                }
+
+                assertThat(announced.items)
+                    .containsExactly(TransferItem.Text(0x301L, "youtu.be", url.size, TransferItem.Text.Kind.URL))
+                assertThat(inboundResult).isInstanceOf(InboundResult.Completed::class.java)
+                assertThat((inboundResult as InboundResult.Completed).items)
+                    .containsExactly(ReceivedItem.Text(0x301L, url.text.toByteArray(Charsets.UTF_8)))
+                // Text never touches the file destination factory.
+                assertThat(factory.output).isEmpty()
+            }
+        }
+
+    @Test
+    fun `text and file accept - both payloads arrive in one transfer`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (port, accept) = listenAndAcceptInBackground()
+                val factory = InMemoryFactory()
+                val outbound =
+                    OutboundConnection(
+                        targetAddress = InetAddress.getLoopbackAddress(),
+                        port = port,
+                        secureRandom = SecureRandom("outbound-mixed".toByteArray()),
+                    )
+                val fileBytes = ByteArray(3000) { (it and 0xFF).toByte() }
+                val note = TextSource("메모: 회의 3시", "메모: 회의 3시", TransferItem.Text.Kind.PLAIN, 0x302L)
+
+                lateinit var inboundResult: InboundResult
+                coroutineScope {
+                    val outboundJob =
+                        async {
+                            outbound.run(
+                                files = listOf(bytesSource("doc.bin", fileBytes, 0x303L)),
+                                texts = listOf(note),
+                            )
+                        }
+
+                    val inbound =
+                        InboundConnection(
+                            socket = accept(),
+                            secureRandom = SecureRandom("inbound-mixed".toByteArray()),
+                        )
+
+                    launch {
+                        inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                        inbound.submitUserConsent(accepted = true)
+                    }
+
+                    inboundResult = inbound.run(factory)
+                    assertThat(outboundJob.await()).isEqualTo(OutboundResult.Completed)
+                }
+
+                val items = (inboundResult as InboundResult.Completed).items.associateBy { it.payloadId }
+                assertThat(items.keys).containsExactly(0x302L, 0x303L)
+                assertThat((items.getValue(0x302L) as ReceivedItem.Text).data)
+                    .isEqualTo(note.text.toByteArray(Charsets.UTF_8))
+                assertThat(factory.output[0x303L]?.toByteArray()).isEqualTo(fileBytes)
+            }
+        }
+
+    @Test
+    fun `run rejects a text payload id that collides with a file payload id`() =
+        runBlocking {
+            val outbound =
+                OutboundConnection(
+                    targetAddress = InetAddress.getLoopbackAddress(),
+                    port = 1,
+                    secureRandom = SecureRandom("outbound-dup".toByteArray()),
+                )
+            try {
+                outbound.run(
+                    files = listOf(bytesSource("a.bin", ByteArray(1), 7L)),
+                    texts = listOf(TextSource("hi", "hi", TransferItem.Text.Kind.PLAIN, 7L)),
+                )
+                throw AssertionError("expected IllegalArgumentException")
+            } catch (e: IllegalArgumentException) {
+                assertThat(e.message).contains("Duplicate TextSource.payloadId 7")
+            }
+        }
+
+    @Test
     fun `large file accept - chunking across multiple 512 KiB chunks works`() =
         runBlocking {
             withTimeout(LONG_WALLCLOCK_TIMEOUT_MS) {

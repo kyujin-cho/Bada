@@ -204,6 +204,7 @@
 
     <!-- 载荷摘要模板 -->
     <string name="send_payload_text">正在共享文字</string>
+    <string name="send_payload_link">正在共享链接</string>
     <string name="send_payload_single_file">1 个文件</string>
     <string name="send_payload_multiple_files">%1$d 个文件</string>
 

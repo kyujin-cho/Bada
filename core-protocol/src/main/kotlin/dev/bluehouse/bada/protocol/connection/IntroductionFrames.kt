@@ -10,13 +10,12 @@ import dev.bluehouse.bada.protocol.sharing.IntroductionFrame
 
 /**
  * Build the outgoing [IntroductionFrame] from the supplied [files]
- * list.
+ * and [texts] lists.
  *
  * Pulled out of `OutboundConnectionDriver` so the wire shape can be
- * unit-tested without spinning up a full loopback connection. We only
- * populate `file_metadata` here — Quick Share also supports text /
- * Wi-Fi / app metadata, but the outbound path is currently scoped to
- * file transfers only.
+ * unit-tested without spinning up a full loopback connection. We
+ * populate `file_metadata` and `text_metadata` here; Quick Share also
+ * supports Wi-Fi / app metadata, which the outbound path does not send.
  *
  * Two fields beyond the obvious ones matter for stock Quick Share
  * interop, both verified against Samsung One UI 8.0.5:
@@ -36,8 +35,17 @@ import dev.bluehouse.bada.protocol.sharing.IntroductionFrame
  *    send (vs. Remote Copy / unknown). Without it Samsung's receiver
  *    may treat the Introduction as malformed and fall through to a
  *    default path that does not register the attachment.
+ *
+ * Text items (#301) follow the same id rule: `TextMetadata.id` is the
+ * attachment uuid next to `payload_id`, so we fill it with
+ * [TextSource.payloadId] just like `FileMetadata.id`. NearDrop leaves it
+ * unset, but Samsung keys file attachments on the equivalent field and
+ * there is no reason to expect text bookkeeping to differ.
  */
-internal fun buildIntroductionFrame(files: List<FileSource>): IntroductionFrame {
+internal fun buildIntroductionFrame(
+    files: List<FileSource>,
+    texts: List<TextSource> = emptyList(),
+): IntroductionFrame {
     val builder = IntroductionFrame.newBuilder()
     for (f in files) {
         val md =
@@ -60,6 +68,18 @@ internal fun buildIntroductionFrame(files: List<FileSource>): IntroductionFrame 
         }
         builder.addFileMetadata(md.build())
     }
+    for (t in texts) {
+        builder.addTextMetadata(
+            Protocol.TextMetadata
+                .newBuilder()
+                .setTextTitle(t.title)
+                .setType(textKindToTextType(t.kind))
+                .setPayloadId(t.payloadId)
+                .setSize(t.size)
+                .setId(t.payloadId)
+                .build(),
+        )
+    }
     builder.setUseCase(Protocol.IntroductionFrame.SharingUseCase.NEARBY_SHARE)
     return builder.build()
 }
@@ -76,4 +96,17 @@ internal fun mimeTypeToFileType(mimeType: String): Protocol.FileMetadata.Type =
         mimeType.startsWith("audio/") -> Protocol.FileMetadata.Type.AUDIO
         mimeType == "application/vnd.android.package-archive" -> Protocol.FileMetadata.Type.ANDROID_APP
         else -> Protocol.FileMetadata.Type.UNKNOWN
+    }
+
+/**
+ * Map a [TransferItem.Text.Kind] onto the proto's `TextMetadata.Type`.
+ * The inverse of the receive-side mapping in
+ * [TransferMetadata.fromIntroductionFrame].
+ */
+internal fun textKindToTextType(kind: TransferItem.Text.Kind): Protocol.TextMetadata.Type =
+    when (kind) {
+        TransferItem.Text.Kind.PLAIN -> Protocol.TextMetadata.Type.TEXT
+        TransferItem.Text.Kind.URL -> Protocol.TextMetadata.Type.URL
+        TransferItem.Text.Kind.ADDRESS -> Protocol.TextMetadata.Type.ADDRESS
+        TransferItem.Text.Kind.PHONE_NUMBER -> Protocol.TextMetadata.Type.PHONE_NUMBER
     }

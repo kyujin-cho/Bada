@@ -60,6 +60,7 @@ import dev.bluehouse.bada.protocol.connection.FileSource
 import dev.bluehouse.bada.protocol.connection.OutboundConnection
 import dev.bluehouse.bada.protocol.connection.OutboundConnectionState
 import dev.bluehouse.bada.protocol.connection.OutboundResult
+import dev.bluehouse.bada.protocol.connection.TextSource
 import dev.bluehouse.bada.protocol.connection.TransferProgress
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
 import dev.bluehouse.bada.protocol.endpoint.EndpointInfo
@@ -135,6 +136,7 @@ public class SendActivity : AppCompatActivity() {
     private lateinit var peerPickerController: SendPeerPickerController
 
     private var files: List<FileSource> = emptyList()
+    private var texts: List<TextSource> = emptyList()
     private var connectionJob: Job? = null
     private var activeConnection: OutboundConnection? = null
     private var bluetoothBootstrapClient: BluetoothClassicBootstrapClient? = null
@@ -321,14 +323,15 @@ public class SendActivity : AppCompatActivity() {
         // falls back to the platform device-name chain otherwise.
         binding.sendDevicePillText.text = AdvertisedDeviceNames.resolve(this)
 
-        // Resolve the intent's file list. May render a terminal UI
-        // state (unsupported / folder empty / folder walk failed) and
-        // return null; in that case we leave `files` as the default
-        // empty list and bail without starting discovery. The terminal
+        // Resolve the intent's payload (files, or one text item for a
+        // shared link / text, #301). May render a terminal UI state
+        // (unsupported / folder empty / folder walk failed) and return
+        // null; in that case we leave `files` / `texts` as the default
+        // empty lists and bail without starting discovery. The terminal
         // states already display "Done" / explanatory text.
-        val resolvedFiles =
+        val payload =
             when (val resolved = payloadResolver.resolve(intent)) {
-                is SendPayloadResolution.Files -> resolved.files
+                is SendPayloadResolution.Payload -> resolved
                 SendPayloadResolution.Unsupported -> {
                     renderUnsupportedPayload()
                     null
@@ -342,27 +345,29 @@ public class SendActivity : AppCompatActivity() {
                     null
                 }
             } ?: return
-        files = resolvedFiles
-        logResolvedFiles(files)
+        files = payload.files
+        texts = payload.texts
+        logResolvedPayload()
 
-        binding.sendPayloadSummary.text = PayloadSummary.forFiles(this, files)
+        binding.sendPayloadSummary.text = PayloadSummary.forPayload(this, files, texts)
         applyPayloadSize()
         binding.sendSubtitle.setText(R.string.send_subtitle_discovering)
         peerPickerController.start()
     }
 
     /**
-     * Render the transfer-size line ([R.id.send_payload_size]) from the
-     * currently resolved [files]: the formatted total below the
-     * file-count headline, or hidden when the total size is unknown.
-     * Called for the file-send path and when restoring the picker after
-     * a rejection; the text / folder-terminal states leave the line
-     * hidden (it defaults to `gone` in the layout).
+     * Render the line under the headline ([R.id.send_payload_size]) from
+     * the currently resolved [files] / [texts]: the formatted total for a
+     * file send, the link host or text preview for a text share (#301),
+     * or hidden when there is nothing to show. Called when the payload
+     * resolves and when restoring the picker after a rejection; the
+     * folder-terminal states leave the line hidden (it defaults to
+     * `gone` in the layout).
      */
     private fun applyPayloadSize() {
-        val sizeText = PayloadSummary.sizeFor(files)
-        if (sizeText != null) {
-            binding.sendPayloadSize.text = sizeText
+        val detailText = PayloadSummary.detailFor(files, texts)
+        if (detailText != null) {
+            binding.sendPayloadSize.text = detailText
             binding.sendPayloadSize.visibility = View.VISIBLE
         } else {
             binding.sendPayloadSize.visibility = View.GONE
@@ -1169,7 +1174,7 @@ public class SendActivity : AppCompatActivity() {
                             }
                     }
                 try {
-                    connection.run(files)
+                    connection.run(files, texts)
                 } finally {
                     collector.cancel()
                     activeConnection = null
@@ -1874,7 +1879,10 @@ public class SendActivity : AppCompatActivity() {
 
     private fun renderUnsupportedPayload() {
         beginCardBoundsTransition(BOUNDS_DURATION_MS)
-        binding.sendPayloadSummary.text = getString(R.string.send_payload_text)
+        // Text shares resolve into a payload now (#301), so this state
+        // only fires for an intent with nothing in it; there is no
+        // payload headline to show.
+        binding.sendPayloadSummary.visibility = View.GONE
         binding.sendSubtitle.text = getString(R.string.send_unsupported)
         binding.sendPeerList.visibility = View.GONE
         binding.sendEmptyState.visibility = View.GONE
@@ -2232,11 +2240,18 @@ public class SendActivity : AppCompatActivity() {
         }
     }
 
-    private fun logResolvedFiles(files: List<FileSource>) {
+    private fun logResolvedPayload() {
         files.forEachIndexed { index, file ->
             logOutboundDiagnostic(
                 "resolved file[$index]: name=${file.name} size=${file.size} " +
                     "mime=${file.mimeType} payloadId=${file.payloadId} parent=${file.parentFolder}",
+            )
+        }
+        // The text body and title stay out of the log: this file ends
+        // up in user-shared bug reports.
+        texts.forEachIndexed { index, text ->
+            logOutboundDiagnostic(
+                "resolved text[$index]: kind=${text.kind} size=${text.size} payloadId=${text.payloadId}",
             )
         }
     }

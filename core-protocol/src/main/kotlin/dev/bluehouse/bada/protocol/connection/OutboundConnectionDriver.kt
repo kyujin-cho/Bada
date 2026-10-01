@@ -83,6 +83,7 @@ internal class OutboundConnectionDriver(
     private val endpointInfo: ByteArray,
     private val qrSigningKey: PrivateKey?,
     private val files: List<FileSource>,
+    private val texts: List<TextSource> = emptyList(),
     private val mediumRegistry: MediumRegistry = MediumRegistry.DefaultWifiLan,
     private val onHandshakeComplete: () -> Unit = {},
     private val logger: (String) -> Unit = {},
@@ -127,11 +128,11 @@ internal class OutboundConnectionDriver(
     /** 4-digit confirmation PIN derived from UKEY2 `authString`. */
     private var pin: String = ""
 
-    /** Cumulative bytes pushed onto the wire across all FILE payloads. */
+    /** Cumulative bytes pushed onto the wire across all file and text payloads. */
     private var bytesSent: Long = 0L
 
-    /** Sum of [FileSource.size] over [files]. */
-    private val totalSize: Long = files.sumOf { it.size }
+    /** Sum of [FileSource.size] over [files] plus [TextSource.size] over [texts]. */
+    private val totalSize: Long = files.sumOf { it.size } + texts.sumOf { it.size }
 
     /** The most recent active payload, for progress UI. */
     private var currentItemPayloadId: Long? = null
@@ -148,7 +149,7 @@ internal class OutboundConnectionDriver(
      * - `>= 1` = it supports the safe-to-disconnect handshake (Samsung One UI 7+,
      *   stock Android Quick Share, and this app, which advertises version 1).
      *
-     * Gates the SUCCESS-path teardown in [streamFilesAndComplete]: for a version-0
+     * Gates the SUCCESS-path teardown in [streamPayloadsAndComplete]: for a version-0
      * peer we do NOT proactively send the terminal `Disconnection`; instead we let
      * the receiver finalize and close first (the existing safe-disconnect drain
      * waits for the peer's FIN), mirroring stock Quick Share. Defaults to 0.
@@ -241,7 +242,7 @@ internal class OutboundConnectionDriver(
         publishActiveTransport(negotiated.medium, negotiated.wifiFrequencyMhz)
 
         // Step 8: build the OutboundSharingFsm with our IntroductionFrame.
-        val introduction = buildIntroductionFrame(files)
+        val introduction = buildIntroductionFrame(files, texts)
         val negotiationFsm =
             OutboundSharingFsm(introduction = introduction, secureRandom = secureRandom)
                 .also { fsm = it }
@@ -287,7 +288,7 @@ internal class OutboundConnectionDriver(
      * currently the `safe_to_disconnect_version` (issue #200). 0 = the receiver has
      * safe-to-disconnect DISABLED (e.g. Windows Quick Share) and must NOT be
      * disconnected before it reaches kComplete; the success-path teardown in
-     * [streamFilesAndComplete] gates the eager Disconnection on this value. No-op if
+     * [streamPayloadsAndComplete] gates the eager Disconnection on this value. No-op if
      * the frame is not a ConnectionResponse (the caller's [check] handles that).
      */
     private fun capturePeerConnectionResponse(peerResponse: OfflineFrame) {
@@ -667,7 +668,7 @@ internal class OutboundConnectionDriver(
                 // FIN) before closing.
                 //
                 // Only drain on terminals where WE sent the request:
-                //   - Completed: terminal Disconnection from streamFilesAndComplete
+                //   - Completed: terminal Disconnection from streamPayloadsAndComplete
                 //   - Rejected: applyEffects emitted Disconnection
                 //   - Cancelled(LOCAL): user cancel emitted Disconnection
                 // On Cancelled(PEER) and Failed paths we never sent the
@@ -960,7 +961,7 @@ internal class OutboundConnectionDriver(
                             coroutineScope {
                                 val keepAliveJob = launch { runKeepAliveTicker(activeChannel) }
                                 try {
-                                    val result = streamFilesAndComplete(activeChannel)
+                                    val result = streamPayloadsAndComplete(activeChannel)
                                     if (shouldDrainForSafeDisconnect(result)) {
                                         drainSafeDisconnectAckDirect(activeChannel)
                                     }
@@ -1603,7 +1604,7 @@ internal class OutboundConnectionDriver(
 
     /**
      * Parse a complete BYTES payload as a [SharingFrame] and feed it
-     * to the FSM. Stream files when the FSM emits
+     * to the FSM. Stream the payloads when the FSM emits
      * [SharingFsmEffect.ReadyToSendPayloads].
      */
     private suspend fun handleBytesComplete(
@@ -1616,23 +1617,31 @@ internal class OutboundConnectionDriver(
         val effects = fsm.onEvent(SharingFsmEvent.FrameReceived(sharingFrame))
         applyEffects(channel, effects)
         if (effects.any { it is SharingFsmEffect.ReadyToSendPayloads }) {
-            return streamFilesAndComplete(channel)
+            return streamPayloadsAndComplete(channel)
         }
         return null
     }
 
     /**
-     * Stream every announced file in 512 KiB chunks, then send
-     * `Disconnection`. This is the happy-path terminal: returns
-     * [OutboundResult.Completed] on success.
+     * Send every announced text item as a BYTES payload, stream every
+     * announced file in 512 KiB chunks, then send `Disconnection`. This
+     * is the happy-path terminal: returns [OutboundResult.Completed] on
+     * success.
+     *
+     * Texts go first: they are tiny, so the receiver gets them without
+     * waiting behind a large file.
      *
      * Cancellation during streaming is cooperative: the dispatch loop
      * is suspended while we run, but [externalEvents] is polled on
      * each chunk so a `cancel()` call still emits a CANCEL frame
      * before we close.
      */
-    private suspend fun streamFilesAndComplete(channel: SecureChannel): OutboundResult {
-        logger("fsm: streamFilesAndComplete START files=${files.size} totalSize=$totalSize")
+    @Suppress("ReturnCount") // One user-cancel exit per payload kind, plus the success return.
+    private suspend fun streamPayloadsAndComplete(channel: SecureChannel): OutboundResult {
+        logger(
+            "fsm: streamPayloadsAndComplete START files=${files.size} texts=${texts.size} " +
+                "totalSize=$totalSize",
+        )
         // Seed the rate estimator with a zero-bytes sample so the
         // first chunk write produces a non-degenerate Δt for the EMA.
         rateEstimator.sample(bytesTransferred = 0L, nowMillis = nowMillisSource())
@@ -1645,8 +1654,18 @@ internal class OutboundConnectionDriver(
                         totalSize = totalSize,
                         bytesPerSecond = 0L,
                     ),
-                currentItemPayloadId = files.firstOrNull()?.payloadId,
+                currentItemPayloadId = texts.firstOrNull()?.payloadId ?: files.firstOrNull()?.payloadId,
             )
+
+        for (text in texts) {
+            currentItemPayloadId = text.payloadId
+            logger("fsm: sendOneText kind=${text.kind} size=${text.size} payloadId=${text.payloadId}")
+            val cancelled = sendOneText(channel, text)
+            if (cancelled != null) {
+                logger("fsm: sendOneText EARLY-RETURN ${cancelled::class.simpleName}")
+                return cancelled
+            }
+        }
 
         for (file in files) {
             currentItemPayloadId = file.payloadId
@@ -1740,6 +1759,27 @@ internal class OutboundConnectionDriver(
             logger("fsm: streamOneFile loop end chunks=$chunkIdx bytesSent=$bytesSent")
         } finally {
             runCatching { source.close() }
+        }
+        return null
+    }
+
+    /**
+     * Send a single [text] as a two-frame BYTES payload (data chunk plus
+     * the empty `LAST_CHUNK` terminator). Returns a non-null terminal
+     * result if the user cancelled before it went out; null once sent.
+     */
+    private suspend fun sendOneText(
+        channel: SecureChannel,
+        text: TextSource,
+    ): OutboundResult? {
+        val pending = externalEvents.tryReceive().getOrNull()
+        if (pending == OutboundExternalEvent.UserCancel) {
+            return userCancelDuringTransfer(channel)
+        }
+        for (frame in PayloadTransferEncoder.encodeBytesPayload(text.payloadId, text.bytes)) {
+            channel.sendOfflineFrame(frame)
+            bytesSent += chunkBodySize(frame)
+            publishSendingProgress()
         }
         return null
     }

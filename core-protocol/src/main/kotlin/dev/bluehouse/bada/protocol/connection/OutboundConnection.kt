@@ -76,10 +76,12 @@ import java.security.SecureRandom
  * 10. Drive [dev.bluehouse.bada.protocol.sharing.OutboundSharingFsm]
  *     through to its `SendingPayloads` state — the FSM emits
  *     `PairedKeyEncryption`, then `PairedKeyResult`, then the
- *     `IntroductionFrame` carrying our file metadata, and waits for
- *     the receiver's `ConnectionResponseFrame`.
- * 11. On peer ACCEPT: stream every announced file in 512 KiB chunks
- *     via [dev.bluehouse.bada.protocol.payload.PayloadTransferEncoder.encodeFilePayload],
+ *     `IntroductionFrame` carrying our file and text metadata, and
+ *     waits for the receiver's `ConnectionResponseFrame`.
+ * 11. On peer ACCEPT: send every announced text item as a BYTES payload
+ *     via [dev.bluehouse.bada.protocol.payload.PayloadTransferEncoder.encodeBytesPayload],
+ *     stream every announced file in 512 KiB chunks via
+ *     [dev.bluehouse.bada.protocol.payload.PayloadTransferEncoder.encodeFilePayload],
  *     then send `Disconnection` and close.
  * 12. On peer non-ACCEPT: surface the status via [state], send
  *     `Disconnection`, and close.
@@ -374,6 +376,10 @@ public class OutboundConnection private constructor(
      *   orchestrator opens each [FileSource]'s channel exactly once
      *   (after peer ACCEPT) and closes it after the last chunk is
      *   written.
+     * @param texts Text items to ship (#301), announced after [files]
+     *   in the Introduction and sent as BYTES payloads before them.
+     *   [TextSource.payloadId] follows the same rule as
+     *   [FileSource.payloadId] and must not collide with any file's id.
      * @return [OutboundResult.Completed] / [OutboundResult.Rejected] /
      *   [OutboundResult.Cancelled] / [OutboundResult.Failed]. Never
      *   throws — I/O failures are caught and surfaced as
@@ -382,11 +388,14 @@ public class OutboundConnection private constructor(
      *   shutdown semantics.
      */
     @Suppress("TooGenericExceptionCaught")
-    public suspend fun run(files: List<FileSource>): OutboundResult {
+    public suspend fun run(
+        files: List<FileSource>,
+        texts: List<TextSource> = emptyList(),
+    ): OutboundResult {
         check(!started) { "OutboundConnection.run() may only be invoked once" }
         started = true
 
-        validateFiles(files)
+        validatePayloadIds(files, texts)
 
         mutableState.value = OutboundConnectionState.Connecting
         val initialTransport: ConnectedTransport =
@@ -421,6 +430,7 @@ public class OutboundConnection private constructor(
                 endpointInfo = endpointInfo,
                 qrSigningKey = qrSigningKey,
                 files = files,
+                texts = texts,
                 mediumRegistry = mediumRegistry,
                 onHandshakeComplete = ::markHandshakeComplete,
                 logger = logger,
@@ -527,22 +537,33 @@ public class OutboundConnection private constructor(
     }
 
     /**
-     * Sanity-check the [files] list before starting any I/O.
+     * Sanity-check the [files] and [texts] lists before starting any I/O.
      *
-     * Two invariants:
+     * Two invariants, checked across both lists:
      *  - Every payload id is unique. Duplicates would cause the
      *    receiver's reassembler to merge byte streams.
      *  - Every payload id is positive (the proto is `int64` but Quick
      *    Share semantics require positive values).
      */
-    private fun validateFiles(files: List<FileSource>) {
-        val seen = HashSet<Long>(files.size)
+    private fun validatePayloadIds(
+        files: List<FileSource>,
+        texts: List<TextSource>,
+    ) {
+        val seen = HashSet<Long>(files.size + texts.size)
         for (f in files) {
             require(f.payloadId > 0) {
                 "FileSource.payloadId must be positive, got ${f.payloadId} for '${f.name}'"
             }
             require(seen.add(f.payloadId)) {
                 "Duplicate FileSource.payloadId ${f.payloadId} ('${f.name}')"
+            }
+        }
+        for (t in texts) {
+            require(t.payloadId > 0) {
+                "TextSource.payloadId must be positive, got ${t.payloadId}"
+            }
+            require(seen.add(t.payloadId)) {
+                "Duplicate TextSource.payloadId ${t.payloadId}"
             }
         }
     }

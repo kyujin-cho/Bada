@@ -225,6 +225,7 @@
 
     <!-- Payload summary templates. -->
     <string name="send_payload_text">分享文字</string>
+    <string name="send_payload_link">分享連結</string>
     <string name="send_payload_single_file">1 個檔案</string>
     <string name="send_payload_multiple_files">%1$d 個檔案</string>
 

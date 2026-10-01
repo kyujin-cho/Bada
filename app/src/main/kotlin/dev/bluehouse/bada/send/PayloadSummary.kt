@@ -8,6 +8,8 @@ package dev.bluehouse.bada.send
 import android.content.Context
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.protocol.connection.FileSource
+import dev.bluehouse.bada.protocol.connection.TextSource
+import dev.bluehouse.bada.protocol.connection.TransferItem
 
 /**
  * Pure-JVM helpers for rendering "what is being shared" subtitles. Kept
@@ -15,6 +17,38 @@ import dev.bluehouse.bada.protocol.connection.FileSource
  * isolation if needed.
  */
 internal object PayloadSummary {
+    /**
+     * Headline for whatever is being sent. A text-only share (#301)
+     * reads "Sharing a link" or "Sharing text"; anything with files
+     * falls through to [forFiles].
+     */
+    fun forPayload(
+        context: Context,
+        files: List<FileSource>,
+        texts: List<TextSource>,
+    ): String =
+        when {
+            files.isNotEmpty() || texts.isEmpty() -> forFiles(context, files)
+            texts.singleOrNull()?.kind == TransferItem.Text.Kind.URL ->
+                context.getString(R.string.send_payload_link)
+            else -> context.getString(R.string.send_payload_text)
+        }
+
+    /**
+     * Second line under the headline: the total size for a file send
+     * ([sizeFor]), or the text item's title (the link's host, or a short
+     * preview of the text) for a text-only share. `null` hides the line.
+     */
+    fun detailFor(
+        files: List<FileSource>,
+        texts: List<TextSource>,
+    ): String? =
+        if (files.isEmpty()) {
+            texts.singleOrNull()?.title?.takeIf { it.isNotBlank() }
+        } else {
+            sizeFor(files)
+        }
+
     /**
      * Build the headline string for a list of file sources — the file
      * count only, e.g. `"1 file"` or `"3 files"`. The transfer size is

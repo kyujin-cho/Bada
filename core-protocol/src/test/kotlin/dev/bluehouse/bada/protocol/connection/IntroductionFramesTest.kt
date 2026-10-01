@@ -121,4 +121,57 @@ class IntroductionFramesTest {
         assertThat(intro.getFileMetadata(3).type).isEqualTo(Protocol.FileMetadata.Type.ANDROID_APP)
         assertThat(intro.getFileMetadata(4).type).isEqualTo(Protocol.FileMetadata.Type.UNKNOWN)
     }
+
+    @Test
+    fun `text items are announced in text_metadata with id matching payload_id`() {
+        // #301: a shared link must reach the receiver as a URL text
+        // attachment. `size` is the UTF-8 byte length (not the char
+        // count) because the receiver checks it against the BYTES
+        // payload's total_size.
+        val url = TextSource("https://youtu.be/dQw4w9WgXcQ", "youtu.be", TransferItem.Text.Kind.URL, 31L)
+        val plain = TextSource("안녕 Bada", "안녕 Bada", TransferItem.Text.Kind.PLAIN, 32L)
+        val intro = buildIntroductionFrame(files = emptyList(), texts = listOf(url, plain))
+
+        assertThat(intro.fileMetadataCount).isEqualTo(0)
+        assertThat(intro.textMetadataCount).isEqualTo(2)
+        val first = intro.getTextMetadata(0)
+        assertThat(first.type).isEqualTo(Protocol.TextMetadata.Type.URL)
+        assertThat(first.textTitle).isEqualTo("youtu.be")
+        assertThat(first.payloadId).isEqualTo(31L)
+        assertThat(first.id).isEqualTo(31L)
+        assertThat(first.size).isEqualTo(url.text.length.toLong())
+        val second = intro.getTextMetadata(1)
+        assertThat(second.type).isEqualTo(Protocol.TextMetadata.Type.TEXT)
+        assertThat(second.size).isEqualTo("안녕 Bada".toByteArray(Charsets.UTF_8).size.toLong())
+        assertThat(second.id).isEqualTo(32L)
+        assertThat(intro.useCase).isEqualTo(Protocol.IntroductionFrame.SharingUseCase.NEARBY_SHARE)
+    }
+
+    @Test
+    fun `text kinds map onto the proto TextMetadata Type`() {
+        assertThat(textKindToTextType(TransferItem.Text.Kind.PLAIN)).isEqualTo(Protocol.TextMetadata.Type.TEXT)
+        assertThat(textKindToTextType(TransferItem.Text.Kind.URL)).isEqualTo(Protocol.TextMetadata.Type.URL)
+        assertThat(textKindToTextType(TransferItem.Text.Kind.ADDRESS)).isEqualTo(Protocol.TextMetadata.Type.ADDRESS)
+        assertThat(textKindToTextType(TransferItem.Text.Kind.PHONE_NUMBER))
+            .isEqualTo(Protocol.TextMetadata.Type.PHONE_NUMBER)
+    }
+
+    @Test
+    fun `receiver-side mapping reads back the announced text kind and title`() {
+        // Round-trip through the receive-side parser so the send and
+        // receive mappings cannot drift apart.
+        val texts =
+            TransferItem.Text.Kind.entries.mapIndexed { i, kind ->
+                TextSource("item-$i", "title-$i", kind, payloadId = 100L + i)
+            }
+        val metadata =
+            TransferMetadata.fromIntroductionFrame(
+                introduction = buildIntroductionFrame(files = emptyList(), texts = texts),
+                pin = "1234",
+            )
+        assertThat(metadata.items)
+            .containsExactlyElementsIn(
+                texts.map { TransferItem.Text(it.payloadId, it.title, it.size, it.kind) },
+            ).inOrder()
+    }
 }

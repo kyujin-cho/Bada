@@ -16,9 +16,9 @@ import android.content.Intent
  *  - [Intent.ACTION_SEND] with `EXTRA_STREAM` carrying a single
  *    `android.net.Uri` — single attachment.
  *  - [Intent.ACTION_SEND] with `EXTRA_TEXT` carrying a `CharSequence`
- *    — plain-text share. Maps to a Quick Share text payload (Phase 1
- *    minimum: PLAIN; URL/ADDRESS/PHONE_NUMBER detection is left to a
- *    follow-up).
+ *    — plain-text share, including links shared from a browser or
+ *    YouTube. Maps to a Quick Share text payload; [SharedTextClassifier]
+ *    decides between URL and plain text (#301).
  *  - [Intent.ACTION_SEND_MULTIPLE] with `EXTRA_STREAM` carrying an
  *    `ArrayList<Uri>` — multiple attachments at once.
  *

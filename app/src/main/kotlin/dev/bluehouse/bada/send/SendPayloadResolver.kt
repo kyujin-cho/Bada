@@ -9,10 +9,17 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import dev.bluehouse.bada.protocol.connection.FileSource
+import dev.bluehouse.bada.protocol.connection.TextSource
 
 internal sealed interface SendPayloadResolution {
-    data class Files(
-        val files: List<FileSource>,
+    /**
+     * Something to send. A share-sheet intent yields either files or a
+     * single text item (#301), never both: when `ACTION_SEND` carries a
+     * stream and a text, the stream wins (see [ShareIntentRouter]).
+     */
+    data class Payload(
+        val files: List<FileSource> = emptyList(),
+        val texts: List<TextSource> = emptyList(),
     ) : SendPayloadResolution
 
     data object Unsupported : SendPayloadResolution
@@ -25,19 +32,18 @@ internal sealed interface SendPayloadResolution {
 internal class SendPayloadResolver(
     private val fileSourceFactory: UriFileSourceFactory,
     private val documentTreeFactory: DocumentTreeFileSourceFactory,
+    private val textPayloadIdGenerator: () -> Long = UriFileSourceFactory::randomPositivePayloadId,
 ) {
     fun resolve(intent: Intent): SendPayloadResolution =
         if (intent.action == SendActivity.ACTION_SEND_FOLDER) {
             intent.data?.let(::materializeFolder) ?: SendPayloadResolution.Unsupported
         } else {
             val parsed = ShareIntentRouter.route(toShareIntent(intent))
-            if (parsed == null) {
+            val payload = parsed?.let(::materialize)
+            if (payload == null || (payload.files.isEmpty() && payload.texts.isEmpty())) {
                 SendPayloadResolution.Unsupported
             } else {
-                materializeFiles(parsed)
-                    .takeIf { it.isNotEmpty() }
-                    ?.let(SendPayloadResolution::Files)
-                    ?: SendPayloadResolution.Unsupported
+                payload
             }
         }
 
@@ -83,15 +89,25 @@ internal class SendPayloadResolver(
             source.getParcelableArrayListExtra(key)
         }
 
-    private fun materializeFiles(input: ShareIntentInput): List<FileSource> =
+    private fun materialize(input: ShareIntentInput): SendPayloadResolution.Payload =
         when (input) {
             is ShareIntentInput.SingleUri ->
-                listOf(fileSourceFactory.fromUri(input.uri as Uri))
+                SendPayloadResolution.Payload(files = listOf(fileSourceFactory.fromUri(input.uri as Uri)))
             is ShareIntentInput.MultipleUris ->
-                input.uris.map { fileSourceFactory.fromUri(it as Uri) }
+                SendPayloadResolution.Payload(files = input.uris.map { fileSourceFactory.fromUri(it as Uri) })
             is ShareIntentInput.Text ->
-                emptyList()
+                SendPayloadResolution.Payload(texts = listOf(textSource(input.text)))
         }
+
+    private fun textSource(text: String): TextSource {
+        val classified = SharedTextClassifier.classify(text)
+        return TextSource(
+            text = classified.body,
+            title = classified.title,
+            kind = classified.kind,
+            payloadId = textPayloadIdGenerator(),
+        )
+    }
 
     @Suppress("ReturnCount")
     private fun materializeFolder(treeUri: Uri): SendPayloadResolution {
@@ -107,7 +123,7 @@ internal class SendPayloadResolver(
         return if (walked.isEmpty()) {
             SendPayloadResolution.FolderEmpty
         } else {
-            SendPayloadResolution.Files(walked)
+            SendPayloadResolution.Payload(files = walked)
         }
     }
 }

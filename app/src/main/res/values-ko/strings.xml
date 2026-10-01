@@ -280,6 +280,7 @@
 
     <!-- Payload summary templates. -->
     <string name="send_payload_text">텍스트 공유 중</string>
+    <string name="send_payload_link">링크 공유 중</string>
     <string name="send_payload_single_file">파일 1개</string>
     <string name="send_payload_multiple_files">파일 %1$d개</string>
 

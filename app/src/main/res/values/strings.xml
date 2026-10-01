@@ -389,6 +389,7 @@
          The transfer size renders on its own line below the count (see
          R.id.send_payload_size), so the count templates carry no size. -->
     <string name="send_payload_text">Sharing text</string>
+    <string name="send_payload_link">Sharing a link</string>
     <string name="send_payload_single_file">1 file</string>
     <string name="send_payload_multiple_files">%1$d files</string>
 
