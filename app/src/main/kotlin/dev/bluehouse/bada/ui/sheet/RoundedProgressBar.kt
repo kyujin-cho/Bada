@@ -5,6 +5,8 @@
  */
 package dev.bluehouse.bada.ui.sheet
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -43,8 +45,11 @@ public class RoundedProgressBar
         private val fillPaint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = FILL_COLOR }
 
-        /** Current displayed fill fraction in [0, 1]; animated toward the target. */
+        /** Current displayed fill fraction in [0, 1]; animated toward [targetFraction]. */
         private var fraction: Float = 0f
+
+        /** Latest fill fraction requested through [setProgress], in [0, 1]. */
+        private var targetFraction: Float = 0f
         private var animator: ValueAnimator? = null
 
         private val trackRect = RectF()
@@ -53,18 +58,44 @@ public class RoundedProgressBar
         /**
          * Set the progress fill to [percent] (0..100), animating from the current
          * fill. Clamped to the valid range; safe to call on every progress tick.
+         *
+         * A call that lands while a segment is animating only moves the target; the
+         * running segment re-arms toward the latest target when it ends. Restarting
+         * the animator on every call froze the fill (#298): the receive sheet calls
+         * this once per payload chunk, hundreds of times a second on Wi-Fi LAN, and
+         * a freshly started ValueAnimator does not advance on its first frame, so the
+         * bar sat near empty while the percent label kept counting.
          */
         public fun setProgress(percent: Int) {
-            val target = (percent.coerceIn(0, 100)) / 100f
-            animator?.cancel()
+            targetFraction = (percent.coerceIn(0, 100)) / 100f
+            if (animator?.isStarted != true) {
+                animateTowardTarget()
+            }
+        }
+
+        private fun animateTowardTarget() {
+            if (fraction == targetFraction) return
             animator =
-                ValueAnimator.ofFloat(fraction, target).apply {
+                ValueAnimator.ofFloat(fraction, targetFraction).apply {
                     duration = ANIM_MS
                     interpolator = DecelerateInterpolator()
                     addUpdateListener {
                         fraction = it.animatedValue as Float
                         invalidate()
                     }
+                    addListener(
+                        object : AnimatorListenerAdapter() {
+                            private var cancelled = false
+
+                            override fun onAnimationCancel(animation: Animator) {
+                                cancelled = true
+                            }
+
+                            override fun onAnimationEnd(animation: Animator) {
+                                if (!cancelled) animateTowardTarget()
+                            }
+                        },
+                    )
                     start()
                 }
         }
