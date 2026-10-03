@@ -10,16 +10,20 @@ import android.net.Uri
 import android.os.Build
 import dev.bluehouse.bada.protocol.connection.FileSource
 import dev.bluehouse.bada.protocol.connection.TextSource
+import java.io.File
 
 internal sealed interface SendPayloadResolution {
-    /**
-     * Something to send. A share-sheet intent yields either files or a
-     * single text item (#301), never both: when `ACTION_SEND` carries a
-     * stream and a text, the stream wins (see [ShareIntentRouter]).
-     */
-    data class Payload(
-        val files: List<FileSource> = emptyList(),
-        val texts: List<TextSource> = emptyList(),
+    data class Payloads(
+        val files: List<FileSource>,
+        val texts: List<TextSource>,
+        private val ownedSources: List<AutoCloseable> = emptyList(),
+    ) : SendPayloadResolution,
+        AutoCloseable {
+        override fun close() = ownedSources.forEach { runCatching { it.close() } }
+    }
+
+    data class PreparationFailed(
+        val reason: SourcePreparationFailure,
     ) : SendPayloadResolution
 
     data object Unsupported : SendPayloadResolution
@@ -32,18 +36,20 @@ internal sealed interface SendPayloadResolution {
 internal class SendPayloadResolver(
     private val fileSourceFactory: UriFileSourceFactory,
     private val documentTreeFactory: DocumentTreeFileSourceFactory,
+    stagingDirectory: File,
     private val textPayloadIdGenerator: () -> Long = UriFileSourceFactory::randomPositivePayloadId,
 ) {
+    private val uriPreparer = ContentUriPreparer(fileSourceFactory, stagingDirectory).also { it.scavengeStale() }
+
     fun resolve(intent: Intent): SendPayloadResolution =
         if (intent.action == SendActivity.ACTION_SEND_FOLDER) {
             intent.data?.let(::materializeFolder) ?: SendPayloadResolution.Unsupported
         } else {
             val parsed = ShareIntentRouter.route(toShareIntent(intent))
-            val payload = parsed?.let(::materialize)
-            if (payload == null || (payload.files.isEmpty() && payload.texts.isEmpty())) {
+            if (parsed == null) {
                 SendPayloadResolution.Unsupported
             } else {
-                payload
+                materializePayloads(parsed)
             }
         }
 
@@ -59,12 +65,33 @@ internal class SendPayloadResolver(
                 else -> null
             }
         val text: CharSequence? = source.getCharSequenceExtra(Intent.EXTRA_TEXT)
+        val combinedUris = collectUris(source, streamUri, streamUris)
+        val title =
+            source.getStringExtra(Intent.EXTRA_TITLE)?.takeIf { it.isNotBlank() }
+                ?: source.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() }
         return ShareIntent(
             action = source.action,
-            streamUri = streamUri,
-            streamUris = streamUris,
+            streamUri = null,
+            streamUris = combinedUris,
             textExtra = text,
+            textTitle = title,
         )
+    }
+
+    private fun collectUris(
+        source: Intent,
+        single: Uri?,
+        multiple: List<Uri>?,
+    ): List<Uri> {
+        val candidates = mutableListOf<Uri>()
+        source.data?.let(candidates::add)
+        single?.let(candidates::add)
+        multiple?.let(candidates::addAll)
+        getParcelableExtraCompat(source, "output")?.let(candidates::add)
+        source.clipData?.let { clip ->
+            for (index in 0 until clip.itemCount) clip.getItemAt(index).uri?.let(candidates::add)
+        }
+        return candidates.distinctBy { it.normalizeScheme().toString() }
     }
 
     @Suppress("DEPRECATION")
@@ -89,21 +116,53 @@ internal class SendPayloadResolver(
             source.getParcelableArrayListExtra(key)
         }
 
-    private fun materialize(input: ShareIntentInput): SendPayloadResolution.Payload =
-        when (input) {
-            is ShareIntentInput.SingleUri ->
-                SendPayloadResolution.Payload(files = listOf(fileSourceFactory.fromUri(input.uri as Uri)))
-            is ShareIntentInput.MultipleUris ->
-                SendPayloadResolution.Payload(files = input.uris.map { fileSourceFactory.fromUri(it as Uri) })
-            is ShareIntentInput.Text ->
-                SendPayloadResolution.Payload(texts = listOf(textSource(input.text)))
+    @Suppress("ReturnCount") // Text, malformed URI collections, and prepared attachments are distinct outcomes.
+    private fun materializePayloads(input: ShareIntentInput): SendPayloadResolution {
+        if (input is ShareIntentInput.Text) {
+            return SendPayloadResolution.Payloads(
+                files = emptyList(),
+                texts = listOf(textSource(input)),
+            )
         }
+        val uris =
+            when (input) {
+                is ShareIntentInput.SingleUri -> listOf(input.uri)
+                is ShareIntentInput.MultipleUris -> input.uris
+                is ShareIntentInput.Text -> error("handled above")
+            }
+        val typedUris = uris.mapNotNull { it as? Uri }
+        if (typedUris.size != uris.size) return SendPayloadResolution.Unsupported
+        val owned = mutableListOf<PreparedUriSource>()
+        val ids = mutableSetOf<Long>()
+        return try {
+            val files =
+                typedUris.map { uri ->
+                    var id: Long
+                    do id = UriFileSourceFactory.randomPositivePayloadId() while (!ids.add(id))
+                    uriPreparer.prepare(uri, id).also(owned::add).source
+                }
+            SendPayloadResolution.Payloads(files, emptyList(), owned)
+        } catch (failure: SourcePreparationException) {
+            owned.forEach { it.close() }
+            SendPayloadResolution.PreparationFailed(failure.failure)
+        } catch (_: SecurityException) {
+            owned.forEach { it.close() }
+            SendPayloadResolution.PreparationFailed(SourcePreparationFailure.SOURCE_UNREADABLE)
+        }
+    }
 
-    private fun textSource(text: String): TextSource {
-        val classified = SharedTextClassifier.classify(text)
+    /**
+     * Purpose: reuse the shared text classifier for prepared and NFC sends.
+     * Invocation: text-only Share Sheet payload preparation on Dispatchers.IO.
+     * Contract: preserve an explicit share title, otherwise use the classifier's
+     * host/preview; the classified body and kind use the upstream TextSource API.
+     * Verification: classifier and protocol JVM tests; Android UI unverified.
+     */
+    private fun textSource(input: ShareIntentInput.Text): TextSource {
+        val classified = SharedTextClassifier.classify(input.text)
         return TextSource(
             text = classified.body,
-            title = classified.title,
+            title = input.title.takeIf { it.isNotBlank() } ?: classified.title,
             kind = classified.kind,
             payloadId = textPayloadIdGenerator(),
         )
@@ -123,7 +182,7 @@ internal class SendPayloadResolver(
         return if (walked.isEmpty()) {
             SendPayloadResolution.FolderEmpty
         } else {
-            SendPayloadResolution.Payload(files = walked)
+            SendPayloadResolution.Payloads(walked, emptyList())
         }
     }
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 20261003.01
+
+- 2026-10-03 15:51 UTC: Reconcile PR #264 Tap to Share with upstream text sharing: rebase onto 55f7cdc, reuse upstream TextSource/classifier paths, preserve async URI preparation and NFC handoff, and replace the API-33 BigInteger constant with an API-1 factory. Static source/XML checks and all 55 staticAnalysis tasks passed; Android compilation and runtime verification were not run.
+
 ## 20260914.01
 
 - Add a master on/off switch at the top of Settings: off stops the receiver service entirely (no mDNS, no BLE advertisement, no listener) and every path that could bring it back honours the choice, while the receive tab greys out the visibility pill and says why. The Name Card entry is hidden until that flow is usable end to end. (#239, #293)

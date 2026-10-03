@@ -43,6 +43,7 @@ internal data class SendBootstrapPlan(
                 get() =
                     when (route) {
                         is NearbyPeerRoute.Lan -> "wifi-lan"
+                        is NearbyPeerRoute.Preconnected -> "tap-to-share"
                         is NearbyPeerRoute.BluetoothClassic -> "bluetooth-classic"
                         is NearbyPeerRoute.BleL2cap -> "ble-l2cap"
                         is NearbyPeerRoute.BleGatt -> "ble-gatt"
@@ -82,7 +83,8 @@ internal data class SendBootstrapPlan(
          * bootstrap-route failure, so we stop falling back.
          *
          * The order mirrors [directRoute]'s `when` chain:
-         * Wi-Fi LAN → Bluetooth RFCOMM → BLE-L2CAP → BLE-GATT. RFCOMM
+         * preconnected handoff → Wi-Fi LAN → Bluetooth RFCOMM → BLE-L2CAP
+         * → BLE-GATT. RFCOMM
          * leads the off-LAN ladder because stock GMS receivers bootstrap
          * stock senders over it, while their BLE L2CAP/GATT server paths
          * are unreliable (#214). An empty list means no usable route; the
@@ -91,6 +93,7 @@ internal data class SendBootstrapPlan(
          */
         fun viableRoutes(peer: NearbyPeer): List<NearbyPeerRoute> =
             listOfNotNull(
+                preconnectedRoute(peer),
                 lanRoute(peer),
                 bluetoothRoute(peer),
                 bleL2capRoute(peer),
@@ -124,6 +127,7 @@ internal data class SendBootstrapPlan(
             val subtitle =
                 when (route) {
                     is NearbyPeerRoute.Lan -> "Wi-Fi LAN ${route.address.hostAddress}:${route.port}"
+                    is NearbyPeerRoute.Preconnected -> "Tap to Share"
                     is NearbyPeerRoute.BluetoothClassic -> "Bluetooth RFCOMM ${route.macAddress}"
                     is NearbyPeerRoute.BleL2cap -> "BLE L2CAP ${route.macAddress} psm=${route.psm}"
                     is NearbyPeerRoute.BleGatt -> "BLE GATT ${route.macAddress}"
@@ -141,10 +145,12 @@ internal data class SendBootstrapPlan(
             rejectedCandidates: MutableList<String>,
         ): NearbyPeerRoute? {
             val lanRoute = lanRoute(peer)
+            val preconnectedRoute = preconnectedRoute(peer)
             val bluetoothRoute = bluetoothRoute(peer)
             val bleL2capRoute = bleL2capRoute(peer)
             val bleGattRoute = bleGattRoute(peer)
             return when {
+                preconnectedRoute != null -> preconnectedRoute
                 lanRoute != null -> lanRoute
                 bluetoothRoute != null -> bluetoothRoute
                 bleL2capRoute != null -> {
@@ -217,6 +223,9 @@ internal data class SendBootstrapPlan(
                     NearbyPeerRoute.Lan(address = address, port = lan.port)
                 }
             }
+
+        private fun preconnectedRoute(peer: NearbyPeer): NearbyPeerRoute.Preconnected? =
+            peer.preconnectedTransport?.takeIf { peer.endpointInfo != null }?.let(NearbyPeerRoute::Preconnected)
 
         private fun lanRejection(peer: NearbyPeer): String {
             val lan = peer.lanEndpoint

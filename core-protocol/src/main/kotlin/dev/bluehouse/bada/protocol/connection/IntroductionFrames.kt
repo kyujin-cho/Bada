@@ -77,6 +77,7 @@ internal fun buildIntroductionFrame(
                 .setPayloadId(t.payloadId)
                 .setSize(t.size)
                 .setId(t.payloadId)
+                .setIsSensitiveText(false)
                 .build(),
         )
     }
