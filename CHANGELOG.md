@@ -1,5 +1,11 @@
 # Changelog
 
+## 20261007.01
+
+- Send links and text shared from another app (YouTube, a browser, a chat app) over Quick Share instead of stopping on the "unsupported" screen: a whole http(s) link goes out as a URL the receiver can open, anything else as plain text, and the send sheet shows the host or a one-line preview. (#301, #302)
+- Show a device-type icon for each peer in the send picker (laptop, tablet, or phone) instead of the same phone glyph for every device, and keep a real device type from being overwritten by a later BLE observation that carries none. (#277, #297)
+- Fix the receive progress bar stalling near empty while the percent label counted up on fast Wi-Fi LAN transfers; the bar no longer restarts its animation on every payload chunk. (#298, #303)
+
 ## 20260914.01
 
 - Add a master on/off switch at the top of Settings: off stops the receiver service entirely (no mDNS, no BLE advertisement, no listener) and every path that could bring it back honours the choice, while the receive tab greys out the visibility pill and says why. The Name Card entry is hidden until that flow is usable end to end. (#239, #293)
