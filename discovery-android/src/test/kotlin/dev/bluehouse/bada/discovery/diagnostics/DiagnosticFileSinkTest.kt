@@ -66,6 +66,30 @@ class DiagnosticFileSinkTest {
     }
 
     @Test
+    fun `legacy oversized file keeps only its tail as the backup`(
+        @TempDir dir: File,
+    ) {
+        val file = File(dir, "diag.log")
+        val backup = File(dir, "diag.log.1")
+        // An older uncapped writer left a file about three times the cap (#304).
+        val legacy = (1..30).joinToString(separator = "") { "line-%02d-xxxxxxxxxxxxxxxxxxxxx\n".format(it) }
+        file.writeText(legacy)
+        backup.writeText("stale backup\n")
+        val maxBytes = legacy.length / 3L
+
+        val sink = sink(file, maxBytes = maxBytes)
+        sink.append("fresh")
+        sink.flush(FLUSH_TIMEOUT_MILLIS)
+
+        val kept = backup.readText()
+        assertThat(kept.length.toLong()).isAtMost(maxBytes)
+        assertThat(kept).startsWith("line-")
+        assertThat(legacy).endsWith(kept)
+        assertThat(kept).endsWith("line-30-xxxxxxxxxxxxxxxxxxxxx\n")
+        assertThat(file.readText()).isEqualTo("fresh\n")
+    }
+
+    @Test
     fun `configureFileSink routes emitted log lines to disk`(
         @TempDir dir: File,
     ) {
