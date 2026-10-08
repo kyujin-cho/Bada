@@ -190,6 +190,11 @@ public class ConsentCoordinator(
         connectionId: Long,
     ) {
         var posted = false
+        // Receiving is republished per payload chunk, so dismiss on the
+        // first post-consent state only; repeating it wrote a noop
+        // diagnostic line per chunk (#304).
+        var dismissed = false
+
         // StateFlow already deduplicates equal consecutive emissions —
         // we just need a `takeWhile` that closes the loop after a
         // terminal state has been observed (and stops re-entering on
@@ -212,7 +217,8 @@ public class ConsentCoordinator(
                     is InboundConnectionState.Failed,
                     is InboundConnectionState.Completed,
                     -> {
-                        if (posted) {
+                        if (posted && !dismissed) {
+                            dismissed = true
                             registry.unregister(connectionId)
                             dismissConsentSurface(connectionId)
                         }
