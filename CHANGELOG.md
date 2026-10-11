@@ -1,5 +1,13 @@
 # Changelog
 
+- 2026-10-11 15:59 Resolve PR 276 merge conflict while retaining Radio Helper and upstream release notes.
+
+## Unreleased — Radio Helper installation from Settings
+
+- Added a Settings card that reports whether the matching Radio Helper companion is installed, installs the helper bundled inside Bada, and opens the helper setup screen after installation.
+- Embedded the matching debug or release helper APK in generated app assets and applied Bada's release signing inputs to the release helper so the signature-protected radio service can bind.
+- Hardened PackageInstaller confirmation, duplicate taps, session cleanup, unknown-source denial, and background confirmation handling.
+
 ## 20261007.01
 
 - Send links and text shared from another app (YouTube, a browser, a chat app) over Quick Share instead of stopping on the "unsupported" screen: a whole http(s) link goes out as a URL the receiver can open, anything else as plain text, and the send sheet shows the host or a one-line preview. (#301, #302)
