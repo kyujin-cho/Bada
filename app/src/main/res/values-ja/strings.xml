@@ -266,6 +266,11 @@
     <!-- Named-receiver variant of the rejection terminal. -->
     <string name="send_phase_rejected_by_named">%1$s がファイル転送を拒否しました</string>
     <string name="send_phase_cancelled">転送がキャンセルされました</string>
+    <string name="send_phase_declined_automatically">受信側の端末はファイルを受信できない状態です</string>
+    <string name="send_cancel_reason_declined_automatically">端末の Quick Share 設定で受信範囲を変更してから、もう一度お試しください。連絡先または自分の端末からのみ受信できるよう制限されている可能性があります。</string>
+    <string name="send_cancel_reason_here">この端末でキャンセルしました。</string>
+    <string name="send_cancel_reason_receiver_closed_request">受信側の端末がリクエストを閉じました。</string>
+    <string name="send_cancel_reason_receiver_stopped">受信側の端末が転送を中止しました。</string>
     <string name="send_phase_failed">転送に失敗しました</string>
 
     <!-- Status-panel messages. -->

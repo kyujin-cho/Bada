@@ -151,9 +151,16 @@ public sealed interface OutboundConnectionState {
      *   (the orchestrator emitted a `CancelFrame` before closing) or
      *   from the peer (the orchestrator observed an inbound
      *   `CancelFrame` and closed).
+     * @property awaitingAcceptanceMillis How long the sender had been
+     *   waiting for the receiver's decision (since the IntroductionFrame
+     *   went out) when the peer cancelled, or `null` when the cancel was
+     *   local or came at another stage. A peer that refuses the sender
+     *   outright, such as Quick Share on Windows set to accept only its
+     *   owner's devices, disconnects within milliseconds (#319).
      */
     public data class Cancelled(
         val cause: CancelCause,
+        val awaitingAcceptanceMillis: Long? = null,
     ) : OutboundConnectionState
 
     /**

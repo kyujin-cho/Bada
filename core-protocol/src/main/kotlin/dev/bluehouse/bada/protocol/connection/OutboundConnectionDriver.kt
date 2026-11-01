@@ -128,6 +128,9 @@ internal class OutboundConnectionDriver(
     /** 4-digit confirmation PIN derived from UKEY2 `authString`. */
     private var pin: String = ""
 
+    /** When the IntroductionFrame went out; see [publishPeerCancelled]. */
+    private var introductionSentAtMillis: Long? = null
+
     /** Cumulative bytes pushed onto the wire across all file and text payloads. */
     private var bytesSent: Long = 0L
 
@@ -1834,12 +1837,10 @@ internal class OutboundConnectionDriver(
         return when (current) {
             OutboundConnectionState.Completed -> OutboundResult.Completed
             is OutboundConnectionState.Rejected -> OutboundResult.Rejected(current.status)
-            is OutboundConnectionState.Cancelled -> OutboundResult.Cancelled(current.cause)
+            is OutboundConnectionState.Cancelled ->
+                OutboundResult.Cancelled(current.cause, current.awaitingAcceptanceMillis)
             is OutboundConnectionState.Failed -> OutboundResult.Failed(current.reason)
-            else -> {
-                publishCancelled(CancelCause.PEER)
-                OutboundResult.Cancelled(CancelCause.PEER)
-            }
+            else -> publishPeerCancelled()
         }
     }
 
@@ -1865,8 +1866,26 @@ internal class OutboundConnectionDriver(
      */
     private fun cancelFromPeer(): OutboundResult {
         logger("fsm: cancelFromPeer (peer Disconnection observed)")
-        publishCancelled(CancelCause.PEER)
-        return OutboundResult.Cancelled(CancelCause.PEER)
+        return publishPeerCancelled()
+    }
+
+    /**
+     * Publish a peer cancel, recording how long we had been waiting for
+     * the receiver's decision when it arrived (#319).
+     */
+    private fun publishPeerCancelled(): OutboundResult.Cancelled {
+        val sentAt = introductionSentAtMillis
+        val awaitingMillis =
+            if (sentAt != null && mutableState.value is OutboundConnectionState.AwaitingRemoteAcceptance) {
+                (nowMillisSource() - sentAt).coerceAtLeast(0L)
+            } else {
+                null
+            }
+        if (awaitingMillis != null) {
+            logger("fsm: peer cancelled while awaiting acceptance after ${awaitingMillis}ms")
+        }
+        publishCancelled(CancelCause.PEER, awaitingMillis)
+        return OutboundResult.Cancelled(CancelCause.PEER, awaitingMillis)
     }
 
     /**
@@ -1892,6 +1911,7 @@ internal class OutboundConnectionDriver(
                     // dance has finished — see the note in runLifecycle
                     // for the cancel-race rationale.
                     if (effect.frame.v1.type == SharingFrameType.INTRODUCTION) {
+                        introductionSentAtMillis = nowMillisSource()
                         mutableState.value =
                             OutboundConnectionState.AwaitingRemoteAcceptance(pin)
                     }
@@ -1900,16 +1920,7 @@ internal class OutboundConnectionDriver(
                     mutableState.value = OutboundConnectionState.Rejected(effect.status)
                     runCatching { sendTerminalDisconnection(channel) }
                 }
-                SharingFsmEffect.Cancelled -> {
-                    val rejected = effects.any { it is SharingFsmEffect.Rejected }
-                    if (rejected) {
-                        // Already published Rejected above; keep that
-                        // terminal. Do not overwrite with Cancelled.
-                    } else if (mutableState.value !is OutboundConnectionState.Cancelled) {
-                        publishCancelled(CancelCause.LOCAL)
-                        runCatching { sendTerminalDisconnection(channel) }
-                    }
-                }
+                SharingFsmEffect.Cancelled -> publishFsmCancel(channel, effects)
                 SharingFsmEffect.Completed -> Unit
                 is SharingFsmEffect.ProtocolError -> {
                     mutableState.value = OutboundConnectionState.Failed(effect.reason)
@@ -1980,7 +1991,7 @@ internal class OutboundConnectionDriver(
         return when (s) {
             OutboundConnectionState.Completed -> OutboundResult.Completed
             is OutboundConnectionState.Rejected -> OutboundResult.Rejected(s.status)
-            is OutboundConnectionState.Cancelled -> OutboundResult.Cancelled(s.cause)
+            is OutboundConnectionState.Cancelled -> OutboundResult.Cancelled(s.cause, s.awaitingAcceptanceMillis)
             is OutboundConnectionState.Failed -> OutboundResult.Failed(s.reason)
             else -> {
                 val reason = "FSM disconnected without a terminal state (state=$s)"
@@ -1990,8 +2001,34 @@ internal class OutboundConnectionDriver(
         }
     }
 
-    private fun publishCancelled(cause: CancelCause) {
-        mutableState.value = OutboundConnectionState.Cancelled(cause)
+    /**
+     * Terminal for [SharingFsmEffect.Cancelled]. The FSM emits it right
+     * after queueing our own CANCEL frame for a local cancel, and on its
+     * own when the peer's CANCEL arrived; reporting the latter as LOCAL
+     * told the user they had cancelled (#319).
+     */
+    private suspend fun publishFsmCancel(
+        channel: SecureChannel,
+        effects: List<SharingFsmEffect>,
+    ) {
+        // Rejected was already published for this batch; keep that terminal.
+        if (effects.any { it is SharingFsmEffect.Rejected }) return
+        if (mutableState.value is OutboundConnectionState.Cancelled) return
+        val cancelledHere =
+            effects.any { it is SharingFsmEffect.SendFrame && it.frame.v1.type == SharingFrameType.CANCEL }
+        if (cancelledHere) {
+            publishCancelled(CancelCause.LOCAL)
+        } else {
+            publishPeerCancelled()
+        }
+        runCatching { sendTerminalDisconnection(channel) }
+    }
+
+    private fun publishCancelled(
+        cause: CancelCause,
+        awaitingAcceptanceMillis: Long? = null,
+    ) {
+        mutableState.value = OutboundConnectionState.Cancelled(cause, awaitingAcceptanceMillis)
     }
 
     /**

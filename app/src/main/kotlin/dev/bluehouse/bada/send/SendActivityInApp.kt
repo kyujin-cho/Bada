@@ -1292,11 +1292,10 @@ public class SendActivityInApp : AppCompatActivity() {
                 // returns immediately afterward), so we do not need to
                 // cancel it manually here.
                 bounceBackToPickerAfterRejection(peerPickerController.peerLabel(peer))
-            is OutboundConnectionState.Cancelled ->
-                renderTerminal(
-                    getString(R.string.send_phase_cancelled),
-                    getString(R.string.send_status_failure_reason, state.cause.toString()),
-                )
+            is OutboundConnectionState.Cancelled -> {
+                val reason = SendCancelReason.from(state)
+                renderTerminal(getString(reason.phase), getString(reason.message))
+            }
             is OutboundConnectionState.Failed ->
                 if (pendingFallback) {
                     // The current attempt failed BUT another route is
