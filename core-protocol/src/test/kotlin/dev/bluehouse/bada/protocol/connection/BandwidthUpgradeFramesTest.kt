@@ -115,6 +115,24 @@ class BandwidthUpgradeFramesTest {
     }
 
     @Test
+    fun `clientIntroduction leaves supports_disabling_encryption unset by default`() {
+        val intro =
+            BandwidthUpgradeFrames
+                .clientIntroduction("ABCD")
+                .v1.bandwidthUpgradeNegotiation.clientIntroduction
+        assertThat(intro.hasSupportsDisablingEncryption()).isFalse()
+    }
+
+    @Test
+    fun `clientIntroduction carries supports_disabling_encryption when the client drops encryption`() {
+        val intro =
+            BandwidthUpgradeFrames
+                .clientIntroduction("ABCD", supportsDisablingEncryption = true)
+                .v1.bandwidthUpgradeNegotiation.clientIntroduction
+        assertThat(intro.supportsDisablingEncryption).isTrue()
+    }
+
+    @Test
     fun `clientIntroductionAck has the ack sub-message set`() {
         val frame = BandwidthUpgradeFrames.clientIntroductionAck()
         val parsed = parse(frame)
