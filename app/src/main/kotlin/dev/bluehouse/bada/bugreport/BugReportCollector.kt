@@ -37,6 +37,7 @@ import androidx.core.content.pm.PackageInfoCompat
 import dev.bluehouse.bada.discovery.DiscoveryDiagnostics
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
 import dev.bluehouse.bada.service.receiver.ActiveBleScannerHolder
+import dev.bluehouse.bada.service.receiver.InboundDiagnosticLog
 import dev.bluehouse.bada.service.receiver.MdnsVisibilityOverrideHolder
 import dev.bluehouse.bada.service.receiver.OutboundSessionActiveHolder
 import dev.bluehouse.bada.service.receiver.QrSessionActiveHolder
@@ -78,7 +79,7 @@ internal class BugReportCollector(
             }
 
             val outboundLogBytes = readOptionalExternalFile("bada-outbound.log", failures, "outbound_log")
-            val inboundLogBytes = readOptionalExternalFile("bada-inbound.log", failures, "inbound_log")
+            val inboundLogBytes = collectInboundLog(failures)
             val diagnosticsLogBytes = collectDiagnosticsLog(includeWifiBssid, failures)
             val ringbufferText =
                 DiagnosticLog.dumpRecent(
@@ -433,6 +434,15 @@ internal class BugReportCollector(
         // queued lines to disk before reading the file back.
         DiagnosticLog.flushFileSink()
         return readRotatedExternalFile("bada-diagnostics.log", failures, "diagnostics_log")
+    }
+
+    /**
+     * `bada-inbound.log` goes through the same size-rotated sink as the
+     * diagnostics log (#304), so drain it and read the `.1` backup with it.
+     */
+    private fun collectInboundLog(failures: MutableMap<String, String>): ByteArray? {
+        InboundDiagnosticLog.flush()
+        return readRotatedExternalFile(InboundDiagnosticLog.FILE_NAME, failures, "inbound_log")
     }
 
     /**

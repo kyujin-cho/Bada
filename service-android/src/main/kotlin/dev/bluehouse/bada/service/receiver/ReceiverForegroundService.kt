@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -795,7 +796,10 @@ public class ReceiverForegroundService : Service() {
                 DiagnosticLog.e(INBOUND_DIAG_TAG, accepted)
                 appendInboundLog(accepted)
                 serviceScope.launch {
+                    // Receiving is republished per payload chunk; log a sample (#304).
+                    val throttle = InboundStateLogThrottle()
                     conn.state.collect { st ->
+                        if (!throttle.shouldLog(st, SystemClock.elapsedRealtime())) return@collect
                         val line = "state ref=$ref -> $st"
                         DiagnosticLog.e(INBOUND_DIAG_TAG, line)
                         appendInboundLog(line)
@@ -806,11 +810,7 @@ public class ReceiverForegroundService : Service() {
     }
 
     private fun appendInboundLog(line: String) {
-        runCatching {
-            val dir = getExternalFilesDir(null) ?: return
-            val f = java.io.File(dir, "bada-inbound.log")
-            f.appendText("${System.currentTimeMillis()} $line\n")
-        }
+        InboundDiagnosticLog.append(this, line)
     }
 
     /**
@@ -1334,11 +1334,7 @@ public class ReceiverForegroundService : Service() {
             line: String,
         ) {
             DiagnosticLog.e(INBOUND_DIAG_TAG, line)
-            runCatching {
-                val dir = context.getExternalFilesDir(null) ?: return
-                val file = java.io.File(dir, "bada-inbound.log")
-                file.appendText("${System.currentTimeMillis()} $line\n")
-            }
+            InboundDiagnosticLog.append(context, line)
         }
 
         /**

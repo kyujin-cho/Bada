@@ -11,6 +11,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 import java.io.PrintWriter
+import java.io.RandomAccessFile
 import java.io.StringWriter
 import java.util.ArrayDeque
 import java.util.concurrent.BlockingQueue
@@ -187,8 +188,14 @@ public object DiagnosticLog {
  * work on the caller. The writer flushes after each drained batch (so a burst
  * lands on disk promptly once it quiesces); [flush] adds an explicit barrier
  * for read-back at report time.
+ *
+ * Public so `:service-android` can put the receiver's `bada-inbound.log` under
+ * the same cap (#304). A file found larger than [maxBytes] at startup, left by
+ * an older uncapped writer, keeps only its last [maxBytes] as the backup; see
+ * [trimOversizedFile]. A file this sink wrote overshoots the cap by at most one
+ * line, so for it the trim amounts to the rotation the next append would do.
  */
-internal class DiagnosticFileSink(
+public class DiagnosticFileSink(
     private val file: File,
     private val maxBytes: Long,
 ) {
@@ -197,23 +204,26 @@ internal class DiagnosticFileSink(
 
     init {
         file.parentFile?.mkdirs()
-        Thread(::runLoop, "bada-diag-sink").apply {
+        Thread(::runLoop, "bada-diag-sink:${file.name}").apply {
             isDaemon = true
             start()
         }
     }
 
-    fun append(line: String) {
+    /** Queue [line] (no trailing newline) for the writer thread. Never blocks. */
+    public fun append(line: String) {
         queue.offer(Item.Line(line))
     }
 
-    fun flush(timeoutMillis: Long) {
+    /** Wait up to [timeoutMillis] for every line queued so far to reach disk. */
+    public fun flush(timeoutMillis: Long) {
         val latch = CountDownLatch(1)
         queue.offer(Item.Flush(latch))
         runCatching { latch.await(timeoutMillis, TimeUnit.MILLISECONDS) }
     }
 
-    fun shutdown() {
+    /** Flush and close the file, then stop the writer thread. */
+    public fun shutdown() {
         queue.offer(Item.Stop)
     }
 
@@ -223,6 +233,10 @@ internal class DiagnosticFileSink(
         // Append mode preserves earlier-session logs; seed the byte counter
         // from disk so the size cap accounts for them.
         var written: Long = if (file.exists()) file.length() else 0L
+        if (written > maxBytes) {
+            trimOversizedFile()
+            written = if (file.exists()) file.length() else 0L
+        }
         try {
             while (true) {
                 val batch = ArrayList<Item>()
@@ -276,6 +290,28 @@ internal class DiagnosticFileSink(
             // If the rename fails (filesystem-dependent), truncate instead so
             // the cap stays a real bound rather than letting the file grow.
             if (!file.renameTo(backup)) file.writeText("")
+        }
+    }
+
+    /**
+     * Keep the last [maxBytes] of an oversized file as the backup and start the
+     * current file empty. A plain [rotate] would move the whole file to the
+     * backup, so a legacy log of tens of megabytes would stay in every bug
+     * report until the next rotation. Reads only the tail through a seek; the
+     * first partial line of the tail is dropped so the backup starts on a line.
+     */
+    private fun trimOversizedFile() {
+        runCatching {
+            val tail = ByteArray(maxBytes.toInt())
+            RandomAccessFile(file, "r").use { raf ->
+                raf.seek(raf.length() - maxBytes)
+                raf.readFully(tail)
+            }
+            val firstLineEnd = tail.indexOf('\n'.code.toByte())
+            val kept = if (firstLineEnd >= 0) tail.copyOfRange(firstLineEnd + 1, tail.size) else tail
+            if (backup.exists()) backup.delete()
+            backup.writeBytes(kept)
+            file.writeText("")
         }
     }
 

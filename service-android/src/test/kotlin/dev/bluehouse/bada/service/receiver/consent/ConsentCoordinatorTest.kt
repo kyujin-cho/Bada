@@ -134,6 +134,43 @@ class ConsentCoordinatorTest {
         }
 
     @Test
+    fun `per-chunk Receiving states after consent dismiss only once`() =
+        runTest {
+            val harness = harness(idProvider = { 8L })
+            harness.start()
+
+            val connection = harness.newConnection()
+            harness.activeConnections.tryEmit(connection)
+            advanceUntilIdle()
+            harness.transitionTo(
+                connection,
+                InboundConnectionState.WaitingForUserConsent(metadata = sampleMetadata()),
+            )
+            advanceUntilIdle()
+
+            // The driver republishes Receiving once per payload chunk (#304).
+            for (chunk in 1..5) {
+                harness.transitionTo(
+                    connection,
+                    InboundConnectionState.Receiving(
+                        progress =
+                            TransferProgress.of(bytesTransferred = chunk * 100L, totalSize = 1_000, bytesPerSecond = 0),
+                        currentItemPayloadId = 1L,
+                        currentItemType = null,
+                    ),
+                )
+                advanceUntilIdle()
+            }
+            harness.transitionTo(connection, InboundConnectionState.Completed(items = emptyList()))
+            advanceUntilIdle()
+
+            assertThat(harness.sink.dismissed).containsExactly(8L)
+            assertThat(harness.diagnostics.filter { it.startsWith("dismiss id=8") }).hasSize(1)
+
+            harness.close()
+        }
+
+    @Test
     fun `terminal cancellation after consent dismisses the notification`() =
         runTest {
             val harness = harness(idProvider = { 7L })
@@ -524,6 +561,7 @@ class ConsentCoordinatorTest {
         val registry: ConsentRegistry = ConsentRegistry()
         val foreground: InMemoryAppForegroundState =
             InMemoryAppForegroundState(initial = initialForeground)
+        val diagnostics: MutableList<String> = mutableListOf()
         private val flows: IdentityHashMap<InboundConnection, MutableStateFlow<InboundConnectionState>> =
             IdentityHashMap()
         private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -538,6 +576,7 @@ class ConsentCoordinatorTest {
                 connectionIdProvider = idProvider,
                 stateExtractor = { conn -> stateFor(conn) },
                 consentSubmitter = consentSubmitter,
+                diagnostic = { line -> diagnostics += line },
             )
 
         fun start() {
