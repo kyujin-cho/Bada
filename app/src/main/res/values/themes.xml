@@ -152,6 +152,16 @@
         <item name="android:padding">0dp</item>
         <item name="android:paddingStart">24dp</item>
         <item name="android:paddingEnd">24dp</item>
+        <!--
+          Labels wrap to a second line on narrow screens or large font
+          scales, so every horizontal LinearLayout that holds two of these
+          buttons sets `android:baselineAligned="false"` (#307). With
+          baseline alignment on, onLayout pushes the two-line button down
+          to line its first line up with the one-line neighbour, but
+          measureHorizontal sizes a wrap_content row to the tallest child
+          only, so the shifted button's bottom is clipped.
+          ButtonRowBaselineTest enforces the attribute.
+        -->
         <item name="android:maxLines">2</item>
         <!--
           Zero out drawable-related space the platform Button's
