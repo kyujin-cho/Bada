@@ -1,5 +1,15 @@
 # Changelog
 
+## 20261102.01
+
+- **Sending to a Galaxy phone on another network** - Now you can send files from Bada to a Galaxy phone that is not on your Wi-Fi. Before this update, these transfers reached 100% and then failed. The send screen also shows "Sent successfully" at the end of every transfer, including the few that start over Bluetooth Low Energy. (#314, #316, #322)
+- **One entry for your phone** - Now you can find your phone listed once on Windows and Galaxy share screens. Before, a new copy of your phone appeared after each transfer, and on Windows the list kept getting longer while it was open. (#197, #306, #315, #321)
+- **The reason a transfer stopped** - Now you can see why a send ended early: you cancelled it, the other person closed or stopped it, or the other phone is set to receive files only from contacts or from its own devices. In that last case, the message shows which Quick Share setting to change. (#319, #320)
+- **The bada logo in the top bar** - Now you can see the bada logo at the top of the home screen. It is black in light mode and white in dark mode. (#323)
+- **File dates on Windows** - Now you can send files to a Windows PC and keep their original modified dates. Before, Windows showed January 1, 1980 for every received file. (#310, #318)
+- **Buttons with two lines of text** - Now you can read the whole label on buttons whose text wraps onto a second line. Before, the second line was cut off. (#307, #317)
+- **Smaller receive log** - Now you can receive large files with much smaller diagnostic logs. Before, one 2.7 GB transfer wrote about 12 MB of log lines. (#304, #308)
+
 ## 20261007.01
 
 - Send links and text shared from another app (YouTube, a browser, a chat app) over Quick Share instead of stopping on the "unsupported" screen: a whole http(s) link goes out as a URL the receiver can open, anything else as plain text, and the send sheet shows the host or a one-line preview. (#301, #302)
