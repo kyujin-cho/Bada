@@ -3,12 +3,12 @@
 ## 20261102.01
 
 - **Improved messages when a send stops** - Now you can see why a send ended early: you cancelled it, the other person closed or stopped it, or the other phone is set to receive files only from contacts or from its own devices. In that last case, the message shows which Quick Share setting to change. (#319, #320)
-- **The bada logo in the top bar** - Now you can see the bada logo at the top of the home screen. It is black in light mode and white in dark mode. (#323)
-- **Sending to a Galaxy phone on another network** - Fixed transfers to a Galaxy phone that is not on your Wi-Fi. They reached 100% and then failed. Also fixed the send screen staying at 100% after a few transfers that start over Bluetooth Low Energy. (#314, #316, #322)
-- **Duplicate entries for your phone** - Fixed your phone appearing again on Windows and Galaxy share screens after each transfer. On Windows, the list kept getting longer while it was open. (#197, #306, #315, #321)
-- **File dates on Windows** - Fixed the modified dates of files sent to a Windows PC. Windows showed January 1, 1980 for every received file. (#310, #318)
-- **Buttons with two lines of text** - Fixed the second line of a two-line button label being cut off. (#307, #317)
-- **Large receive logs** - Fixed the diagnostic log growing by about 12 MB during one 2.7 GB transfer. (#304, #308)
+- **Introducing our new logo** - Now you can see the bada logo at the top of the home screen. It is black in light mode and white in dark mode. (#323)
+- **Fixed failed sends to a Galaxy phone on another network** - Now you can send files from Bada to a Galaxy phone that is not on your Wi-Fi. Before this update, these transfers reached 100% and then failed. The send screen also shows "Sent successfully" at the end of every transfer, including the few that start over Bluetooth Low Energy. (#314, #316, #322)
+- **Fixed duplicate entries for your phone** - Now you can find your phone listed once on Windows and Galaxy share screens. Before, a new copy of your phone appeared after each transfer, and on Windows the list kept getting longer while it was open. (#197, #306, #315, #321)
+- **Fixed the 1980 date on files sent to Windows** - Now you can send files to a Windows PC and keep their original modified dates. Before, Windows showed January 1, 1980 for every received file. (#310, #318)
+- **Fixed cut-off text on two-line buttons** - Now you can read the whole label on buttons whose text wraps onto a second line. Before, the second line was cut off. (#307, #317)
+- **Fixed oversized logs during large receives** - Now you can receive large files with much smaller diagnostic logs. Before, one 2.7 GB transfer wrote about 12 MB of log lines. (#304, #308)
 
 ## 20261007.01
 
