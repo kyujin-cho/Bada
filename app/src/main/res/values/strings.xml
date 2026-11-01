@@ -408,6 +408,11 @@
          receiver's display name. -->
     <string name="send_phase_rejected_by_named">%1$s declined the file transfer</string>
     <string name="send_phase_cancelled">Transfer cancelled</string>
+    <string name="send_phase_declined_automatically">The receiving device didn\'t accept the transfer</string>
+    <string name="send_cancel_reason_declined_automatically">It may only accept files from contacts or its own devices. Let it receive from everyone in its Quick Share settings, then try again.</string>
+    <string name="send_cancel_reason_here">Cancelled on this device.</string>
+    <string name="send_cancel_reason_receiver_closed_request">The receiving device closed the request.</string>
+    <string name="send_cancel_reason_receiver_stopped">The receiving device stopped the transfer.</string>
     <string name="send_phase_failed">Transfer failed</string>
 
     <!-- Status-panel messages (templates). -->

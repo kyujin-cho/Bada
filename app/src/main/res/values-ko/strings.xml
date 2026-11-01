@@ -296,6 +296,11 @@
          suppressed. -->
     <string name="send_phase_rejected_by_named">%1$s 님이 파일 전송을 거절했습니다</string>
     <string name="send_phase_cancelled">전송이 취소되었습니다</string>
+    <string name="send_phase_declined_automatically">받는 기기가 전송을 받지 않았습니다</string>
+    <string name="send_cancel_reason_declined_automatically">연락처나 자기 기기에서만 파일을 받도록 설정되어 있을 수 있습니다. 그 기기의 Quick Share 설정에서 모든 사람에게서 받도록 바꾼 뒤 다시 보내 보세요.</string>
+    <string name="send_cancel_reason_here">이 기기에서 취소했습니다.</string>
+    <string name="send_cancel_reason_receiver_closed_request">받는 기기가 요청을 닫았습니다.</string>
+    <string name="send_cancel_reason_receiver_stopped">받는 기기에서 전송을 중단했습니다.</string>
     <string name="send_phase_failed">전송 실패</string>
 
     <!-- Status-panel messages. -->

@@ -218,6 +218,11 @@
     <!-- 具名接收方的拒绝终态。%1$s 为接收方显示名称 -->
     <string name="send_phase_rejected_by_named">%1$s 拒绝了文件传输</string>
     <string name="send_phase_cancelled">传输已取消</string>
+    <string name="send_phase_declined_automatically">接收设备未接受此次传输</string>
+    <string name="send_cancel_reason_declined_automatically">该设备可能设置为仅接收联系人或其自己设备发送的文件。请在该设备的 Quick Share 设置中允许接收所有人的文件，然后重试。</string>
+    <string name="send_cancel_reason_here">已在此设备上取消。</string>
+    <string name="send_cancel_reason_receiver_closed_request">接收设备关闭了请求。</string>
+    <string name="send_cancel_reason_receiver_stopped">接收设备中止了传输。</string>
     <string name="send_phase_failed">传输失败</string>
 
     <!-- 状态面板消息（模板） -->

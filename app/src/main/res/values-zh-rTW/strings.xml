@@ -239,6 +239,11 @@
     <!-- Named-receiver variant of the rejection terminal. -->
     <string name="send_phase_rejected_by_named">%1$s 已拒絕檔案傳輸</string>
     <string name="send_phase_cancelled">傳輸已取消</string>
+    <string name="send_phase_declined_automatically">接收裝置未接受此次傳輸</string>
+    <string name="send_cancel_reason_declined_automatically">該裝置可能設定為僅接收聯絡人或其自己裝置傳送的檔案。請在該裝置的 Quick Share 設定中允許接收所有人的檔案，然後再試一次。</string>
+    <string name="send_cancel_reason_here">已在此裝置上取消。</string>
+    <string name="send_cancel_reason_receiver_closed_request">接收裝置關閉了請求。</string>
+    <string name="send_cancel_reason_receiver_stopped">接收裝置中止了傳輸。</string>
     <string name="send_phase_failed">傳輸失敗</string>
 
     <!-- Status-panel messages. -->

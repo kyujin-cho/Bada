@@ -1695,6 +1695,51 @@ class OutboundConnectionTest {
         }
 
     @Test
+    fun `peer cancel while awaiting acceptance reports how long the sender waited`() =
+        runBlocking {
+            withTimeout(WALLCLOCK_TIMEOUT_MS) {
+                val (port, accept) = listenAndAcceptInBackground()
+                val factory = InMemoryFactory()
+                val outbound =
+                    OutboundConnection(
+                        targetAddress = InetAddress.getLoopbackAddress(),
+                        port = port,
+                        secureRandom = SecureRandom("outbound-peer-cancel".toByteArray()),
+                    )
+
+                val files = listOf(bytesSource("declined.bin", ByteArray(100), 41L))
+
+                coroutineScope {
+                    val outboundJob = async { outbound.run(files) }
+
+                    val inbound =
+                        InboundConnection(
+                            socket = accept(),
+                            secureRandom = SecureRandom("inbound-peer-cancel".toByteArray()),
+                        )
+
+                    // Models a receiver that refuses the sender without asking
+                    // anyone, like Quick Share on Windows limited to its owner's
+                    // devices (#319).
+                    launch {
+                        inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                        inbound.cancel()
+                    }
+
+                    inbound.run(factory)
+                    val outboundResult = outboundJob.await() as OutboundResult.Cancelled
+
+                    assertThat(outboundResult.cause).isEqualTo(CancelCause.PEER)
+                    assertThat(outboundResult.awaitingAcceptanceMillis).isNotNull()
+                    assertThat(outboundResult.awaitingAcceptanceMillis!!).isAtLeast(0L)
+                }
+
+                val terminal = outbound.state.value as OutboundConnectionState.Cancelled
+                assertThat(terminal.awaitingAcceptanceMillis).isNotNull()
+            }
+        }
+
+    @Test
     fun `cancel from user during AwaitingRemoteAcceptance terminates LOCAL`() =
         runBlocking {
             withTimeout(WALLCLOCK_TIMEOUT_MS) {
