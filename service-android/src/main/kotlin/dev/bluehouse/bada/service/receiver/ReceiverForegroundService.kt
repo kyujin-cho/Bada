@@ -505,14 +505,8 @@ public class ReceiverForegroundService : Service() {
         // transition produces a progress notification.
         startProgressCoordinator(newSession)
         startInboundDiagnosticsLogger(newSession)
-        ReceiverIdentityRotator(
-            nextIdentityProvider = { AdvertisedDeviceNames.createEndpointInfo(applicationContext) },
-            bleBroadcasterFactory = { buildBleBroadcaster() },
-            logger = { line ->
-                DiagnosticLog.e(INBOUND_DIAG_TAG, line)
-                appendInboundLog(line)
-            },
-        ).start(serviceScope, newSession)
+        // The endpoint id stays stable across inbound transfers; see the
+        // AGENTS.md interop note on why the old rotation was removed (#197).
 
         serviceScope.launch {
             try {
@@ -1564,9 +1558,9 @@ internal object ActiveDiscoveryHolder {
  *
  * The same slug is the natural primary key Quick Share peers use to
  * dedupe sightings of a device across BLE and mDNS. We cache it here so
- * every active advertise surface in the process uses the same value, then
- * rotate it after an inbound transfer reaches a terminal state so stock
- * senders do not reuse stale Wi-Fi Direct handoff state on the next tap.
+ * every active advertise surface in the process uses the same value. It
+ * stays stable for the life of the process: rotating it after each inbound
+ * transfer made senders list the receiver again under every new id (#197).
  *
  * Production `Discovery` is configured to reuse this slug inside every
  * mDNS instance name, so BLE fast advertisements and mDNS service
