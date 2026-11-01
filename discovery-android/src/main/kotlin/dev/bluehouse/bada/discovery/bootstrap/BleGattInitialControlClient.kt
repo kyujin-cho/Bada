@@ -166,6 +166,10 @@ private class BleGattClientTransport(
     @Volatile
     private var closed: Boolean = false
 
+    /** Set by [close] while queued writes drain; [closeNow] finishes the close. */
+    @Volatile
+    private var closeRequested: Boolean = false
+
     override val medium: Medium = Medium.BLE
 
     override val inputStream: InputStream = input
@@ -239,7 +243,7 @@ private class BleGattClientTransport(
     ) {
         DiagnosticLog.w(TAG, "gatt state device=${device.safeAddress()} status=$status newState=$newState")
         if (status != BluetoothGatt.GATT_SUCCESS || newState != BluetoothProfile.STATE_CONNECTED) {
-            close()
+            closeNow()
             return
         }
         // Hold a short grace window before MTU/service discovery. Some
@@ -282,7 +286,7 @@ private class BleGattClientTransport(
     ) {
         if (status != BluetoothGatt.GATT_SUCCESS) {
             DiagnosticLog.w(TAG, "service discovery failed status=$status")
-            close()
+            closeNow()
             return
         }
         // Dump every advertised service + characteristic so we can spot
@@ -299,7 +303,7 @@ private class BleGattClientTransport(
         }
         if (!bindWeaveAndSlotsAcrossServices(gatt)) {
             DiagnosticLog.w(TAG, "BLE GATT bootstrap missing Weave write/notify characteristics")
-            close()
+            closeNow()
             return
         }
         // Stock Quick Share centrals read the receiver's
@@ -339,22 +343,22 @@ private class BleGattClientTransport(
     }
 
     private fun subscribeAndConnect(gatt: BluetoothGatt) {
-        val outgoing = fromPeripheral ?: return close()
+        val outgoing = fromPeripheral ?: return closeNow()
         if (!gatt.setCharacteristicNotification(outgoing, true)) {
             DiagnosticLog.w(TAG, "setCharacteristicNotification returned false")
-            close()
+            closeNow()
             return
         }
         val descriptor = outgoing.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID)
         if (descriptor == null) {
             DiagnosticLog.w(TAG, "notification descriptor missing")
-            close()
+            closeNow()
             return
         }
         descriptor.value = cccdValueFor(outgoing)
         if (!gatt.writeDescriptor(descriptor)) {
             DiagnosticLog.w(TAG, "write notification descriptor returned false")
-            close()
+            closeNow()
         }
     }
 
@@ -398,7 +402,7 @@ private class BleGattClientTransport(
     ) {
         if (descriptor.uuid != CLIENT_CHARACTERISTIC_CONFIG_UUID || status != BluetoothGatt.GATT_SUCCESS) {
             DiagnosticLog.w(TAG, "descriptor write failed uuid=${descriptor.uuid} status=$status")
-            close()
+            closeNow()
             return
         }
         sendWeaveConnectionRequest()
@@ -413,7 +417,7 @@ private class BleGattClientTransport(
             writeInFlight = false
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 DiagnosticLog.w(TAG, "characteristic write failed status=$status")
-                close()
+                closeNow()
                 return
             }
             DiagnosticLog.w(TAG, "characteristic write complete device=${device.safeAddress()}")
@@ -437,8 +441,38 @@ private class BleGattClientTransport(
         handleNotification(value)
     }
 
+    /**
+     * Closes the transport once the writes already queued have reached the
+     * peer. GATT writes complete asynchronously, so a frame the caller
+     * "sent" right before closing (the prior-channel `Disconnection` after
+     * a bandwidth upgrade) may still be waiting in [writeQueue]. Dropping
+     * it leaves a stock GMS peer reading the dead BLE channel until its
+     * own 10 s timeout, which delays its switch to the upgraded channel.
+     * Input stops at once; the GATT link stays up for at most
+     * [CLOSE_FLUSH_TIMEOUT_MILLIS] while the queue drains.
+     */
     @Synchronized
     override fun close() {
+        if (closed || closeRequested) return
+        val openGatt = gatt
+        if (openGatt == null || !weaveConnected || (!writeInFlight && writeQueue.isEmpty())) {
+            closeNow()
+            return
+        }
+        closeRequested = true
+        if (!ready.isCompleted) ready.complete(false)
+        runCatching { inputWriter.close() }
+        runCatching { input.close() }
+        DiagnosticLog.w(
+            TAG,
+            "close: flushing queued=${writeQueue.size} writeInFlight=$writeInFlight before disconnect " +
+                "device=${device.safeAddress()}",
+        )
+        mainHandler.postDelayed({ closeNow() }, CLOSE_FLUSH_TIMEOUT_MILLIS)
+    }
+
+    @Synchronized
+    private fun closeNow() {
         if (closed) return
         closed = true
         if (!ready.isCompleted) ready.complete(false)
@@ -446,6 +480,9 @@ private class BleGattClientTransport(
         runCatching { input.close() }
         val openGatt = gatt
         gatt = null
+        if (writeQueue.isNotEmpty()) {
+            DiagnosticLog.w(TAG, "close: dropping ${writeQueue.size} queued write(s) device=${device.safeAddress()}")
+        }
         writeQueue.clear()
         runCatching { openGatt?.disconnect() }
         runCatching { openGatt?.close() }
@@ -457,7 +494,7 @@ private class BleGattClientTransport(
         serviceDiscoveryStarted = true
         if (!gatt.discoverServices()) {
             DiagnosticLog.w(TAG, "discoverServices returned false")
-            close()
+            closeNow()
         }
     }
 
@@ -555,12 +592,12 @@ private class BleGattClientTransport(
 
     @Synchronized
     private fun handleNotification(packetBytes: ByteArray) {
-        if (closed) return
+        if (closed || closeRequested) return
         DiagnosticLog.w(TAG, "notification len=${packetBytes.size} header=${packetBytes.firstByteHex()}")
         when (val packet = WeaveFrames.parse(packetBytes)) {
             is WeavePacket.ConnectionConfirm -> handleConnectionConfirm(packet)
             is WeavePacket.Data -> handleDataPacket(packet)
-            is WeavePacket.ConnectionClose -> close()
+            is WeavePacket.ConnectionClose -> closeNow()
             is WeavePacket.ConnectionRequest -> Unit
             null -> DiagnosticLog.w(TAG, "invalid Weave packet ${packetBytes.toHex()}")
         }
@@ -569,7 +606,7 @@ private class BleGattClientTransport(
     private fun handleConnectionConfirm(packet: WeavePacket.ConnectionConfirm) {
         if (packet.version != WeaveFrames.VERSION) {
             DiagnosticLog.w(TAG, "unsupported Weave version=${packet.version}")
-            close()
+            closeNow()
             return
         }
         negotiatedPacketSize =
@@ -603,7 +640,7 @@ private class BleGattClientTransport(
     private fun handleSocketMessage(message: ByteArray) {
         if (message.size < SERVICE_ID_HASH_LEN) {
             DiagnosticLog.w(TAG, "discarded undersized BLE GATT socket message")
-            close()
+            closeNow()
             return
         }
         val prefix = message.copyOfRange(0, SERVICE_ID_HASH_LEN)
@@ -616,7 +653,7 @@ private class BleGattClientTransport(
             }
             else -> {
                 DiagnosticLog.w(TAG, "discarded BLE GATT socket message for unexpected service hash")
-                close()
+                closeNow()
             }
         }
     }
@@ -631,7 +668,7 @@ private class BleGattClientTransport(
             BleFramesProto.SocketControlFrame.ControlFrameType.PACKET_ACKNOWLEDGEMENT -> {
                 DiagnosticLog.w(TAG, "BLE GATT packet ack size=${control.packetAcknowledgement.receivedSize}")
             }
-            BleFramesProto.SocketControlFrame.ControlFrameType.DISCONNECTION -> close()
+            BleFramesProto.SocketControlFrame.ControlFrameType.DISCONNECTION -> closeNow()
             else -> DiagnosticLog.w(TAG, "BLE GATT control frame type=${control.type}")
         }
     }
@@ -643,7 +680,7 @@ private class BleGattClientTransport(
             inputWriter.flush()
         } catch (io: IOException) {
             DiagnosticLog.w(TAG, "BLE GATT virtual input closed while feeding data", io)
-            close()
+            closeNow()
         }
     }
 
@@ -668,7 +705,7 @@ private class BleGattClientTransport(
 
     @Synchronized
     private fun sendWeaveMessage(payload: ByteArray) {
-        if (closed || !weaveConnected || payload.isEmpty()) return
+        if (closed || closeRequested || !weaveConnected || payload.isEmpty()) return
         var offset = 0
         do {
             val maxChunkSize = (negotiatedPacketSize - WeaveFrames.HEADER_SIZE).coerceAtLeast(1)
@@ -703,9 +740,13 @@ private class BleGattClientTransport(
 
     private fun drainWritesLocked() {
         if (closed || writeInFlight) return
-        val packet = if (writeQueue.isEmpty()) return else writeQueue.removeFirst()
-        val openGatt = gatt ?: return close()
-        val outgoing = toPeripheral ?: return close()
+        if (writeQueue.isEmpty()) {
+            if (closeRequested) closeNow()
+            return
+        }
+        val packet = writeQueue.removeFirst()
+        val openGatt = gatt ?: return closeNow()
+        val outgoing = toPeripheral ?: return closeNow()
         outgoing.writeType = writeTypeFor(outgoing)
         outgoing.value = packet
         DiagnosticLog.i(
@@ -716,7 +757,7 @@ private class BleGattClientTransport(
         writeInFlight = openGatt.writeCharacteristic(outgoing)
         if (!writeInFlight) {
             DiagnosticLog.w(TAG, "writeCharacteristic returned false")
-            close()
+            closeNow()
         }
     }
 
@@ -727,6 +768,7 @@ private class BleGattClientTransport(
         private const val INPUT_PIPE_SIZE: Int = 1024 * 1024
         private const val SERVICE_ID_HASH_LEN: Int = 3
         private const val POST_CONNECT_DELAY_MILLIS: Long = 600L
+        private const val CLOSE_FLUSH_TIMEOUT_MILLIS: Long = 1_000L
         private const val POST_SLOT_DELAY_MILLIS: Long = 300L
         private const val WEAVE_REQUEST_RETRY_DELAY_MILLIS: Long = 1000L
         private const val WEAVE_REQUEST_MAX_RETRIES: Int = 10

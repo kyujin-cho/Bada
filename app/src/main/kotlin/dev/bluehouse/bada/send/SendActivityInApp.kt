@@ -1131,6 +1131,7 @@ public class SendActivityInApp : AppCompatActivity() {
             is PreparedConnection.Ready -> {
                 val connection = prepared.connection
                 activeConnection = connection
+                var lastRenderedState: OutboundConnectionState? = null
                 val collector =
                     lifecycleScope.launch {
                         connection.state
@@ -1142,6 +1143,7 @@ public class SendActivityInApp : AppCompatActivity() {
                                     wifiFrequencyMhz = frequencyMhz,
                                 )
                             }.collect { snapshot ->
+                                lastRenderedState = snapshot.state
                                 renderConnectionState(
                                     state = snapshot.state,
                                     peer = peer,
@@ -1150,16 +1152,47 @@ public class SendActivityInApp : AppCompatActivity() {
                                 )
                             }
                     }
-                try {
-                    connection.run(files, texts)
-                } finally {
-                    collector.cancel()
-                    activeConnection = null
-                    bluetoothBootstrapClient = null
-                    bleL2capBootstrapClient = null
-                }
+                val outcome =
+                    try {
+                        connection.run(files, texts)
+                    } finally {
+                        collector.cancel()
+                        activeConnection = null
+                        bluetoothBootstrapClient = null
+                        bleL2capBootstrapClient = null
+                    }
+                renderTerminalStateMissedByCollector(connection, peer, lastRenderedState)
+                outcome
             }
         }
+    }
+
+    /**
+     * Renders the terminal state when the collector in [attemptOutbound] never
+     * saw it. That collector is cancelled as soon as [OutboundConnection.run]
+     * returns, and it trails the driver by a few main-thread dispatches. A
+     * driver that publishes its terminal state and returns within one turn (a
+     * safe-disconnect drain that times out does this) left the card on
+     * "Sending 100%" after a finished transfer. Failed stays with the route
+     * loop, which decides between a fallback attempt and the failure card.
+     */
+    private fun renderTerminalStateMissedByCollector(
+        connection: OutboundConnection,
+        peer: NearbyPeer,
+        lastRenderedState: OutboundConnectionState?,
+    ) {
+        val state = connection.state.value
+        val collectorOwnsTerminal =
+            state == OutboundConnectionState.Completed ||
+                state is OutboundConnectionState.Rejected ||
+                state is OutboundConnectionState.Cancelled
+        if (!collectorOwnsTerminal || state == lastRenderedState) return
+        renderConnectionState(
+            state = state,
+            peer = peer,
+            activeMedium = connection.activeMedium.value,
+            wifiFrequencyMhz = connection.activeWifiFrequencyMhz.value,
+        )
     }
 
     private sealed interface PreparedConnection {
