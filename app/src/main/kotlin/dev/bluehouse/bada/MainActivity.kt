@@ -23,6 +23,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -122,6 +123,7 @@ class MainActivity : AppCompatActivity() {
      * is detected (or cleared after an in-app upgrade).
      */
     private var mainToolbar: MaterialToolbar? = null
+    private var toolbarWordmark: View? = null
 
     // NOTE (Name Card): MainActivity deliberately does NOT arm NFC reader-mode. Doing so on plain
     // home-screen resume suppressed this phone's own card emulation (BadaTapHceService's
@@ -165,6 +167,8 @@ class MainActivity : AppCompatActivity() {
         toolbar.overflowIcon = ContextCompat.getDrawable(this, R.drawable.ic_overflow_kebab_24)
         setSupportActionBar(toolbar)
         mainToolbar = toolbar
+        toolbarWordmark = findViewById(R.id.main_toolbar_wordmark)
+        applyToolbarTitle(R.id.nav_send_receive)
 
         // Update-check pipeline (issue #211). Seed the state from the
         // cached "latest known release" so the red dot is correct from
@@ -190,17 +194,7 @@ class MainActivity : AppCompatActivity() {
                     R.id.nav_settings -> SettingsFragment()
                     else -> return@setOnItemSelectedListener false
                 }
-            // Swap the toolbar title per tab so the page identity is
-            // explicit. Home keeps the "bada" brand (the app's
-            // root surface); Settings switches to its tab title so the
-            // toolbar reads as page context, matching how the
-            // dedicated send/consent activities title themselves
-            // rather than carrying the brand.
-            toolbar.title =
-                when (item.itemId) {
-                    R.id.nav_settings -> getString(R.string.nav_settings_title)
-                    else -> getString(R.string.app_name)
-                }
+            applyToolbarTitle(item.itemId)
             supportFragmentManager
                 .beginTransaction()
                 .replace(R.id.main_fragment_container, fragment)
@@ -229,6 +223,31 @@ class MainActivity : AppCompatActivity() {
         // no-op. The activity content frame is the hierarchy to capture.
         (bottomNav as? ElasticBottomNavigationView)?.let { pill ->
             (findViewById<View>(android.R.id.content) as? ViewGroup)?.let(pill::attachBackdropBlur)
+        }
+    }
+
+    override fun onPostCreate(savedInstanceState: Bundle?) {
+        super.onPostCreate(savedInstanceState)
+        // BottomNavigationView restores its selected tab after onCreate
+        // (view-state restore), so re-apply the toolbar title for it here;
+        // otherwise a rotation on Settings came back showing the home brand.
+        mainBottomNav?.let { applyToolbarTitle(it.selectedItemId) }
+    }
+
+    /**
+     * Swap the toolbar title per tab so the page identity is explicit.
+     * Home shows the "bada" wordmark (the app's root surface) instead of
+     * title text; Settings shows its tab title so the toolbar reads as
+     * page context, matching how the dedicated send/consent activities
+     * title themselves rather than carrying the brand. The wordmark has a
+     * drawable-night variant, so the light/dark switch needs no code.
+     */
+    private fun applyToolbarTitle(selectedItemId: Int) {
+        val home = selectedItemId != R.id.nav_settings
+        toolbarWordmark?.isVisible = home
+        supportActionBar?.apply {
+            setDisplayShowTitleEnabled(!home)
+            if (!home) title = getString(R.string.nav_settings_title)
         }
     }
 

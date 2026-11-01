@@ -96,7 +96,21 @@
         app:title="@string/app_name"
         app:titleCentered="false"
         app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
-        app:titleTextColor="?android:attr/textColorPrimary" />
+        app:titleTextColor="?android:attr/textColorPrimary">
+
+        <!-- Home tab brand: replaces the "Bada" title text (MainActivity.applyToolbarTitle).
+             drawable-night holds the white variant for dark mode. Toolbar folds a
+             child's start margin into its 16dp content inset, so 24dp here puts the
+             letters on the same 24dp edge as the content below. -->
+        <ImageView
+            android:id="@+id/main_toolbar_wordmark"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="24dp"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_bada_wordmark" />
+    </com.google.android.material.appbar.MaterialToolbar>
 
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/main_fragment_container"
