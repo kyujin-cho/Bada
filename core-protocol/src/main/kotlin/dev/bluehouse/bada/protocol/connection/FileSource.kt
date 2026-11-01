@@ -45,7 +45,8 @@ import java.nio.channels.ReadableByteChannel
  *   the receiver's UI hint.
  * @property lastModifiedTimestampMillis Mirrored onto the outgoing
  *   `PayloadHeader.last_modified_timestamp_millis`. Pass `0L` when
- *   unknown.
+ *   unknown; the encoder then leaves the field unset so the receiver
+ *   stamps the file with its own clock instead of the Unix epoch (#310).
  * @property payloadId The Quick Share `payload_id` to use both in the
  *   introduction frame's file metadata entry and on every chunk's
  *   `PayloadHeader.id`. The caller MUST choose a fresh, positive,

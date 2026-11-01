@@ -88,6 +88,17 @@ import java.security.SecureRandom
 public class SecureChannel internal constructor(
     private val framedConnection: FramedConnection,
     internal val session: SecureMessageSession,
+    /**
+     * True when this facade carries plain length-prefixed `OfflineFrame`s
+     * instead of SecureMessage envelopes. Only a bandwidth-upgraded channel
+     * is ever plaintext: when the peer's `UPGRADE_PATH_AVAILABLE` sets
+     * `supports_disabling_encryption`, a P2P_POINT_TO_POINT client (every
+     * Quick Share session) drops the D2D layer on the new medium, which is
+     * already link-encrypted (google/nearby `BwuManager` +
+     * `BaseEndpointChannel::DisableEncryption`). The send/receive counters
+     * in [session] are not touched in this mode.
+     */
+    internal val encryptionDisabled: Boolean = false,
 ) : AutoCloseable {
     public constructor(
         framedConnection: FramedConnection,
@@ -120,6 +131,10 @@ public class SecureChannel internal constructor(
      *   callers must close the connection rather than retry.
      */
     public suspend fun sendOfflineFrame(frame: OfflineFrame) {
+        if (encryptionDisabled) {
+            sendRawOfflineFrame(frame)
+            return
+        }
         session.sendOfflineFrame(framedConnection, frame)
     }
 
@@ -153,10 +168,32 @@ public class SecureChannel internal constructor(
      *   [dev.bluehouse.bada.protocol.transport.EndOfFrameStream] when
      *   the peer closes cleanly between frames).
      */
-    public suspend fun receiveOfflineFrame(): OfflineFrame = session.receiveOfflineFrame(framedConnection)
+    public suspend fun receiveOfflineFrame(): OfflineFrame =
+        if (encryptionDisabled) {
+            receivePlaintextOfflineFrame()
+        } else {
+            session.receiveOfflineFrame(framedConnection)
+        }
 
-    internal suspend fun receiveSequencedOfflineFrame(): SequencedOfflineFrame =
-        session.receiveSequencedOfflineFrame(framedConnection)
+    /**
+     * Reads one plain `OfflineFrame` from a channel whose encryption was
+     * disabled by the bandwidth upgrade. Parse failures surface as
+     * [SecureMessageFormatException], the same type an encrypted channel
+     * throws for a malformed envelope, so callers keep one error path.
+     */
+    internal suspend fun receivePlaintextOfflineFrame(): OfflineFrame {
+        val bytes = framedConnection.receiveFrame()
+        return try {
+            OfflineFrame.parseFrom(bytes)
+        } catch (e: com.google.protobuf.InvalidProtocolBufferException) {
+            throw SecureMessageFormatException("Plaintext OfflineFrame proto failed to parse", e)
+        }
+    }
+
+    internal suspend fun receiveSequencedOfflineFrame(): SequencedOfflineFrame {
+        check(!encryptionDisabled) { "A plaintext channel carries no SecureMessage sequence numbers" }
+        return session.receiveSequencedOfflineFrame(framedConnection)
+    }
 
     internal suspend fun acceptSequencedOfflineFrame(frame: SequencedOfflineFrame): OfflineFrame =
         session.acceptSequencedOfflineFrame(frame)
@@ -195,8 +232,16 @@ public class SecureChannel internal constructor(
         framedConnection.close()
     }
 
-    internal fun withTransport(framedConnection: FramedConnection): SecureChannel =
-        SecureChannel(framedConnection, session)
+    /**
+     * A facade over [framedConnection] that shares this channel's
+     * SecureMessage session (and so its sequence counters). With
+     * [encryptionDisabled] the new facade carries plain `OfflineFrame`s and
+     * leaves the session counters alone; see the constructor parameter.
+     */
+    internal fun withTransport(
+        framedConnection: FramedConnection,
+        encryptionDisabled: Boolean = false,
+    ): SecureChannel = SecureChannel(framedConnection, session, encryptionDisabled)
 
     internal fun hasBufferedInput(): Boolean = framedConnection.hasBufferedInput()
 }

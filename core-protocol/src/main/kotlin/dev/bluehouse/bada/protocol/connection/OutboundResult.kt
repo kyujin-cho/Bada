@@ -43,9 +43,12 @@ public sealed interface OutboundResult {
      *
      * @property cause Whether the cancel came from the local user or
      *   the peer.
+     * @property awaitingAcceptanceMillis Same as
+     *   [OutboundConnectionState.Cancelled.awaitingAcceptanceMillis].
      */
     public data class Cancelled(
         val cause: CancelCause,
+        val awaitingAcceptanceMillis: Long? = null,
     ) : OutboundResult
 
     /**

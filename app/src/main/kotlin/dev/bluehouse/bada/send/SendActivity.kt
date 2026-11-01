@@ -1154,6 +1154,7 @@ public class SendActivity : AppCompatActivity() {
             is PreparedConnection.Ready -> {
                 val connection = prepared.connection
                 activeConnection = connection
+                var lastRenderedState: OutboundConnectionState? = null
                 val collector =
                     lifecycleScope.launch {
                         connection.state
@@ -1165,6 +1166,7 @@ public class SendActivity : AppCompatActivity() {
                                     wifiFrequencyMhz = frequencyMhz,
                                 )
                             }.collect { snapshot ->
+                                lastRenderedState = snapshot.state
                                 renderConnectionState(
                                     state = snapshot.state,
                                     peer = peer,
@@ -1173,16 +1175,47 @@ public class SendActivity : AppCompatActivity() {
                                 )
                             }
                     }
-                try {
-                    connection.run(files, texts)
-                } finally {
-                    collector.cancel()
-                    activeConnection = null
-                    bluetoothBootstrapClient = null
-                    bleL2capBootstrapClient = null
-                }
+                val outcome =
+                    try {
+                        connection.run(files, texts)
+                    } finally {
+                        collector.cancel()
+                        activeConnection = null
+                        bluetoothBootstrapClient = null
+                        bleL2capBootstrapClient = null
+                    }
+                renderTerminalStateMissedByCollector(connection, peer, lastRenderedState)
+                outcome
             }
         }
+    }
+
+    /**
+     * Renders the terminal state when the collector in [attemptOutbound] never
+     * saw it. That collector is cancelled as soon as [OutboundConnection.run]
+     * returns, and it trails the driver by a few main-thread dispatches. A
+     * driver that publishes its terminal state and returns within one turn (a
+     * safe-disconnect drain that times out does this) left the card on
+     * "Sending 100%" after a finished transfer. Failed stays with the route
+     * loop, which decides between a fallback attempt and the failure card.
+     */
+    private fun renderTerminalStateMissedByCollector(
+        connection: OutboundConnection,
+        peer: NearbyPeer,
+        lastRenderedState: OutboundConnectionState?,
+    ) {
+        val state = connection.state.value
+        val collectorOwnsTerminal =
+            state == OutboundConnectionState.Completed ||
+                state is OutboundConnectionState.Rejected ||
+                state is OutboundConnectionState.Cancelled
+        if (!collectorOwnsTerminal || state == lastRenderedState) return
+        renderConnectionState(
+            state = state,
+            peer = peer,
+            activeMedium = connection.activeMedium.value,
+            wifiFrequencyMhz = connection.activeWifiFrequencyMhz.value,
+        )
     }
 
     private sealed interface PreparedConnection {
@@ -1282,11 +1315,10 @@ public class SendActivity : AppCompatActivity() {
                 // returns immediately afterward), so we do not need to
                 // cancel it manually here.
                 bounceBackToPickerAfterRejection(peerPickerController.peerLabel(peer))
-            is OutboundConnectionState.Cancelled ->
-                renderTerminal(
-                    getString(R.string.send_phase_cancelled),
-                    getString(R.string.send_status_failure_reason, state.cause.toString()),
-                )
+            is OutboundConnectionState.Cancelled -> {
+                val reason = SendCancelReason.from(state)
+                renderTerminal(getString(reason.phase), getString(reason.message))
+            }
             is OutboundConnectionState.Failed ->
                 if (pendingFallback) {
                     // The current attempt failed BUT another route is
@@ -2244,7 +2276,8 @@ public class SendActivity : AppCompatActivity() {
         files.forEachIndexed { index, file ->
             logOutboundDiagnostic(
                 "resolved file[$index]: name=${file.name} size=${file.size} " +
-                    "mime=${file.mimeType} payloadId=${file.payloadId} parent=${file.parentFolder}",
+                    "mime=${file.mimeType} payloadId=${file.payloadId} parent=${file.parentFolder} " +
+                    "lastModified=${file.lastModifiedTimestampMillis}",
             )
         }
         // The text body and title stay out of the log: this file ends

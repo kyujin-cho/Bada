@@ -127,16 +127,24 @@ public object BandwidthUpgradeFrames {
      * @param lastEndpointId Optional: the previous endpoint id when
      *   reusing one across upgrade attempts. Default empty (matches
      *   `google/nearby` for fresh sessions).
+     * @param supportsDisablingEncryption Whether the client will run the
+     *   upgraded channel in plaintext. `google/nearby` sends
+     *   `local_supports_disabling && offer.supports_disabling_encryption`;
+     *   Quick Share is always P2P_POINT_TO_POINT, so callers pass the
+     *   offer's flag through. Left unset when false so the encrypted-path
+     *   wire bytes stay exactly as before.
      */
     public fun clientIntroduction(
         endpointId: String,
         lastEndpointId: String = "",
+        supportsDisablingEncryption: Boolean = false,
     ): OfflineFrame {
         val intro =
             BandwidthUpgradeNegotiationFrame.ClientIntroduction
                 .newBuilder()
                 .setEndpointId(endpointId)
                 .setLastEndpointId(lastEndpointId)
+                .apply { if (supportsDisablingEncryption) setSupportsDisablingEncryption(true) }
                 .build()
         return wrap(
             BandwidthUpgradeNegotiationFrame

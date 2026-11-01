@@ -255,6 +255,22 @@ internal object BandwidthUpgradeOrchestrator {
             }
         val expectsClientIntroductionAck =
             offer.v1.bandwidthUpgradeNegotiation.upgradePathInfo.supportsClientIntroductionAck
+        // google/nearby clients disable encryption on the upgraded channel
+        // when the offer allows it and the strategy is P2P_POINT_TO_POINT,
+        // which every Quick Share session is. GMS 26.41+ servers apply the
+        // offer's flag even when the CLIENT_INTRODUCTION says false, so a
+        // client that keeps SecureMessage framing ends up talking past a
+        // plaintext peer: both sides fail to parse each other's frames.
+        val disableEncryption =
+            offer.v1.bandwidthUpgradeNegotiation.upgradePathInfo.supportsDisablingEncryption
+        if (oldChannel.encryptionDisabled) {
+            // A second upgrade from an already-plaintext channel has no
+            // sequence-numbered prior stream to merge against; decline it
+            // before anything is torn down and stay where we are.
+            logger("medium-upgrade: client declined ${credentials.medium} offer on a plaintext channel")
+            oldChannel.sendOfflineFrame(BandwidthUpgradeFrames.upgradeFailure(credentials.medium))
+            return ActiveTransportChannel(oldChannel, currentMedium)
+        }
         val provider = mediumRegistry.providerFor(credentials.medium)
         if (provider == null) {
             logger("medium-upgrade: client has no provider for ${credentials.medium}")
@@ -281,6 +297,7 @@ internal object BandwidthUpgradeOrchestrator {
                 credentials = credentials,
                 endpointId = endpointId,
                 expectsClientIntroductionAck = expectsClientIntroductionAck,
+                disableEncryption = disableEncryption,
                 onPriorChannelTeardown = { priorChannelTeardownBegan = true },
                 logger = logger,
                 staFrequencyMhz = staFrequencyMhz,
@@ -313,13 +330,20 @@ internal object BandwidthUpgradeOrchestrator {
         credentials: UpgradePathCredentials,
         endpointId: String,
         expectsClientIntroductionAck: Boolean,
+        disableEncryption: Boolean,
         onPriorChannelTeardown: () -> Unit,
         logger: (String) -> Unit,
         staFrequencyMhz: Int,
     ): ActiveTransportChannel {
         val bufferedFrames = mutableListOf<OfflineFrame>()
         val newFramedConnection = transport.asFramedConnection()
-        newFramedConnection.sendFrame(BandwidthUpgradeFrames.clientIntroduction(endpointId).toByteArray())
+        newFramedConnection.sendFrame(
+            BandwidthUpgradeFrames
+                .clientIntroduction(
+                    endpointId = endpointId,
+                    supportsDisablingEncryption = disableEncryption,
+                ).toByteArray(),
+        )
         // Fallback safety ends once the CLIENT_INTRODUCTION is on the wire:
         // a stock GMS server starts sending its own LAST_WRITE on the prior
         // channel as soon as the introduction is delivered, without waiting
@@ -334,7 +358,7 @@ internal object BandwidthUpgradeOrchestrator {
             )
             logger("medium-upgrade: client received raw CLIENT_INTRODUCTION_ACK")
         }
-        val newChannel = oldChannel.withTransport(newFramedConnection)
+        val newChannel = oldChannel.withTransport(newFramedConnection, encryptionDisabled = disableEncryption)
         val reader = DualChannelFrameReader(oldChannel, newChannel, logger)
         exchangeClientPriorChannelClose(
             oldChannel = oldChannel,
@@ -347,7 +371,10 @@ internal object BandwidthUpgradeOrchestrator {
             stage = "client post-safe-to-close",
             applicationFrames = bufferedFrames,
         )
-        logger("medium-upgrade: client completed ${credentials.medium}")
+        logger(
+            "medium-upgrade: client completed ${credentials.medium} " +
+                "encryption=${if (disableEncryption) "plaintext" else "encrypted"}",
+        )
         return ActiveTransportChannel(
             channel = newChannel,
             medium = credentials.medium,
@@ -653,12 +680,23 @@ internal object BandwidthUpgradeOrchestrator {
         newChannel: SecureChannel,
         private val logger: (String) -> Unit,
     ) {
+        private val upgradedSource = FrameSource("upgraded", newChannel)
         private val sources =
             listOf(
                 FrameSource("prior", oldChannel),
-                FrameSource("upgraded", newChannel),
+                upgradedSource,
             )
         private val pendingFrames: TreeMap<Int, SequencedRead> = TreeMap()
+
+        // A plaintext upgraded channel carries no sequence numbers, so its
+        // frames cannot be merged with the prior channel by sequence. The
+        // peer only writes there after it switched writers, i.e. after its
+        // LAST_WRITE_TO_PRIOR_CHANNEL on the prior channel, so they queue in
+        // arrival order and are released once that LAST_WRITE is delivered
+        // (google/nearby reads the prior channel up to LAST_WRITE first).
+        private val plaintextUpgraded = newChannel.encryptionDisabled
+        private val plaintextUpgradedFrames = ArrayDeque<OfflineFrame>()
+        private var priorLastWriteDelivered = false
         private var nextSequenceNumber: Int =
             (oldChannel.nextReceiveSequenceNumber + 1)
                 .also { next ->
@@ -717,6 +755,12 @@ internal object BandwidthUpgradeOrchestrator {
         }
 
         private suspend fun readFrom(source: FrameSource) {
+            if (plaintextUpgraded && source === upgradedSource) {
+                val frame = source.channel.receivePlaintextOfflineFrame()
+                plaintextUpgradedFrames.addLast(frame)
+                logger("medium-upgrade: decoded ${frame.describeFrameType()} plaintext from ${source.name}")
+                return
+            }
             val sequenced = source.channel.receiveSequencedOfflineFrame()
             check(sequenced.sequenceNumber >= nextSequenceNumber) {
                 "Received stale SecureMessage sequence ${sequenced.sequenceNumber} from " +
@@ -738,15 +782,29 @@ internal object BandwidthUpgradeOrchestrator {
         }
 
         private suspend fun deliverNextPendingFrame(): OfflineFrame? {
-            val next = pendingFrames.remove(nextSequenceNumber) ?: return null
+            val next = pendingFrames.remove(nextSequenceNumber) ?: return deliverNextPlaintextFrame()
             val frame = next.source.channel.acceptSequencedOfflineFrame(next.sequenced)
             logger(
                 "medium-upgrade: delivered ${frame.describeFrameType()} " +
                     "seq=$nextSequenceNumber from ${next.source.name}",
             )
             nextSequenceNumber += 1
+            if (frame.isBandwidthUpgradeEvent(BandwidthUpgradeNegotiationFrame.EventType.LAST_WRITE_TO_PRIOR_CHANNEL)) {
+                priorLastWriteDelivered = true
+            }
             return frame
         }
+
+        private fun deliverNextPlaintextFrame(): OfflineFrame? =
+            plaintextUpgradedFrames
+                .takeIf { priorLastWriteDelivered }
+                ?.removeFirstOrNull()
+                ?.also { frame ->
+                    logger(
+                        "medium-upgrade: delivered ${frame.describeFrameType()} " +
+                            "plaintext from ${upgradedSource.name}",
+                    )
+                }
 
         private class FrameSource(
             val name: String,

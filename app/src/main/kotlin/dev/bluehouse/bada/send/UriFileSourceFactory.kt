@@ -9,8 +9,11 @@ import android.content.ContentResolver
 import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.system.Os
+import android.system.OsConstants
 import dev.bluehouse.bada.protocol.connection.FileSource
 import java.nio.channels.Channels
 import java.nio.channels.ReadableByteChannel
@@ -134,18 +137,9 @@ public class UriFileSourceFactory internal constructor(
             name = name,
             size = size,
             mimeType = mimeType,
-            // MediaStore.MediaColumns.DATE_MODIFIED is "seconds since
-            // epoch"; the proto field is millis. Convert here so the
-            // wire carries the same precision the receiver expects.
-            // 0 / negative is the documented "unknown" value — pass
-            // through unchanged so the receiver leaves the platform
-            // default rather than rewriting to the Unix epoch.
-            lastModifiedTimestampMillis =
-                if (metadata.lastModifiedSeconds > 0L) {
-                    metadata.lastModifiedSeconds * SECOND_IN_MILLIS
-                } else {
-                    0L
-                },
+            // 0 means unknown; the encoder then leaves the header field
+            // unset so the receiver uses its own clock (#310).
+            lastModifiedTimestampMillis = metadata.lastModifiedMillis.coerceAtLeast(0L),
             payloadId = payloadId,
             open = open,
         )
@@ -155,8 +149,28 @@ public class UriFileSourceFactory internal constructor(
         /** Fallback display name when neither MediaStore nor the URI carries one. */
         public const val DEFAULT_NAME: String = "shared-file"
 
-        /** Conversion factor between `DATE_MODIFIED` (seconds) and the wire's millis. */
+        /** Conversion factor between Unix seconds and the wire's millis. */
         internal const val SECOND_IN_MILLIS: Long = 1000L
+
+        /**
+         * Unix seconds stay below this until the year 5138, while Unix
+         * millis passed it in 1973, so it tells the two apart.
+         */
+        private const val MIN_EPOCH_MILLIS: Long = 100_000_000_000L
+
+        /**
+         * Normalizes a provider timestamp to Unix millis, or `0L` when it
+         * is unknown. `MediaStore.MediaColumns.DATE_MODIFIED` is documented
+         * as seconds and `DocumentsContract.Document.COLUMN_LAST_MODIFIED`
+         * as millis, but providers do not always follow their contract;
+         * the magnitude decides the unit (#310).
+         */
+        internal fun normalizeEpochMillis(raw: Long): Long =
+            when {
+                raw <= 0L -> 0L
+                raw < MIN_EPOCH_MILLIS -> raw * SECOND_IN_MILLIS
+                else -> raw
+            }
 
         /**
          * Generates a positive 63-bit payload id. The Quick Share
@@ -193,14 +207,16 @@ public data class UriMetadata(
     /** `ContentResolver.getType(uri)`. `null` when no mapping is known. */
     val mimeType: String?,
     /**
-     * `MediaStore.MediaColumns.DATE_MODIFIED`. Documented as **seconds**
-     * since epoch (the proto wire format is millis — the conversion
-     * happens in [UriFileSourceFactory.buildFileSource]). `0L` when the
-     * column is missing or null; many providers (e.g. NFC share, in-app
-     * stream URIs) do not expose a modification time and that's a
-     * documented "unknown" value, not an error. See issue #41.
+     * Last modification time in Unix **millis**, `0L` when unknown.
+     * [ContentResolverMetadataReader] takes it from
+     * `MediaStore.MediaColumns.DATE_MODIFIED` (MediaStore URIs),
+     * `DocumentsContract.Document.COLUMN_LAST_MODIFIED` (picker and
+     * document URIs), or `fstat` on a regular-file descriptor (e.g.
+     * FileProvider shares from file managers), in that order. Some
+     * providers (NFC share, in-app stream URIs) expose none of these;
+     * that is a documented "unknown", not an error. See #41 and #310.
      */
-    val lastModifiedSeconds: Long = 0L,
+    val lastModifiedMillis: Long = 0L,
 )
 
 /**
@@ -242,9 +258,59 @@ internal class ContentResolverMetadataReader(
             displayName = cursorMetadata.displayName,
             size = size,
             mimeType = mime,
-            lastModifiedSeconds = cursorMetadata.lastModifiedSeconds,
+            lastModifiedMillis = resolveLastModifiedMillis(uri, cursorMetadata.lastModifiedSeconds),
         )
     }
+
+    /**
+     * Share-sheet and picker URIs mostly come from DocumentsProviders,
+     * which expose `COLUMN_LAST_MODIFIED` instead of MediaStore's
+     * `DATE_MODIFIED`, and FileProvider shares expose neither. Each
+     * fallback only runs when the previous source came back empty (#310).
+     */
+    private fun resolveLastModifiedMillis(
+        uri: Uri,
+        mediaStoreSeconds: Long,
+    ): Long =
+        UriFileSourceFactory.normalizeEpochMillis(mediaStoreSeconds).takeIf { it > 0L }
+            ?: UriFileSourceFactory.normalizeEpochMillis(readDocumentLastModified(uri)).takeIf { it > 0L }
+            ?: readDescriptorModifiedMillis(uri)
+
+    /**
+     * Separate query because MediaStore rejects projections that name
+     * columns it does not know, which would also lose the name and size
+     * read above.
+     */
+    private fun readDocumentLastModified(uri: Uri): Long =
+        runCatching {
+            contentResolver
+                .query(uri, DOCUMENT_PROJECTION, null, null, null)
+                ?.use { cursor: Cursor ->
+                    val index = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                    if (cursor.moveToFirst() && index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else 0L
+                } ?: 0L
+        }.getOrDefault(0L)
+
+    /**
+     * Last resort for providers that expose no timestamp column. Only a
+     * regular file has a meaningful mtime; pipes and sockets are skipped.
+     */
+    private fun readDescriptorModifiedMillis(uri: Uri): Long =
+        runCatching {
+            contentResolver
+                .openFileDescriptor(uri, READ_MODE)
+                ?.use { descriptor ->
+                    val stat = Os.fstat(descriptor.fileDescriptor)
+                    if (OsConstants.S_ISREG(stat.st_mode)) {
+                        UriFileSourceFactory.normalizeEpochMillis(stat.st_mtime)
+                    } else {
+                        0L
+                    }
+                } ?: 0L
+        }.getOrElse { e ->
+            Log.e(TAG, "URI descriptor mtime fallback failed uri=$uri: ${e.message}", e)
+            0L
+        }
 
     /**
      * Issues a `query()` against [PROJECTION] and extracts the display
@@ -254,12 +320,9 @@ internal class ContentResolverMetadataReader(
      * `NestedBlockDepth` threshold.
      *
      * `MediaStore.MediaColumns.DATE_MODIFIED` is queried alongside the
-     * `OpenableColumns` so a single cursor walk captures everything
-     * needed to populate [UriMetadata]. Providers that do not expose
-     * `DATE_MODIFIED` simply return a missing column, which we map to
-     * `0L` (the documented "unknown" sentinel — `FileSource` then
-     * forwards `0L` onto the wire and the receiver leaves the
-     * platform's default modification time).
+     * `OpenableColumns`. Providers that do not expose it return a
+     * missing column, which we map to `0L`; [resolveLastModifiedMillis]
+     * then tries the document column and the file descriptor.
      */
     private fun readCursorColumns(uri: Uri): CursorMetadata {
         var displayName: String? = null
@@ -363,6 +426,8 @@ internal class ContentResolverMetadataReader(
                 OpenableColumns.SIZE,
                 MediaStore.MediaColumns.DATE_MODIFIED,
             )
+
+        val DOCUMENT_PROJECTION = arrayOf(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
     }
 }
 
