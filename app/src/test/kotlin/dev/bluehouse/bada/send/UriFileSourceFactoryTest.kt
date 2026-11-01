@@ -55,11 +55,9 @@ class UriFileSourceFactoryTest {
     }
 
     @Test
-    fun `carries last modified seconds converted to millis on the wire`() {
-        // Issue #41: MediaColumns.DATE_MODIFIED is documented as Unix
-        // seconds. The proto wire format for
-        // PayloadHeader.last_modified_timestamp_millis is millis. The
-        // factory must convert at the boundary so the receiver sees the
+    fun `carries the resolved last modified millis onto the file source`() {
+        // Issue #41 / #310: the reader resolves the provider timestamp to
+        // millis; the factory passes it through so the receiver sees the
         // sender's actual mtime (not 1000x off, not zero).
         val factory = factoryWithFixedId(2024)
 
@@ -70,7 +68,7 @@ class UriFileSourceFactoryTest {
                         displayName = "dated.bin",
                         size = 4,
                         mimeType = "application/octet-stream",
-                        lastModifiedSeconds = 1_700_000_000L,
+                        lastModifiedMillis = 1_700_000_000_000L,
                     ),
                 fallbackPathSegment = null,
                 payloadId = 2024,
@@ -81,10 +79,9 @@ class UriFileSourceFactoryTest {
     }
 
     @Test
-    fun `zero last modified seconds produces zero millis on the wire`() {
-        // Provider returned no DATE_MODIFIED column, surfaced as 0L.
-        // The factory must keep that as 0L on the wire so the receiver
-        // does not rewrite the file's mtime to the Unix epoch.
+    fun `unknown last modified stays zero`() {
+        // No provider timestamp, surfaced as 0L. The encoder leaves the
+        // header field unset for 0 so the receiver uses its own clock.
         val factory = factoryWithFixedId(2025)
 
         val source =
@@ -94,7 +91,7 @@ class UriFileSourceFactoryTest {
                         displayName = "undated.bin",
                         size = 0,
                         mimeType = null,
-                        lastModifiedSeconds = 0L,
+                        lastModifiedMillis = 0L,
                     ),
                 fallbackPathSegment = null,
                 payloadId = 2025,
@@ -102,6 +99,16 @@ class UriFileSourceFactoryTest {
             )
 
         assertEquals(0L, source.lastModifiedTimestampMillis)
+    }
+
+    @Test
+    fun `normalizeEpochMillis converts seconds and keeps millis`() {
+        // MediaStore DATE_MODIFIED is seconds, DocumentsContract
+        // COLUMN_LAST_MODIFIED is millis, and fstat st_mtime is seconds (#310).
+        assertEquals(1_700_000_000_000L, UriFileSourceFactory.normalizeEpochMillis(1_700_000_000L))
+        assertEquals(1_700_000_000_123L, UriFileSourceFactory.normalizeEpochMillis(1_700_000_000_123L))
+        assertEquals(0L, UriFileSourceFactory.normalizeEpochMillis(0L))
+        assertEquals(0L, UriFileSourceFactory.normalizeEpochMillis(-5L))
     }
 
     @Test

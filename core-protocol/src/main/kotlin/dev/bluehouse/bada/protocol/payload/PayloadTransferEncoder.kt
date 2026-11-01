@@ -149,7 +149,10 @@ public object PayloadTransferEncoder {
      *   close the channel — the caller does.
      * @param chunkSize Bytes per chunk. Default 512 KiB.
      * @param lastModifiedTimestampMillis Mirror onto the proto for the
-     *   receiver's metadata pass-through.
+     *   receiver's metadata pass-through. `0L` (unknown) leaves the field
+     *   unset: google/nearby receivers only fall back to the receive time
+     *   when the field is absent, and apply an explicit 0 as the Unix
+     *   epoch, which Windows Quick Share shows as 1980-01-01 (#310).
      * @param parentFolder Optional parent folder hint — Quick Share
      *   exposes this for archive-style multi-file transfers.
      */
@@ -166,7 +169,7 @@ public object PayloadTransferEncoder {
         require(chunkSize > 0) { "chunkSize must be positive, got $chunkSize" }
         require(totalSize >= 0) { "totalSize must be non-negative, got $totalSize" }
 
-        val header =
+        val headerBuilder =
             PayloadHeader
                 .newBuilder()
                 .setId(payloadId)
@@ -174,9 +177,11 @@ public object PayloadTransferEncoder {
                 .setTotalSize(totalSize)
                 .setFileName(fileName)
                 .setParentFolder(parentFolder)
-                .setLastModifiedTimestampMillis(lastModifiedTimestampMillis)
                 .setIsSensitive(false)
-                .build()
+        if (lastModifiedTimestampMillis > 0L) {
+            headerBuilder.setLastModifiedTimestampMillis(lastModifiedTimestampMillis)
+        }
+        val header = headerBuilder.build()
 
         return sequence {
             val readBuffer = ByteBuffer.allocate(chunkSize)

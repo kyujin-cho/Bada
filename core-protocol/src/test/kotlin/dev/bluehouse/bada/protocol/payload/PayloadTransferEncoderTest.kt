@@ -216,4 +216,24 @@ class PayloadTransferEncoderTest {
         assertThat(header.lastModifiedTimestampMillis).isEqualTo(1_700_000_000_000L)
         assertThat(header.type).isEqualTo(PayloadHeader.PayloadType.FILE)
     }
+
+    @Test
+    fun `encodeFilePayload leaves an unknown timestamp unset`() {
+        // google/nearby receivers use their own clock only when the field is
+        // absent; an explicit 0 lands on Windows as 1980-01-01 (#310).
+        val frames =
+            PayloadTransferEncoder
+                .encodeFilePayload(
+                    payloadId = 99,
+                    fileName = "undated.bin",
+                    totalSize = 4,
+                    source = Channels.newChannel(ByteArrayInputStream(ByteArray(4))),
+                ).toList()
+        frames.forEach { frame ->
+            assertThat(
+                frame.v1.payloadTransfer.payloadHeader
+                    .hasLastModifiedTimestampMillis(),
+            ).isFalse()
+        }
+    }
 }

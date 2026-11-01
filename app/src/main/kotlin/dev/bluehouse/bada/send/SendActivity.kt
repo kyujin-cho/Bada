@@ -2244,7 +2244,8 @@ public class SendActivity : AppCompatActivity() {
         files.forEachIndexed { index, file ->
             logOutboundDiagnostic(
                 "resolved file[$index]: name=${file.name} size=${file.size} " +
-                    "mime=${file.mimeType} payloadId=${file.payloadId} parent=${file.parentFolder}",
+                    "mime=${file.mimeType} payloadId=${file.payloadId} parent=${file.parentFolder} " +
+                    "lastModified=${file.lastModifiedTimestampMillis}",
             )
         }
         // The text body and title stay out of the log: this file ends
