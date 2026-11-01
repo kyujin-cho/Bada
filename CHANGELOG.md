@@ -1,10 +1,16 @@
 # Changelog
 
+- 2026-10-11 16:02 Resolve PR #264 changelog conflict by preserving both release-note sections and integrating upstream main 3232b5e; no local Android compilation.
+
 ## 20261007.01
 
 - Send links and text shared from another app (YouTube, a browser, a chat app) over Quick Share instead of stopping on the "unsupported" screen: a whole http(s) link goes out as a URL the receiver can open, anything else as plain text, and the send sheet shows the host or a one-line preview. (#301, #302)
 - Show a device-type icon for each peer in the send picker (laptop, tablet, or phone) instead of the same phone glyph for every device, and keep a real device type from being overwritten by a later BLE observation that carries none. (#277, #297)
 - Fix the receive progress bar stalling near empty while the percent label counted up on fast Wi-Fi LAN transfers; the bar no longer restarts its animation on every payload chunk. (#298, #303)
+
+## 20261003.01
+
+- 2026-10-03 15:51 UTC: Reconcile PR #264 Tap to Share with upstream text sharing: rebase onto 55f7cdc, reuse upstream TextSource/classifier paths, preserve async URI preparation and NFC handoff, and replace the API-33 BigInteger constant with an API-1 factory. Static source/XML checks and all 55 staticAnalysis tasks passed; Android compilation and runtime verification were not run.
 
 ## 20260914.01
 

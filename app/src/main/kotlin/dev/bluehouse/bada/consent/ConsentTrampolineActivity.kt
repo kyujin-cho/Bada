@@ -6,7 +6,10 @@
 package dev.bluehouse.bada.consent
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentUris
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ColorMatrix
@@ -42,6 +45,7 @@ import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.lifecycle.lifecycleScope
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.bugreport.BugReportFlowSupport
+import dev.bluehouse.bada.gestureexchange.GestureEdgeGlowController
 import dev.bluehouse.bada.nfc.NfcPreferredService
 import dev.bluehouse.bada.protocol.connection.InboundConnection
 import dev.bluehouse.bada.protocol.connection.InboundConnectionState
@@ -135,6 +139,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private var modalRegistered: Boolean = false
     private var sheetEntrancePlayed: Boolean = false
     private lateinit var bugReportFlowSupport: BugReportFlowSupport
+    private lateinit var gestureGlow: GestureEdgeGlowController
 
     /**
      * The [InboundConnection] the activity observes after the user
@@ -165,6 +170,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         applyIncomingCallFlags()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_consent_trampoline)
+        gestureGlow = GestureEdgeGlowController(this)
         bugReportFlowSupport = BugReportFlowSupport.install(this)
         wireBottomSheet()
 
@@ -300,6 +306,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        gestureGlow.attach()
         ConsentDiagnostic.log(this, "trampoline.onResume id=$connectionId")
         // While the receive sheet is foreground, claim the Quick Share NFC AID so
         // a tap reaches US instead of stock Google Quick Share (the only way to win
@@ -310,6 +317,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        gestureGlow.detach()
         ConsentDiagnostic.log(this, "trampoline.onPause id=$connectionId finishing=$isFinishing")
         NfcPreferredService.release(this)
     }
@@ -419,6 +427,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        gestureGlow.close()
         // Backstop for the tile's temporary visibility bump: restore on
         // any teardown that didn't run through finish() (recents swipe,
         // system kill while finishing). Idempotent with finish()'s call
@@ -850,6 +859,7 @@ class ConsentTrampolineActivity : AppCompatActivity() {
     private fun showCompletedPanel(items: List<ReceivedItem>) {
         findViewById<TextView>(R.id.consent_expert_details)?.visibility = View.GONE
         val fileItems = items.filterIsInstance<ReceivedItem.File>()
+        val textItems = items.filterIsInstance<ReceivedItem.Text>()
         val targetNames = fileItems.map { it.header.fileName }.toSet()
         lifecycleScope.launch {
             val previewUri =
@@ -867,10 +877,12 @@ class ConsentTrampolineActivity : AppCompatActivity() {
             findViewById<View>(R.id.consent_completed_panel).visibility = View.VISIBLE
 
             val summary =
-                if (fileItems.size == 1) {
+                if (items.size == 1 && fileItems.size == 1) {
                     getString(R.string.consent_state_completed_one)
+                } else if (items.size == 1 && textItems.size == 1) {
+                    getString(R.string.consent_state_completed_one_text)
                 } else {
-                    getString(R.string.consent_state_completed_many, fileItems.size)
+                    getString(R.string.consent_state_completed_many_items, items.size)
                 }
             findViewById<TextView>(R.id.consent_completed_summary)?.text = summary
 
@@ -880,6 +892,38 @@ class ConsentTrampolineActivity : AppCompatActivity() {
 
             if (previewUri != null) {
                 bindCompletedPreview(previewUri)
+            } else if (textItems.size == 1 && items.size == 1) {
+                bindCompletedTextAction(textItems.single())
+            }
+        }
+    }
+
+    /** Exposes a single received UTF-8 text payload without persisting it to storage. */
+    private fun bindCompletedTextAction(item: ReceivedItem.Text) {
+        val text = item.data.toString(Charsets.UTF_8)
+        val parsed = runCatching { Uri.parse(text) }.getOrNull()
+        val isWebLink =
+            parsed?.scheme.equals("http", ignoreCase = true) ||
+                parsed?.scheme.equals("https", ignoreCase = true)
+        val actionButton = findViewById<View>(R.id.consent_completed_view_button) ?: return
+        val label = getString(if (isWebLink) R.string.consent_state_open_link else R.string.consent_state_copy_text)
+        configureCompletedActionButton(actionButton, label)
+        (actionButton as? ViewGroup)?.getChildAt(0)?.let { child -> (child as? TextView)?.text = label }
+        actionButton.visibility = View.VISIBLE
+        findViewById<View>(R.id.consent_completed_button_gap)?.visibility = View.VISIBLE
+        actionButton.setOnClickListener {
+            if (isWebLink) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, parsed))
+                    finish()
+                } catch (e: ActivityNotFoundException) {
+                    Log.w(TAG, "No activity can open the received web link", e)
+                    Toast.makeText(this, R.string.consent_state_open_link_unavailable, Toast.LENGTH_LONG).show()
+                }
+            } else {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.consent_state_received_text), text))
+                Toast.makeText(this, R.string.consent_state_text_copied, Toast.LENGTH_SHORT).show()
             }
         }
     }

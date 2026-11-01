@@ -12,6 +12,7 @@ import dev.bluehouse.bada.protocol.medium.MediumRegistry
 import dev.bluehouse.bada.protocol.payload.FileDestinationFactory
 import dev.bluehouse.bada.protocol.server.InboundConnectionCompletion
 import dev.bluehouse.bada.protocol.server.TcpReceiverServer
+import dev.bluehouse.bada.protocol.transport.ConnectedTransport
 import dev.bluehouse.bada.protocol.transport.InitialControlServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -172,6 +173,21 @@ public class ReceiverSession(
      */
     public val boundPort: Int
         get() = server?.boundPort ?: error("ReceiverSession has not been started")
+
+    /**
+     * Inject a connected initial transport created by an app-owned bootstrap
+     * surface. Google Tap to Share uses this after its NFC handover creates a
+     * Wi-Fi Direct socket; the socket then enters the same inbound Quick Share
+     * server, consent, payload, and teardown path as BLE/LAN connections.
+     */
+    public fun acceptConnectedTransport(transport: ConnectedTransport) {
+        val activeServer =
+            server ?: run {
+                transport.close()
+                error("ReceiverSession has not been started")
+            }
+        activeServer.acceptConnectedTransport(transport)
+    }
 
     /**
      * Bind the listener, register the mDNS advertisement, and start
