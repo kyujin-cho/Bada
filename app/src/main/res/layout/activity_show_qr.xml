@@ -28,7 +28,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/show_qr_title"
-            android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+            android:textAppearance="?attr/badaTextHeadline"
             android:textStyle="bold" />
 
         <TextView
@@ -36,7 +36,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/show_qr_intro"
-            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+            android:textAppearance="?attr/badaTextBody1" />
 
         <!--
           Square QR bitmap. Width/height are set programmatically by
@@ -69,7 +69,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:background="@drawable/qr_url_background"
+            android:background="?attr/badaFieldBackground"
             android:fillViewport="true"
             android:scrollbars="none">
 
@@ -81,7 +81,7 @@
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="10dp"
                 android:singleLine="true"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textAppearance="?attr/badaTextBody2"
                 android:textIsSelectable="true" />
 
         </HorizontalScrollView>

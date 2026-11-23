@@ -92,7 +92,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            app:cardBackgroundColor="@color/surface_card"
+            app:cardBackgroundColor="?attr/badaColorSurfaceCard"
             app:cardCornerRadius="24dp"
             app:cardElevation="4dp">
 
@@ -112,7 +112,7 @@
                 android:paddingHorizontal="20dp"
                 android:paddingVertical="10dp"
                 android:textAlignment="center"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textAppearance="?attr/badaTextBody2"
                 android:textColor="?android:attr/textColorPrimary"
                 tools:text="Pixel 8" />
 
@@ -214,7 +214,7 @@
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:background="@drawable/dialog_gradient_background" />
+                    android:background="?attr/badaHeroCardBackground" />
 
                 <!--
                   Sky-blue radial gradient backdrop for the
@@ -230,7 +230,7 @@
                     android:id="@+id/send_pin_state_background"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:background="@drawable/pin_state_background"
+                    android:background="?attr/badaPinBackground"
                     android:visibility="gone" />
 
                 <ImageView
@@ -264,7 +264,7 @@
                         android:id="@+id/send_payload_summary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                        android:textAppearance="?attr/badaTextHeadline"
                         android:textStyle="bold"
                         tools:text="1 file" />
 
@@ -282,7 +282,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                        android:textAppearance="?attr/badaTextBody2"
                         android:textColor="?android:attr/textColorSecondary"
                         android:visibility="gone"
                         tools:text="4.2 MB"
@@ -294,7 +294,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="@string/send_subtitle_discovering"
-                        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                        android:textAppearance="?attr/badaTextBody1" />
 
                     <!--
                       Weighted middle slot. Hosts the picker scroll
@@ -365,7 +365,7 @@
                                     android:layout_marginStart="0dp"
                                     android:layout_marginEnd="0dp"
                                     android:layout_marginBottom="12dp"
-                                    android:background="@drawable/send_radio_banner_background"
+                                    android:background="?attr/badaBannerBackground"
                                     android:gravity="center_vertical"
                                     android:orientation="horizontal"
                                     android:paddingStart="16dp"
@@ -386,16 +386,15 @@
 
                                     <Button
                                         android:id="@+id/send_bluetooth_off_banner_action"
-                                        style="@style/Widget.Bada.Button"
+                                        style="?attr/badaBannerButtonStyle"
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:layout_marginStart="12dp"
-                                        android:background="@drawable/btn_banner_action_background"
                                         android:minHeight="40dp"
                                         android:paddingStart="20dp"
                                         android:paddingEnd="20dp"
                                         android:text="@string/send_bluetooth_off_banner_action"
-                                        android:textColor="@color/brand_on_primary" />
+                                        android:textColor="?attr/badaColorOnAccent" />
 
                                 </LinearLayout>
 
@@ -420,7 +419,7 @@
                                     android:layout_marginTop="24dp"
                                     android:paddingHorizontal="16dp"
                                     android:text="@string/send_empty_state"
-                                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                    android:textAppearance="?attr/badaTextBody1"
                                     android:visibility="gone" />
 
                                 <!--
@@ -447,7 +446,7 @@
                                         android:layout_width="match_parent"
                                         android:layout_height="wrap_content"
                                         android:text="@string/send_network_hint_title"
-                                        android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                                        android:textAppearance="?attr/badaTextSubhead"
                                         android:textStyle="bold" />
 
                                     <TextView
@@ -456,7 +455,7 @@
                                         android:layout_height="wrap_content"
                                         android:layout_marginTop="8dp"
                                         android:text="@string/send_network_hint_body"
-                                        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                                        android:textAppearance="?attr/badaTextBody1" />
 
                                     <Button
                                         android:id="@+id/send_network_hint_dismiss"
@@ -499,7 +498,7 @@
                                 android:layout_height="wrap_content"
                                 android:gravity="center"
                                 android:textAlignment="center"
-                                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                                android:textAppearance="?attr/badaTextTitle"
                                 tools:text="Awaiting acceptance" />
 
                             <TextView
@@ -509,7 +508,7 @@
                                 android:layout_marginTop="4dp"
                                 android:gravity="center"
                                 android:textAlignment="center"
-                                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                android:textAppearance="?attr/badaTextBody1"
                                 tools:text="Sending to Pixel 8" />
 
                             <!--
@@ -544,7 +543,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_gravity="center"
-                                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                    android:textAppearance="?attr/badaTextBody1"
                                     android:textStyle="bold"
                                     tools:text="42%" />
 
@@ -558,7 +557,7 @@
                                 android:gravity="center"
                                 android:lineSpacingExtra="2dp"
                                 android:textAlignment="center"
-                                android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                                android:textAppearance="?attr/badaTextCaption"
                                 android:textColor="?android:attr/textColorSecondary"
                                 android:visibility="gone"
                                 tools:text="Speed: 12.4 MB/s&#10;ETA: 30 seconds&#10;Medium: Wi-Fi LAN" />
@@ -577,7 +576,7 @@
                                 android:layout_height="140dp"
                                 android:layout_gravity="center_horizontal"
                                 android:layout_marginTop="16dp"
-                                android:background="@drawable/photo_card_background"
+                                android:background="?attr/badaPhotoCardBackground"
                                 android:elevation="4dp"
                                 android:padding="6dp"
                                 android:visibility="gone">
@@ -598,7 +597,7 @@
                                 android:layout_marginTop="16dp"
                                 android:gravity="center"
                                 android:letterSpacing="0.4"
-                                android:textAppearance="@style/TextAppearance.AppCompat.Display1"
+                                android:textAppearance="?attr/badaTextDisplay1"
                                 android:textStyle="bold"
                                 android:visibility="gone"
                                 tools:text="1234" />
@@ -610,7 +609,7 @@
                                 android:layout_marginTop="12dp"
                                 android:gravity="center"
                                 android:textAlignment="center"
-                                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                                android:textAppearance="?attr/badaTextBody1"
                                 tools:text="Confirm this code matches the receiver's screen." />
 
                         </LinearLayout>
@@ -640,13 +639,13 @@
                         android:layout_height="wrap_content"
                         android:layout_gravity="center_horizontal"
                         android:layout_marginTop="8dp"
-                        android:background="@drawable/rejection_banner_background"
+                        android:background="?attr/badaToastBackground"
                         android:elevation="2dp"
                         android:paddingStart="16dp"
                         android:paddingTop="10dp"
                         android:paddingEnd="16dp"
                         android:paddingBottom="10dp"
-                        android:textColor="#FFFFFFFF"
+                        android:textColor="?attr/badaColorOnToast"
                         android:textSize="14sp"
                         android:visibility="gone"
                         tools:text="V2547A 님이 파일 전송을 거절했습니다." />
@@ -717,14 +716,14 @@
                             android:id="@+id/send_cancel_button"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:background="@drawable/btn_frosted_outline_background"
+                            style="?attr/badaOutlineButtonStyle"
                             android:text="@string/send_cancel" />
 
                         <Button
                             android:id="@+id/send_done_button"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:background="@drawable/btn_frosted_outline_background"
+                            style="?attr/badaOutlineButtonStyle"
                             android:text="@string/send_done"
                             android:visibility="gone" />
 
@@ -787,7 +786,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="@string/show_qr_title"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                            android:textAppearance="?attr/badaTextHeadline"
                             android:textStyle="bold" />
 
                         <TextView
@@ -795,7 +794,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
                             android:text="@string/show_qr_intro"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                            android:textAppearance="?attr/badaTextBody1" />
 
                         <!--
                           QR display size pinned to 200dp so the panel
@@ -855,7 +854,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="16dp"
-                            android:background="@drawable/qr_url_background"
+                            android:background="?attr/badaFieldBackground"
                             android:fillViewport="true"
                             android:scrollbars="none">
 
@@ -867,7 +866,7 @@
                                 android:paddingHorizontal="12dp"
                                 android:paddingVertical="10dp"
                                 android:singleLine="true"
-                                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                                android:textAppearance="?attr/badaTextBody2"
                                 android:textIsSelectable="true" />
 
                         </HorizontalScrollView>
@@ -885,6 +884,7 @@
                           motif reads consistently across the app.
                         -->
                         <LinearLayout
+                            app:badaButtonGroup="true"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="16dp"
@@ -894,7 +894,7 @@
 
                             <Button
                                 android:id="@+id/send_qr_close"
-                                style="@style/Widget.Bada.Button"
+                                style="?attr/badaButtonStyle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:gravity="center"
@@ -908,7 +908,7 @@
 
                             <Button
                                 android:id="@+id/send_qr_copy_link"
-                                style="@style/Widget.Bada.Button"
+                                style="?attr/badaPrimaryButtonStyle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:gravity="center"
@@ -941,7 +941,7 @@
                     android:layout_gravity="top|end"
                     android:layout_marginTop="16dp"
                     android:layout_marginEnd="16dp"
-                    android:background="@drawable/qr_button_subtle_background"
+                    android:background="?attr/badaIconButtonBackground"
                     android:contentDescription="@string/send_show_qr"
                     android:padding="10dp"
                     android:src="@drawable/ic_qr_code"

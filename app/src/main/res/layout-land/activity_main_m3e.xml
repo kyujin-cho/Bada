@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MainActivity in landscape, Material 3 Expressive theme. M3 navigation: in
+  expanded windows (840dp and wider, which most phones reach in landscape)
+  "Use a navigation rail, not a navigation bar", on the leading edge, never
+  together with a navigation bar. So the floating bottom pill of the Bada
+  theme (layout-land/activity_main.xml) becomes a collapsed navigation rail
+  beside the content. The rail is meant for 3-7 destinations and Bada has 2;
+  the M3 alternative for medium windows (a full-width bar with horizontal
+  items) would take the vertical space landscape is short of.
+
+  Portrait uses activity_main.xml through the alias in
+  values/layouts_theme.xml. Same ids as layout-land/activity_main.xml; the
+  rail and the bar are both NavigationBarView, which MainActivity uses.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <dev.bluehouse.bada.ui.VisibilityPulseView
+        android:id="@+id/main_always_visible_pulse"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fitsSystemWindows="true"
+        android:orientation="horizontal">
+
+        <com.google.android.material.navigationrail.NavigationRailView
+            android:id="@+id/main_bottom_nav"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            app:labelVisibilityMode="labeled"
+            app:menu="@menu/bottom_nav_menu"
+            app:menuGravity="center" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/main_toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/app_toolbar_height"
+                android:background="@android:color/transparent"
+                android:paddingEnd="12dp"
+                android:paddingTop="@dimen/app_toolbar_padding_top"
+                android:theme="?attr/badaToolbarThemeOverlay"
+                app:popupTheme="?attr/badaToolbarPopupTheme"
+                app:title="@string/app_name"
+                app:titleCentered="false"
+                app:titleTextAppearance="?attr/badaToolbarTitleTextAppearance"
+                app:titleTextColor="?android:attr/textColorPrimary">
+
+                <ImageView
+                    android:id="@+id/main_toolbar_wordmark"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="start|center_vertical"
+                    android:layout_marginStart="24dp"
+                    android:contentDescription="@string/app_name"
+                    android:src="@drawable/ic_bada_wordmark" />
+
+            </com.google.android.material.appbar.MaterialToolbar>
+
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/main_fragment_container"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

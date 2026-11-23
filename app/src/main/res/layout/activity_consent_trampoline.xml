@@ -77,7 +77,7 @@
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
         android:layout_marginBottom="12dp"
-        android:background="@drawable/send_sheet_background"
+        android:background="?attr/badaSheetBackground"
         android:clipChildren="false"
         android:clipToPadding="false"
         android:orientation="vertical">
@@ -147,7 +147,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                android:textAppearance="?attr/badaTextHeadline"
                 android:textStyle="bold"
                 tools:text="Pixel 8 wants to share images" />
 
@@ -162,7 +162,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:textAppearance="?attr/badaTextBody1"
                 android:visibility="gone"
                 tools:text="3 files (12.4 MB)" />
 
@@ -178,7 +178,7 @@
                 android:layout_marginTop="24dp"
                 android:gravity="center"
                 android:text="@string/consent_pin_label"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body2" />
+                android:textAppearance="?attr/badaTextBody2" />
 
             <TextView
                 android:id="@+id/consent_pin"
@@ -187,7 +187,7 @@
                 android:layout_marginTop="4dp"
                 android:gravity="center"
                 android:letterSpacing="0.4"
-                android:textAppearance="@style/TextAppearance.AppCompat.Display1"
+                android:textAppearance="?attr/badaTextDisplay1"
                 android:textStyle="bold"
                 tools:text="1234" />
 
@@ -202,7 +202,7 @@
                 android:layout_marginTop="24dp"
                 android:gravity="center"
                 android:text="@string/consent_files_label"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body2" />
+                android:textAppearance="?attr/badaTextBody2" />
 
             <LinearLayout
                 android:id="@+id/consent_files_list"
@@ -227,6 +227,7 @@
               than splitting the row 50/50 with `weight=1`.
             -->
             <LinearLayout
+                app:badaButtonGroup="true"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="32dp"
@@ -236,6 +237,7 @@
 
                 <Button
                     android:id="@+id/consent_reject_button"
+                    style="?attr/badaButtonStyle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:gravity="center"
@@ -249,6 +251,7 @@
 
                 <Button
                     android:id="@+id/consent_accept_button"
+                    style="?attr/badaPrimaryButtonStyle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:gravity="center"
@@ -280,7 +283,7 @@
                 android:layout_height="wrap_content"
                 android:gravity="center"
                 android:text="@string/consent_state_waiting_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                android:textAppearance="?attr/badaTextHeadline"
                 android:textStyle="bold" />
 
             <TextView
@@ -289,7 +292,7 @@
                 android:layout_marginTop="12dp"
                 android:gravity="center"
                 android:text="@string/consent_state_waiting_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:textAppearance="?attr/badaTextBody1"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>
@@ -309,7 +312,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/consent_state_receiving"
-                android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                android:textAppearance="?attr/badaTextHeadline"
                 android:textStyle="bold" />
 
             <TextView
@@ -317,7 +320,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:textAppearance="?attr/badaTextBody1"
                 android:textStyle="bold"
                 tools:text="42%" />
 
@@ -334,7 +337,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:textAppearance="?attr/badaTextBody1"
                 tools:text="12 MB / 100 MB" />
 
             <TextView
@@ -345,7 +348,7 @@
                 android:gravity="center"
                 android:lineSpacingExtra="2dp"
                 android:textAlignment="center"
-                android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                android:textAppearance="?attr/badaTextCaption"
                 android:textColor="?android:attr/textColorSecondary"
                 android:visibility="gone"
                 tools:text="Speed: 12.4 MB/s&#10;ETA: 30 seconds&#10;Medium: Wi-Fi LAN" />
@@ -367,7 +370,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/consent_state_completed"
-                android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                android:textAppearance="?attr/badaTextHeadline"
                 android:textStyle="bold" />
 
             <!--
@@ -384,7 +387,7 @@
                 android:layout_width="140dp"
                 android:layout_height="140dp"
                 android:layout_marginTop="20dp"
-                android:background="@drawable/photo_card_background"
+                android:background="?attr/badaPhotoCardBackground"
                 android:elevation="4dp"
                 android:padding="6dp"
                 android:visibility="gone">
@@ -403,7 +406,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:textAppearance="?attr/badaTextBody1"
                 tools:text="1 file received" />
 
             <!--
@@ -454,64 +457,12 @@
               hides too and Close fills the row alone via the
               shared `weight=1`.
             -->
-            <LinearLayout
+            <ViewStub
+                android:id="@+id/consent_completed_actions_stub"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:orientation="horizontal">
-
-                <FrameLayout
-                    android:id="@+id/consent_completed_close_button"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_frosted_background"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:minHeight="48dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:paddingHorizontal="24dp"
-                        android:paddingVertical="12dp"
-                        android:text="@string/consent_state_close"
-                        android:textAppearance="@style/TextAppearance.Bada.Button"
-                        android:textColor="?android:attr/textColorPrimary" />
-
-                </FrameLayout>
-
-                <Space
-                    android:id="@+id/consent_completed_button_gap"
-                    android:layout_width="12dp"
-                    android:layout_height="wrap_content"
-                    android:visibility="gone" />
-
-                <FrameLayout
-                    android:id="@+id/consent_completed_view_button"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_frosted_background"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:minHeight="48dp"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:paddingHorizontal="24dp"
-                        android:paddingVertical="12dp"
-                        android:text="@string/consent_state_view_image"
-                        android:textAppearance="@style/TextAppearance.Bada.Button"
-                        android:textColor="?android:attr/textColorPrimary" />
-
-                </FrameLayout>
-
-            </LinearLayout>
+                android:layout="?attr/badaConsentCompletedActionsLayout" />
 
         </LinearLayout>
 
@@ -530,7 +481,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/consent_state_failed"
-                android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                android:textAppearance="?attr/badaTextHeadline"
                 android:textStyle="bold" />
 
             <TextView
@@ -539,7 +490,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:gravity="center"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:textAppearance="?attr/badaTextBody1"
                 android:visibility="gone"
                 tools:text="UKEY2 BAD_VERSION" />
 

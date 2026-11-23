@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Overflow icon with the "update available" small badge (Material 3 Expressive theme).
+     Material Symbols Rounded (weight 400, grade 0, optical size 24), from
+     github.com/google/material-design-icons symbols/web/*/materialsymbolsrounded.
+     The SVG viewBox is 0 -960 960 960, hence the group translateY. Painted
+     on surface variant (the M3 app bar trailing-icon color) directly rather
+     than tinted, so the badge dot keeps its error color. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <group android:translateY="960">
+        <path
+            android:fillColor="?attr/colorOnSurfaceVariant"
+            android:pathData="M480-160q-33 0-56.5-23.5T400-240q0-33 23.5-56.5T480-320q33 0 56.5 23.5T560-240q0 33-23.5 56.5T480-160Zm0-240q-33 0-56.5-23.5T400-480q0-33 23.5-56.5T480-560q33 0 56.5 23.5T560-480q0 33-23.5 56.5T480-400Zm0-240q-33 0-56.5-23.5T400-720q0-33 23.5-56.5T480-800q33 0 56.5 23.5T560-720q0 33-23.5 56.5T480-640Z" />
+    </group>
+    <!-- Small badge: 6dp dot in the top-end 6x6dp corner of the icon (M3 badge spec), error color. 40 viewport units = 1dp. -->
+    <path
+        android:fillColor="?attr/colorError"
+        android:pathData="M840,120m-120,0a120,120 0,1 1,240 0a120,120 0,1 1,-240 0" />
+</vector>

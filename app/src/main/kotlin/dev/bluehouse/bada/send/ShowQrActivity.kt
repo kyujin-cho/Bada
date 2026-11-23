@@ -12,6 +12,7 @@ import dev.bluehouse.bada.databinding.ActivityShowQrBinding
 import dev.bluehouse.bada.nfc.NfcLinkHolder
 import dev.bluehouse.bada.protocol.qr.QrKeyData
 import dev.bluehouse.bada.protocol.qr.QrUrl
+import dev.bluehouse.bada.ui.theme.AppThemes
 import kotlin.math.min
 
 /**
@@ -55,6 +56,7 @@ public class ShowQrActivity : AppCompatActivity() {
     private var pairingUrl: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
         binding = ActivityShowQrBinding.inflate(layoutInflater)
         setContentView(binding.root)

@@ -16,5 +16,5 @@
     <size
         android:width="8dp"
         android:height="8dp" />
-    <solid android:color="@color/update_badge_red" />
+    <solid android:color="?attr/badaColorBadge" />
 </shape>

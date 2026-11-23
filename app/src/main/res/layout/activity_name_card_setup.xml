@@ -15,6 +15,7 @@
   status bar.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -33,7 +34,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/settings_card_background"
+            android:background="?attr/badaCardBackground"
             android:orientation="vertical"
             android:padding="20dp">
 
@@ -42,7 +43,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/name_card_setup_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textAppearance="?attr/badaTextSubhead"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textStyle="bold" />
 
@@ -52,7 +53,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/name_card_setup_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textAppearance="?attr/badaTextSmall"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <!-- nameCardEnableRow — "Share my card when phones tap" master on/off switch.
@@ -69,7 +70,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/name_card_enable_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                    android:textAppearance="?attr/badaTextBody2"
                     android:textColor="?android:attr/textColorPrimary" />
 
                 <androidx.appcompat.widget.SwitchCompat
@@ -132,6 +133,7 @@
 
             <!-- action row: Clear (secondary) + Save (primary), mirroring the Settings two-pill rows -->
             <LinearLayout
+                app:badaButtonGroup="true"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"

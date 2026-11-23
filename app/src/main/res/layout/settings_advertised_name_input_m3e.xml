@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Advertised-name input of the Settings tab, Material 3 Expressive theme: an
+  M3 filled text field (surface container highest container, extra small top
+  corners, bottom active indicator, floating label, clear-text icon). The
+  label is the old hint, so it stays visible once the field has text ("The
+  label is always visible"). The EditText keeps the id the code looks up.
+-->
+<com.google.android.material.textfield.TextInputLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/Widget.Material3.TextInputLayout.FilledBox"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="12dp"
+    android:hint="@string/main_advertised_name_hint"
+    app:endIconMode="clear_text">
+
+    <com.google.android.material.textfield.TextInputEditText
+        android:id="@+id/main_advertised_name_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="textCapWords"
+        android:maxLines="1" />
+
+</com.google.android.material.textfield.TextInputLayout>

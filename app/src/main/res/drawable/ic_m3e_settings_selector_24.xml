@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings tab icon of the Material 3 Expressive theme: filled when the
+     destination is selected, outlined otherwise (M3 navigation bar guideline). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_m3e_settings_fill_24" android:state_checked="true" />
+    <item android:drawable="@drawable/ic_m3e_settings_24" />
+</selector>

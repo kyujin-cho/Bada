@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Press / focus highlight of a popup menu item in the Material 3 Expressive
+     theme (Widget.Bada.Expressive.DropDownListView). A full-width square
+     highlight poked its corners past the menu's rounded container and left the
+     container's 4dp top/bottom padding as a strip above or below the pressed
+     item. This one is a rounded shape (12dp: the container's 16dp minus the
+     4dp gutter) inset 4dp from the container's sides, so with the container
+     padding it sits 4dp inside the menu on every side. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="4dp"
+    android:insetRight="4dp">
+    <ripple android:color="?attr/colorControlHighlight">
+        <item android:id="@android:id/mask">
+            <shape android:shape="rectangle">
+                <corners android:radius="@dimen/m3e_corner_medium" />
+                <solid android:color="@android:color/white" />
+            </shape>
+        </item>
+    </ripple>
+</inset>

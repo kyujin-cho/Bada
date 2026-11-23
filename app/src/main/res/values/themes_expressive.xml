@@ -1,0 +1,560 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      Material 3 Expressive app theme (Settings > Theme), built from the
+      guidance at https://m3.material.io/blog/building-with-m3-expressive.
+
+      Unlike Theme.Bada (MaterialComponents *Bridge*, so plain widgets stay
+      AppCompat), this theme is a full Theme.Material3Expressive descendant:
+      `<Button>` inflates as an M3 Expressive MaterialButton (round shape
+      that morphs on press and selection), CircularProgressIndicator is the
+      wavy variant, and ExpressiveViewInflater swaps SwitchCompat tags for
+      MaterialSwitch. Every badaXxx token from attrs_theme.xml is mapped to
+      an M3 role here; AppThemeTokensTest fails the build if one is missing.
+
+      How each M3 Expressive style maps into Bada:
+        * Color: the generated Vibrant 2025 scheme in colors_m3e.xml, seeded
+          from the brand blue. Page = surface, navigation bar = surface
+          container (the M3 default pairing), cards and list items =
+          surface container (overridden from the list default, surface, so
+          they separate from the page), fields = surface container highest,
+          two steps above their container ("more than one step apart").
+        * Shape: the corner radius scale (m3e_corner_* dimens). Information-
+          dense cards use large (16dp), not extra large ("Be careful not to
+          apply large or full corners to information-dense components");
+          segmented list items use large outer / extra small inner corners;
+          sheets keep extra large (28dp). Fields inside a 20dp-padded card get
+          extra small (4dp), since outer radius minus padding is below zero.
+          Buttons stay fully round against the squarer cards for tension.
+        * Icons: Material Symbols Rounded for the navigation and overflow
+          icons; the selected Settings tab uses the filled symbol.
+        * Type: the 30-style M3 scale re-pointed at Google Sans Flex, which
+          the shape guidance pairs with the M3 shapes. Emphasized styles are
+          kept for headlines and the primary actions.
+        * Motion: MDC-Android ships the spring tokens but does not wire them
+          into components, so ExpressiveMotion applies them to Bada's own
+          animations (sheet entrance, toggles, tab icons).
+
+      The window variants below repeat each Theme.Bada.* window setup so
+      AppThemes can swap a manifest theme for its Expressive twin before
+      super.onCreate().
+    -->
+    <style name="Theme.Bada.Expressive" parent="Theme.Material3Expressive.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/m3e_primary</item>
+        <item name="colorOnPrimary">@color/m3e_on_primary</item>
+        <item name="colorPrimaryContainer">@color/m3e_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/m3e_on_primary_container</item>
+        <item name="colorPrimaryInverse">@color/m3e_primary_inverse</item>
+        <item name="colorPrimaryFixed">@color/m3e_primary_fixed</item>
+        <item name="colorPrimaryFixedDim">@color/m3e_primary_fixed_dim</item>
+        <item name="colorOnPrimaryFixed">@color/m3e_on_primary_fixed</item>
+        <item name="colorOnPrimaryFixedVariant">@color/m3e_on_primary_fixed_variant</item>
+        <item name="colorSecondary">@color/m3e_secondary</item>
+        <item name="colorOnSecondary">@color/m3e_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/m3e_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/m3e_on_secondary_container</item>
+        <item name="colorSecondaryFixed">@color/m3e_secondary_fixed</item>
+        <item name="colorSecondaryFixedDim">@color/m3e_secondary_fixed_dim</item>
+        <item name="colorOnSecondaryFixed">@color/m3e_on_secondary_fixed</item>
+        <item name="colorOnSecondaryFixedVariant">@color/m3e_on_secondary_fixed_variant</item>
+        <item name="colorTertiary">@color/m3e_tertiary</item>
+        <item name="colorOnTertiary">@color/m3e_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/m3e_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/m3e_on_tertiary_container</item>
+        <item name="colorTertiaryFixed">@color/m3e_tertiary_fixed</item>
+        <item name="colorTertiaryFixedDim">@color/m3e_tertiary_fixed_dim</item>
+        <item name="colorOnTertiaryFixed">@color/m3e_on_tertiary_fixed</item>
+        <item name="colorOnTertiaryFixedVariant">@color/m3e_on_tertiary_fixed_variant</item>
+        <item name="colorError">@color/m3e_error</item>
+        <item name="colorOnError">@color/m3e_on_error</item>
+        <item name="colorErrorContainer">@color/m3e_error_container</item>
+        <item name="colorOnErrorContainer">@color/m3e_on_error_container</item>
+        <item name="colorOnBackground">@color/m3e_on_background</item>
+        <item name="colorSurface">@color/m3e_surface</item>
+        <item name="colorOnSurface">@color/m3e_on_surface</item>
+        <item name="colorSurfaceVariant">@color/m3e_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/m3e_on_surface_variant</item>
+        <item name="colorSurfaceInverse">@color/m3e_surface_inverse</item>
+        <item name="colorOnSurfaceInverse">@color/m3e_on_surface_inverse</item>
+        <item name="colorSurfaceBright">@color/m3e_surface_bright</item>
+        <item name="colorSurfaceDim">@color/m3e_surface_dim</item>
+        <item name="colorSurfaceContainerLowest">@color/m3e_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/m3e_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/m3e_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/m3e_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/m3e_surface_container_highest</item>
+        <item name="colorOutline">@color/m3e_outline</item>
+        <item name="colorOutlineVariant">@color/m3e_outline_variant</item>
+
+        <!--
+          Page = surface. The M3 navigation bar container is surface
+          container, and "Tonal differences between a navigation bar and body
+          content indicate separate surfaces", so the page must not use the
+          bar's role.
+        -->
+        <item name="android:colorBackground">@color/m3e_surface</item>
+        <!-- Theme attributes, not the m3e_* colors, so the wallpaper colors
+             overlay (AppThemes.applyWallpaperColors) reaches them too. -->
+        <item name="android:windowBackground">?attr/colorSurface</item>
+        <item name="android:colorBackgroundFloating">?attr/colorSurfaceContainerHigh</item>
+        <item name="android:statusBarColor" tools:targetApi="l">?attr/colorSurface</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">@bool/window_light_status_bar</item>
+
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="textAppearanceDisplayLarge">@style/TextAppearance.Bada.Expressive.DisplayLarge</item>
+        <item name="textAppearanceDisplayLargeEmphasized">@style/TextAppearance.Bada.Expressive.DisplayLarge.Emphasized</item>
+        <item name="textAppearanceDisplayMedium">@style/TextAppearance.Bada.Expressive.DisplayMedium</item>
+        <item name="textAppearanceDisplayMediumEmphasized">@style/TextAppearance.Bada.Expressive.DisplayMedium.Emphasized</item>
+        <item name="textAppearanceDisplaySmall">@style/TextAppearance.Bada.Expressive.DisplaySmall</item>
+        <item name="textAppearanceDisplaySmallEmphasized">@style/TextAppearance.Bada.Expressive.DisplaySmall.Emphasized</item>
+        <item name="textAppearanceHeadlineLarge">@style/TextAppearance.Bada.Expressive.HeadlineLarge</item>
+        <item name="textAppearanceHeadlineLargeEmphasized">@style/TextAppearance.Bada.Expressive.HeadlineLarge.Emphasized</item>
+        <item name="textAppearanceHeadlineMedium">@style/TextAppearance.Bada.Expressive.HeadlineMedium</item>
+        <item name="textAppearanceHeadlineMediumEmphasized">@style/TextAppearance.Bada.Expressive.HeadlineMedium.Emphasized</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Bada.Expressive.HeadlineSmall</item>
+        <item name="textAppearanceHeadlineSmallEmphasized">@style/TextAppearance.Bada.Expressive.HeadlineSmall.Emphasized</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Bada.Expressive.TitleLarge</item>
+        <item name="textAppearanceTitleLargeEmphasized">@style/TextAppearance.Bada.Expressive.TitleLarge.Emphasized</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Bada.Expressive.TitleMedium</item>
+        <item name="textAppearanceTitleMediumEmphasized">@style/TextAppearance.Bada.Expressive.TitleMedium.Emphasized</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.Bada.Expressive.TitleSmall</item>
+        <item name="textAppearanceTitleSmallEmphasized">@style/TextAppearance.Bada.Expressive.TitleSmall.Emphasized</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.Bada.Expressive.BodyLarge</item>
+        <item name="textAppearanceBodyLargeEmphasized">@style/TextAppearance.Bada.Expressive.BodyLarge.Emphasized</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Bada.Expressive.BodyMedium</item>
+        <item name="textAppearanceBodyMediumEmphasized">@style/TextAppearance.Bada.Expressive.BodyMedium.Emphasized</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.Bada.Expressive.BodySmall</item>
+        <item name="textAppearanceBodySmallEmphasized">@style/TextAppearance.Bada.Expressive.BodySmall.Emphasized</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.Bada.Expressive.LabelLarge</item>
+        <item name="textAppearanceLabelLargeEmphasized">@style/TextAppearance.Bada.Expressive.LabelLarge.Emphasized</item>
+        <item name="textAppearanceLabelMedium">@style/TextAppearance.Bada.Expressive.LabelMedium</item>
+        <item name="textAppearanceLabelMediumEmphasized">@style/TextAppearance.Bada.Expressive.LabelMedium.Emphasized</item>
+        <item name="textAppearanceLabelSmall">@style/TextAppearance.Bada.Expressive.LabelSmall</item>
+        <item name="textAppearanceLabelSmallEmphasized">@style/TextAppearance.Bada.Expressive.LabelSmall.Emphasized</item>
+        <item name="android:textAppearanceSmall">@style/TextAppearance.Bada.Expressive.BodyMedium</item>
+
+        <item name="viewInflaterClass">dev.bluehouse.bada.ui.theme.ExpressiveViewInflater</item>
+        <item name="materialButtonStyle">@style/Widget.Bada.Expressive.Button</item>
+        <!-- Cards: the M3 default is the outlined card, which drew a purple
+             hairline around the send card. Bada's cards are fill-only, and so
+             is the M3 filled card; layouts set the fill color themselves. -->
+        <item name="materialCardViewStyle">@style/Widget.Material3.CardView.Filled</item>
+        <item name="circularProgressIndicatorStyle">@style/Widget.Bada.Expressive.CircularProgressIndicator</item>
+        <item name="linearProgressIndicatorStyle">@style/Widget.Material3Expressive.LinearProgressIndicator.Wavy</item>
+
+        <!-- Overflow and popup menus: M3 Expressive vertical menu look
+             (m3e_menu_background), elevation level 2, Label large items. -->
+        <item name="popupMenuBackground">@drawable/m3e_menu_background</item>
+        <item name="popupMenuStyle">@style/Widget.Bada.Expressive.PopupMenu</item>
+        <item name="actionOverflowMenuStyle">@style/Widget.Bada.Expressive.PopupMenu.Overflow</item>
+        <item name="textAppearanceLargePopupMenu">@style/TextAppearance.Bada.Expressive.LabelLarge</item>
+        <item name="textAppearanceSmallPopupMenu">@style/TextAppearance.Bada.Expressive.LabelLarge</item>
+        <item name="dropDownListViewStyle">@style/Widget.Bada.Expressive.DropDownListView</item>
+
+        <item name="badaIsExpressive">true</item>
+
+        <item name="badaCardBackground">@drawable/m3e_card_background</item>
+        <item name="badaFieldBackground">@drawable/m3e_field_background</item>
+        <item name="badaInputBackground">@drawable/m3e_input_background</item>
+        <item name="badaMasterOnBackground">@drawable/m3e_master_on_background</item>
+        <item name="badaMasterOffBackground">@drawable/m3e_master_off_background</item>
+        <item name="badaSheetBackground">@drawable/m3e_sheet_background</item>
+        <item name="badaHeroCardBackground">@drawable/m3e_hero_card_background</item>
+        <item name="badaPinBackground">@drawable/m3e_pin_background</item>
+        <item name="badaBannerBackground">@drawable/m3e_banner_background</item>
+        <item name="badaToastBackground">@drawable/m3e_toast_background</item>
+        <item name="badaIconButtonBackground">@drawable/m3e_icon_button_background</item>
+        <item name="badaDragHandleBackground">@drawable/m3e_drag_handle</item>
+        <item name="badaNavPillBackground">@drawable/m3e_nav_pill_background</item>
+        <item name="badaPhotoCardBackground">@drawable/m3e_photo_card_background</item>
+        <item name="badaFrostedButtonBackground">@drawable/m3e_tonal_button_background</item>
+
+        <item name="badaButtonStyle">@style/Widget.Bada.Expressive.Button.Prominent</item>
+        <item name="badaSecondaryButtonStyle">@style/Widget.Bada.Expressive.Button.Outlined.Small</item>
+        <item name="badaPrimaryButtonStyle">@style/Widget.Bada.Expressive.Button.Filled</item>
+        <item name="badaOutlineButtonStyle">@style/Widget.Bada.Expressive.Button.Outlined</item>
+        <item name="badaBannerButtonStyle">@style/Widget.Bada.Expressive.Button.Filled</item>
+        <item name="badaVisibilityToggleStyle">@style/Widget.Bada.Expressive.Button.VisibilityToggle</item>
+        <item name="badaBottomNavStyle">@style/Widget.Bada.Expressive.BottomNav</item>
+        <item name="badaNavPillStyle">@style/Widget.Bada.Expressive.NavPill</item>
+        <item name="badaToolbarThemeOverlay">@style/ThemeOverlay.Bada.Expressive.Toolbar</item>
+        <item name="badaToolbarPopupTheme">@style/ThemeOverlay.Bada.Expressive.Toolbar</item>
+        <item name="badaToolbarTitleTextAppearance">@style/TextAppearance.Bada.Expressive.ToolbarTitle</item>
+
+        <item name="badaTextDisplay1">@style/TextAppearance.Bada.Expressive.DisplaySmall.Numeric</item>
+        <item name="badaTextHeadline">@style/TextAppearance.Bada.Expressive.HeadlineSmall.Emphasized</item>
+        <item name="badaTextTitle">@style/TextAppearance.Bada.Expressive.TitleLarge</item>
+        <!-- Subhead is used almost only for bold card and section titles. -->
+        <item name="badaTextSubhead">@style/TextAppearance.Bada.Expressive.TitleMedium</item>
+        <item name="badaTextMedium">@style/TextAppearance.Bada.Expressive.BodyLarge</item>
+        <item name="badaTextBody2">@style/TextAppearance.Bada.Expressive.TitleSmall</item>
+        <item name="badaTextBody1">@style/TextAppearance.Bada.Expressive.BodyMedium</item>
+        <item name="badaTextSmall">@style/TextAppearance.Bada.Expressive.BodyMedium</item>
+        <item name="badaTextCaption">@style/TextAppearance.Bada.Expressive.BodySmall</item>
+        <item name="badaTextButton">@style/TextAppearance.Bada.Expressive.LabelLarge</item>
+        <item name="badaTextStatusTitle">@style/TextAppearance.Bada.Expressive.HeadlineSmall</item>
+
+        <item name="badaColorAccent">?attr/colorPrimary</item>
+        <item name="badaColorOnAccent">?attr/colorOnPrimary</item>
+        <item name="badaColorNavIndicator">?attr/colorSecondaryContainer</item>
+        <item name="badaColorFrostedFill">@color/m3e_frosted_fill</item>
+        <item name="badaColorSurfaceCard">?attr/colorSurfaceContainerLowest</item>
+        <item name="badaColorSurfaceChip">?attr/colorSurfaceContainerHigh</item>
+        <item name="badaColorOnToast">?attr/colorOnSurfaceInverse</item>
+        <item name="badaColorBadge">?attr/colorError</item>
+        <item name="badaColorSuccess">@color/m3e_success</item>
+        <item name="badaColorWarning">@color/m3e_warning</item>
+        <!-- M3 circular progress around a primary avatar: primary indicator
+             on a secondary container track. -->
+        <item name="badaColorPeerDisc">?attr/colorPrimary</item>
+        <item name="badaColorOnPeerDisc">?attr/colorOnPrimary</item>
+        <item name="badaColorPeerRing">?attr/colorPrimary</item>
+        <item name="badaColorPeerRingTrack">?attr/colorSecondaryContainer</item>
+        <!-- MaterialRadioButton tints itself (primary when checked, on surface
+             variant when not); a single tint color would paint both states. -->
+        <item name="badaRadioButtonTint">@null</item>
+
+        <item name="badaOverflowIcon">@drawable/ic_m3e_more_vert_24</item>
+        <item name="badaOverflowIconWithBadge">@drawable/ic_m3e_more_vert_with_dot_24</item>
+        <item name="badaNavSendReceiveIcon">@drawable/ic_m3e_swap_horiz_24</item>
+        <item name="badaNavSettingsIcon">@drawable/ic_m3e_settings_selector_24</item>
+        <!-- Avatars: circular, as the M3 list guidance asks for people. -->
+        <item name="badaAvatarShapeOverlay">@style/ShapeAppearanceOverlay.Bada.Expressive.Avatar</item>
+        <item name="badaSettingsSectionGap">@dimen/m3e_settings_section_gap</item>
+        <item name="badaSettingsSwitchGroupGap">@dimen/m3e_settings_section_gap_before_list</item>
+        <item name="badaThemeSectionBackground">@null</item>
+        <item name="badaThemeSectionPadding">0dp</item>
+        <item name="badaSectionHeaderInset">16dp</item>
+        <item name="badaMainLayout">@layout/activity_main_m3e</item>
+        <item name="badaConsentCompletedActionsLayout">@layout/consent_completed_actions_m3e</item>
+        <item name="badaAdvertisedNameInputLayout">@layout/settings_advertised_name_input_m3e</item>
+        <item name="badaSettingsSwitchGroupLayout">@layout/settings_switch_group_m3e</item>
+        <item name="badaThemeOptionLayout">@layout/item_theme_option_m3e</item>
+        <item name="badaThemeExtrasLayout">@layout/settings_theme_extras_m3e</item>
+    </style>
+
+    <!-- Window variants: same window setup as the Theme.Bada.* twins. -->
+    <style name="Theme.Bada.Expressive.SendSheet">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.2</item>
+        <item name="android:windowAnimationStyle">@style/WindowAnimation.Bada.SendSheet.Fast</item>
+    </style>
+
+    <style name="Theme.Bada.Expressive.SendInApp">
+        <item name="android:windowAnimationStyle">@style/WindowAnimation.Bada.SendInApp</item>
+    </style>
+
+    <style name="Theme.Bada.Expressive.ReceiveSheet">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.2</item>
+        <item name="android:windowAnimationStyle">@style/WindowAnimation.Bada.ReceiveSheet</item>
+    </style>
+
+    <style name="Theme.Bada.Expressive.NameCardTransfer">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <!--
+      Buttons. Every style keeps the M3 Expressive shape state list from its
+      parent, so the round container squares off while pressed and when a
+      checkable button is selected. maxLines=2 carries over the two-line
+      label rule from Widget.Bada.Button (#307).
+        * Default (plain <Button>, badaButtonStyle): tonal. Most Bada
+          actions are neutral, so they sit one step back from the primary.
+        * Filled: the one action a screen exists for (Send files, Accept).
+        * Outlined: the send sheet's Cancel / Done plate over the blur.
+    -->
+    <style name="Widget.Bada.Expressive.Button" parent="Widget.Material3Expressive.Button.TonalButton">
+        <item name="android:maxLines">2</item>
+    </style>
+
+    <!-- Same tonal button at the Medium size (56dp) for the free-standing
+         actions that badaButtonStyle marks (home tab, send sheet). Plain
+         buttons inside settings cards keep the default Small size. -->
+    <style name="Widget.Bada.Expressive.Button.Prominent">
+        <item name="materialSizeOverlay">@style/SizeOverlay.Material3Expressive.Button.Medium</item>
+    </style>
+
+    <style name="Widget.Bada.Expressive.Button.Filled" parent="Widget.Material3Expressive.Button">
+        <item name="android:maxLines">2</item>
+        <item name="materialSizeOverlay">@style/SizeOverlay.Material3Expressive.Button.Medium</item>
+    </style>
+
+    <style name="Widget.Bada.Expressive.Button.Outlined" parent="Widget.Material3Expressive.Button.OutlinedButton">
+        <item name="android:maxLines">2</item>
+        <item name="materialSizeOverlay">@style/SizeOverlay.Material3Expressive.Button.Medium</item>
+    </style>
+
+    <!-- Secondary action next to a tonal one inside a card (Reset): outlined
+         at the card's Small size, one emphasis step below the tonal button. -->
+    <style name="Widget.Bada.Expressive.Button.Outlined.Small">
+        <item name="materialSizeOverlay">@style/SizeOverlay.Material3Expressive.Button.Small</item>
+    </style>
+
+    <!--
+      Home-tab visibility toggle (#34) in the Expressive theme: a checkable
+      filled-tonal button. Checked = always visible, painted with the
+      primary role; unchecked uses the tonal container. The M3 Expressive
+      shape state list squares the corners when checked, so turning the
+      device visible is a shape morph, not just a color swap. This is one
+      of the theme's two hero moments.
+    -->
+    <style name="Widget.Bada.Expressive.Button.VisibilityToggle" parent="Widget.Material3Expressive.Button">
+        <item name="android:checkable">true</item>
+        <item name="android:maxLines">2</item>
+        <item name="materialSizeOverlay">@style/SizeOverlay.Material3Expressive.Button.Large</item>
+        <item name="materialThemeOverlay">@style/ThemeOverlay.Bada.Expressive.VisibilityToggle</item>
+    </style>
+
+    <style name="ThemeOverlay.Bada.Expressive.VisibilityToggle" parent="">
+        <item name="colorContainer">?attr/colorPrimary</item>
+        <item name="colorContainerChecked">?attr/colorPrimary</item>
+        <item name="colorContainerUnchecked">?attr/colorSecondaryContainer</item>
+        <item name="colorOnContainer">?attr/colorOnPrimary</item>
+        <item name="colorOnContainerChecked">?attr/colorOnPrimary</item>
+        <item name="colorOnContainerUnchecked">?attr/colorOnSecondaryContainer</item>
+    </style>
+
+    <!--
+      Fallback for ExpressiveMotion.spring() when a context's theme has no
+      spring token: the M3 Expressive default spatial spring.
+    -->
+    <style name="Motion.Bada.Spring.Fallback" parent="">
+        <item name="stiffness">380</item>
+        <item name="damping">0.8</item>
+    </style>
+
+    <!--
+      Expressive list item placed directly on the page. MDC's segmented item
+      container is surface, the page color here, so items on the page use
+      surface container instead (checked: secondary container, as in MDC).
+      Items inside a card keep the MDC default (surface), which already sits
+      two steps from the card's surface container.
+    -->
+    <style name="Widget.Bada.Expressive.ListItemCard.OnPage" parent="Widget.Material3.ListItemCardView.Segmented">
+        <item name="cardBackgroundColor">@color/m3e_list_item_on_page</item>
+    </style>
+
+    <style name="Widget.Bada.Expressive.PopupMenu" parent="Widget.Material3.PopupMenu">
+        <item name="android:popupBackground">@drawable/m3e_menu_background</item>
+        <item name="android:popupElevation">3dp</item>
+    </style>
+
+    <!-- Toolbar overflow: opens below the trigger instead of over it. -->
+    <style name="Widget.Bada.Expressive.PopupMenu.Overflow" parent="Widget.Material3.PopupMenu.Overflow">
+        <item name="android:popupBackground">@drawable/m3e_menu_background</item>
+        <item name="android:popupElevation">3dp</item>
+        <item name="overlapAnchor">false</item>
+    </style>
+
+    <!-- Selectable item on the page (theme picker): position shapes only, so
+         selecting or pressing changes the color, not the outline. -->
+    <style name="Widget.Bada.Expressive.ListItemCard.OnPage.Selectable">
+        <item name="shapeAppearance">@xml/m3e_list_item_shape_positions</item>
+    </style>
+
+    <!-- Popup menu list: rounded, inset item highlight (m3e_menu_item_selector)
+         so a pressed item never reaches past the menu's rounded corners. -->
+    <style name="Widget.Bada.Expressive.DropDownListView" parent="Widget.AppCompat.ListView.DropDown">
+        <item name="android:listSelector">@drawable/m3e_menu_item_selector</item>
+        <item name="android:drawSelectorOnTop">false</item>
+        <item name="android:divider">@null</item>
+    </style>
+
+    <style name="Widget.Bada.Expressive.CircularProgressIndicator" parent="Widget.Material3Expressive.CircularProgressIndicator.Wavy" />
+
+    <!--
+      Navigation. The M3 Expressive bar draws the pill active indicator and
+      the expressive label/icon tints; labels stay visible on both tabs as
+      in the Bada theme. The landscape pill keeps its floating geometry
+      (activity_main.xml land) on a fully rounded surface container.
+    -->
+    <style name="Widget.Bada.Expressive.BottomNav" parent="Widget.Material3Expressive.BottomNavigationView">
+        <item name="labelVisibilityMode">labeled</item>
+        <!-- M3 navigation bar accessibility: "Selected label is bold". -->
+        <item name="itemTextAppearanceActiveBoldEnabled">true</item>
+    </style>
+
+    <style name="Widget.Bada.Expressive.NavPill" parent="Widget.Bada.Expressive.BottomNav">
+        <item name="android:background">@drawable/m3e_nav_pill_background</item>
+        <item name="elevation">0dp</item>
+    </style>
+
+    <!-- Toolbar and its overflow popup use the theme's own M3 ripple and
+         menu styles; the Bada no-ripple overlay is Bada-specific. -->
+    <style name="ThemeOverlay.Bada.Expressive.Toolbar" parent="" />
+
+    <!-- PIN and other changing numerals: tabular figures, so digits keep
+         their width ("Use tabular figures ... where values may change"). -->
+    <style name="TextAppearance.Bada.Expressive.DisplaySmall.Numeric" parent="TextAppearance.Bada.Expressive.DisplaySmall">
+        <item name="android:fontFeatureSettings">tnum</item>
+    </style>
+
+    <style name="ShapeAppearanceOverlay.Bada.Expressive.Avatar" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <!-- Editorial page title: emphasized headline (M3 Expressive "guide
+         attention with typography"). -->
+    <style name="TextAppearance.Bada.Expressive.ToolbarTitle" parent="TextAppearance.Bada.Expressive.HeadlineMedium.Emphasized" />
+
+    <!--
+      M3 type scale (baseline + emphasized) on Google Sans Flex. The M3
+      styles name the platform sans-serif family; without these wrappers
+      every MaterialButton label, nav label, and dialog would fall back to
+      Roboto. Medium-weight roles keep their 500 weight on API 28+.
+    -->
+    <style name="TextAppearance.Bada.Expressive.DisplayLarge" parent="TextAppearance.Material3.DisplayLarge">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.DisplayLarge.Emphasized" parent="TextAppearance.Material3.DisplayLarge.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.DisplayMedium" parent="TextAppearance.Material3.DisplayMedium">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.DisplayMedium.Emphasized" parent="TextAppearance.Material3.DisplayMedium.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.DisplaySmall" parent="TextAppearance.Material3.DisplaySmall">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.DisplaySmall.Emphasized" parent="TextAppearance.Material3.DisplaySmall.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.HeadlineLarge" parent="TextAppearance.Material3.HeadlineLarge">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.HeadlineLarge.Emphasized" parent="TextAppearance.Material3.HeadlineLarge.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.HeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.HeadlineMedium.Emphasized" parent="TextAppearance.Material3.HeadlineMedium.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.HeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.HeadlineSmall.Emphasized" parent="TextAppearance.Material3.HeadlineSmall.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.TitleLarge.Emphasized" parent="TextAppearance.Material3.TitleLarge.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.TitleMedium.Emphasized" parent="TextAppearance.Material3.TitleMedium.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.TitleSmall" parent="TextAppearance.Material3.TitleSmall">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.TitleSmall.Emphasized" parent="TextAppearance.Material3.TitleSmall.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.BodyLarge" parent="TextAppearance.Material3.BodyLarge">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.BodyLarge.Emphasized" parent="TextAppearance.Material3.BodyLarge.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.BodyMedium" parent="TextAppearance.Material3.BodyMedium">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.BodyMedium.Emphasized" parent="TextAppearance.Material3.BodyMedium.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.BodySmall" parent="TextAppearance.Material3.BodySmall">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.BodySmall.Emphasized" parent="TextAppearance.Material3.BodySmall.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.LabelLarge" parent="TextAppearance.Material3.LabelLarge">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.LabelLarge.Emphasized" parent="TextAppearance.Material3.LabelLarge.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.LabelMedium" parent="TextAppearance.Material3.LabelMedium">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.LabelMedium.Emphasized" parent="TextAppearance.Material3.LabelMedium.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.LabelSmall" parent="TextAppearance.Material3.LabelSmall">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+    <style name="TextAppearance.Bada.Expressive.LabelSmall.Emphasized" parent="TextAppearance.Material3.LabelSmall.Emphasized">
+        <item name="fontFamily">@font/google_sans_flex</item>
+        <item name="android:fontFamily">@font/google_sans_flex</item>
+    </style>
+</resources>

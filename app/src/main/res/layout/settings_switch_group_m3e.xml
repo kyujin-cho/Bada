@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Switch settings of the Settings tab, Material 3 Expressive theme: one
+  segmented expressive list (MDC ListItemLayout + ListItemCardView), one item
+  per setting with label, supporting text and a trailing switch. M3 lists:
+  "Use switches to toggle settings on or off" and "Use segmented gaps and
+  filled list items to define a list group" instead of separate cards.
+  SettingsFragment sets each item's first/middle/last position (rounded outer
+  corners, extra small inner corners) and makes the whole item toggle its
+  switch. Same ids as settings_switch_group.xml.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/settings_switch_group_list"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <com.google.android.material.listitem.ListItemLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/m3e_segmented_list_gap">
+
+        <com.google.android.material.listitem.ListItemCardView
+            style="@style/Widget.Bada.Expressive.ListItemCard.OnPage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="56dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Widget.Material3.TextView.ListItem.LabelText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_keep_screen_on_title" />
+
+                    <TextView
+                        android:id="@+id/main_keep_screen_on_subtitle"
+                        style="@style/Widget.Material3.TextView.ListItem.SupportingText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_keep_screen_on_subtitle" />
+
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/main_keep_screen_on_switch"
+                    style="@style/Widget.Material3.Switch.ListItem"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.listitem.ListItemCardView>
+
+    </com.google.android.material.listitem.ListItemLayout>
+
+    <com.google.android.material.listitem.ListItemLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/m3e_segmented_list_gap">
+
+        <com.google.android.material.listitem.ListItemCardView
+            style="@style/Widget.Bada.Expressive.ListItemCard.OnPage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="56dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Widget.Material3.TextView.ListItem.LabelText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_transfer_expert_title" />
+
+                    <TextView
+                        android:id="@+id/main_transfer_expert_subtitle"
+                        style="@style/Widget.Material3.TextView.ListItem.SupportingText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_transfer_expert_subtitle" />
+
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/main_transfer_expert_switch"
+                    style="@style/Widget.Material3.Switch.ListItem"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.listitem.ListItemCardView>
+
+    </com.google.android.material.listitem.ListItemLayout>
+
+    <com.google.android.material.listitem.ListItemLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/m3e_segmented_list_gap">
+
+        <com.google.android.material.listitem.ListItemCardView
+            style="@style/Widget.Bada.Expressive.ListItemCard.OnPage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="56dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Widget.Material3.TextView.ListItem.LabelText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_bug_report_title" />
+
+                    <TextView
+                        android:id="@+id/main_bug_report_subtitle"
+                        style="@style/Widget.Material3.TextView.ListItem.SupportingText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_bug_report_subtitle" />
+
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/main_bug_report_switch"
+                    style="@style/Widget.Material3.Switch.ListItem"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.listitem.ListItemCardView>
+
+    </com.google.android.material.listitem.ListItemLayout>
+
+    <com.google.android.material.listitem.ListItemLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/m3e_segmented_list_gap">
+
+        <com.google.android.material.listitem.ListItemCardView
+            style="@style/Widget.Bada.Expressive.ListItemCard.OnPage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="56dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Widget.Material3.TextView.ListItem.LabelText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_auto_update_title" />
+
+                    <TextView
+                        android:id="@+id/settings_auto_update_subtitle"
+                        style="@style/Widget.Material3.TextView.ListItem.SupportingText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_auto_update_subtitle" />
+
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/settings_auto_update_switch"
+                    style="@style/Widget.Material3.Switch.ListItem"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.listitem.ListItemCardView>
+
+    </com.google.android.material.listitem.ListItemLayout>
+
+</LinearLayout>

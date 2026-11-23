@@ -642,4 +642,13 @@
     <string name="name_card_consent_channel">Name Card consent</string>
     <string name="name_card_exchange_channel">Name Card exchange</string>
     <string name="name_card_exchange_notification">Sharing your name card…</string>
+
+    <!-- Settings > Theme (app theme picker). -->
+    <string name="settings_theme_title">Theme</string>
+    <string name="settings_theme_bada" translatable="false">Bada</string>
+    <string name="settings_theme_material_expressive" translatable="false">Material 3 Expressive</string>
+    <string name="settings_theme_bada_description">The original Bada look with frosted-glass buttons.</string>
+    <string name="settings_theme_material_expressive_description">Google\'s expressive Material design: vibrant colors, buttons that change shape, and spring motion.</string>
+    <string name="settings_wallpaper_colors_title">Wallpaper colors</string>
+    <string name="settings_wallpaper_colors_subtitle">Match the app\'s colors to your wallpaper.</string>
 </resources>

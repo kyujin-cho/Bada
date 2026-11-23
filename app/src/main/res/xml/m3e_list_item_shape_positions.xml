@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Expressive list item shapes by position only (single, first, middle,
+     last), without MDC's selected and pressed shape morph. Used by the theme
+     picker: with two items, the selected one turning fully round next to a
+     square-cornered neighbour read as a glitch rather than a selection; the
+     selected container color and the radio carry the state instead. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item app:shapeAppearance="?attr/listItemShapeAppearanceSingle" android:state_single="true" />
+    <item app:shapeAppearance="?attr/listItemShapeAppearanceFirst" android:state_first="true" />
+    <item app:shapeAppearance="?attr/listItemShapeAppearanceLast" android:state_last="true" />
+    <item app:shapeAppearance="?attr/listItemShapeAppearanceMiddle" />
+</selector>

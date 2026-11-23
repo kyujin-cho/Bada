@@ -440,4 +440,10 @@
     <string name="name_card_exchange_channel">ネームカード交換</string>
     <string name="name_card_exchange_notification">ネームカードを共有しています…</string>
 
+    <!-- Settings > Theme (app theme picker). -->
+    <string name="settings_theme_title">テーマ</string>
+    <string name="settings_theme_bada_description">すりガラス風のボタンを使う、Bada 本来のデザインです。</string>
+    <string name="settings_theme_material_expressive_description">鮮やかな色、形が変わるボタン、スプリングモーションを使う Google の Material デザインです。</string>
+    <string name="settings_wallpaper_colors_title">壁紙の色</string>
+    <string name="settings_wallpaper_colors_subtitle">アプリの色を壁紙に合わせます。</string>
 </resources>

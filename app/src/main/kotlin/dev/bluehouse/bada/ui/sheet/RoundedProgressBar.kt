@@ -15,8 +15,10 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import android.view.animation.DecelerateInterpolator
+import dev.bluehouse.bada.ui.theme.AppThemes
 import kotlin.math.max
 import kotlin.math.min
+import com.google.android.material.R as MaterialR
 
 /**
  * A horizontal rounded "pill" determinate progress bar: a light track with a
@@ -40,10 +42,20 @@ public class RoundedProgressBar
     ) : View(context, attrs, defStyleAttr) {
         private val density = context.resources.displayMetrics.density
 
+        // Bada theme: the fixed iOS-style track and blue fill. Material 3
+        // Expressive theme: the M3 progress indicator roles (primary active
+        // indicator on a secondary-container track), so the consent sheet's
+        // receive progress matches the theme's wavy indicators.
+        private val expressive = AppThemes.isExpressive(context)
         private val trackPaint =
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = TRACK_COLOR }
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color =
+                    if (expressive) AppThemes.color(context, MaterialR.attr.colorSecondaryContainer) else TRACK_COLOR
+            }
         private val fillPaint =
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = FILL_COLOR }
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (expressive) AppThemes.color(context, androidx.appcompat.R.attr.colorPrimary) else FILL_COLOR
+            }
 
         /** Current displayed fill fraction in [0, 1]; animated toward [targetFraction]. */
         private var fraction: Float = 0f
@@ -118,6 +130,10 @@ public class RoundedProgressBar
         }
 
         override fun onDraw(canvas: Canvas) {
+            if (expressive) {
+                drawExpressive(canvas)
+                return
+            }
             val w = width.toFloat()
             val h = height.toFloat()
             val radius = h / 2f
@@ -131,6 +147,32 @@ public class RoundedProgressBar
             canvas.drawRoundRect(fillRect, radius, radius, fillPaint)
         }
 
+        /**
+         * M3 linear determinate progress indicator anatomy: the active
+         * indicator, a gap, the remaining track, and a stop indicator (a dot
+         * at the track's end in the active color). The stop indicator is
+         * required when the track has under 3:1 contrast with its surface,
+         * which a secondary-container track on the sheet does.
+         */
+        private fun drawExpressive(canvas: Canvas) {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val radius = h / 2f
+            val gap = EXPRESSIVE_GAP_DP * density
+            val fillWidth = max(h, min(w, w * fraction))
+
+            fillRect.set(0f, 0f, fillWidth, h)
+            canvas.drawRoundRect(fillRect, radius, radius, fillPaint)
+
+            val trackStart = fillWidth + gap
+            if (trackStart < w) {
+                trackRect.set(trackStart, 0f, w, h)
+                canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
+                val stopRadius = min(radius, EXPRESSIVE_STOP_DP * density / 2f)
+                canvas.drawCircle(w - radius, h / 2f, stopRadius, fillPaint)
+            }
+        }
+
         private companion object {
             private const val BAR_HEIGHT_DP = 8f
             private const val ANIM_MS = 240L
@@ -138,6 +180,12 @@ public class RoundedProgressBar
             // Light neutral track; Bada blue (#0A84FF) fill — same accent the
             // ring progress + device badges use.
             private const val TRACK_COLOR = 0xFFE3E6EC.toInt()
+
+            /** M3 expressive linear progress: gap between indicator and track. */
+            private const val EXPRESSIVE_GAP_DP = 4f
+
+            /** M3 stop indicator: a 4dp dot at the end of the track. */
+            private const val EXPRESSIVE_STOP_DP = 4f
             private const val FILL_COLOR = 0xFF0A84FF.toInt()
         }
     }

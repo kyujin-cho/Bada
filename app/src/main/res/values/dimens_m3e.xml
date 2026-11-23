@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  M3 Expressive corner radius scale (m3.material.io/styles/shape/corner-radius-scale),
+  used by the m3e_* drawables of Theme.Bada.Expressive. "Full" is a radius
+  larger than any Bada surface so GradientDrawable clamps it to a pill.
+-->
+<resources>
+    <dimen name="m3e_corner_extra_small">4dp</dimen>
+    <dimen name="m3e_corner_small">8dp</dimen>
+    <dimen name="m3e_corner_medium">12dp</dimen>
+    <dimen name="m3e_corner_large">16dp</dimen>
+    <dimen name="m3e_corner_large_increased">20dp</dimen>
+    <dimen name="m3e_corner_extra_large">28dp</dimen>
+    <dimen name="m3e_corner_extra_large_increased">32dp</dimen>
+    <dimen name="m3e_corner_extra_extra_large">48dp</dimen>
+    <dimen name="m3e_corner_full">999dp</dimen>
+
+    <!-- Gap between items of a segmented expressive list. -->
+    <dimen name="m3e_segmented_list_gap">2dp</dimen>
+    <!-- Between two separate lists in one section (theme options, then the
+         wallpaper colors switch). -->
+    <dimen name="m3e_list_group_gap">12dp</dimen>
+
+    <!-- Settings: space between sections (cards and list groups). -->
+    <dimen name="m3e_settings_section_gap">24dp</dimen>
+    <!-- Same, above a segmented list whose first item adds its own 2dp gap. -->
+    <dimen name="m3e_settings_section_gap_before_list">22dp</dimen>
+
+    <!-- Space between the loading indicator and the status text below it. -->
+    <dimen name="m3e_loading_indicator_gap">16dp</dimen>
+</resources>

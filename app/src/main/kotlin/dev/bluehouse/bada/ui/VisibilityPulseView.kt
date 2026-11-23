@@ -14,8 +14,8 @@ import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.View
 import android.view.animation.LinearInterpolator
-import androidx.core.content.ContextCompat
 import dev.bluehouse.bada.R
+import dev.bluehouse.bada.ui.theme.AppThemes
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -51,7 +51,7 @@ internal class VisibilityPulseView
                 style = Paint.Style.FILL
             }
 
-        private val baseColor = ContextCompat.getColor(context, R.color.brand_primary)
+        private val baseColor = AppThemes.color(context, R.attr.badaColorAccent)
         private val density = resources.displayMetrics.density
 
         private var blobs: List<Blob> = emptyList()

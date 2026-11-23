@@ -17,13 +17,15 @@ import android.view.animation.LinearInterpolator
 import android.widget.TextView
 import androidx.activity.addCallback
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.imageview.ShapeableImageView
+import com.google.android.material.shape.CornerFamily
+import com.google.android.material.shape.RelativeCornerSize
 import com.google.android.material.shape.ShapeAppearanceModel
 import dev.bluehouse.bada.MainActivity
 import dev.bluehouse.bada.R
+import dev.bluehouse.bada.ui.theme.AppThemes
 
 /**
  * Credit screen reachable from MainActivity's overflow menu.
@@ -61,6 +63,7 @@ internal class CreditActivity : AppCompatActivity() {
     private var hasLaunchedMainActivity: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_credit)
 
@@ -115,12 +118,23 @@ internal class CreditActivity : AppCompatActivity() {
         // treatments, which left photos with colored corners looking
         // square inside the rounded border. Applying the shape to both
         // keeps the border and the clipped photo on one smooth path.
+        //
+        // Material 3 Expressive theme: circular avatars instead (M3 lists:
+        // avatars for a person use "circular or expressive shapes").
         val smoothShape =
-            ShapeAppearanceModel
-                .builder()
-                .setAllCorners(SmoothCornerTreatment())
-                .setAllCornerSizes(AVATAR_CORNER_RADIUS_DP * resources.displayMetrics.density)
-                .build()
+            if (AppThemes.isExpressive(this)) {
+                ShapeAppearanceModel
+                    .builder()
+                    .setAllCorners(CornerFamily.ROUNDED, 0f)
+                    .setAllCornerSizes(RelativeCornerSize(CIRCLE_CORNER_FRACTION))
+                    .build()
+            } else {
+                ShapeAppearanceModel
+                    .builder()
+                    .setAllCorners(SmoothCornerTreatment())
+                    .setAllCornerSizes(AVATAR_CORNER_RADIUS_DP * resources.displayMetrics.density)
+                    .build()
+            }
         listOf(
             R.id.credit_kevin_avatar,
             R.id.credit_yeonfeel_avatar,
@@ -206,7 +220,7 @@ internal class CreditActivity : AppCompatActivity() {
         val width = textView.paint.measureText(text).coerceAtLeast(1f)
         val height = textView.lineHeight.toFloat().coerceAtLeast(1f)
         val baseColor = textView.currentTextColor
-        val highlightColor = ContextCompat.getColor(this, R.color.brand_primary)
+        val highlightColor = AppThemes.color(this, R.attr.badaColorAccent)
 
         // Diagonal gradient: start (0,0) → end (width, height) makes
         // the band slope from upper-left to lower-right across the
@@ -310,5 +324,8 @@ internal class CreditActivity : AppCompatActivity() {
          * one place does not silently desync the other.
          */
         const val AVATAR_CORNER_RADIUS_DP: Float = 12f
+
+        /** Expressive theme: a corner of half the side makes the avatar a circle. */
+        const val CIRCLE_CORNER_FRACTION: Float = 0.5f
     }
 }

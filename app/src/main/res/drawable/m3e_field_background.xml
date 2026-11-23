@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Read-only value field inside a card (badaFieldBackground): surface
+     container highest, two steps above the card's surface container ("use
+     surface container roles that are more than one step apart"). Extra small
+     corners: the card's 16dp radius minus its 20dp padding is below zero. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="@dimen/m3e_corner_extra_small" />
+    <solid android:color="?attr/colorSurfaceContainerHighest" />
+</shape>

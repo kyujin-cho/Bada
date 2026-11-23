@@ -61,7 +61,7 @@
         app:navigationIcon="?attr/homeAsUpIndicator"
         app:title="@string/credit_activity_label"
         app:titleCentered="false"
-        app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
+        app:titleTextAppearance="?attr/badaToolbarTitleTextAppearance"
         app:titleTextColor="?android:attr/textColorPrimary" />
 
     <ScrollView
@@ -81,7 +81,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/settings_card_background"
+                android:background="?attr/badaCardBackground"
                 android:orientation="vertical"
                 android:padding="20dp">
 
@@ -89,7 +89,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/credit_section_developer"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textAppearance="?attr/badaTextSubhead"
                     android:textColor="?android:attr/textColorPrimary"
                     android:textStyle="bold" />
 
@@ -106,7 +106,7 @@
                         android:layout_height="56dp"
                         app:cardBackgroundColor="@android:color/transparent"
                         app:cardElevation="0dp"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
+                        app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp">
 
@@ -116,7 +116,7 @@
                             android:contentDescription="@string/credit_avatar_description"
                             android:scaleType="centerCrop"
                             android:src="@drawable/credit_kevin_avatar"
-                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+                            app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay" />
 
                     </com.google.android.material.card.MaterialCardView>
 
@@ -131,7 +131,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/credit_kevin_name"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textAppearance="?attr/badaTextTitle"
                             android:textColor="?android:attr/textColorPrimary"
                             android:textStyle="bold" />
 
@@ -140,7 +140,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="@string/credit_kevin_desc"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textAppearance="?attr/badaTextBody2"
                             android:textColor="?android:attr/textColorSecondary" />
 
                     </LinearLayout>
@@ -154,7 +154,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/settings_card_background"
+                android:background="?attr/badaCardBackground"
                 android:orientation="vertical"
                 android:padding="20dp">
 
@@ -162,7 +162,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/credit_section_polisher"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textAppearance="?attr/badaTextSubhead"
                     android:textColor="?android:attr/textColorPrimary"
                     android:textStyle="bold" />
 
@@ -179,7 +179,7 @@
                         android:layout_height="56dp"
                         app:cardBackgroundColor="@android:color/transparent"
                         app:cardElevation="0dp"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
+                        app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp">
 
@@ -189,7 +189,7 @@
                             android:contentDescription="@string/credit_avatar_description"
                             android:scaleType="centerCrop"
                             android:src="@drawable/credit_yeonfeel_avatar"
-                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+                            app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay" />
 
                     </com.google.android.material.card.MaterialCardView>
 
@@ -204,7 +204,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/credit_yeonfeel_name"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textAppearance="?attr/badaTextTitle"
                             android:textColor="?android:attr/textColorPrimary"
                             android:textStyle="bold" />
 
@@ -213,7 +213,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="@string/credit_yeonfeel_desc"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textAppearance="?attr/badaTextBody2"
                             android:textColor="?android:attr/textColorSecondary" />
 
                     </LinearLayout>
@@ -227,7 +227,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/settings_card_background"
+                android:background="?attr/badaCardBackground"
                 android:orientation="vertical"
                 android:padding="20dp">
 
@@ -235,7 +235,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/credit_section_qa"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textAppearance="?attr/badaTextSubhead"
                     android:textColor="?android:attr/textColorPrimary"
                     android:textStyle="bold" />
 
@@ -252,7 +252,7 @@
                         android:layout_height="56dp"
                         app:cardBackgroundColor="@android:color/transparent"
                         app:cardElevation="0dp"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
+                        app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp">
 
@@ -262,7 +262,7 @@
                             android:contentDescription="@string/credit_avatar_description"
                             android:scaleType="centerCrop"
                             android:src="@drawable/credit_chiyak_avatar"
-                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+                            app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay" />
 
                     </com.google.android.material.card.MaterialCardView>
 
@@ -277,7 +277,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/credit_chiyak_name"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textAppearance="?attr/badaTextTitle"
                             android:textColor="?android:attr/textColorPrimary"
                             android:textStyle="bold" />
 
@@ -286,7 +286,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="@string/credit_chiyak_qa_desc"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textAppearance="?attr/badaTextBody2"
                             android:textColor="?android:attr/textColorSecondary" />
 
                     </LinearLayout>
@@ -306,7 +306,7 @@
                         android:layout_height="56dp"
                         app:cardBackgroundColor="@android:color/transparent"
                         app:cardElevation="0dp"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
+                        app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp">
 
@@ -316,7 +316,7 @@
                             android:contentDescription="@string/credit_avatar_description"
                             android:scaleType="centerCrop"
                             android:src="@drawable/credit_teqhnikacross_avatar"
-                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+                            app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay" />
 
                     </com.google.android.material.card.MaterialCardView>
 
@@ -331,7 +331,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/credit_teqhnikacross_name"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textAppearance="?attr/badaTextTitle"
                             android:textColor="?android:attr/textColorPrimary"
                             android:textStyle="bold" />
 
@@ -340,7 +340,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="@string/credit_teqhnikacross_desc"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textAppearance="?attr/badaTextBody2"
                             android:textColor="?android:attr/textColorSecondary" />
 
                     </LinearLayout>
@@ -360,7 +360,7 @@
                         android:layout_height="56dp"
                         app:cardBackgroundColor="@android:color/transparent"
                         app:cardElevation="0dp"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar"
+                        app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay"
                         app:strokeColor="@color/credit_avatar_stroke"
                         app:strokeWidth="1dp">
 
@@ -370,7 +370,7 @@
                             android:contentDescription="@string/credit_avatar_description"
                             android:scaleType="centerCrop"
                             android:src="@drawable/credit_parami_avatar"
-                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Bada.CreditAvatar" />
+                            app:shapeAppearanceOverlay="?attr/badaAvatarShapeOverlay" />
 
                     </com.google.android.material.card.MaterialCardView>
 
@@ -385,7 +385,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/credit_parami_name"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                            android:textAppearance="?attr/badaTextTitle"
                             android:textColor="?android:attr/textColorPrimary"
                             android:textStyle="bold" />
 
@@ -394,7 +394,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="@string/credit_parami_desc"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                            android:textAppearance="?attr/badaTextBody2"
                             android:textColor="?android:attr/textColorSecondary" />
 
                     </LinearLayout>
@@ -417,7 +417,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/settings_card_background"
+                android:background="?attr/badaCardBackground"
                 android:orientation="vertical"
                 android:paddingHorizontal="20dp"
                 android:paddingVertical="16dp">
@@ -427,7 +427,7 @@
                     android:layout_height="wrap_content"
                     android:gravity="center"
                     android:text="@string/credit_section_thanks"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                    android:textAppearance="?attr/badaTextCaption"
                     android:textColor="?android:attr/textColorSecondary" />
 
                 <TextView
@@ -436,7 +436,7 @@
                     android:layout_marginTop="4dp"
                     android:gravity="center"
                     android:text="@string/credit_thanks_compact"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                    android:textAppearance="?attr/badaTextBody2"
                     android:textColor="?android:attr/textColorPrimary"
                     android:textStyle="bold" />
 

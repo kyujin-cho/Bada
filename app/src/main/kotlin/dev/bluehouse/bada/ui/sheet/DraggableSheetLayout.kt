@@ -22,6 +22,8 @@ import android.view.animation.OvershootInterpolator
 import android.widget.LinearLayout
 import androidx.core.view.doOnLayout
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
+import dev.bluehouse.bada.ui.theme.AppThemes
+import dev.bluehouse.bada.ui.theme.ExpressiveMotion
 
 /**
  * A bottom-sheet card container.
@@ -181,43 +183,62 @@ public class DraggableSheetLayout
                     scaleX = 1f // full width the whole way; only the HEIGHT expands
                     scaleY = ENTRANCE_START_SCALE
                     DiagnosticLog.e(DIAG_TAG, "entrance(overshoot) RUN: height=$height")
+
+                    // One frame of the entrance at progress o (0 -> rises -> past 1 is
+                    // the bounce -> settles at 1).
+                    fun applyEntrance(o: Float) {
+                        val sy = ENTRANCE_START_SCALE + (1f - ENTRANCE_START_SCALE) * o
+                        scaleY = sy // height only; scaleX stays 1f (full width) all the way
+                        // The slide finishes exactly as the card first reaches full size.
+                        val slideProg =
+                            ((sy - ENTRANCE_START_SCALE) / (1f - ENTRANCE_START_SCALE)).coerceIn(0f, 1f)
+                        translationY = startTransY * (1f - slideProg)
+                        if (sy > 1f) {
+                            // Past full size = the bounce: keep elements their size (pill
+                            // rides the stretching top edge), plant the bottom action row.
+                            content?.let {
+                                it.pivotY = 0f
+                                it.scaleY = 1f / sy
+                            }
+                            anchors.forEach { it.translationY = (sy - 1f) * h }
+                        } else {
+                            content?.scaleY = 1f
+                            anchors.forEach { it.translationY = 0f }
+                        }
+                    }
+
+                    // Runs on natural end AND cancel, so the reset + onComplete
+                    // (revealing the peer icons) can never be skipped.
+                    fun finishEntrance() {
+                        scaleX = 1f
+                        scaleY = 1f
+                        translationY = 0f
+                        content?.scaleY = 1f
+                        anchors.forEach { it.translationY = 0f }
+                        onComplete?.invoke()
+                    }
+
+                    if (AppThemes.isExpressive(context)) {
+                        // Material 3 Expressive theme: the progress comes from the
+                        // theme's default spatial spring (the guide's speed for
+                        // partial-screen surfaces such as bottom sheets) instead of
+                        // a fixed-duration overshoot curve. The spring passes 1 and
+                        // settles back, which is the same expand-and-bounce shape.
+                        ExpressiveMotion.animateProgress(
+                            context,
+                            ExpressiveMotion.DEFAULT_SPATIAL,
+                            onUpdate = ::applyEntrance,
+                            onEnd = ::finishEntrance,
+                        )
+                        return@doOnLayout
+                    }
                     ValueAnimator.ofFloat(0f, 1f).apply {
                         duration = ENTRANCE_SLIDE_MS + STRETCH_DURATION_MS
                         interpolator = LinearInterpolator() // the overshoot curve is applied below
-                        addUpdateListener { va ->
-                            // o: 0 -> rises -> overshoots above 1 -> settles to 1 (one motion).
-                            val o = overshoot.getInterpolation(va.animatedFraction)
-                            val sy = ENTRANCE_START_SCALE + (1f - ENTRANCE_START_SCALE) * o
-                            scaleY = sy // height only; scaleX stays 1f (full width) all the way
-                            // The slide finishes exactly as the card first reaches full size.
-                            val slideProg =
-                                ((sy - ENTRANCE_START_SCALE) / (1f - ENTRANCE_START_SCALE)).coerceIn(0f, 1f)
-                            translationY = startTransY * (1f - slideProg)
-                            if (sy > 1f) {
-                                // Past full size = the bounce: keep elements their size (pill
-                                // rides the stretching top edge), plant the bottom action row.
-                                content?.let {
-                                    it.pivotY = 0f
-                                    it.scaleY = 1f / sy
-                                }
-                                anchors.forEach { it.translationY = (sy - 1f) * h }
-                            } else {
-                                content?.scaleY = 1f
-                                anchors.forEach { it.translationY = 0f }
-                            }
-                        }
+                        addUpdateListener { va -> applyEntrance(overshoot.getInterpolation(va.animatedFraction)) }
                         addListener(
                             object : AnimatorListenerAdapter() {
-                                // Fires on natural end AND cancel, so the reset + onComplete
-                                // (revealing the peer icons) can never be skipped.
-                                override fun onAnimationEnd(animation: Animator) {
-                                    scaleX = 1f
-                                    scaleY = 1f
-                                    translationY = 0f
-                                    content?.scaleY = 1f
-                                    anchors.forEach { it.translationY = 0f }
-                                    onComplete?.invoke()
-                                }
+                                override fun onAnimationEnd(animation: Animator) = finishEntrance()
                             },
                         )
                         start()

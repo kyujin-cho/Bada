@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One option of the Settings > Theme picker, Material 3 Expressive theme: a
+  single-select expressive list item (radio, label, supporting text). The
+  checked item takes the selected container and shape; the radio is the
+  second cue, so selection never relies on color alone. Built by
+  SettingsFragment.wireThemePicker, which also sets the segmented position.
+  Same ids as the Bada variant's radio (item_theme_option.xml).
+-->
+<com.google.android.material.listitem.ListItemLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="@dimen/m3e_segmented_list_gap">
+
+    <com.google.android.material.listitem.ListItemCardView
+        android:id="@+id/theme_option_item"
+        style="@style/Widget.Bada.Expressive.ListItemCard.OnPage.Selectable"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:checkable="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:minHeight="56dp"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/theme_option_radio"
+                style="@style/Widget.Material3.RadioButton.ListItem"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/theme_option_label"
+                    style="@style/Widget.Material3.TextView.ListItem.LabelText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/theme_option_description"
+                    style="@style/Widget.Material3.TextView.ListItem.SupportingText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </com.google.android.material.listitem.ListItemCardView>
+
+</com.google.android.material.listitem.ListItemLayout>

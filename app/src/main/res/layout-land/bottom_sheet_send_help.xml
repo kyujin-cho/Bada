@@ -34,7 +34,7 @@
                 android:layout_height="4dp"
                 android:layout_gravity="center_horizontal"
                 android:layout_marginBottom="20dp"
-                android:background="@drawable/bottom_sheet_drag_handle" />
+                android:background="?attr/badaDragHandleBackground" />
 
             <!-- Title reserves a right strip so the long title never runs
                  under the floating X button. -->
@@ -43,7 +43,7 @@
                 android:layout_height="wrap_content"
                 android:paddingEnd="44dp"
                 android:text="@string/send_help_sheet_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                android:textAppearance="?attr/badaTextTitle"
                 android:textStyle="bold" />
 
             <!-- Section 1: receiver visibility check. -->
@@ -52,7 +52,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
                 android:text="@string/send_help_sheet_visibility_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textAppearance="?attr/badaTextSubhead"
                 android:textStyle="bold" />
 
             <TextView
@@ -60,7 +60,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/send_help_sheet_visibility_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                android:textAppearance="?attr/badaTextBody1" />
 
             <!-- Section 2: QR / link fallback. -->
             <TextView
@@ -68,7 +68,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
                 android:text="@string/send_help_sheet_qr_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textAppearance="?attr/badaTextSubhead"
                 android:textStyle="bold" />
 
             <TextView
@@ -76,7 +76,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/send_help_sheet_qr_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                android:textAppearance="?attr/badaTextBody1" />
 
             <!-- Section 3: experimental-compatibility note. -->
             <TextView
@@ -84,7 +84,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
                 android:text="@string/send_help_sheet_compat_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textAppearance="?attr/badaTextSubhead"
                 android:textStyle="bold" />
 
             <TextView
@@ -92,7 +92,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/send_help_sheet_compat_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                android:textAppearance="?attr/badaTextBody1" />
 
         </LinearLayout>
 

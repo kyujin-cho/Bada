@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Expressive tint for the send sheet's blurred Cancel / Done plate
+     (badaColorFrostedFill): the high surface container, translucent so the
+     BackdropBlurView behind it still reads as glass. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:alpha="0.72" android:color="?attr/colorSurfaceContainerHigh" />
+</selector>

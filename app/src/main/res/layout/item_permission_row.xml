@@ -15,7 +15,7 @@
         android:id="@+id/permission_row_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+        android:textAppearance="?attr/badaTextSubhead"
         android:textStyle="bold" />
 
     <TextView
@@ -23,14 +23,14 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+        android:textAppearance="?attr/badaTextBody1" />
 
     <TextView
         android:id="@+id/permission_row_status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+        android:textAppearance="?attr/badaTextCaption"
         android:textStyle="italic" />
 
 </LinearLayout>
