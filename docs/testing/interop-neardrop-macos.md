@@ -123,7 +123,9 @@ new issue linking back to #29.
       both screens before accepting. The file lands in `Downloads/` on
       the phone (via MediaStore — see
       [`MediaStoreDownloadsFactory.kt`](../../service-android/src/main/kotlin/dev/bluehouse/bada/service/downloads/MediaStoreDownloadsFactory.kt))
-      and `shasum -a 256` matches.
+      as `small.bin`, not `received_file`, and `shasum -a 256` matches.
+      NearDrop leaves the payload header's file name unset, so the name
+      comes from the introduction (#324).
 - [ ] **Large file.** Same with `large.bin`. Confirm the progress
       notification updates and hashes match. This exercises the
       receive-side reassembly in
