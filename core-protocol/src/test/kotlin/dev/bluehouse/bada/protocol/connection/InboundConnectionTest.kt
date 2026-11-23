@@ -127,6 +127,9 @@ class InboundConnectionTest {
     private class InMemoryFactory : FileDestinationFactory {
         val output: MutableMap<Long, InMemorySeekable> = HashMap()
 
+        /** `PayloadHeader.file_name` passed to [open], keyed by payload id. */
+        val openedFileNames: MutableMap<Long, String> = HashMap()
+
         /** Payload ids the orchestrator called [commit] on. */
         val committed: MutableList<Long> = mutableListOf()
 
@@ -145,6 +148,7 @@ class InboundConnectionTest {
         ): SeekableByteChannel {
             val ch = InMemorySeekable()
             output[header.id] = ch
+            openedFileNames[header.id] = header.fileName
             inFlight += header.id
             return ch
         }
@@ -278,14 +282,170 @@ class InboundConnectionTest {
                 val file = items.single() as ReceivedItem.File
                 assertThat(file.payloadId).isEqualTo(filePayloadId)
                 assertThat(file.bytesWritten).isEqualTo(fileBytes.size.toLong())
+                // A sender that fills PayloadHeader.file_name keeps it,
+                // even though the introduction announced "hello.bin"
+                // (#325: the introduction name is only a fallback).
+                assertThat(file.header.fileName).isEqualTo("file-$filePayloadId")
             }
 
             // Verify the file bytes round-tripped intact.
             val received = factory.output[filePayloadId]?.toByteArray()
             assertThat(received).isEqualTo(fileBytes)
+            assertThat(factory.openedFileNames[filePayloadId]).isEqualTo("file-$filePayloadId")
 
             // Verify the terminal state propagated to the StateFlow.
             assertThat(inbound.state.value).isInstanceOf(InboundConnectionState.Completed::class.java)
+        }
+
+    @Test
+    fun `ChromeOS-shaped file payloads with empty header file_name are named from the introduction`() =
+        runTest(timeout = kotlin.time.Duration.parse("30s")) {
+            // ChromeOS Nearby Share sends FILE payloads with
+            // PayloadHeader.file_name = "" and announces the real names
+            // only in the introduction (#325).
+            val (clientSocket, serverSocket) = connectedSocketPair()
+            val factory = InMemoryFactory()
+            val inbound = InboundConnection(serverSocket, secureRandom = SecureRandom("inbound-chromeos".toByteArray()))
+
+            val photoId = 0x5151L
+            val notesId = 0x5252L
+            val photoBytes = ByteArray(9000) { (it * 7 and 0xFF).toByte() }
+            val notesBytes = "chromeos notes".toByteArray()
+            val introduction =
+                IntroductionFrame
+                    .newBuilder()
+                    .addFileMetadata(
+                        Protocol.FileMetadata
+                            .newBuilder()
+                            .setName("Screenshot 2026-11-01 19.20.33.png")
+                            .setPayloadId(photoId)
+                            .setSize(photoBytes.size.toLong())
+                            .setMimeType("image/png")
+                            .build(),
+                    ).addFileMetadata(
+                        Protocol.FileMetadata
+                            .newBuilder()
+                            .setName("notes.txt")
+                            .setPayloadId(notesId)
+                            .setSize(notesBytes.size.toLong())
+                            .setMimeType("text/plain")
+                            .build(),
+                    ).build()
+
+            coroutineScope {
+                val receiverJob = async { inbound.run(factory) }
+                launch {
+                    inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                    inbound.submitUserConsent(accepted = true)
+                }
+                runSyntheticSender(
+                    socket = clientSocket,
+                    introduction = introduction,
+                    files = mapOf(photoId to photoBytes, notesId to notesBytes),
+                    texts = emptyMap(),
+                    secureRandom = SecureRandom("sender-chromeos".toByteArray()),
+                    options = SenderOptions(fileHeaderName = { "" }),
+                )
+
+                val result = receiverJob.await()
+                assertThat(result).isInstanceOf(InboundResult.Completed::class.java)
+                val namesById =
+                    (result as InboundResult.Completed)
+                        .items
+                        .filterIsInstance<ReceivedItem.File>()
+                        .associate { it.payloadId to it.header.fileName }
+                // ReceivedItem.File.header.fileName is what the
+                // completion sheet's image-preview lookup reads.
+                assertThat(namesById).containsExactly(
+                    photoId,
+                    "Screenshot 2026-11-01 19.20.33.png",
+                    notesId,
+                    "notes.txt",
+                )
+            }
+
+            // The destination factory (MediaStore in production) is
+            // opened with the announced name, so the saved file keeps
+            // its extension.
+            assertThat(factory.openedFileNames).containsExactly(
+                photoId,
+                "Screenshot 2026-11-01 19.20.33.png",
+                notesId,
+                "notes.txt",
+            )
+            assertThat(factory.output[photoId]?.toByteArray()).isEqualTo(photoBytes)
+            assertThat(factory.output[notesId]?.toByteArray()).isEqualTo(notesBytes)
+            assertThat(factory.committed).containsExactly(photoId, notesId)
+        }
+
+    @Test
+    fun `NearDrop-shaped file payload without a header file_name is named from the introduction`() =
+        runTest(timeout = kotlin.time.Duration.parse("30s")) {
+            // NearDrop (macOS) never sets PayloadHeader.file_name and leaves
+            // FileMetadata.id at 0; the name is only in the introduction
+            // (#324, from the reporter's inbound log).
+            val (clientSocket, serverSocket) = connectedSocketPair()
+            val factory = InMemoryFactory()
+            val inbound = InboundConnection(serverSocket, secureRandom = SecureRandom("inbound-neardrop".toByteArray()))
+
+            val archiveId = 0x6161L
+            val archiveBytes = ByteArray(12_000) { (it * 13 and 0xFF).toByte() }
+            // The synthetic sender below must leave the field unset, not "".
+            val sample =
+                PayloadTransferEncoder
+                    .encodeFilePayload(
+                        payloadId = archiveId,
+                        fileName = "",
+                        totalSize = 0L,
+                        source =
+                            java.nio.channels.Channels
+                                .newChannel(java.io.ByteArrayInputStream(ByteArray(0))),
+                    ).first()
+                    .withoutHeaderFileName()
+            assertThat(
+                sample.v1.payloadTransfer.payloadHeader
+                    .hasFileName(),
+            ).isFalse()
+            val introduction =
+                IntroductionFrame
+                    .newBuilder()
+                    .addFileMetadata(
+                        Protocol.FileMetadata
+                            .newBuilder()
+                            .setName("file-06.zip")
+                            .setPayloadId(archiveId)
+                            .setSize(archiveBytes.size.toLong())
+                            .setMimeType("application/zip")
+                            .build(),
+                    ).build()
+
+            coroutineScope {
+                val receiverJob = async { inbound.run(factory) }
+                launch {
+                    inbound.state.first { it is InboundConnectionState.WaitingForUserConsent }
+                    inbound.submitUserConsent(accepted = true)
+                }
+                runSyntheticSender(
+                    socket = clientSocket,
+                    introduction = introduction,
+                    files = mapOf(archiveId to archiveBytes),
+                    texts = emptyMap(),
+                    secureRandom = SecureRandom("sender-neardrop".toByteArray()),
+                    options = SenderOptions(fileHeaderName = { null }),
+                )
+
+                val result = receiverJob.await()
+                assertThat(result).isInstanceOf(InboundResult.Completed::class.java)
+                val file =
+                    (result as InboundResult.Completed)
+                        .items
+                        .single() as ReceivedItem.File
+                assertThat(file.header.fileName).isEqualTo("file-06.zip")
+            }
+
+            assertThat(factory.openedFileNames).containsExactly(archiveId, "file-06.zip")
+            assertThat(factory.output[archiveId]?.toByteArray()).isEqualTo(archiveBytes)
+            assertThat(factory.committed).containsExactly(archiveId)
         }
 
     @Test
@@ -1196,6 +1356,12 @@ class InboundConnectionTest {
          * registry's client provider instead of ignoring them.
          */
         val adoptUpgradeRegistry: MediumRegistry? = null,
+        /**
+         * `PayloadHeader.file_name` the sender puts on each FILE
+         * payload's frames. ChromeOS sends `""` here (#325); `null`
+         * leaves the field unset, as NearDrop does (#324).
+         */
+        val fileHeaderName: (Long) -> String? = { id -> "file-$id" },
     ) {
         /** Every bandwidth-upgrade event the sender saw, in arrival order. */
         val upgradeEvents: MutableList<BandwidthUpgradeNegotiationFrame.EventType> =
@@ -1414,7 +1580,7 @@ class InboundConnectionTest {
         if (sharing.v1.type == Protocol.V1Frame.FrameType.CANCEL) return false
         if (effects.any { it is SharingFsmEffect.ReadyToSendPayloads }) {
             // ACCEPT received: stream the file / text payloads.
-            streamPayloads(wire.channel, files, texts)
+            streamPayloads(wire.channel, files, texts, options.fileHeaderName)
             // Receiver will send Disconnection back to us. Loop round
             // to consume it.
         }
@@ -1439,6 +1605,7 @@ class InboundConnectionTest {
         channel: SecureChannel,
         files: Map<Long, ByteArray>,
         texts: Map<Long, ByteArray>,
+        fileHeaderName: (Long) -> String?,
     ) {
         for ((id, data) in texts) {
             for (frame in PayloadTransferEncoder.encodeBytesPayload(id, data)) {
@@ -1450,14 +1617,31 @@ class InboundConnectionTest {
             val source =
                 java.nio.channels.Channels
                     .newChannel(java.io.ByteArrayInputStream(data))
+            val headerName = fileHeaderName(id)
             for (frame in PayloadTransferEncoder.encodeFilePayload(
                 payloadId = id,
-                fileName = "file-$id",
+                fileName = headerName.orEmpty(),
                 totalSize = data.size.toLong(),
                 source = source,
             )) {
-                channel.sendOfflineFrame(frame)
+                channel.sendOfflineFrame(if (headerName == null) frame.withoutHeaderFileName() else frame)
             }
         }
     }
+}
+
+/**
+ * This FILE frame with `PayloadHeader.file_name` unset rather than `""`
+ * (proto2 tracks presence): the shape NearDrop puts on the wire (#324).
+ */
+private fun OfflineFrame.withoutHeaderFileName(): OfflineFrame {
+    val transfer =
+        v1.payloadTransfer
+            .toBuilder()
+            .setPayloadHeader(
+                v1.payloadTransfer.payloadHeader
+                    .toBuilder()
+                    .clearFileName(),
+            ).build()
+    return toBuilder().setV1(v1.toBuilder().setPayloadTransfer(transfer)).build()
 }

@@ -7,6 +7,7 @@ package dev.bluehouse.bada.protocol.connection
 
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.BandwidthUpgradeNegotiationFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.OfflineFrame
+import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.PayloadTransferFrame.PayloadHeader
 import com.google.location.nearby.connections.proto.OfflineWireFormatsProto.V1Frame
 import dev.bluehouse.bada.protocol.crypto.D2DKeyDerivation
@@ -119,6 +120,16 @@ internal class InboundConnectionDriver(
 
     /** Map from announced `payload_id` to its expected payload type. */
     private val announced: MutableMap<Long, PayloadHeader.PayloadType> = HashMap()
+
+    /**
+     * Map from announced FILE `payload_id` to the introduction's
+     * `FileMetadata.name`. Used only to fill an empty
+     * `PayloadHeader.file_name` (#324 NearDrop, #325 ChromeOS).
+     */
+    private val announcedFileNames: MutableMap<Long, String> = HashMap()
+
+    /** FILE payload ids already logged as named from the introduction. */
+    private val payloadsNamedFromIntroduction: MutableSet<Long> = HashSet()
 
     /** Successfully received items, in announcement order. */
     private val received: MutableList<ReceivedItem> = mutableListOf()
@@ -871,8 +882,25 @@ internal class InboundConnectionDriver(
             // require them.
             return null
         }
-        val payloadEvent = assembler.onPayloadTransfer(frame.v1.payloadTransfer)
+        val payloadTransfer = nameFromIntroductionIfMissing(frame.v1.payloadTransfer)
+        val payloadEvent = assembler.onPayloadTransfer(payloadTransfer)
         return handlePayloadEvent(channel, fsm, payloadEvent)
+    }
+
+    /**
+     * Give a FILE payload whose header has an empty or missing
+     * `file_name` the name announced in the introduction (#324, #325). Frames that already
+     * carry a name pass through unchanged; see [withAnnouncedFileName].
+     */
+    private fun nameFromIntroductionIfMissing(frame: PayloadTransferFrame): PayloadTransferFrame {
+        val named = frame.withAnnouncedFileName(announcedFileNames)
+        if (named !== frame && payloadsNamedFromIntroduction.add(frame.payloadHeader.id)) {
+            logger(
+                "payload: FILE payloadId=${frame.payloadHeader.id} has an empty " +
+                    "file_name; using the introduction's FileMetadata.name",
+            )
+        }
+        return named
     }
 
     /**
@@ -1114,6 +1142,7 @@ internal class InboundConnectionDriver(
 
         for (file in effect.introduction.fileMetadataList) {
             announced[file.payloadId] = PayloadHeader.PayloadType.FILE
+            announcedFileNames[file.payloadId] = file.name
             totalSize += file.size
         }
         for (text in effect.introduction.textMetadataList) {
