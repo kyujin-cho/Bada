@@ -8,6 +8,10 @@ package dev.bluehouse.bada.ui.theme
 import android.app.Application
 import android.content.ComponentName
 import android.content.pm.ActivityInfo
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +27,7 @@ import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import dev.bluehouse.bada.R
+import dev.bluehouse.bada.ui.sheet.RingProgressView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -145,6 +150,33 @@ class AppThemeInflationTest {
             activity.getColor(R.color.brand_primary),
             AppThemes.color(activity, R.attr.badaColorAccent),
         )
+    }
+
+    @Test
+    fun `the send sheet peer disc follows the theme`() {
+        // Bada keeps its blue disc and white ring, wallpaper colors or not.
+        setThemePreferences(AppTheme.BADA, wallpaperColors = true)
+        assertEquals(
+            PeerDiscColors(disc = 0xFF2F8BFF.toInt(), track = 0x33FFFFFF, ring = Color.WHITE),
+            peerDiscColors(appliedActivity()),
+        )
+
+        // Expressive: primary disc and ring on a secondary container track,
+        // from the static palette or from the wallpaper.
+        mapOf(
+            false to R.color.m3e_primary,
+            true to MaterialR.color.m3_sys_color_dynamic_light_primary,
+        ).forEach { (wallpaperColors, primaryColor) ->
+            setThemePreferences(AppTheme.MATERIAL_EXPRESSIVE, wallpaperColors)
+            val activity = appliedActivity()
+            val primary = activity.getColor(primaryColor)
+            val track = AppThemes.color(activity, MaterialR.attr.colorSecondaryContainer)
+            assertEquals(PeerDiscColors(disc = primary, track = track, ring = primary), peerDiscColors(activity))
+            assertEquals(
+                AppThemes.color(activity, MaterialR.attr.colorOnPrimary),
+                AppThemes.color(activity, R.attr.badaColorOnPeerDisc),
+            )
+        }
     }
 
     @Test
@@ -284,6 +316,46 @@ class AppThemeInflationTest {
         val prefs = AppThemePreferences.from(RuntimeEnvironment.getApplication())
         prefs.setTheme(theme)
         prefs.setWallpaperColors(wallpaperColors)
+    }
+
+    private data class PeerDiscColors(
+        val disc: Int,
+        val track: Int,
+        val ring: Int,
+    )
+
+    /** Draws a [RingProgressView] at 50% progress and records the colors it paints with. */
+    private fun peerDiscColors(activity: AppCompatActivity): PeerDiscColors {
+        val circles = mutableListOf<Int>()
+        val arcs = mutableListOf<Int>()
+        val canvas =
+            object : Canvas() {
+                override fun drawCircle(
+                    cx: Float,
+                    cy: Float,
+                    radius: Float,
+                    paint: Paint,
+                ) {
+                    circles += paint.color
+                }
+
+                override fun drawArc(
+                    oval: RectF,
+                    startAngle: Float,
+                    sweepAngle: Float,
+                    useCenter: Boolean,
+                    paint: Paint,
+                ) {
+                    arcs += paint.color
+                }
+            }
+        RingProgressView(activity).apply {
+            setProgress(50)
+            layout(0, 0, 64, 64)
+            draw(canvas)
+        }
+        // onDraw paints the disc, then the full track, then the progress arc.
+        return PeerDiscColors(disc = circles.single(), track = arcs[0], ring = arcs[1])
     }
 
     private fun dynamicColorApplied(activity: AppCompatActivity): Boolean =

@@ -14,16 +14,23 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.util.AttributeSet
 import android.view.View
+import androidx.annotation.AttrRes
+import androidx.annotation.ColorInt
+import androidx.core.content.res.use
 import dev.bluehouse.bada.R
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * A circular avatar: a filled blue disc with a centered vector icon,
- * ringed by a progress arc (12 o'clock origin, sweeps clockwise). Used
- * for each discovered device in the send bottom sheet; the ring tracks
- * transfer progress, and the disc morphs into a green check on
- * completion.
+ * A circular avatar: a filled disc with a centered vector icon, ringed
+ * by a progress arc (12 o'clock origin, sweeps clockwise). Used for each
+ * discovered device in the send bottom sheet; the ring tracks transfer
+ * progress, and the disc morphs into a green check on completion.
+ *
+ * The disc, icon, ring and track colors come from the app theme
+ * (badaColorPeerDisc and friends): the Bada theme keeps its blue disc and
+ * white ring, and the Expressive theme follows its primary color,
+ * wallpaper colors included.
  *
  * The centered icon is a VectorDrawable resource ([setIconResId]);
  * it defaults to the smartphone glyph so a bare view still renders a
@@ -49,23 +56,28 @@ public class RingProgressView
         private var progress: Int = -1 // -1 = no ring shown (idle); 0..100 shows the arc
         private var complete: Boolean = false
 
+        // Declared before the icon, which is tinted with onDiscColor.
+        @ColorInt private val discColor: Int = themeColor(R.attr.badaColorPeerDisc, ACCENT)
+
+        @ColorInt private val onDiscColor: Int = themeColor(R.attr.badaColorOnPeerDisc, Color.WHITE)
+
         /**
          * Centered icon drawn on the disc. Inflated once per [setIconResId]
-         * call; the disc icon carries its own white fill from the drawable
-         * resource, so no paint is involved.
+         * call and tinted with the theme's on-disc color, so no paint is
+         * involved.
          */
-        private var icon: Drawable = context.getDrawable(R.drawable.ic_device_smartphone_24)!!
+        private var icon: Drawable = themedIcon(R.drawable.ic_device_smartphone_24)
 
         init {
             val density = context.resources.displayMetrics.density
-            discPaint.color = ACCENT
+            discPaint.color = discColor
             trackPaint.style = Paint.Style.STROKE
             trackPaint.strokeWidth = 3 * density
-            trackPaint.color = TRACK
+            trackPaint.color = themeColor(R.attr.badaColorPeerRingTrack, TRACK)
+            ringPaint.color = themeColor(R.attr.badaColorPeerRing, RING)
             ringPaint.style = Paint.Style.STROKE
             ringPaint.strokeWidth = 3 * density
             ringPaint.strokeCap = Paint.Cap.ROUND
-            ringPaint.color = RING
             tickPaint.color = Color.WHITE
             tickPaint.style = Paint.Style.STROKE
             tickPaint.strokeCap = Paint.Cap.ROUND
@@ -85,9 +97,20 @@ public class RingProgressView
 
         /** Swap the centered disc icon for the drawable at [resId]. */
         public fun setIconResId(resId: Int) {
-            this.icon = context.getDrawable(resId)!!
+            this.icon = themedIcon(resId)
             invalidate()
         }
+
+        // mutate() so the tint stays on this view's copy of the drawable.
+        private fun themedIcon(resId: Int): Drawable =
+            context.getDrawable(resId)!!.mutate().apply { setTint(onDiscColor) }
+
+        // The fallback (the Bada color) covers a context without the app theme.
+        @ColorInt
+        private fun themeColor(
+            @AttrRes attr: Int,
+            @ColorInt fallback: Int,
+        ): Int = context.obtainStyledAttributes(intArrayOf(attr)).use { it.getColor(0, fallback) }
 
         override fun onDraw(c: Canvas) {
             val w = width
@@ -108,7 +131,7 @@ public class RingProgressView
                 return
             }
 
-            discPaint.color = ACCENT
+            discPaint.color = discColor
             c.drawCircle(cx, cy, discR, discPaint)
 
             // Vector icon centered on the disc, sized as a fraction of the
@@ -132,6 +155,7 @@ public class RingProgressView
         }
 
         public companion object {
+            // Bada theme colors, the fallback for a context without the app theme.
             private const val ACCENT = 0xFF2F8BFF.toInt() // blue disc
             private const val TRACK = 0x33FFFFFF // faint ring track
             private const val RING = 0xFFFFFFFF.toInt() // progress arc (white)

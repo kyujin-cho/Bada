@@ -154,6 +154,10 @@
         <item name="badaColorBadge">@color/update_badge_red</item>
         <item name="badaColorSuccess">@android:color/holo_green_dark</item>
         <item name="badaColorWarning">@android:color/holo_orange_dark</item>
+        <item name="badaColorPeerDisc">#FF2F8BFF</item>
+        <item name="badaColorOnPeerDisc">#FFFFFFFF</item>
+        <item name="badaColorPeerRing">#FFFFFFFF</item>
+        <item name="badaColorPeerRingTrack">#33FFFFFF</item>
         <item name="badaRadioButtonTint">@color/brand_primary</item>
 
         <item name="badaOverflowIcon">@drawable/ic_overflow_kebab_24</item>

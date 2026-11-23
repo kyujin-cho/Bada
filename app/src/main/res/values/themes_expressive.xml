@@ -205,6 +205,12 @@
         <item name="badaColorBadge">?attr/colorError</item>
         <item name="badaColorSuccess">@color/m3e_success</item>
         <item name="badaColorWarning">@color/m3e_warning</item>
+        <!-- M3 circular progress around a primary avatar: primary indicator
+             on a secondary container track. -->
+        <item name="badaColorPeerDisc">?attr/colorPrimary</item>
+        <item name="badaColorOnPeerDisc">?attr/colorOnPrimary</item>
+        <item name="badaColorPeerRing">?attr/colorPrimary</item>
+        <item name="badaColorPeerRingTrack">?attr/colorSecondaryContainer</item>
         <!-- MaterialRadioButton tints itself (primary when checked, on surface
              variant when not); a single tint color would paint both states. -->
         <item name="badaRadioButtonTint">@null</item>

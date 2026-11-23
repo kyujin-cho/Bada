@@ -85,6 +85,12 @@
     <!-- Permission status text (granted / missing). -->
     <attr name="badaColorSuccess" format="color|reference" />
     <attr name="badaColorWarning" format="color|reference" />
+    <!-- Send sheet peer avatar (RingProgressView): the disc, the device icon
+         on it, and the transfer progress ring and its track around it. -->
+    <attr name="badaColorPeerDisc" format="color|reference" />
+    <attr name="badaColorOnPeerDisc" format="color|reference" />
+    <attr name="badaColorPeerRing" format="color|reference" />
+    <attr name="badaColorPeerRingTrack" format="color|reference" />
     <!-- Radio button tint; @null lets the widget tint its own states. -->
     <attr name="badaRadioButtonTint" format="color|reference" />
 
