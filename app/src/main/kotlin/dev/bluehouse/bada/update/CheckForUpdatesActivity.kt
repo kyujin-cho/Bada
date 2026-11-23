@@ -9,17 +9,22 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.loadingindicator.LoadingIndicator
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.discovery.diagnostics.DiagnosticLog
+import dev.bluehouse.bada.ui.theme.AppThemes
 import kotlinx.coroutines.launch
 
 /**
@@ -38,8 +43,10 @@ internal class CheckForUpdatesActivity : AppCompatActivity() {
     private lateinit var statusTitle: TextView
     private lateinit var statusSubtitle: TextView
     private lateinit var primaryButton: MaterialButton
+    private var loadingIndicator: LoadingIndicator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_check_for_updates)
 
@@ -53,6 +60,7 @@ internal class CheckForUpdatesActivity : AppCompatActivity() {
         primaryButton = findViewById(R.id.update_primary_button)
 
         primaryButton.setOnClickListener { onPrimaryClicked() }
+        addLoadingIndicatorIfExpressive()
 
         UpdateRepository.seedFromCache(this)
 
@@ -68,7 +76,33 @@ internal class CheckForUpdatesActivity : AppCompatActivity() {
         lifecycleScope.launch { UpdateRepository.refresh(this@CheckForUpdatesActivity) }
     }
 
+    /**
+     * Material 3 Expressive theme: an M3 loading indicator above the status
+     * while the check runs. The M3 guidance names "checking for updates" as a
+     * loading-indicator case (a short, indeterminate wait). The Bada theme
+     * shows the text alone, as before.
+     */
+    private fun addLoadingIndicatorIfExpressive() {
+        if (!AppThemes.isExpressive(this)) return
+        val column = statusTitle.parent as? LinearLayout ?: return
+        val indicator =
+            LoadingIndicator(this).apply {
+                contentDescription = getString(R.string.update_status_checking)
+                visibility = View.GONE
+            }
+        val params =
+            LinearLayout
+                .LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    bottomMargin = resources.getDimensionPixelSize(R.dimen.m3e_loading_indicator_gap)
+                }
+        column.addView(indicator, column.indexOfChild(statusTitle), params)
+        loadingIndicator = indicator
+    }
+
     private fun renderState(state: UpdateState) {
+        loadingIndicator?.isVisible = state is UpdateState.Idle || state is UpdateState.Checking
         when (state) {
             is UpdateState.Idle,
             is UpdateState.Checking,

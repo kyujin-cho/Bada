@@ -113,6 +113,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests {
+            // AppThemeInflationTest inflates every layout under every app
+            // theme with Robolectric, which needs the merged resources.
+            isIncludeAndroidResources = true
+        }
+    }
+
     buildFeatures {
         viewBinding = true
         // BuildConfig is opt-in on AGP 8+; UpdateRepository reads
@@ -182,6 +190,9 @@ dependencies {
     // so the ADB client must NOT live here. See radio-helper/build.gradle.kts.
 
     testImplementation(libs.junit4)
+    // Robolectric runs AppThemeInflationTest (every layout x every app theme
+    // x day/night) on the JVM. JUnit4 runner, like the rest of :app's tests.
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
 }

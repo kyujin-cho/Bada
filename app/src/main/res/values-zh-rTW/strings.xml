@@ -437,4 +437,8 @@
     <string name="name_card_exchange_channel">名片交換</string>
     <string name="name_card_exchange_notification">正在分享名片…</string>
 
+    <!-- Settings > Theme (app theme picker). -->
+    <string name="settings_theme_title">主題</string>
+    <string name="settings_theme_bada_description">使用霧面玻璃質感按鈕的 Bada 原始設計。</string>
+    <string name="settings_theme_material_expressive_description">Google 的 Material 設計，帶有鮮明的色彩、會變形的按鈕和彈簧動態效果。</string>
 </resources>

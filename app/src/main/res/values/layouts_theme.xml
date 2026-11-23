@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MainActivity layout of the Material 3 Expressive theme
+         (badaMainLayout token). Portrait is identical to the Bada layout;
+         landscape has its own file with a navigation rail
+         (layout-land/activity_main_m3e.xml). -->
+    <item name="activity_main_m3e" type="layout">@layout/activity_main</item>
+</resources>

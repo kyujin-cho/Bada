@@ -34,7 +34,6 @@ import android.view.animation.AccelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -83,6 +82,7 @@ import dev.bluehouse.bada.transfer.TransferExpertDetailsFormatter
 import dev.bluehouse.bada.transfer.TransferExpertViewPreferences
 import dev.bluehouse.bada.ui.BackdropBlurView
 import dev.bluehouse.bada.ui.sheet.DraggableSheetLayout
+import dev.bluehouse.bada.ui.theme.AppThemes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -234,6 +234,7 @@ public class SendActivity : AppCompatActivity() {
     private var sendSheetEntranceStarted: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
         // Entrance = a VIEW-level slide-up of the sheet (DraggableSheetLayout
         // .playEntrance), triggered from onEnterAnimationComplete() — i.e. AFTER the
@@ -1524,7 +1525,7 @@ public class SendActivity : AppCompatActivity() {
             root = root,
             blurRadiusDp = CANCEL_BLUR_RADIUS_DP,
             cornerRadiusDp = CANCEL_BLUR_CORNER_DP,
-            tint = ContextCompat.getColor(this, R.color.frosted_button_fill),
+            tint = AppThemes.color(this, R.attr.badaColorFrostedFill),
         )
     }
 

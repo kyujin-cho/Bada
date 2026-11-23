@@ -91,11 +91,11 @@
         android:background="@android:color/transparent"
         android:paddingEnd="12dp"
         android:paddingTop="@dimen/app_toolbar_padding_top"
-        android:theme="@style/ThemeOverlay.Bada.ToolbarNoRipple"
-        app:popupTheme="@style/ThemeOverlay.Bada.PopupMenu"
+        android:theme="?attr/badaToolbarThemeOverlay"
+        app:popupTheme="?attr/badaToolbarPopupTheme"
         app:title="@string/app_name"
         app:titleCentered="false"
-        app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
+        app:titleTextAppearance="?attr/badaToolbarTitleTextAppearance"
         app:titleTextColor="?android:attr/textColorPrimary">
 
         <!-- Home tab brand: replaces the "Bada" title text (MainActivity.applyToolbarTitle).
@@ -119,22 +119,26 @@
         android:layout_weight="1" />
 
     <!--
-      Bottom-bar geometry follows the vivo / OriginOS native pattern:
+      Bottom-bar geometry follows the vivo / OriginOS native pattern.
+      The item look (elevation, ripple, tints, label appearance) lives in
+      the theme's badaBottomNavStyle (Widget.Bada.BottomNav for the Bada
+      theme) so the Expressive theme can use the M3 Expressive nav bar;
+      the notes below describe the Bada values:
         * `layout_height="64dp"` — taller than the AOSP 56dp default
           to match the vivo native bar; the system bottom inset
           (gesture-handle area) is added on top of this via the
           parent LinearLayout's `fitsSystemWindows`, so the visual
           footprint comes out at ~88dp.
-        * `app:elevation="0dp"` — kills the bar's top-edge drop
+        * `elevation` 0dp — kills the bar's top-edge drop
           shadow. vivo's native bar sits flush with the content
           above it; the shadow on the previous build came from the
           default 8dp elevation.
-        * `app:itemBackground` and `app:itemRippleColor` both
+        * `itemBackground` and `itemRippleColor` both
           transparent — kills both the press ripple AND the active
           item background highlight, so tabs change only their
           icon / label color between states (no surface flash, no
           rounded backdrop).
-        * `app:itemTextAppearance{Active,Inactive}` both pointing at
+        * `itemTextAppearance{Active,Inactive}` both pointing at
           the same 12sp style — locks the label size so it does not
           grow when a tab is selected (Material's default "shifting"
           behavior).
@@ -143,17 +147,9 @@
     -->
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/main_bottom_nav"
+        style="?attr/badaBottomNavStyle"
         android:layout_width="match_parent"
         android:layout_height="64dp"
-        android:background="@android:color/transparent"
-        app:elevation="0dp"
-        app:itemBackground="@android:color/transparent"
-        app:itemIconTint="@color/bottom_nav_item_color"
-        app:itemRippleColor="@android:color/transparent"
-        app:itemTextAppearanceActive="@style/TextAppearance.Bada.BottomNavLabel"
-        app:itemTextAppearanceInactive="@style/TextAppearance.Bada.BottomNavLabel"
-        app:itemTextColor="@color/bottom_nav_item_color"
-        app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_nav_menu" />
 
     </LinearLayout>

@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Theme tokens for the switchable app theme (Settings > Theme).
+
+  Layouts and code reference these attributes instead of a concrete
+  drawable, style, or color, so every app theme decides what each role
+  looks like. Every attribute declared here MUST be set in every app
+  theme (Theme.Bada and Theme.Bada.Expressive, plus their window
+  variants inherit them). AppThemeTokensTest enforces that, because an
+  attribute missing from one theme only fails at inflation time, on
+  that theme, on that screen.
+
+  The Bada theme maps each token to the resource the layout used before
+  the theme system existed, so the default look is unchanged.
+-->
+<resources>
+    <!-- True only in the Material 3 Expressive theme. Code that has to
+         branch (MaterialButton state instead of background swaps,
+         spring motion, shape-library crops) reads it through AppThemes. -->
+    <attr name="badaIsExpressive" format="boolean" />
+
+    <!-- Marker on a horizontal button row: under the Expressive theme the row
+         inflates as an M3 Expressive button group (BadaButtonGroup). Not a
+         themed token, so AppThemeTokensTest does not require a theme value. -->
+    <attr name="badaButtonGroup" format="boolean" />
+
+    <!-- Surfaces (drawables). -->
+    <attr name="badaCardBackground" format="reference" />
+    <attr name="badaFieldBackground" format="reference" />
+    <attr name="badaInputBackground" format="reference" />
+    <attr name="badaMasterOnBackground" format="reference" />
+    <attr name="badaMasterOffBackground" format="reference" />
+    <attr name="badaSheetBackground" format="reference" />
+    <attr name="badaHeroCardBackground" format="reference" />
+    <attr name="badaPinBackground" format="reference" />
+    <attr name="badaBannerBackground" format="reference" />
+    <attr name="badaToastBackground" format="reference" />
+    <attr name="badaIconButtonBackground" format="reference" />
+    <attr name="badaDragHandleBackground" format="reference" />
+    <attr name="badaNavPillBackground" format="reference" />
+    <attr name="badaPhotoCardBackground" format="reference" />
+    <!-- Button-shaped container that is not a Button (consent sheet Close / View). -->
+    <attr name="badaFrostedButtonBackground" format="reference" />
+
+    <!-- Component styles. -->
+    <attr name="badaButtonStyle" format="reference" />
+    <!-- Lower-emphasis partner of a card's main button (e.g. Reset). -->
+    <attr name="badaSecondaryButtonStyle" format="reference" />
+    <attr name="badaPrimaryButtonStyle" format="reference" />
+    <attr name="badaOutlineButtonStyle" format="reference" />
+    <attr name="badaBannerButtonStyle" format="reference" />
+    <attr name="badaVisibilityToggleStyle" format="reference" />
+    <attr name="badaBottomNavStyle" format="reference" />
+    <attr name="badaNavPillStyle" format="reference" />
+    <attr name="badaToolbarThemeOverlay" format="reference" />
+    <attr name="badaToolbarPopupTheme" format="reference" />
+    <attr name="badaToolbarTitleTextAppearance" format="reference" />
+
+    <!-- Type scale. Named after the AppCompat roles the layouts used, so
+         the Bada theme maps each one back to that exact style and the
+         Expressive theme maps it to the matching M3 type style. -->
+    <attr name="badaTextDisplay1" format="reference" />
+    <attr name="badaTextHeadline" format="reference" />
+    <attr name="badaTextTitle" format="reference" />
+    <attr name="badaTextSubhead" format="reference" />
+    <attr name="badaTextMedium" format="reference" />
+    <attr name="badaTextBody2" format="reference" />
+    <attr name="badaTextBody1" format="reference" />
+    <attr name="badaTextSmall" format="reference" />
+    <attr name="badaTextCaption" format="reference" />
+    <attr name="badaTextButton" format="reference" />
+    <!-- Single status line of a screen (Check for updates). -->
+    <attr name="badaTextStatusTitle" format="reference" />
+
+    <!-- Colors read from code and a few layouts. -->
+    <attr name="badaColorAccent" format="color|reference" />
+    <attr name="badaColorOnAccent" format="color|reference" />
+    <attr name="badaColorNavIndicator" format="color|reference" />
+    <attr name="badaColorFrostedFill" format="color|reference" />
+    <attr name="badaColorSurfaceCard" format="color|reference" />
+    <attr name="badaColorSurfaceChip" format="color|reference" />
+    <attr name="badaColorOnToast" format="color|reference" />
+    <!-- "Update available" dot on the overflow icon and the Settings row. -->
+    <attr name="badaColorBadge" format="color|reference" />
+    <!-- Permission status text (granted / missing). -->
+    <attr name="badaColorSuccess" format="color|reference" />
+    <attr name="badaColorWarning" format="color|reference" />
+    <!-- Radio button tint; @null lets the widget tint its own states. -->
+    <attr name="badaRadioButtonTint" format="color|reference" />
+
+    <!-- Icons. -->
+    <attr name="badaOverflowIcon" format="reference" />
+    <attr name="badaOverflowIconWithBadge" format="reference" />
+    <attr name="badaNavSendReceiveIcon" format="reference" />
+    <attr name="badaNavSettingsIcon" format="reference" />
+    <!-- Layout variants: regions whose widget classes differ per theme are
+         ViewStubs whose android:layout is one of these tokens. Both variants
+         of a region expose the same ids (AppThemeLayoutVariantsTest). -->
+    <attr name="badaMainLayout" format="reference" />
+    <attr name="badaConsentCompletedActionsLayout" format="reference" />
+    <attr name="badaAdvertisedNameInputLayout" format="reference" />
+    <attr name="badaSettingsSwitchGroupLayout" format="reference" />
+    <attr name="badaThemeOptionLayout" format="reference" />
+
+    <!-- Settings layout: gap between sections, and the Theme section's
+         container (a card in the Bada theme, a page-level group header with
+         a segmented list in the Expressive theme). -->
+    <attr name="badaSettingsSectionGap" format="dimension|reference" />
+    <!-- Above the switch settings region. A ViewStub applies its own layout
+         params to what it inflates, so the gap sits on the stub: 0dp for the
+         Bada cards (each card carries its own margin), the section gap minus
+         the first list item's 2dp for the Expressive list. -->
+    <attr name="badaSettingsSwitchGroupGap" format="dimension|reference" />
+    <attr name="badaThemeSectionBackground" format="reference" />
+    <attr name="badaThemeSectionPadding" format="dimension|reference" />
+    <attr name="badaSectionHeaderInset" format="dimension|reference" />
+
+    <!-- Shape overlay for person avatars (Credits). -->
+    <attr name="badaAvatarShapeOverlay" format="reference" />
+</resources>

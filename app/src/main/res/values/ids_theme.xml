@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- View tags holding the running scale springs of ExpressiveMotion.popScale. -->
+    <item name="bada_spring_scale_x" type="id" />
+    <item name="bada_spring_scale_y" type="id" />
+</resources>

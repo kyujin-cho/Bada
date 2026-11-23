@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Landscape floating nav pill (badaNavPillBackground): fully rounded high
+     surface container. The pill also tints a live backdrop blur on API 31+
+     (ElasticBottomNavigationView), so the fill is the container color. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="@dimen/m3e_corner_full" />
+    <solid android:color="?attr/colorSurfaceContainerHigh" />
+</shape>

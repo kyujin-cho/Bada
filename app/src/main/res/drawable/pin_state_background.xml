@@ -9,9 +9,14 @@
   while the OutboundConnectionState is `AwaitingRemoteAcceptance`,
   hidden otherwise so the card returns to its neutral white surface
   during picker / sending / completed states.
+
+  Corners match the card it covers (dialog_gradient_background and the
+  in-app send card, both 20dp); a square backdrop showed its corners past
+  the card's rounding.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
+    <corners android:radius="20dp" />
     <gradient
         android:centerX="50%"
         android:centerY="40%"

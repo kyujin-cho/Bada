@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings > Theme: the restarted MainActivity fades in where it stands
+     (no slide), over the old one held by theme_switch_hold. -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="250"
+    android:fromAlpha="0.0"
+    android:interpolator="@android:interpolator/decelerate_quad"
+    android:toAlpha="1.0" />

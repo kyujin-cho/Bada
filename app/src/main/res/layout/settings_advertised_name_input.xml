@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Advertised-name input of the Settings tab, Bada theme: the original plain
+  EditText on the chip-style background. Inflated through the ViewStub
+  main_advertised_name_input_stub (badaAdvertisedNameInputLayout token);
+  settings_advertised_name_input_m3e.xml is the Expressive variant.
+-->
+<EditText
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/main_advertised_name_input"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="12dp"
+    android:background="?attr/badaInputBackground"
+    android:hint="@string/main_advertised_name_hint"
+    android:inputType="textCapWords"
+    android:maxLines="1"
+    android:minHeight="48dp"
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="12dp"
+    android:textAppearance="?attr/badaTextBody1"
+    android:textColor="?android:attr/textColorPrimary"
+    android:textColorHint="?android:attr/textColorSecondary" />

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Floating send / consent sheet (badaSheetBackground): M3 sheet container
+     with extra large corners on all four sides, since the sheet floats inset
+     from the screen edges. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="@dimen/m3e_corner_extra_large" />
+    <solid android:color="?attr/colorSurfaceContainerLow" />
+</shape>

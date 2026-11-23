@@ -9,6 +9,7 @@
   is untouched — every animation here is view-level (ObjectAnimator / RuntimeShader).
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/nameCardRoot"
     android:layout_width="match_parent"
@@ -30,7 +31,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:text="@string/name_card_transfer_connecting"
-        android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+        android:textAppearance="?attr/badaTextMedium"
         android:textColor="?android:attr/textColorSecondary"
         android:visibility="gone" />
 
@@ -73,7 +74,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Headline"
+                android:textAppearance="?attr/badaTextHeadline"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textStyle="bold"
                 tools:ignore="HardcodedText" />
@@ -107,7 +108,7 @@
                         android:id="@+id/nameCardPhone"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                        android:textAppearance="?attr/badaTextMedium"
                         android:textColor="?android:attr/textColorSecondary" />
 
                     <!-- nameCardEmail — email line (dimmed when unchecked; gone if absent). -->
@@ -116,7 +117,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                        android:textAppearance="?attr/badaTextMedium"
                         android:textColor="?android:attr/textColorSecondary" />
 
                 </LinearLayout>
@@ -140,6 +141,7 @@
 
         <!-- Action row pinned to the bottom: secondary (Receive Only / Done) + primary (Share / Save). -->
         <LinearLayout
+            app:badaButtonGroup="true"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"

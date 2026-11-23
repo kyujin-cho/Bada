@@ -42,7 +42,7 @@
         android:paddingTop="@dimen/app_toolbar_padding_top"
         app:title="@string/onboarding_title"
         app:titleCentered="false"
-        app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
+        app:titleTextAppearance="?attr/badaToolbarTitleTextAppearance"
         app:titleTextColor="?android:attr/textColorPrimary" />
 
     <androidx.core.widget.NestedScrollView
@@ -62,7 +62,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/onboarding_intro"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                android:textAppearance="?attr/badaTextBody1" />
 
             <TextView
                 android:id="@+id/onboarding_empty_state"
@@ -70,7 +70,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
                 android:text="@string/onboarding_empty_state"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                android:textAppearance="?attr/badaTextBody1"
                 android:visibility="gone" />
 
             <LinearLayout
@@ -101,7 +101,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/onboarding_network_card_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                    android:textAppearance="?attr/badaTextTitle"
                     android:textStyle="bold" />
 
                 <TextView
@@ -110,7 +110,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="@string/onboarding_network_card_body"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                    android:textAppearance="?attr/badaTextBody1" />
 
                 <Button
                     android:id="@+id/onboarding_network_card_dismiss"
@@ -146,6 +146,7 @@
 
         <Button
             android:id="@+id/onboarding_grant_button"
+            style="?attr/badaPrimaryButtonStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:enabled="false"

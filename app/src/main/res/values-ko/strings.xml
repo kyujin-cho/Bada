@@ -456,4 +456,8 @@
     <string name="name_card_exchange_channel">네임 카드 교환</string>
     <string name="name_card_exchange_notification">네임 카드 공유 중…</string>
 
+    <!-- Settings > Theme (app theme picker). -->
+    <string name="settings_theme_title">테마</string>
+    <string name="settings_theme_bada_description">반투명 유리 질감의 버튼을 쓰는 기본 Bada 디자인입니다.</string>
+    <string name="settings_theme_material_expressive_description">선명한 색, 모양이 바뀌는 버튼, 스프링 모션을 쓰는 Google의 Material 디자인입니다.</string>
 </resources>

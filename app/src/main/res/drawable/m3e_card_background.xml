@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Expressive filled card (badaCardBackground): surface container on the
+     surface page, large (16dp) corners. M3 cautions against large or full
+     corners on information-dense cards; a settings card holds a title,
+     supporting text, a value field and buttons. No stroke and no shadow:
+     cards rest at elevation level 0 and separate by tone. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="@dimen/m3e_corner_large" />
+    <solid android:color="?attr/colorSurfaceContainer" />
+</shape>

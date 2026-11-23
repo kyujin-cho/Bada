@@ -50,6 +50,7 @@ import dev.bluehouse.bada.nfc.NameCardNdef
 import dev.bluehouse.bada.protocol.namecard.NameCard
 import dev.bluehouse.bada.service.radio.RadioHelperClient
 import dev.bluehouse.bada.service.radio.ShareRadioController
+import dev.bluehouse.bada.ui.theme.AppThemes
 
 /**
  * **Name Card transfer screen** — the full-screen page shown when two phones tap
@@ -169,6 +170,7 @@ internal class NameCardTransferActivity : AppCompatActivity() {
     private val done by lazy { findViewById<Button>(R.id.nameCardDone) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
         overrideOpenTransition() // kill the OEM window-open anim; only our view entrance plays
         // Full-screen NameDrop look: no action bar / title chrome.

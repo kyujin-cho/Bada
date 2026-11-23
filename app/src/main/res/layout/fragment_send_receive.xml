@@ -34,6 +34,7 @@
   tab.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:clipChildren="false"
@@ -90,7 +91,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/main_legacy_wvmg_banner_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Title"
+                android:textAppearance="?attr/badaTextTitle"
                 android:textStyle="bold" />
 
             <TextView
@@ -99,7 +100,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="@string/main_legacy_wvmg_banner_body"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+                android:textAppearance="?attr/badaTextBody1" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -137,7 +138,7 @@
         -->
         <Button
             android:id="@+id/main_always_visible_button"
-            style="@style/Widget.Bada.Button"
+            style="?attr/badaVisibilityToggleStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/main_always_visible_off_title" />
@@ -274,6 +275,7 @@
           on a column" rather than "row centered in space".
         -->
         <LinearLayout
+            app:badaButtonGroup="true"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
@@ -282,7 +284,7 @@
 
             <Button
                 android:id="@+id/main_send_files_button"
-                style="@style/Widget.Bada.Button"
+                style="?attr/badaPrimaryButtonStyle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -294,7 +296,7 @@
 
             <Button
                 android:id="@+id/main_send_folder_button"
-                style="@style/Widget.Bada.Button"
+                style="?attr/badaButtonStyle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"

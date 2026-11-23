@@ -15,12 +15,12 @@
 
     <item
         android:id="@+id/nav_send_receive"
-        android:icon="@drawable/ic_send_receive_24"
+        android:icon="?attr/badaNavSendReceiveIcon"
         android:title="@string/nav_send_receive_title" />
 
     <item
         android:id="@+id/nav_settings"
-        android:icon="@drawable/ic_settings_24"
+        android:icon="?attr/badaNavSettingsIcon"
         android:title="@string/nav_settings_title" />
 
 </menu>

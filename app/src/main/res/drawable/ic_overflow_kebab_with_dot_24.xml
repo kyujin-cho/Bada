@@ -24,6 +24,6 @@
         android:strokeColor="@color/toolbar_overflow_tint"
         android:strokeWidth="2.0" />
     <path
-        android:fillColor="@color/update_badge_red"
+        android:fillColor="?attr/badaColorBadge"
         android:pathData="M21,3 m-3.0,0 a3.0,3.0 0 1,0 6.0,0 a3.0,3.0 0 1,0 -6.0,0" />
 </vector>

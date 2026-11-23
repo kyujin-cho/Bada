@@ -46,11 +46,11 @@
                 android:background="@android:color/transparent"
                 android:paddingEnd="12dp"
                 android:paddingTop="@dimen/app_toolbar_padding_top"
-                android:theme="@style/ThemeOverlay.Bada.ToolbarNoRipple"
-                app:popupTheme="@style/ThemeOverlay.Bada.PopupMenu"
+                android:theme="?attr/badaToolbarThemeOverlay"
+                app:popupTheme="?attr/badaToolbarPopupTheme"
                 app:title="@string/app_name"
                 app:titleCentered="false"
-                app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
+                app:titleTextAppearance="?attr/badaToolbarTitleTextAppearance"
                 app:titleTextColor="?android:attr/textColorPrimary">
 
                 <!-- Home tab brand: replaces the "Bada" title text (MainActivity.applyToolbarTitle).
@@ -84,22 +84,14 @@
         -->
         <dev.bluehouse.bada.ui.ElasticBottomNavigationView
             android:id="@+id/main_bottom_nav"
+            style="?attr/badaNavPillStyle"
             android:layout_width="wrap_content"
             android:layout_height="64dp"
             android:layout_gravity="bottom|start"
             android:layout_marginStart="16dp"
             android:layout_marginBottom="16dp"
-            android:background="@drawable/nav_pill_background"
             android:elevation="8dp"
             android:paddingHorizontal="4dp"
-            app:elevation="0dp"
-            app:itemBackground="@android:color/transparent"
-            app:itemIconTint="@color/bottom_nav_item_color"
-            app:itemRippleColor="@android:color/transparent"
-            app:itemTextAppearanceActive="@style/TextAppearance.Bada.BottomNavLabel"
-            app:itemTextAppearanceInactive="@style/TextAppearance.Bada.BottomNavLabel"
-            app:itemTextColor="@color/bottom_nav_item_color"
-            app:labelVisibilityMode="labeled"
             app:menu="@menu/bottom_nav_menu" />
 
     </FrameLayout>

@@ -30,12 +30,14 @@
   about which control lives where are preserved):
     1. Save-location settings (#42).
     2. Advertised Quick Share name (#141).
+       Theme picker (Settings > Theme) follows it.
     3. Background activity (#47 follow-up).
     4. Keep screen on during transfers (#219).
     5. Expert transfer details (#220).
     6. Shake-to-report bug toggle (#166).
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -60,7 +62,7 @@
             android:layout_width="match_parent"
             android:layout_height="60dp"
             android:layout_marginBottom="16dp"
-            android:background="@drawable/settings_master_off_background"
+            android:background="?attr/badaMasterOffBackground"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_vertical"
@@ -97,7 +99,7 @@
             android:id="@+id/settings_name_card_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/settings_card_background"
+            android:background="?attr/badaCardBackground"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_vertical"
@@ -114,7 +116,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_name_card_row_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                    android:textAppearance="?attr/badaTextSubhead"
                     android:textColor="?android:attr/textColorPrimary"
                     android:textStyle="bold" />
 
@@ -123,7 +125,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="@string/settings_name_card_row_subtitle"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                    android:textAppearance="?attr/badaTextSmall"
                     android:textColor="?android:attr/textColorSecondary" />
 
             </LinearLayout>
@@ -159,8 +161,8 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/settings_card_background"
+            android:layout_marginTop="?attr/badaSettingsSectionGap"
+            android:background="?attr/badaCardBackground"
             android:orientation="vertical"
             android:padding="20dp">
 
@@ -169,7 +171,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/main_save_location_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textAppearance="?attr/badaTextSubhead"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textStyle="bold" />
 
@@ -179,7 +181,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/main_save_location_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textAppearance="?attr/badaTextSmall"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <!--
@@ -192,15 +194,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/qr_url_background"
+                android:background="?attr/badaFieldBackground"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="10dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textAppearance="?attr/badaTextBody2"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textIsSelectable="true"
                 tools:text="Current: Downloads (default)" />
 
             <LinearLayout
+                app:badaButtonGroup="true"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
@@ -220,6 +223,7 @@
 
                 <Button
                     android:id="@+id/main_save_location_clear"
+                    style="?attr/badaSecondaryButtonStyle"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -241,8 +245,8 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/settings_card_background"
+            android:layout_marginTop="?attr/badaSettingsSectionGap"
+            android:background="?attr/badaCardBackground"
             android:orientation="vertical"
             android:padding="20dp">
 
@@ -251,7 +255,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/main_advertised_name_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textAppearance="?attr/badaTextSubhead"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textStyle="bold" />
 
@@ -261,7 +265,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/main_advertised_name_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textAppearance="?attr/badaTextSmall"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <!--
@@ -275,10 +279,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/qr_url_background"
+                android:background="?attr/badaFieldBackground"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="10dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textAppearance="?attr/badaTextBody2"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textIsSelectable="true"
                 tools:text="Currently advertised: V2547A" />
@@ -292,23 +296,15 @@
               underline drawable on some OEM skins, so we override
               with the chip drawable + matching internal padding.
             -->
-            <EditText
-                android:id="@+id/main_advertised_name_input"
+            <ViewStub
+                android:id="@+id/main_advertised_name_input_stub"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/settings_input_background"
-                android:hint="@string/main_advertised_name_hint"
-                android:inputType="textCapWords"
-                android:maxLines="1"
-                android:minHeight="48dp"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="12dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-                android:textColor="?android:attr/textColorPrimary"
-                android:textColorHint="?android:attr/textColorSecondary" />
+                android:layout="?attr/badaAdvertisedNameInputLayout" />
 
             <LinearLayout
+                app:badaButtonGroup="true"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
@@ -328,6 +324,7 @@
 
                 <Button
                     android:id="@+id/main_advertised_name_reset"
+                    style="?attr/badaSecondaryButtonStyle"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -337,12 +334,44 @@
 
         </LinearLayout>
 
+        <!-- ============ Card: Theme (app theme picker) ============
+             One radio option per AppTheme, built by SettingsFragment.wireThemePicker
+             from item_theme_option.xml so a new theme only needs an enum entry.
+             Picking an option saves it and recreates MainActivity, which re-applies
+             the theme (AppThemes.applyTo) and restores this tab. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="?attr/badaSettingsSectionGap"
+            android:background="?attr/badaThemeSectionBackground"
+            android:orientation="vertical"
+            android:padding="?attr/badaThemeSectionPadding">
+
+            <TextView
+                android:id="@+id/settings_theme_title"
+                android:paddingHorizontal="?attr/badaSectionHeaderInset"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_theme_title"
+                android:textAppearance="?attr/badaTextSubhead"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/settings_theme_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical" />
+
+        </LinearLayout>
+
         <!-- ============ Card 3: Battery / background activity ============ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/settings_card_background"
+            android:layout_marginTop="?attr/badaSettingsSectionGap"
+            android:background="?attr/badaCardBackground"
             android:orientation="vertical"
             android:padding="20dp">
 
@@ -351,7 +380,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/settings_battery_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textAppearance="?attr/badaTextSubhead"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textStyle="bold" />
 
@@ -361,7 +390,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/settings_battery_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textAppearance="?attr/badaTextSmall"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <TextView
@@ -369,10 +398,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/qr_url_background"
+                android:background="?attr/badaFieldBackground"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="10dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textAppearance="?attr/badaTextBody2"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textIsSelectable="true"
                 tools:text="Currently: not exempt — receiving may stop in the background" />
@@ -396,8 +425,8 @@
             android:id="@+id/settings_fsi_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/settings_card_background"
+            android:layout_marginTop="?attr/badaSettingsSectionGap"
+            android:background="?attr/badaCardBackground"
             android:orientation="vertical"
             android:padding="20dp"
             android:visibility="gone">
@@ -407,7 +436,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/settings_fsi_title"
-                android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+                android:textAppearance="?attr/badaTextSubhead"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textStyle="bold" />
 
@@ -417,7 +446,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/settings_fsi_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textAppearance="?attr/badaTextSmall"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <TextView
@@ -425,10 +454,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/qr_url_background"
+                android:background="?attr/badaFieldBackground"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="10dp"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+                android:textAppearance="?attr/badaTextBody2"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textIsSelectable="true"
                 tools:text="Currently: full-screen alerts not allowed" />
@@ -442,185 +471,15 @@
 
         </LinearLayout>
 
-        <!-- ============ Card 4: Keep screen on during transfers ============ -->
-        <LinearLayout
+        <!-- Switch settings (keep screen on, expert details, shake-to-report,
+             auto update check): Bada cards or the Expressive segmented list,
+             picked by the badaSettingsSwitchGroupLayout theme token. -->
+        <ViewStub
+            android:id="@+id/settings_switch_group_stub"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/settings_card_background"
-            android:orientation="vertical"
-            android:padding="20dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/main_keep_screen_on_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textStyle="bold" />
-
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/main_keep_screen_on_switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp" />
-
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/main_keep_screen_on_subtitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="@string/main_keep_screen_on_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                android:textColor="?android:attr/textColorSecondary" />
-
-        </LinearLayout>
-
-        <!-- ============ Card 5: Expert transfer details ============ -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/settings_card_background"
-            android:orientation="vertical"
-            android:padding="20dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/main_transfer_expert_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textStyle="bold" />
-
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/main_transfer_expert_switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp" />
-
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/main_transfer_expert_subtitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="@string/main_transfer_expert_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                android:textColor="?android:attr/textColorSecondary" />
-
-        </LinearLayout>
-
-        <!-- ============ Card 6: Shake-to-report bug ============ -->
-        <!--
-          Switch row: title and Switch share a horizontal row so
-          the toggle's affordance reads against its label. Subtitle
-          drops below as a single block so the wider explanation
-          doesn't squeeze the switch column. Mirrors the standard
-          Material settings-row pattern (title-left + control-right
-          + supporting text below).
-        -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/settings_card_background"
-            android:orientation="vertical"
-            android:padding="20dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/main_bug_report_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textStyle="bold" />
-
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/main_bug_report_switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp" />
-
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/main_bug_report_subtitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="@string/main_bug_report_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                android:textColor="?android:attr/textColorSecondary" />
-
-        </LinearLayout>
-
-        <!-- ============ Card 7: Automatic update check ============ -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/settings_card_background"
-            android:orientation="vertical"
-            android:padding="20dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/settings_auto_update_title"
-                    android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textStyle="bold" />
-
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/settings_auto_update_switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp" />
-
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/settings_auto_update_subtitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="@string/settings_auto_update_subtitle"
-                android:textAppearance="@style/TextAppearance.AppCompat.Small"
-                android:textColor="?android:attr/textColorSecondary" />
-
-        </LinearLayout>
+            android:layout_marginTop="?attr/badaSettingsSwitchGroupGap"
+            android:layout="?attr/badaSettingsSwitchGroupLayout" />
 
     </LinearLayout>
 

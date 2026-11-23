@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Button-shaped container that is not a MaterialButton (badaFrostedButtonBackground,
+     the consent sheet's Close / View image plates): an M3 tonal button
+     container, fully round, with the theme ripple and a disabled tone. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="?attr/colorControlHighlight">
+    <item>
+        <selector>
+            <item android:state_enabled="false">
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/m3e_corner_full" />
+                    <solid android:color="?attr/colorSurfaceContainerHighest" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/m3e_corner_full" />
+                    <solid android:color="?attr/colorSecondaryContainer" />
+                </shape>
+            </item>
+        </selector>
+    </item>
+</ripple>

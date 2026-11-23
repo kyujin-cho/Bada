@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Popup menu container of the Material 3 Expressive theme (toolbar overflow
+     and any PopupMenu): the M3 Expressive vertical menu's standard style,
+     surface container low with rounded (large, 16dp) corners and a 4dp inner
+     vertical padding. MDC-Android has no Expressive menu yet ("Android Views:
+     Expressive - Unavailable"), so the theme styles the platform popup. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android">
+    <shape android:shape="rectangle">
+        <corners android:radius="@dimen/m3e_corner_large" />
+        <solid android:color="?attr/colorSurfaceContainerLow" />
+        <padding android:bottom="4dp" android:top="4dp" />
+    </shape>
+</inset>

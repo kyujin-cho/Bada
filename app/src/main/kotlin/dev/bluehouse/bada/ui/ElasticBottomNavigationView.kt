@@ -24,12 +24,12 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.RequiresApi
-import androidx.core.content.ContextCompat
 import androidx.dynamicanimation.animation.FloatValueHolder
 import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import dev.bluehouse.bada.R
+import dev.bluehouse.bada.ui.theme.AppThemes
 import kotlin.math.abs
 
 /**
@@ -56,7 +56,7 @@ internal class ElasticBottomNavigationView
     ) : BottomNavigationView(context, attrs) {
         private val pillPaint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = ContextCompat.getColor(context, R.color.nav_active_indicator)
+                color = AppThemes.color(context, R.attr.badaColorNavIndicator)
             }
         private val insetVertical = dp(PILL_INSET_VERTICAL_DP)
         private val insetHorizontal = dp(PILL_INSET_HORIZONTAL_DP)

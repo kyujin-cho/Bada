@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PIN pairing state (badaPinBackground), Material 3 Expressive theme. Same
+     intent as Bada's pin_state_background: a calm surface near the PIN at the
+     center whose tint grows toward the card's edges, so the whole card reads
+     as the pairing surface. Center surface container low, edges secondary
+     container; with the edges at a container tone close to the page, the
+     earlier inverse ramp left a tinted blob floating mid-card. Corners match
+     the card underneath (m3e_hero_card_background, large increased). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="@dimen/m3e_corner_large_increased" />
+    <gradient
+        android:centerX="50%"
+        android:centerY="40%"
+        android:endColor="?attr/colorSecondaryContainer"
+        android:gradientRadius="80%p"
+        android:startColor="?attr/colorSurfaceContainerLow"
+        android:type="radial" />
+</shape>

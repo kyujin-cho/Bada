@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Editable field drawn as an M3 filled text field (badaInputBackground):
+     surface container highest, extra small top corners, square bottom
+     corners, and a bottom active indicator: 1dp on surface variant at rest,
+     2dp primary while focused. The indicator is the field's 3:1 boundary. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners
+                        android:topLeftRadius="@dimen/m3e_corner_extra_small"
+                        android:topRightRadius="@dimen/m3e_corner_extra_small" />
+                    <solid android:color="?attr/colorSurfaceContainerHighest" />
+                </shape>
+            </item>
+            <item android:gravity="bottom" android:height="2dp">
+                <shape android:shape="rectangle">
+                    <solid android:color="?attr/colorPrimary" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item>
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners
+                        android:topLeftRadius="@dimen/m3e_corner_extra_small"
+                        android:topRightRadius="@dimen/m3e_corner_extra_small" />
+                    <solid android:color="?attr/colorSurfaceContainerHighest" />
+                </shape>
+            </item>
+            <item android:gravity="bottom" android:height="1dp">
+                <shape android:shape="rectangle">
+                    <solid android:color="?attr/colorOnSurfaceVariant" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</selector>

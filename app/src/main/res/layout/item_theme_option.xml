@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One option row of the Settings > Theme picker (SettingsFragment.wireThemePicker),
+  Bada theme. item_theme_option_m3e.xml is the Expressive variant
+  (badaThemeOptionLayout token).
+  A plain <RadioButton> so each app theme's view inflater picks the widget:
+  AppCompatRadioButton under the Bada theme, MaterialRadioButton under the
+  Expressive theme. The label is the theme name; the description sits on a
+  second line in the secondary text color (set from code as a styled span).
+-->
+<RadioButton xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/theme_option_radio"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:buttonTint="?attr/badaRadioButtonTint"
+    android:minHeight="56dp"
+    android:paddingStart="8dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:textAppearance="?attr/badaTextSubhead"
+    android:textColor="?android:attr/textColorPrimary" />

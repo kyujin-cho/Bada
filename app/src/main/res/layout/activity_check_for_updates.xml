@@ -43,7 +43,7 @@
         app:navigationIcon="?attr/homeAsUpIndicator"
         app:title="@string/update_activity_label"
         app:titleCentered="false"
-        app:titleTextAppearance="@style/TextAppearance.Bada.ToolbarTitle"
+        app:titleTextAppearance="?attr/badaToolbarTitleTextAppearance"
         app:titleTextColor="?android:attr/textColorPrimary" />
 
     <!--
@@ -73,9 +73,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
+                android:textAppearance="?attr/badaTextStatusTitle"
                 android:textColor="?android:attr/textColorPrimary"
-                android:textSize="18sp"
-                android:textStyle="bold"
                 tools:text="New update available" />
 
             <TextView
@@ -84,13 +83,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:gravity="center"
-                android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                android:textAppearance="?attr/badaTextCaption"
                 android:textColor="?android:attr/textColorSecondary"
                 tools:text="20260606.01" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/update_primary_button"
-                style="@style/Widget.Bada.Button"
+                style="?attr/badaPrimaryButtonStyle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"

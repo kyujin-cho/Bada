@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Completed-state action row of the consent sheet, Material 3 Expressive
+  theme: a standard button group (badaButtonGroup) of real MaterialButtons, so
+  the actions get the button shape, press morph, label type and semantics.
+  Close is tonal; View image is filled, the one final action of the screen.
+  Same ids as consent_completed_actions.xml; the gap Space is dropped by the
+  group (code reaches it with a null-safe lookup).
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="24dp"
+    android:baselineAligned="false"
+    android:orientation="horizontal"
+    app:badaButtonGroup="true">
+
+    <Button
+        android:id="@+id/consent_completed_close_button"
+        style="?attr/badaButtonStyle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="@string/consent_state_close" />
+
+    <Button
+        android:id="@+id/consent_completed_view_button"
+        style="?attr/badaPrimaryButtonStyle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="@string/consent_state_view_image"
+        android:visibility="gone" />
+
+</LinearLayout>

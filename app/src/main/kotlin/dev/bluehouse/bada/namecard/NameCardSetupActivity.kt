@@ -13,12 +13,12 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.protocol.namecard.NameCardEntry
 import dev.bluehouse.bada.protocol.namecard.NameCardEntryKind
+import dev.bluehouse.bada.ui.theme.AppThemes
 
 /**
  * **My Name Card setup screen** — the page reached by tapping the **"Name Card"**
@@ -62,6 +62,7 @@ internal class NameCardSetupActivity : AppCompatActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_name_card_setup)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
@@ -140,8 +141,8 @@ internal class NameCardSetupActivity : AppCompatActivity() {
         val current = store.shareSelection() // null = share every present field
         val checked = BooleanArray(opts.size) { current == null || opts[it].key in current }
         val labels = opts.map { it.label as CharSequence }.toTypedArray()
-        AlertDialog
-            .Builder(this)
+        AppThemes
+            .alertDialogBuilder(this)
             .setTitle(R.string.name_card_choose_share_title)
             .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
             .setPositiveButton(android.R.string.ok) { _, _ ->

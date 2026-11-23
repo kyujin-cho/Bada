@@ -61,6 +61,8 @@ import dev.bluehouse.bada.transfer.TransferExpertDetailsFormatter
 import dev.bluehouse.bada.transfer.TransferExpertViewPreferences
 import dev.bluehouse.bada.ui.sheet.DraggableSheetLayout
 import dev.bluehouse.bada.ui.sheet.RoundedProgressBar
+import dev.bluehouse.bada.ui.theme.AppThemes
+import dev.bluehouse.bada.ui.theme.ExpressiveLists
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
@@ -163,8 +165,12 @@ class ConsentTrampolineActivity : AppCompatActivity() {
         // back to FLAG_DISMISS_KEYGUARD / FLAG_TURN_SCREEN_ON window
         // flags via the shim below.
         applyIncomingCallFlags()
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_consent_trampoline)
+        // Completed-state action row: Bada's frosted plates or the Expressive
+        // button group, picked by the badaConsentCompletedActionsLayout token.
+        ExpressiveLists.inflateStub(window.decorView, R.id.consent_completed_actions_stub)
         bugReportFlowSupport = BugReportFlowSupport.install(this)
         wireBottomSheet()
 

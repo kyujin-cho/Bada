@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings master switch, ON (#239): fully rounded primary container. The
+     OFF twin is a square-cornered neutral plate, so switching Bada on reads
+     as a shape change as well as a color change (shape tension). -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="?attr/colorControlHighlight">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="@dimen/m3e_corner_full" />
+            <solid android:color="?attr/colorPrimaryContainer" />
+        </shape>
+    </item>
+</ripple>

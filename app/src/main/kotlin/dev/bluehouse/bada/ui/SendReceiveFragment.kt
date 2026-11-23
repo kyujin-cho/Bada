@@ -11,12 +11,15 @@ import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.ImageDecoder
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Build
@@ -33,12 +36,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.use
 import androidx.fragment.app.Fragment
+import androidx.graphics.shapes.RoundedPolygon
+import androidx.graphics.shapes.toPath
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.shape.MaterialShapes
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.migration.LegacyPackageDetectorAndroid
 import dev.bluehouse.bada.send.SendActivityInApp
 import dev.bluehouse.bada.service.receiver.MdnsVisibilityOverrideHolder
 import dev.bluehouse.bada.service.receiver.ReceiverMasterSwitch
+import dev.bluehouse.bada.ui.theme.AppThemes
+import dev.bluehouse.bada.ui.theme.ExpressiveMotion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -228,8 +237,8 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         // photo area, so the rotation and edge AA are identical
         // before and after.
         val colors = polaroidColors()
-        val placeholder1 = buildPolaroidBitmap(null, CARD_1_ROTATION_DEG, colors)
-        val placeholder2 = buildPolaroidBitmap(null, CARD_2_ROTATION_DEG, colors)
+        val placeholder1 = buildPreviewBitmap(null, PREVIEW_CARD_1, colors)
+        val placeholder2 = buildPreviewBitmap(null, PREVIEW_CARD_2, colors)
         view.findViewById<ImageView>(R.id.main_send_preview_photo_1).setPolaroidBitmap(placeholder1)
         view.findViewById<ImageView>(R.id.main_send_preview_photo_2).setPolaroidBitmap(placeholder2)
     }
@@ -271,32 +280,45 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         val masterOn = ReceiverMasterSwitch.isEnabled(button.context)
         button.isEnabled = masterOn
         button.alpha = if (masterOn) 1f else DISABLED_PILL_ALPHA
-        if (!masterOn) {
-            button.setBackgroundResource(R.drawable.btn_frosted_background)
-            button.setText(R.string.main_always_visible_off_title)
-            caption.setText(R.string.main_master_off_caption)
-            pulse.stopPulse()
+        val active = masterOn && MdnsVisibilityOverrideHolder.isActive
+        paintVisibilityButton(button, active)
+        button.setText(if (active) R.string.main_always_visible_title else R.string.main_always_visible_off_title)
+        caption.setText(
+            when {
+                !masterOn -> R.string.main_master_off_caption
+                active -> R.string.main_always_visible_caption_on
+                else -> R.string.main_always_visible_caption_off
+            },
+        )
+        // Soft "device is broadcasting" cue: animated, low-alpha
+        // concentric pulses around the pill while ON; idle while OFF.
+        if (active) pulse.startPulse() else pulse.stopPulse()
+    }
+
+    /**
+     * Paints the ON / OFF state of the visibility pill for the current
+     * theme. The Bada theme swaps the background drawable and label color.
+     * The Expressive theme inflates the pill as a checkable MaterialButton
+     * (badaVisibilityToggleStyle), which owns its background: the checked
+     * state picks the primary container colors and the M3 Expressive shape
+     * state list squares the corners, so the state change is a spring
+     * shape morph. Setting a background on it would break that.
+     */
+    private fun paintVisibilityButton(
+        button: Button,
+        active: Boolean,
+    ) {
+        if (button is MaterialButton && AppThemes.isExpressive(button.context)) {
+            button.isCheckable = true
+            button.isChecked = active
             return
         }
-        val active = MdnsVisibilityOverrideHolder.isActive
         if (active) {
             button.setBackgroundResource(R.drawable.btn_visibility_on_background)
-            button.setTextColor(ContextCompat.getColor(button.context, R.color.brand_on_primary))
-            button.setText(R.string.main_always_visible_title)
-            caption.setText(R.string.main_always_visible_caption_on)
-            // Soft "device is broadcasting" cue: animated, low-alpha
-            // concentric pulses around the pill while ON; idle while OFF.
-            pulse.startPulse()
+            button.setTextColor(AppThemes.color(button.context, R.attr.badaColorOnAccent))
         } else {
             button.setBackgroundResource(R.drawable.btn_frosted_background)
-            val defaultTextColor =
-                button.context.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary)).use {
-                    it.getColor(0, 0)
-                }
-            button.setTextColor(defaultTextColor)
-            button.setText(R.string.main_always_visible_off_title)
-            caption.setText(R.string.main_always_visible_caption_off)
-            pulse.stopPulse()
+            button.setTextColor(AppThemes.color(button.context, android.R.attr.textColorPrimary))
         }
     }
 
@@ -383,17 +405,17 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
                 // the composition is done — each ARGB_8888 source is
                 // ~5 MB, and we only need the rendered polaroid from
                 // here on.
-                val polaroid1 = photo1?.let { buildPolaroidBitmap(it, CARD_1_ROTATION_DEG, colors) }
-                val polaroid2 = photo2?.let { buildPolaroidBitmap(it, CARD_2_ROTATION_DEG, colors) }
+                val polaroid1 = photo1?.let { buildPreviewBitmap(it, PREVIEW_CARD_1, colors) }
+                val polaroid2 = photo2?.let { buildPreviewBitmap(it, PREVIEW_CARD_2, colors) }
                 photo1?.recycle()
                 photo2?.recycle()
                 withContext(Dispatchers.Main) {
                     val rootView = view ?: return@withContext
                     polaroid1?.let {
-                        rootView.findViewById<ImageView>(R.id.main_send_preview_photo_1)?.setPolaroidBitmap(it)
+                        rootView.findViewById<ImageView>(R.id.main_send_preview_photo_1)?.showLoadedPreview(it, colors)
                     }
                     polaroid2?.let {
-                        rootView.findViewById<ImageView>(R.id.main_send_preview_photo_2)?.setPolaroidBitmap(it)
+                        rootView.findViewById<ImageView>(R.id.main_send_preview_photo_2)?.showLoadedPreview(it, colors)
                     }
                 }
             }
@@ -522,16 +544,136 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         return output
     }
 
-    private fun polaroidColors(): PolaroidColors =
-        PolaroidColors(
-            card = ContextCompat.getColor(requireContext(), R.color.surface_card),
-            placeholder = ContextCompat.getColor(requireContext(), R.color.surface_chip),
+    private fun polaroidColors(): PolaroidColors {
+        val context = requireContext()
+        return PolaroidColors(
+            card = AppThemes.color(context, R.attr.badaColorSurfaceCard),
+            placeholder = AppThemes.color(context, R.attr.badaColorSurfaceChip),
+            expressive = AppThemes.isExpressive(context),
+            shapeFills =
+                listOf(
+                    AppThemes.color(context, com.google.android.material.R.attr.colorPrimaryContainer),
+                    AppThemes.color(context, com.google.android.material.R.attr.colorTertiaryContainer),
+                ),
         )
+    }
 
+    /**
+     * Theme inputs for the two preview cards, captured on the main thread
+     * so the IO-dispatcher bake never touches the fragment's context.
+     * [shapeFills] only matters in the Expressive theme: the empty-state
+     * fill of each shape crop (primary and tertiary containers).
+     */
     private data class PolaroidColors(
         val card: Int,
         val placeholder: Int,
+        val expressive: Boolean,
+        val shapeFills: List<Int>,
     )
+
+    /** One of the two home-tab preview cards. */
+    private data class PreviewCard(
+        val index: Int,
+        val rotationDeg: Float,
+        val shape: RoundedPolygon,
+    )
+
+    /**
+     * Bada theme: the rotated polaroid. Expressive theme: the same tilt,
+     * but the photo is cropped to an M3 Expressive library shape. The
+     * shape guidance reserves the 35-shape library for decorative,
+     * non-text elements such as image crops and avatars; these previews
+     * are exactly that, and with the visibility toggle they make up the
+     * theme's hero moment on the receive screen.
+     */
+    private fun buildPreviewBitmap(
+        photo: Bitmap?,
+        card: PreviewCard,
+        colors: PolaroidColors,
+    ): Bitmap =
+        if (colors.expressive) {
+            buildShapedPhotoBitmap(photo, card.shape, card.rotationDeg, colors.shapeFills[card.index])
+        } else {
+            buildPolaroidBitmap(photo, card.rotationDeg, colors)
+        }
+
+    /**
+     * Expressive preview: [photo] (or [emptyFill]) cropped to [shape],
+     * tilted by [rotationDeg], over a soft drop shadow that follows the
+     * shape outline (the "shape can be 2.5D" principle). Drawn with a
+     * BitmapShader through an antialiased path fill rather than clipPath,
+     * so the scalloped edges stay smooth after the ImageView downsamples.
+     */
+    @Suppress("MagicNumber")
+    private fun buildShapedPhotoBitmap(
+        photo: Bitmap?,
+        shape: RoundedPolygon,
+        rotationDeg: Float,
+        emptyFill: Int,
+    ): Bitmap {
+        val outputSize = POLAROID_OUTPUT_PX
+        val output = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val center = outputSize / 2f
+        val shapeSize = outputSize * 0.78f
+        val target =
+            RectF(
+                center - shapeSize / 2f,
+                center - shapeSize / 2f,
+                center + shapeSize / 2f,
+                center + shapeSize / 2f,
+            )
+
+        val path = shape.toPath()
+        val bounds = RectF().also { path.computeBounds(it, true) }
+        path.transform(Matrix().apply { setRectToRect(bounds, target, Matrix.ScaleToFit.CENTER) })
+
+        canvas.save()
+        canvas.rotate(rotationDeg, center, center)
+
+        val shadowPaint =
+            Paint().apply {
+                color = 0x29000000
+                isAntiAlias = true
+                maskFilter = BlurMaskFilter(shapeSize * 0.05f, BlurMaskFilter.Blur.NORMAL)
+            }
+        canvas.save()
+        canvas.translate(0f, shapeSize * 0.025f)
+        canvas.drawPath(path, shadowPaint)
+        canvas.restore()
+
+        val fillPaint =
+            Paint().apply {
+                isAntiAlias = true
+                isFilterBitmap = true
+                isDither = true
+                if (photo != null) {
+                    shader =
+                        BitmapShader(photo, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+                            val src = RectF(computeCenterCropSrcRect(photo, target))
+                            setLocalMatrix(Matrix().apply { setRectToRect(src, target, Matrix.ScaleToFit.FILL) })
+                        }
+                } else {
+                    color = emptyFill
+                }
+            }
+        canvas.drawPath(path, fillPaint)
+        canvas.restore()
+        return output
+    }
+
+    /**
+     * Shows a freshly decoded preview. In the Expressive theme the card
+     * also pops in on the default spatial spring, so the photos arriving
+     * reads as motion instead of a silent swap.
+     */
+    private fun ImageView.showLoadedPreview(
+        bitmap: Bitmap,
+        colors: PolaroidColors,
+    ) {
+        setPolaroidBitmap(bitmap)
+        if (colors.expressive) ExpressiveMotion.popScale(this, PREVIEW_POP_FROM_SCALE, ExpressiveMotion.DEFAULT_SPATIAL)
+    }
 
     /**
      * Compute the source-bitmap sub-rect that fills [dstRect] under
@@ -768,5 +910,15 @@ internal class SendReceiveFragment : Fragment(R.layout.fragment_send_receive) {
         // the only place these values live now is here.
         const val CARD_1_ROTATION_DEG = -7f
         const val CARD_2_ROTATION_DEG = 6f
+
+        /** Expressive pop-in start scale for a newly loaded preview. */
+        const val PREVIEW_POP_FROM_SCALE = 0.86f
+
+        // Shapes from the M3 Expressive shape library (MaterialShapes).
+        // Only the Expressive theme reads [PreviewCard.shape].
+        private val PREVIEW_CARD_1 =
+            PreviewCard(index = 0, rotationDeg = CARD_1_ROTATION_DEG, shape = MaterialShapes.COOKIE_9)
+        private val PREVIEW_CARD_2 =
+            PreviewCard(index = 1, rotationDeg = CARD_2_ROTATION_DEG, shape = MaterialShapes.SUNNY)
     }
 }

@@ -20,15 +20,20 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
+import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.navigation.NavigationBarView
+import com.google.android.material.navigationrail.NavigationRailView
+import com.google.android.material.transition.MaterialFadeThrough
 import dev.bluehouse.bada.battery.BatteryOptimizationOemHelper
 import dev.bluehouse.bada.battery.BatteryOptimizationPreferences
 import dev.bluehouse.bada.bugreport.BugReportFlowSupport
@@ -42,6 +47,8 @@ import dev.bluehouse.bada.ui.CreditActivity
 import dev.bluehouse.bada.ui.ElasticBottomNavigationView
 import dev.bluehouse.bada.ui.SendReceiveFragment
 import dev.bluehouse.bada.ui.SettingsFragment
+import dev.bluehouse.bada.ui.theme.AppThemes
+import dev.bluehouse.bada.ui.theme.ExpressiveMotion
 import dev.bluehouse.bada.update.CenteredImageSpan
 import dev.bluehouse.bada.update.CheckForUpdatesActivity
 import dev.bluehouse.bada.update.UpdateRepository
@@ -138,11 +145,23 @@ class MainActivity : AppCompatActivity() {
      * "update available" hint is visible without opening the overflow menu —
      * and remove it once up to date.
      */
-    private var mainBottomNav: BottomNavigationView? = null
+    private var mainBottomNav: NavigationBarView? = null
+
+    /** Theme picker offset to restore after a theme switch; see consumeThemePickerOffset. */
+    private var pendingThemePickerOffset: Int? = null
+
+    /** False until the first tab is shown, so the opening tab does not play the tab transition. */
+    private var tabTransitionsEnabled: Boolean = false
+
+    /** Last "update available" state for the Settings tab dot, re-applied on tab changes. */
+    private var settingsTabDotWanted: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        // Bada: activity_main. Expressive: activity_main_m3e, which swaps the
+        // landscape floating pill for a navigation rail (badaMainLayout).
+        setContentView(AppThemes.resourceId(this, R.attr.badaMainLayout))
 
         // Install the shake-to-report bug-flow support (#166). Has to
         // happen before any fragment transaction so the flow's
@@ -150,7 +169,10 @@ class MainActivity : AppCompatActivity() {
         // activity is in CREATED — registering after would throw.
         bugReportFlowSupport = BugReportFlowSupport.install(this)
 
-        savedInstanceState?.let {
+        // Saved state on a recreate; the intent extras when Settings > Theme
+        // restarted the activity (restartForThemeChange), so the session
+        // latches survive a theme switch either way.
+        (savedInstanceState ?: intent.extras)?.let {
             onboardingLaunched = it.getBoolean(STATE_ONBOARDING_LAUNCHED, false)
             batteryDialogShownThisSession = it.getBoolean(STATE_BATTERY_DIALOG_SHOWN, false)
             fsiDialogShownThisSession = it.getBoolean(STATE_FSI_DIALOG_SHOWN, false)
@@ -164,7 +186,7 @@ class MainActivity : AppCompatActivity() {
         // AGP 8.7.3 / appcompat 1.7.0; the runtime setter has been stable
         // since the ToolbarWidgetWrapper landed in support-v7 and works on
         // every minSdk we target.
-        toolbar.overflowIcon = ContextCompat.getDrawable(this, R.drawable.ic_overflow_kebab_24)
+        toolbar.overflowIcon = ContextCompat.getDrawable(this, AppThemes.resourceId(this, R.attr.badaOverflowIcon))
         setSupportActionBar(toolbar)
         mainToolbar = toolbar
         toolbarWordmark = findViewById(R.id.main_toolbar_wordmark)
@@ -183,7 +205,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val bottomNav = findViewById<BottomNavigationView>(R.id.main_bottom_nav)
+        val bottomNav = findViewById<NavigationBarView>(R.id.main_bottom_nav)
         // Keep a reference so applyUpdateBadge() can toggle the Settings-tab
         // red dot from the UpdateRepository state flow.
         mainBottomNav = bottomNav
@@ -195,6 +217,13 @@ class MainActivity : AppCompatActivity() {
                     else -> return@setOnItemSelectedListener false
                 }
             applyToolbarTitle(item.itemId)
+            bottomNav.post { applySettingsTabDot(settingsTabDotWanted) }
+            if (tabTransitionsEnabled && AppThemes.isExpressive(this)) {
+                // M3 top-level navigation pattern: the exiting tab fades out,
+                // then the entering tab fades in (no lateral slide).
+                fragment.enterTransition = MaterialFadeThrough()
+                fragment.exitTransition = MaterialFadeThrough()
+            }
             supportFragmentManager
                 .beginTransaction()
                 .replace(R.id.main_fragment_container, fragment)
@@ -207,8 +236,13 @@ class MainActivity : AppCompatActivity() {
         // the previous fragment and the BottomNavigationView restores
         // its own selected-item state from saved instance state.
         if (savedInstanceState == null) {
-            bottomNav.selectedItemId = R.id.nav_send_receive
+            if (intent.hasExtra(EXTRA_THEME_PICKER_OFFSET)) {
+                pendingThemePickerOffset = intent.getIntExtra(EXTRA_THEME_PICKER_OFFSET, 0)
+            }
+            bottomNav.selectedItemId =
+                if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) R.id.nav_settings else R.id.nav_send_receive
         }
+        tabTransitionsEnabled = true
 
         // The internal item views are only attached after the
         // BottomNavigationView finishes inflating its menu, which
@@ -216,6 +250,8 @@ class MainActivity : AppCompatActivity() {
         // hookup to the next run-loop tick so children definitely
         // exist by the time we reach for them.
         bottomNav.post { installItemPressAnimations(bottomNav) }
+
+        if (AppThemes.isExpressive(this)) extendNavigationBehindSystemBars(bottomNav)
 
         // Landscape floats the nav as a frosted-glass pill: blur whatever
         // content sits behind it. Portrait inflates a plain
@@ -225,6 +261,70 @@ class MainActivity : AppCompatActivity() {
             (findViewById<View>(android.R.id.content) as? ViewGroup)?.let(pill::attachBackdropBlur)
         }
     }
+
+    /**
+     * Material 3 Expressive theme: the navigation bar's container color runs
+     * behind the gesture bar ("The navigation bar ... span[s] the full length
+     * of the window" with "a color fill"), and the rail's runs from the top
+     * of the window to the bottom. The shared layouts let the root column
+     * absorb every system-bar inset as padding (fitsSystemWindows), which
+     * leaves the page color under the gesture bar. Here the root keeps only
+     * the insets the navigation does not own, and the navigation view pads
+     * its own items: MDC navigation bars and rails apply system-bar insets
+     * themselves. The Bada theme keeps the original transparent bar.
+     */
+    private fun extendNavigationBehindSystemBars(nav: NavigationBarView) {
+        val root = nav.parent as? ViewGroup ?: return
+        val rail = nav is NavigationRailView
+        if (!rail) nav.updateLayoutParams<ViewGroup.LayoutParams> { height = ViewGroup.LayoutParams.WRAP_CONTENT }
+        val content = if (rail) root.getChildAt(root.indexOfChild(nav) + 1) else null
+        root.fitsSystemWindows = false
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars =
+                insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            if (rail) {
+                // Rail: its own top/bottom insets; the content column keeps clear of both bars.
+                view.updatePadding(left = bars.left, top = 0, right = bars.right, bottom = 0)
+                content?.updatePadding(top = bars.top, bottom = bars.bottom)
+            } else {
+                // Bottom bar: the bar takes the bottom inset, everything else stays clear of the top.
+                view.updatePadding(left = bars.left, top = bars.top, right = bars.right, bottom = 0)
+            }
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
+    }
+
+    /**
+     * Applies a new Settings > Theme choice. A plain recreate() would restore
+     * the old view hierarchy's saved state into the new theme's widgets, and
+     * the themes inflate different classes for the same ids (a MaterialButton
+     * under Expressive, an AppCompat button under Bada), which throws "Wrong
+     * state class". So start a fresh MainActivity on the Settings tab instead,
+     * carrying over this session's one-time prompt latches.
+     */
+    fun restartForThemeChange(themePickerOffset: Int?) {
+        val restart =
+            Intent(this, MainActivity::class.java)
+                .putExtra(EXTRA_OPEN_SETTINGS, true)
+                .apply { themePickerOffset?.let { putExtra(EXTRA_THEME_PICKER_OFFSET, it) } }
+                .putExtra(STATE_ONBOARDING_LAUNCHED, onboardingLaunched)
+                .putExtra(STATE_BATTERY_DIALOG_SHOWN, batteryDialogShownThisSession)
+                .putExtra(STATE_FSI_DIALOG_SHOWN, fsiDialogShownThisSession)
+        startActivity(restart)
+        finish()
+        // Fade the new screen in place instead of the platform's sliding
+        // activity transition.
+        @Suppress("DEPRECATION")
+        overridePendingTransition(R.anim.theme_switch_fade_in, R.anim.theme_switch_hold)
+    }
+
+    /**
+     * The theme picker's on-screen offset handed over by restartForThemeChange,
+     * once: SettingsFragment scrolls to it so the switch keeps the picker where
+     * the user tapped it.
+     */
+    fun consumeThemePickerOffset(): Int? = pendingThemePickerOffset.also { pendingThemePickerOffset = null }
 
     override fun onPostCreate(savedInstanceState: Bundle?) {
         super.onPostCreate(savedInstanceState)
@@ -269,8 +369,12 @@ class MainActivity : AppCompatActivity() {
      * so the View's own onTouchEvent still routes the click to the
      * BottomNavigationView's selection handler.
      */
-    private fun installItemPressAnimations(bottomNav: BottomNavigationView) {
+    private fun installItemPressAnimations(bottomNav: NavigationBarView) {
         val menuView = bottomNav.getChildAt(0) as? ViewGroup ?: return
+        // Expressive theme: the same release bounce, but driven by the M3
+        // fast spatial spring (small component) so it overshoots and
+        // settles like the rest of the theme's motion.
+        val expressive = AppThemes.isExpressive(this)
         for (i in 0 until menuView.childCount) {
             val itemView = menuView.getChildAt(i)
             val icon =
@@ -279,7 +383,11 @@ class MainActivity : AppCompatActivity() {
                 ) ?: continue
             itemView.setOnTouchListener { _, event ->
                 if (event.actionMasked == MotionEvent.ACTION_UP) {
-                    playIconBounce(icon)
+                    if (expressive) {
+                        ExpressiveMotion.popScale(icon, PRESSED_ICON_SCALE)
+                    } else {
+                        playIconBounce(icon)
+                    }
                 }
                 false
             }
@@ -379,11 +487,10 @@ class MainActivity : AppCompatActivity() {
     private fun applyUpdateBadge(state: UpdateState) {
         val updateAvailable = state is UpdateState.UpdateAvailable
         val drawableRes =
-            if (updateAvailable) {
-                R.drawable.ic_overflow_kebab_with_dot_24
-            } else {
-                R.drawable.ic_overflow_kebab_24
-            }
+            AppThemes.resourceId(
+                this,
+                if (updateAvailable) R.attr.badaOverflowIconWithBadge else R.attr.badaOverflowIcon,
+            )
         mainToolbar?.overflowIcon = ContextCompat.getDrawable(this, drawableRes)
         applySettingsTabDot(updateAvailable)
         invalidateOptionsMenu()
@@ -402,7 +509,11 @@ class MainActivity : AppCompatActivity() {
      */
     private fun applySettingsTabDot(show: Boolean) {
         val nav = mainBottomNav ?: return
-        if (show) {
+        settingsTabDotWanted = show
+        // Material 3 Expressive: "In navigation bars, hide the badge once the
+        // destination has been selected." The Bada theme keeps the dot.
+        val hiddenBySelection = AppThemes.isExpressive(this) && nav.selectedItemId == R.id.nav_settings
+        if (show && !hiddenBySelection) {
             // getOrCreateBadge with no .number renders as a plain red dot.
             nav.getOrCreateBadge(R.id.nav_settings).isVisible = true
         } else {
@@ -494,8 +605,8 @@ class MainActivity : AppCompatActivity() {
 
         batteryDialogShownThisSession = true
 
-        AlertDialog
-            .Builder(this)
+        AppThemes
+            .alertDialogBuilder(this)
             .setTitle(R.string.main_battery_banner_title)
             .setMessage(R.string.main_battery_banner_body)
             .setPositiveButton(R.string.main_battery_banner_open) { _, _ ->
@@ -536,8 +647,8 @@ class MainActivity : AppCompatActivity() {
 
         fsiDialogShownThisSession = true
 
-        AlertDialog
-            .Builder(this)
+        AppThemes
+            .alertDialogBuilder(this)
             .setTitle(R.string.settings_fsi_title)
             .setMessage(R.string.fsi_dialog_body)
             .setPositiveButton(R.string.settings_fsi_open) { _, _ ->
@@ -556,6 +667,8 @@ class MainActivity : AppCompatActivity() {
     internal companion object {
         private const val TAG = "BadaMain"
         private const val STATE_ONBOARDING_LAUNCHED = "bada.main.onboardingLaunched"
+        private const val EXTRA_OPEN_SETTINGS = "bada.main.openSettings"
+        private const val EXTRA_THEME_PICKER_OFFSET = "bada.main.themePickerOffset"
         private const val STATE_BATTERY_DIALOG_SHOWN = "bada.main.batteryDialogShown"
         private const val STATE_FSI_DIALOG_SHOWN = "bada.main.fsiDialogShown"
 

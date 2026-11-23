@@ -22,6 +22,7 @@ import dev.bluehouse.bada.R
 import dev.bluehouse.bada.bugreport.BugReportFlowSupport
 import dev.bluehouse.bada.databinding.ActivityPermissionsOnboardingBinding
 import dev.bluehouse.bada.databinding.ItemPermissionRowBinding
+import dev.bluehouse.bada.ui.theme.AppThemes
 
 /**
  * Single-screen onboarding for the runtime permissions Phase 1 needs.
@@ -107,6 +108,7 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this) // Settings > Theme; must precede super.onCreate().
         super.onCreate(savedInstanceState)
         binding = ActivityPermissionsOnboardingBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -240,10 +242,10 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         val statusView: TextView = row.permissionRowStatus
         if (granted) {
             statusView.setText(requirement.grantedRes)
-            statusView.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
+            statusView.setTextColor(AppThemes.color(this, R.attr.badaColorSuccess))
         } else {
             statusView.setText(requirement.deniedRes)
-            statusView.setTextColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark))
+            statusView.setTextColor(AppThemes.color(this, R.attr.badaColorWarning))
         }
     }
 

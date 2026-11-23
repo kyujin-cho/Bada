@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rejection banner (badaToastBackground): an M3 snackbar surface, inverse
+     surface in both modes. Text uses badaColorOnToast. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="@dimen/m3e_corner_small" />
+    <solid android:color="?attr/colorSurfaceInverse" />
+</shape>

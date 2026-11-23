@@ -5,22 +5,33 @@
  */
 package dev.bluehouse.bada.ui
 
+import android.animation.ArgbEvaluator
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.SwitchCompat
-import androidx.core.content.ContextCompat
 import androidx.core.content.res.use
+import androidx.core.view.doOnPreDraw
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import com.google.android.material.card.MaterialCardView
 import dev.bluehouse.bada.BadaApplication
 import dev.bluehouse.bada.MainActivity
 import dev.bluehouse.bada.R
@@ -37,6 +48,12 @@ import dev.bluehouse.bada.service.receiver.ReceiverForegroundService
 import dev.bluehouse.bada.service.receiver.ReceiverMasterSwitch
 import dev.bluehouse.bada.transfer.KeepScreenOnPreferences
 import dev.bluehouse.bada.transfer.TransferExpertViewPreferences
+import dev.bluehouse.bada.ui.theme.AppTheme
+import dev.bluehouse.bada.ui.theme.AppThemePreferences
+import dev.bluehouse.bada.ui.theme.AppThemes
+import dev.bluehouse.bada.ui.theme.ExpressiveLists
+import dev.bluehouse.bada.ui.theme.ExpressiveMotion
+import dev.bluehouse.bada.ui.theme.SpringMorphBackground
 import dev.bluehouse.bada.update.UpdatePreferences
 
 /**
@@ -105,7 +122,19 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
     ) {
         super.onViewCreated(view, savedInstanceState)
 
+        // Regions whose widgets differ per theme (ViewStubs on theme tokens):
+        // inflate them before any lookup below.
+        ExpressiveLists.inflateStub(view, R.id.main_advertised_name_input_stub)
+        ExpressiveLists.inflateStub(view, R.id.settings_switch_group_stub)
+        view.findViewById<ViewGroup>(R.id.settings_switch_group_list)?.let { list ->
+            // Expressive segmented list only (the Bada variant has no such id).
+            ExpressiveLists.applySegmentedPositions(list)
+            ExpressiveLists.toggleSwitchOnItemClick(list)
+        }
+
         wireMasterSwitch(view)
+        wireThemePicker(view)
+        restoreThemePickerOffset(view)
 
         // "Name Card" row → My Name Card setup page (tap-to-share contacts).
         // Hidden until the flow is usable end to end (UserFacingFeatures).
@@ -194,6 +223,98 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
     }
 
     /**
+     * Settings > Theme. Builds one option per [AppTheme] and checks the saved
+     * one. Picking another option saves it and restarts MainActivity on this
+     * tab (MainActivity.restartForThemeChange): AppThemes applies a theme only
+     * in onCreate, and the two themes inflate different widget classes, so
+     * the old view state must not be restored into the new layout.
+     */
+    private fun wireThemePicker(view: View) {
+        val group = view.findViewById<RadioGroup>(R.id.settings_theme_group)
+        val prefs = AppThemePreferences.from(requireContext())
+        val current = prefs.theme()
+        val inflater = LayoutInflater.from(group.context)
+        val secondary = AppThemes.color(requireContext(), android.R.attr.textColorSecondary)
+        // Bada: a RadioButton per theme (label + description as one styled
+        // text). Expressive: an expressive list item with radio, label and
+        // supporting text (badaThemeOptionLayout token).
+        val optionLayout = AppThemes.resourceId(requireContext(), R.attr.badaThemeOptionLayout)
+
+        fun pick(theme: AppTheme) {
+            if (theme == prefs.theme()) return
+            prefs.setTheme(theme)
+            val host = requireActivity()
+            if (host is MainActivity) host.restartForThemeChange(themePickerOffset(view)) else host.recreate()
+        }
+        AppTheme.entries.forEach { theme ->
+            val option = inflater.inflate(optionLayout, group, false)
+            val radio = option.findViewById<RadioButton>(R.id.theme_option_radio)
+            radio.id = View.generateViewId()
+            val label = option.findViewById<TextView>(R.id.theme_option_label)
+            if (label != null) {
+                label.setText(theme.labelRes)
+                option.findViewById<TextView>(R.id.theme_option_description)?.setText(theme.descriptionRes)
+                option.findViewById<MaterialCardView>(R.id.theme_option_item)?.let { item ->
+                    item.isChecked = theme == current
+                    item.setOnClickListener { pick(theme) }
+                }
+            } else {
+                radio.text = themeOptionLabel(theme, secondary)
+            }
+            radio.isChecked = theme == current
+            radio.setOnCheckedChangeListener { _, checked -> if (checked) pick(theme) }
+            group.addView(option)
+        }
+        ExpressiveLists.applySegmentedPositions(group)
+    }
+
+    /**
+     * Where the theme options sit on screen: their top in the scroll content
+     * minus the current scroll. The restarted Settings tab scrolls so the
+     * options land on the same spot (restoreThemePickerOffset), even though
+     * the two themes lay out the cards above them at different heights.
+     */
+    private fun themePickerOffset(root: View): Int? {
+        val scroll = root as? ScrollView
+        val group = root.findViewById<View>(R.id.settings_theme_group)
+        return if (scroll != null && group != null) group.topInScrollContent(scroll) - scroll.scrollY else null
+    }
+
+    private fun restoreThemePickerOffset(root: View) {
+        val offset = (activity as? MainActivity)?.consumeThemePickerOffset()
+        val scroll = root as? ScrollView
+        val group = root.findViewById<View>(R.id.settings_theme_group)
+        if (offset == null || scroll == null || group == null) return
+        // Before the first frame, so the restarted screen fades in already in place.
+        root.doOnPreDraw { scroll.scrollTo(0, group.topInScrollContent(scroll) - offset) }
+    }
+
+    private fun View.topInScrollContent(scroll: ScrollView): Int {
+        var y = 0
+        var current: View? = this
+        while (current != null && current !== scroll) {
+            y += current.top
+            current = current.parent as? View
+        }
+        return y
+    }
+
+    private fun themeOptionLabel(
+        theme: AppTheme,
+        secondaryColor: Int,
+    ): CharSequence {
+        val label = getString(theme.labelRes)
+        val description = getString(theme.descriptionRes)
+        return SpannableStringBuilder(label).apply {
+            append('\n')
+            val start = length
+            append(description)
+            setSpan(ForegroundColorSpan(secondaryColor), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(RelativeSizeSpan(THEME_DESCRIPTION_SCALE), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+
+    /**
      * Master on/off pill (#239). The row toggles; the switch mirrors the
      * persisted state. Off stops the receiver service right away, on
      * starts it again, and the receive tab repaints from the same flag.
@@ -207,27 +328,79 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
             requireContext().obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary)).use {
                 it.getColor(0, 0)
             }
-        val accent = ContextCompat.getColor(requireContext(), R.color.brand_primary)
+        // Bada theme: the ON label is the brand accent on a faint brand plate.
+        // Expressive theme: the ON plate is the primary container, so the
+        // label takes its paired on-color for contrast.
+        val accent =
+            if (AppThemes.isExpressive(requireContext())) {
+                AppThemes.color(requireContext(), com.google.android.material.R.attr.colorOnPrimaryContainer)
+            } else {
+                AppThemes.color(requireContext(), R.attr.badaColorAccent)
+            }
+        val onBackground = AppThemes.resourceId(requireContext(), R.attr.badaMasterOnBackground)
+        val offBackground = AppThemes.resourceId(requireContext(), R.attr.badaMasterOffBackground)
+        // Expressive theme: one container that springs between the rounded
+        // rectangle (off) and the pill (on) instead of swapping drawables, with
+        // the label color following the fill. The Bada theme swaps drawables.
+        val morph =
+            if (AppThemes.isExpressive(
+                    requireContext(),
+                )
+            ) {
+                masterRowMorph(row, label, defaultTextColor, accent)
+            } else {
+                null
+            }
 
-        fun render(on: Boolean) {
+        fun render(
+            on: Boolean,
+            animate: Boolean,
+        ) {
             switch.isChecked = on
             label.setText(if (on) R.string.settings_master_on else R.string.settings_master_off)
-            label.setTextColor(if (on) accent else defaultTextColor)
-            row.setBackgroundResource(
-                if (on) R.drawable.settings_master_on_background else R.drawable.settings_master_off_background,
-            )
+            when {
+                morph == null -> {
+                    label.setTextColor(if (on) accent else defaultTextColor)
+                    row.setBackgroundResource(if (on) onBackground else offBackground)
+                }
+                animate -> morph.animateTo(on)
+                else -> morph.snapTo(on)
+            }
         }
-        render(master.isEnabled())
+        render(master.isEnabled(), animate = false)
         row.setOnClickListener {
             val next = !master.isEnabled()
             master.setEnabled(next)
-            render(next)
+            render(next, animate = true)
+            // A short squash on the whole row, released on the fast spatial
+            // spring, so the tap itself feels elastic.
+            if (morph != null) ExpressiveMotion.popScale(row, MASTER_ROW_PRESS_SCALE)
             if (next) {
                 ReceiverForegroundService.start(requireContext())
             } else {
                 ReceiverForegroundService.stop(requireContext())
             }
         }
+    }
+
+    private fun masterRowMorph(
+        row: View,
+        label: TextView,
+        offTextColor: Int,
+        onTextColor: Int,
+    ): SpringMorphBackground {
+        val context = requireContext()
+        val evaluator = ArgbEvaluator()
+        return SpringMorphBackground(
+            view = row,
+            offCornerPx = resources.getDimension(R.dimen.m3e_corner_large),
+            offColor = AppThemes.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest),
+            onColor = AppThemes.color(context, com.google.android.material.R.attr.colorPrimaryContainer),
+            rippleColor = AppThemes.color(context, androidx.appcompat.R.attr.colorControlHighlight),
+            onColorChanged = { fraction ->
+                label.setTextColor(evaluator.evaluate(fraction, offTextColor, onTextColor) as Int)
+            },
+        )
     }
 
     /** Identity refreshes restart the receiver only while the master switch is on. */
@@ -395,5 +568,11 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
     private companion object {
         const val TAG = "BadaMain"
+
+        /** Expressive master row: scale it is squashed to on tap before springing back. */
+        const val MASTER_ROW_PRESS_SCALE = 0.97f
+
+        /** Theme option description size relative to the option label. */
+        const val THEME_DESCRIPTION_SCALE = 0.85f
     }
 }
