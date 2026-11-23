@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Options of the selected theme under Settings > Theme, Bada theme: none.
+  Inflated through the ViewStub settings_theme_extras_stub
+  (badaThemeExtrasLayout token) and takes no space;
+  settings_theme_extras_m3e.xml is the Expressive variant.
+-->
+<Space xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:visibility="gone" />

@@ -171,6 +171,7 @@
         <item name="badaAdvertisedNameInputLayout">@layout/settings_advertised_name_input</item>
         <item name="badaSettingsSwitchGroupLayout">@layout/settings_switch_group</item>
         <item name="badaThemeOptionLayout">@layout/item_theme_option</item>
+        <item name="badaThemeExtrasLayout">@layout/settings_theme_extras</item>
     </style>
 
     <!--

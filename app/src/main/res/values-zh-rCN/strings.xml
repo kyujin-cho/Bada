@@ -417,4 +417,6 @@
     <string name="settings_theme_title">主题</string>
     <string name="settings_theme_bada_description">使用磨砂玻璃质感按钮的 Bada 原始设计。</string>
     <string name="settings_theme_material_expressive_description">Google 的 Material 设计，带有鲜明的色彩、会变形的按钮和弹簧动效。</string>
+    <string name="settings_wallpaper_colors_title">壁纸颜色</string>
+    <string name="settings_wallpaper_colors_subtitle">让应用颜色与壁纸保持一致。</string>
 </resources>

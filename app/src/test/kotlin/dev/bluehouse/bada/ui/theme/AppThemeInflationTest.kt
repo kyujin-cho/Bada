@@ -8,6 +8,7 @@ package dev.bluehouse.bada.ui.theme
 import android.app.Application
 import android.content.ComponentName
 import android.content.pm.ActivityInfo
+import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -15,6 +16,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.content.res.use
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -22,6 +24,7 @@ import com.google.android.material.textfield.TextInputEditText
 import dev.bluehouse.bada.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -64,14 +67,87 @@ class AppThemeInflationTest {
         assertTrue("Expected the app's layouts in R.layout", layouts.size > 10)
         val failures = mutableListOf<String>()
         // Day, night, and landscape (layout-land variants such as the
-        // Expressive navigation rail).
+        // Expressive navigation rail). Expressive themes also run with the
+        // wallpaper colors overlay on top.
         for (qualifiers in listOf("notnight", "night", "land")) {
             RuntimeEnvironment.setQualifiers(qualifiers)
             for ((themeName, theme) in themes) {
                 failures += inflationFailures(hostActivity(theme), "$themeName ($qualifiers)")
+                if (themeName.startsWith("Theme.Bada.Expressive")) {
+                    val dynamic = hostActivity(theme).also { AppThemes.applyWallpaperColors(it) }
+                    failures += inflationFailures(dynamic, "$themeName + wallpaper colors ($qualifiers)")
+                }
             }
         }
         assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
+
+    @Test
+    @Suppress("DEPRECATION") // android:statusBarColor: the theme still sets it for Android 14 and older.
+    fun `wallpaper colors replace the static Expressive palette`() {
+        setThemePreferences(AppTheme.MATERIAL_EXPRESSIVE, wallpaperColors = true)
+        val activity = appliedActivity()
+
+        assertTrue(AppThemes.wallpaperColorsAvailable())
+        assertTrue(dynamicColorApplied(activity))
+        val dynamicPrimary = activity.getColor(MaterialR.color.m3_sys_color_dynamic_light_primary)
+        assertEquals(dynamicPrimary, AppThemes.color(activity, androidx.appcompat.R.attr.colorPrimary))
+        assertNotEquals(
+            "wallpaper primary should differ from the static one for this test to mean anything",
+            activity.getColor(R.color.m3e_primary),
+            dynamicPrimary,
+        )
+        // Window, popup and status bar backgrounds follow the overlay too.
+        val surface = AppThemes.color(activity, MaterialR.attr.colorSurface)
+        assertEquals(activity.getColor(MaterialR.color.m3_sys_color_dynamic_light_surface), surface)
+        assertEquals(surface, AppThemes.color(activity, android.R.attr.windowBackground))
+        assertEquals(surface, AppThemes.color(activity, android.R.attr.statusBarColor))
+        assertEquals(
+            AppThemes.color(activity, MaterialR.attr.colorSurfaceContainerHigh),
+            AppThemes.color(activity, android.R.attr.colorBackgroundFloating),
+        )
+    }
+
+    @Test
+    fun `turning wallpaper colors off keeps the static Expressive palette`() {
+        setThemePreferences(AppTheme.MATERIAL_EXPRESSIVE, wallpaperColors = false)
+        val activity = appliedActivity()
+
+        assertTrue(AppThemes.isExpressive(activity))
+        assertFalse(dynamicColorApplied(activity))
+        assertEquals(
+            activity.getColor(R.color.m3e_primary),
+            AppThemes.color(activity, androidx.appcompat.R.attr.colorPrimary),
+        )
+        assertEquals(activity.getColor(R.color.m3e_surface), AppThemes.color(activity, android.R.attr.windowBackground))
+    }
+
+    @Test
+    fun `the Bada theme ignores wallpaper colors`() {
+        setThemePreferences(AppTheme.BADA, wallpaperColors = true)
+        val activity = appliedActivity()
+
+        assertFalse(AppThemes.isExpressive(activity))
+        assertFalse(dynamicColorApplied(activity))
+        assertEquals(
+            activity.getColor(R.color.brand_primary),
+            AppThemes.color(activity, R.attr.badaColorAccent),
+        )
+    }
+
+    @Test
+    @Config(sdk = [28])
+    fun `below Android 12 the Expressive theme keeps its static palette`() {
+        setThemePreferences(AppTheme.MATERIAL_EXPRESSIVE, wallpaperColors = true)
+        val activity = appliedActivity()
+
+        assertFalse(AppThemes.wallpaperColorsAvailable())
+        assertTrue(AppThemes.isExpressive(activity))
+        assertFalse(dynamicColorApplied(activity))
+        assertEquals(
+            activity.getColor(R.color.m3e_primary),
+            AppThemes.color(activity, androidx.appcompat.R.attr.colorPrimary),
+        )
     }
 
     private fun inflationFailures(
@@ -95,6 +171,7 @@ class AppThemeInflationTest {
         val settings = inflateSettings(R.style.Theme_Bada)
         assertFalse(settings.findViewById<Button>(R.id.main_save_location_pick) is MaterialButton)
         assertFalse(settings.findViewById<SwitchCompat>(R.id.main_keep_screen_on_switch) is MaterialSwitch)
+        assertEquals(null, settings.findViewById<View>(R.id.settings_wallpaper_colors_switch))
     }
 
     @Test
@@ -115,6 +192,7 @@ class AppThemeInflationTest {
         )
         assertTrue(settings.findViewById<SwitchCompat>(R.id.main_keep_screen_on_switch) is MaterialSwitch)
         assertTrue(settings.findViewById<SwitchCompat>(R.id.settings_master_switch) is MaterialSwitch)
+        assertTrue(settings.findViewById<SwitchCompat>(R.id.settings_wallpaper_colors_switch) is MaterialSwitch)
 
         val home = inflate(R.style.Theme_Bada_Expressive, R.layout.fragment_send_receive)
         val toggle = home.findViewById<Button>(R.id.main_always_visible_button)
@@ -184,7 +262,30 @@ class AppThemeInflationTest {
         inflate(theme, R.layout.fragment_settings).also {
             ExpressiveLists.inflateStub(it, R.id.main_advertised_name_input_stub)
             ExpressiveLists.inflateStub(it, R.id.settings_switch_group_stub)
+            ExpressiveLists.inflateStub(it, R.id.settings_theme_extras_stub)
         }
+
+    private fun setThemePreferences(
+        theme: AppTheme,
+        wallpaperColors: Boolean,
+    ) {
+        val prefs = AppThemePreferences.from(RuntimeEnvironment.getApplication())
+        prefs.setTheme(theme)
+        prefs.setWallpaperColors(wallpaperColors)
+    }
+
+    private fun dynamicColorApplied(activity: AppCompatActivity): Boolean =
+        activity.obtainStyledAttributes(intArrayOf(MaterialR.attr.isMaterial3DynamicColorApplied)).use {
+            it.getBoolean(0, false)
+        }
+
+    /**
+     * An activity on the Bada manifest theme that runs [AppThemes.applyTo]
+     * before super.onCreate, as every app activity does, so the saved theme
+     * preferences decide its theme.
+     */
+    private fun appliedActivity(): AppCompatActivity =
+        Robolectric.buildActivity(AppliedThemeHostActivity::class.java).create().get()
 
     private fun inflate(
         theme: Int,
@@ -213,3 +314,15 @@ class AppThemeInflationTest {
 
 /** Bare host for [AppThemeInflationTest]; exists only on the test classpath. */
 class ThemeHostActivity : AppCompatActivity()
+
+/**
+ * Host that applies the saved app theme the way the app's activities do,
+ * for the Bada manifest theme. It names that theme itself: Robolectric does
+ * not implement the Android 13+ activity info lookup AppThemes.applyTo uses.
+ */
+class AppliedThemeHostActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        AppThemes.applyTo(this, R.style.Theme_Bada)
+        super.onCreate(savedInstanceState)
+    }
+}

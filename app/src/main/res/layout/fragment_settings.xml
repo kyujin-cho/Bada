@@ -364,6 +364,15 @@
                 android:layout_marginTop="8dp"
                 android:orientation="vertical" />
 
+            <!-- Options of the selected theme (badaThemeExtrasLayout token):
+                 nothing for the Bada theme, the wallpaper colors switch for
+                 the Expressive theme. -->
+            <ViewStub
+                android:id="@+id/settings_theme_extras_stub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout="?attr/badaThemeExtrasLayout" />
+
         </LinearLayout>
 
         <!-- ============ Card 3: Battery / background activity ============ -->

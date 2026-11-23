@@ -126,6 +126,7 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
         // inflate them before any lookup below.
         ExpressiveLists.inflateStub(view, R.id.main_advertised_name_input_stub)
         ExpressiveLists.inflateStub(view, R.id.settings_switch_group_stub)
+        ExpressiveLists.inflateStub(view, R.id.settings_theme_extras_stub)
         view.findViewById<ViewGroup>(R.id.settings_switch_group_list)?.let { list ->
             // Expressive segmented list only (the Bada variant has no such id).
             ExpressiveLists.applySegmentedPositions(list)
@@ -134,6 +135,7 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
         wireMasterSwitch(view)
         wireThemePicker(view)
+        wireWallpaperColors(view)
         restoreThemePickerOffset(view)
 
         // "Name Card" row → My Name Card setup page (tap-to-share contacts).
@@ -266,6 +268,30 @@ internal class SettingsFragment : Fragment(R.layout.fragment_settings) {
             group.addView(option)
         }
         ExpressiveLists.applySegmentedPositions(group)
+    }
+
+    /**
+     * Settings > Theme > Wallpaper colors, Expressive theme only (the Bada
+     * variant of the theme extras region has no such list). Shown where the
+     * device offers wallpaper colors. The colors apply in onCreate
+     * (AppThemes.applyTo), so a change restarts MainActivity like a theme
+     * change does.
+     */
+    private fun wireWallpaperColors(view: View) {
+        val list = view.findViewById<ViewGroup>(R.id.settings_theme_extras_list) ?: return
+        if (!AppThemes.wallpaperColorsAvailable()) return
+        list.isVisible = true
+        ExpressiveLists.applySegmentedPositions(list)
+        ExpressiveLists.toggleSwitchOnItemClick(list)
+        val prefs = AppThemePreferences.from(requireContext())
+        val switch = list.findViewById<SwitchCompat>(R.id.settings_wallpaper_colors_switch)
+        switch.isChecked = prefs.wallpaperColors()
+        switch.setOnCheckedChangeListener { _, checked ->
+            if (checked == prefs.wallpaperColors()) return@setOnCheckedChangeListener
+            prefs.setWallpaperColors(checked)
+            val host = requireActivity()
+            if (host is MainActivity) host.restartForThemeChange(themePickerOffset(view)) else host.recreate()
+        }
     }
 
     /**

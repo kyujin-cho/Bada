@@ -16,8 +16,12 @@ import androidx.annotation.ColorInt
 import androidx.annotation.StyleRes
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.res.use
+import com.google.android.material.color.DynamicColors
+import com.google.android.material.color.DynamicColorsOptions
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dev.bluehouse.bada.R
+import com.google.android.material.R as MaterialR
 
 /**
  * Applies the Settings > Theme choice to activities and answers theme
@@ -29,6 +33,8 @@ import dev.bluehouse.bada.R
  * is swapped for its twin with the same window setup (translucency, dim,
  * window animations). The system's translucency bookkeeping reads the
  * manifest theme, which is why every twin repeats its window flags exactly.
+ * The Expressive twin then takes the wallpaper colors when the user left
+ * that on and the device has them ([applyWallpaperColors]).
  */
 internal object AppThemes {
     private const val TAG = "BadaAppThemes"
@@ -63,12 +69,66 @@ internal object AppThemes {
 
     /** Call from `onCreate` before `super.onCreate()`. */
     fun applyTo(activity: Activity) {
-        val theme = AppThemePreferences.from(activity).theme()
-        if (theme == AppTheme.BADA) return
-        val manifestTheme = manifestThemeOf(activity)
-        if (manifestTheme == 0) return
-        val style = styleFor(theme, manifestTheme)
-        if (style != manifestTheme) activity.setTheme(style)
+        if (AppThemePreferences.from(activity).theme() == AppTheme.BADA) return
+        applyTo(activity, manifestThemeOf(activity))
+    }
+
+    /** [applyTo] for an activity whose manifest theme is [manifestTheme]. */
+    internal fun applyTo(
+        activity: Activity,
+        @StyleRes manifestTheme: Int,
+    ) {
+        val prefs = AppThemePreferences.from(activity)
+        // The Bada theme, an unknown manifest theme (0) and a theme without
+        // an Expressive twin all map to the manifest theme itself.
+        val style = styleFor(prefs.theme(), manifestTheme)
+        if (style == manifestTheme) return
+        activity.setTheme(style)
+        if (prefs.wallpaperColors()) applyWallpaperColors(activity)
+    }
+
+    /**
+     * True when the device offers wallpaper-based dynamic color (Android 12
+     * and later; on Android 12L and older, only makers MDC lists as
+     * supporting it). Settings hides the wallpaper colors switch otherwise.
+     */
+    fun wallpaperColorsAvailable(): Boolean = DynamicColors.isDynamicColorAvailable()
+
+    /**
+     * Replaces the Expressive theme's static palette on [activity] with the
+     * system's wallpaper colors. Must run after the Expressive style is set
+     * (it overlays that style) and before any view inflates. A no-op where
+     * [wallpaperColorsAvailable] is false: below Android 12 the overlay would
+     * fall back to the M3 baseline palette, not the brand one.
+     */
+    fun applyWallpaperColors(activity: Activity) {
+        if (!wallpaperColorsAvailable()) return
+        DynamicColors.applyToActivityIfAvailable(
+            activity,
+            DynamicColorsOptions
+                .Builder()
+                .setThemeOverlay(MaterialR.style.ThemeOverlay_Material3Expressive_DynamicColors_DayNight)
+                .build(),
+        )
+    }
+
+    /**
+     * A fixed status color token (success, warning) for [context]. Under
+     * wallpaper colors it is harmonized with the primary color (M3 custom
+     * colors: shifted slightly toward the dynamic hue so it fits the scheme
+     * while keeping its meaning); otherwise it is returned as is.
+     */
+    @ColorInt
+    fun statusColor(
+        context: Context,
+        @AttrRes attr: Int,
+    ): Int {
+        val color = color(context, attr)
+        val dynamic =
+            context.obtainStyledAttributes(intArrayOf(MaterialR.attr.isMaterial3DynamicColorApplied)).use {
+                it.getBoolean(0, false)
+            }
+        return if (dynamic) MaterialColors.harmonizeWithPrimary(context, color) else color
     }
 
     /**

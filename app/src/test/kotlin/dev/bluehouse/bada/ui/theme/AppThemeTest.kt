@@ -8,6 +8,8 @@ package dev.bluehouse.bada.ui.theme
 import android.content.SharedPreferences
 import dev.bluehouse.bada.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Proxy
 
@@ -52,6 +54,18 @@ class AppThemeTest {
     }
 
     @Test
+    fun `wallpaper colors default to on and keep the last choice`() {
+        val backing = fakePreferences()
+        val prefs = AppThemePreferences(backing)
+        assertTrue(prefs.wallpaperColors())
+
+        prefs.setWallpaperColors(false)
+
+        assertFalse(prefs.wallpaperColors())
+        assertFalse(AppThemePreferences(backing).wallpaperColors())
+    }
+
+    @Test
     fun `the Bada theme keeps every manifest theme`() {
         AppThemes.manifestThemes.forEach { manifestTheme ->
             assertEquals(manifestTheme, AppThemes.styleFor(AppTheme.BADA, manifestTheme))
@@ -77,9 +91,9 @@ class AppThemeTest {
         assertEquals(frameworkTheme, AppThemes.styleFor(AppTheme.MATERIAL_EXPRESSIVE, frameworkTheme))
     }
 
-    /** Minimal string-only SharedPreferences backed by a map. */
+    /** Minimal string and boolean SharedPreferences backed by a map. */
     private fun fakePreferences(): SharedPreferences {
-        val store = mutableMapOf<String, String?>()
+        val store = mutableMapOf<String, Any?>()
         lateinit var editor: SharedPreferences.Editor
         editor =
             Proxy.newProxyInstance(
@@ -87,8 +101,8 @@ class AppThemeTest {
                 arrayOf(SharedPreferences.Editor::class.java),
             ) { _, method, args ->
                 when (method.name) {
-                    "putString" -> {
-                        store[args[0] as String] = args[1] as String?
+                    "putString", "putBoolean" -> {
+                        store[args[0] as String] = args[1]
                         editor
                     }
                     "apply" -> Unit
@@ -101,7 +115,7 @@ class AppThemeTest {
             arrayOf(SharedPreferences::class.java),
         ) { _, method, args ->
             when (method.name) {
-                "getString" -> store[args[0] as String] ?: args[1]
+                "getString", "getBoolean" -> store[args[0] as String] ?: args[1]
                 "edit" -> editor
                 else -> error("Unexpected SharedPreferences.${method.name}")
             }

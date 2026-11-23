@@ -101,6 +101,7 @@
     <attr name="badaAdvertisedNameInputLayout" format="reference" />
     <attr name="badaSettingsSwitchGroupLayout" format="reference" />
     <attr name="badaThemeOptionLayout" format="reference" />
+    <attr name="badaThemeExtrasLayout" format="reference" />
 
     <!-- Settings layout: gap between sections, and the Theme section's
          container (a card in the Bada theme, a page-level group header with

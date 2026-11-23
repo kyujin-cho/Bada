@@ -649,4 +649,6 @@
     <string name="settings_theme_material_expressive" translatable="false">Material 3 Expressive</string>
     <string name="settings_theme_bada_description">The original Bada look with frosted-glass buttons.</string>
     <string name="settings_theme_material_expressive_description">Google\'s expressive Material design: vibrant colors, buttons that change shape, and spring motion.</string>
+    <string name="settings_wallpaper_colors_title">Wallpaper colors</string>
+    <string name="settings_wallpaper_colors_subtitle">Match the app\'s colors to your wallpaper.</string>
 </resources>

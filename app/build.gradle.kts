@@ -118,6 +118,10 @@ android {
             // AppThemeInflationTest inflates every layout under every app
             // theme with Robolectric, which needs the merged resources.
             isIncludeAndroidResources = true
+            // Those passes (also with wallpaper colors) plus a second
+            // Robolectric SDK (28, for the pre-Android 12 theme test) do not
+            // fit Gradle's default 512 MB test heap.
+            all { it.maxHeapSize = "1g" }
         }
     }
 

@@ -17,6 +17,9 @@
 
     <!-- Gap between items of a segmented expressive list. -->
     <dimen name="m3e_segmented_list_gap">2dp</dimen>
+    <!-- Between two separate lists in one section (theme options, then the
+         wallpaper colors switch). -->
+    <dimen name="m3e_list_group_gap">12dp</dimen>
 
     <!-- Settings: space between sections (cards and list groups). -->
     <dimen name="m3e_settings_section_gap">24dp</dimen>

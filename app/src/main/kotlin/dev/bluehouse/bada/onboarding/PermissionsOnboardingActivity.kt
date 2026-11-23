@@ -242,10 +242,10 @@ class PermissionsOnboardingActivity : AppCompatActivity() {
         val statusView: TextView = row.permissionRowStatus
         if (granted) {
             statusView.setText(requirement.grantedRes)
-            statusView.setTextColor(AppThemes.color(this, R.attr.badaColorSuccess))
+            statusView.setTextColor(AppThemes.statusColor(this, R.attr.badaColorSuccess))
         } else {
             statusView.setText(requirement.deniedRes)
-            statusView.setTextColor(AppThemes.color(this, R.attr.badaColorWarning))
+            statusView.setTextColor(AppThemes.statusColor(this, R.attr.badaColorWarning))
         }
     }
 

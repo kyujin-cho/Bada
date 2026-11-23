@@ -9,8 +9,9 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * Persists the Settings > Theme choice. Stores [AppTheme.id], a stable
- * string, so reordering or renaming the enum cannot change a user's theme.
+ * Persists the Settings > Theme choices. Stores [AppTheme.id], a stable
+ * string, so reordering or renaming the enum cannot change a user's theme,
+ * and whether the Expressive theme takes its colors from the wallpaper.
  */
 internal class AppThemePreferences(
     private val prefs: SharedPreferences,
@@ -22,9 +23,22 @@ internal class AppThemePreferences(
         prefs.edit().putString(KEY_APP_THEME, theme.id).commit()
     }
 
+    /**
+     * Expressive theme only: use the system's wallpaper colors instead of the
+     * static brand palette. On by default, as M3 recommends dynamic color
+     * where the device offers it.
+     */
+    fun wallpaperColors(): Boolean = prefs.getBoolean(KEY_WALLPAPER_COLORS, true)
+
+    /** Written synchronously: the caller restarts the UI right after. */
+    fun setWallpaperColors(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WALLPAPER_COLORS, enabled).commit()
+    }
+
     internal companion object {
         private const val PREFS_NAME = "bada.appearance"
         private const val KEY_APP_THEME = "app_theme"
+        private const val KEY_WALLPAPER_COLORS = "wallpaper_colors"
 
         fun from(context: Context): AppThemePreferences =
             AppThemePreferences(

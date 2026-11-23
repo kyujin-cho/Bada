@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Options of the selected theme under Settings > Theme, Material 3
+  Expressive theme: the wallpaper colors switch, as a one-item expressive
+  list below the theme options. Hidden until SettingsFragment finds that
+  the device offers wallpaper colors (Android 12 and later).
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settings_theme_extras_list"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:visibility="gone">
+
+    <com.google.android.material.listitem.ListItemLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/m3e_list_group_gap">
+
+        <com.google.android.material.listitem.ListItemCardView
+            style="@style/Widget.Bada.Expressive.ListItemCard.OnPage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="56dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Widget.Material3.TextView.ListItem.LabelText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_wallpaper_colors_title" />
+
+                    <TextView
+                        style="@style/Widget.Material3.TextView.ListItem.SupportingText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_wallpaper_colors_subtitle" />
+
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/settings_wallpaper_colors_switch"
+                    style="@style/Widget.Material3.Switch.ListItem"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.listitem.ListItemCardView>
+
+    </com.google.android.material.listitem.ListItemLayout>
+
+</LinearLayout>

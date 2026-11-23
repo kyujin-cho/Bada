@@ -93,9 +93,11 @@
           bar's role.
         -->
         <item name="android:colorBackground">@color/m3e_surface</item>
-        <item name="android:windowBackground">@color/m3e_surface</item>
-        <item name="android:colorBackgroundFloating">@color/m3e_surface_container_high</item>
-        <item name="android:statusBarColor" tools:targetApi="l">@color/m3e_surface</item>
+        <!-- Theme attributes, not the m3e_* colors, so the wallpaper colors
+             overlay (AppThemes.applyWallpaperColors) reaches them too. -->
+        <item name="android:windowBackground">?attr/colorSurface</item>
+        <item name="android:colorBackgroundFloating">?attr/colorSurfaceContainerHigh</item>
+        <item name="android:statusBarColor" tools:targetApi="l">?attr/colorSurface</item>
         <item name="android:windowLightStatusBar" tools:targetApi="m">@bool/window_light_status_bar</item>
 
         <item name="fontFamily">@font/google_sans_flex</item>
@@ -223,6 +225,7 @@
         <item name="badaAdvertisedNameInputLayout">@layout/settings_advertised_name_input_m3e</item>
         <item name="badaSettingsSwitchGroupLayout">@layout/settings_switch_group_m3e</item>
         <item name="badaThemeOptionLayout">@layout/item_theme_option_m3e</item>
+        <item name="badaThemeExtrasLayout">@layout/settings_theme_extras_m3e</item>
     </style>
 
     <!-- Window variants: same window setup as the Theme.Bada.* twins. -->
