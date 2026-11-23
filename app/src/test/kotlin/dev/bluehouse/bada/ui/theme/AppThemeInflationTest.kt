@@ -19,6 +19,7 @@ import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.res.use
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import dev.bluehouse.bada.R
@@ -106,6 +107,13 @@ class AppThemeInflationTest {
             AppThemes.color(activity, MaterialR.attr.colorSurfaceContainerHigh),
             AppThemes.color(activity, android.R.attr.colorBackgroundFloating),
         )
+        // Status colors keep their meaning but lean toward the wallpaper primary.
+        listOf(R.attr.badaColorSuccess, R.attr.badaColorWarning).forEach { attr ->
+            val fixed = AppThemes.color(activity, attr)
+            val shown = AppThemes.statusColor(activity, attr)
+            assertEquals(MaterialColors.harmonizeWithPrimary(activity, fixed), shown)
+            assertNotEquals("harmonizing should move the color", fixed, shown)
+        }
     }
 
     @Test
@@ -120,6 +128,10 @@ class AppThemeInflationTest {
             AppThemes.color(activity, androidx.appcompat.R.attr.colorPrimary),
         )
         assertEquals(activity.getColor(R.color.m3e_surface), AppThemes.color(activity, android.R.attr.windowBackground))
+        assertEquals(
+            AppThemes.color(activity, R.attr.badaColorSuccess),
+            AppThemes.statusColor(activity, R.attr.badaColorSuccess),
+        )
     }
 
     @Test
