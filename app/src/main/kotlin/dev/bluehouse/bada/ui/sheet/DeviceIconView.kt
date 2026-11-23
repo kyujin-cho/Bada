@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import dev.bluehouse.bada.R
 import dev.bluehouse.bada.protocol.endpoint.DeviceType
+import dev.bluehouse.bada.ui.theme.AppThemes
 
 /**
  * One discovered device in the
@@ -74,9 +75,17 @@ public class DeviceIconView(
             }
         addView(peerNameLabel, LayoutParams((96 * d).toInt(), LayoutParams.WRAP_CONTENT))
 
+        // Bada keeps its fixed blue; the Expressive theme uses its primary
+        // color, wallpaper colors included, like RoundedProgressBar.
         statusView =
             TextView(context).apply {
-                setTextColor(STATUS_COLOR)
+                setTextColor(
+                    if (AppThemes.isExpressive(context)) {
+                        AppThemes.color(context, androidx.appcompat.R.attr.colorPrimary)
+                    } else {
+                        STATUS_COLOR
+                    },
+                )
                 textSize = 11f
                 gravity = Gravity.CENTER
             }

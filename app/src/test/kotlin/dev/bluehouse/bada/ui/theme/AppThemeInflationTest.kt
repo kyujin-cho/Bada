@@ -27,7 +27,9 @@ import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import dev.bluehouse.bada.R
+import dev.bluehouse.bada.ui.sheet.DeviceIconView
 import dev.bluehouse.bada.ui.sheet.RingProgressView
+import dev.bluehouse.bada.ui.sheet.RoundedProgressBar
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -176,6 +178,27 @@ class AppThemeInflationTest {
                 AppThemes.color(activity, MaterialR.attr.colorOnPrimary),
                 AppThemes.color(activity, R.attr.badaColorOnPeerDisc),
             )
+        }
+    }
+
+    @Test
+    fun `the peer status text and the consent progress bar follow the theme`() {
+        // Bada keeps its fixed blue on a light grey track.
+        setThemePreferences(AppTheme.BADA, wallpaperColors = true)
+        appliedActivity().let { activity ->
+            assertEquals(0xFF0A84FF.toInt(), peerStatusColor(activity))
+            assertEquals(setOf(0xFF0A84FF.toInt(), 0xFFE3E6EC.toInt()), progressBarColors(activity))
+        }
+
+        // Expressive: primary on a secondary container track, static or from the wallpaper.
+        listOf(false, true).forEach { wallpaperColors ->
+            setThemePreferences(AppTheme.MATERIAL_EXPRESSIVE, wallpaperColors)
+            val activity = appliedActivity()
+            assertEquals(wallpaperColors, dynamicColorApplied(activity))
+            val primary = AppThemes.color(activity, androidx.appcompat.R.attr.colorPrimary)
+            val track = AppThemes.color(activity, MaterialR.attr.colorSecondaryContainer)
+            assertEquals(primary, peerStatusColor(activity))
+            assertEquals(setOf(primary, track), progressBarColors(activity))
         }
     }
 
@@ -356,6 +379,31 @@ class AppThemeInflationTest {
         }
         // onDraw paints the disc, then the full track, then the progress arc.
         return PeerDiscColors(disc = circles.single(), track = arcs[0], ring = arcs[1])
+    }
+
+    // DeviceIconView's children are the ring, the name and the status line.
+    private fun peerStatusColor(activity: AppCompatActivity): Int =
+        (DeviceIconView(activity, "peer", "Peer").getChildAt(2) as TextView).currentTextColor
+
+    /** Draws a [RoundedProgressBar] at 0% and records the colors of its bar shapes. */
+    private fun progressBarColors(activity: AppCompatActivity): Set<Int> {
+        val colors = mutableSetOf<Int>()
+        val canvas =
+            object : Canvas() {
+                override fun drawRoundRect(
+                    rect: RectF,
+                    rx: Float,
+                    ry: Float,
+                    paint: Paint,
+                ) {
+                    colors += paint.color
+                }
+            }
+        RoundedProgressBar(activity).apply {
+            layout(0, 0, 600, 24)
+            draw(canvas)
+        }
+        return colors
     }
 
     private fun dynamicColorApplied(activity: AppCompatActivity): Boolean =
