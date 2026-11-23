@@ -54,15 +54,15 @@ class AppThemeTest {
     }
 
     @Test
-    fun `wallpaper colors default to on and keep the last choice`() {
+    fun `wallpaper colors default to off and keep the last choice`() {
         val backing = fakePreferences()
         val prefs = AppThemePreferences(backing)
-        assertTrue(prefs.wallpaperColors())
-
-        prefs.setWallpaperColors(false)
-
         assertFalse(prefs.wallpaperColors())
-        assertFalse(AppThemePreferences(backing).wallpaperColors())
+
+        prefs.setWallpaperColors(true)
+
+        assertTrue(prefs.wallpaperColors())
+        assertTrue(AppThemePreferences(backing).wallpaperColors())
     }
 
     @Test

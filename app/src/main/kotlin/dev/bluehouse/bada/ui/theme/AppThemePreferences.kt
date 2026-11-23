@@ -25,10 +25,10 @@ internal class AppThemePreferences(
 
     /**
      * Expressive theme only: use the system's wallpaper colors instead of the
-     * static brand palette. On by default, as M3 recommends dynamic color
-     * where the device offers it.
+     * static brand palette. Off by default: the theme is picked for the vibrant
+     * palette its description promises, and many system palettes are muted.
      */
-    fun wallpaperColors(): Boolean = prefs.getBoolean(KEY_WALLPAPER_COLORS, true)
+    fun wallpaperColors(): Boolean = prefs.getBoolean(KEY_WALLPAPER_COLORS, false)
 
     /** Written synchronously: the caller restarts the UI right after. */
     fun setWallpaperColors(enabled: Boolean) {
