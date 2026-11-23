@@ -1,5 +1,10 @@
 # Changelog
 
+## 20261123.01
+
+- **Introducing the Material 3 Expressive theme** - Now you can switch to Google's Material 3 Expressive design in Settings > Theme, with vibrant colors, buttons that change shape, and spring motion. On Android 12 and later, you can also turn on Wallpaper colors to match the app's colors to your wallpaper. Bada stays the default theme and looks the same as before. (#326, #327)
+- **Fixed the "received_file" name on files from a Mac or Chromebook** - Now you can receive files from NearDrop on a Mac or from a Chromebook with their original names. Before, they were saved to Downloads as "received_file" with no file extension. (#324, #328)
+
 ## 20261102.01
 
 - **Improved messages when a send stops** - Now you can see why a send ended early: you cancelled it, the other person closed or stopped it, or the other phone is set to receive files only from contacts or from its own devices. In that last case, the message shows which Quick Share setting to change. (#319, #320)
